@@ -1291,6 +1291,166 @@ async def get_trivia_stats():
 
 
 
+@api_router.get("/trivia/locations")
+async def get_trivia_locations():
+    """Get venue locations for trivia round selection"""
+    venues_list = await db.venues.find({}, {"_id": 0}).to_list(100)
+    locations = []
+    for i, v in enumerate(venues_list):
+        folder_name = f"{i+1:02d}_{v['name'].replace(' ', '_')}"
+        locations.append({
+            "name": folder_name,
+            "path": f"locations/{folder_name}",
+            "display_name": v['name']
+        })
+    return locations
+
+@api_router.get("/trivia/hosts")
+async def get_trivia_hosts():
+    """Get available hosts for trivia presentations"""
+    employees = await db.employees.find({}, {"_id": 0, "name": 1, "id": 1}).to_list(100)
+    return [{"name": e["name"], "path": f"hosts/{e['name']}.pptx"} for e in employees]
+
+@api_router.get("/trivia/round-files/{round_type}")
+async def get_trivia_round_files(round_type: str, location: Optional[str] = None):
+    """Get available round files for a specific type, filtered by location usage"""
+    round_type_upper = round_type.upper()
+    
+    # Define available rounds per type
+    round_pools = {
+        "REG": ["General Knowledge", "Random Facts", "Potpourri", "Grab Bag", "Mixed Bag", "Hodgepodge", "Everything Everywhere", "Brain Dump", "Trivia Salad", "Wild Card"],
+        "MC": ["Pop Culture MC", "Sports MC", "Science MC", "History MC", "Geography MC", "Music MC", "Movies MC", "TV Shows MC", "Food MC", "Animals MC"],
+        "MISC": ["Name That Tune", "Picture Round", "True or False", "Before & After", "Rhyme Time", "Finish The Lyric", "Emoji Decode", "Logo Quiz", "Famous Faces", "Map It Out"],
+        "MYS": ["Mystery Round 1", "Mystery Round 2", "Mystery Round 3", "Mystery Connections", "Mystery Categories", "Mystery Mix", "Hidden Gems", "Cryptic Clues"],
+        "BIG": ["BIG Question: Movies", "BIG Question: History", "BIG Question: Science", "BIG Question: Sports", "BIG Question: Music", "BIG Question: Geography", "BIG Question: Pop Culture", "BIG Question: Food"]
+    }
+    
+    pool = round_pools.get(round_type_upper, round_pools.get(round_type.lower().upper(), []))
+    
+    # Filter out recently used rounds for this location
+    used_rounds = set()
+    if location:
+        usage = await db.round_usage.find({"location": {"$regex": location, "$options": "i"}, "roundType": round_type_upper}, {"_id": 0, "roundFileName": 1}).to_list(500)
+        used_rounds = {u.get("roundFileName", "") for u in usage}
+    
+    results = []
+    for name in pool:
+        results.append({
+            "name": name,
+            "path": f"rounds/{round_type_upper}/{name}.pptx",
+            "used": name in used_rounds
+        })
+    
+    return results
+
+@api_router.post("/trivia/presentations/import")
+async def import_trivia_presentation(request: Request):
+    """Create a trivia presentation from the round roulette"""
+    data = await request.json()
+    
+    pres_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    
+    location_name = data.get("locationName", data.get("location", "Unknown"))
+    if "/" in location_name:
+        location_name = location_name.split("/")[-1]
+    import re
+    location_name = re.sub(r'^\d+_', '', location_name).replace('_', ' ')
+    
+    pres_doc = {
+        "id": pres_id,
+        "name": data.get("presentationName", f"{location_name} - {now.strftime('%b %d')}"),
+        "createdBy": data.get("userName", "unknown").lower(),
+        "createdAt": now.isoformat(),
+        "location": location_name,
+        "locationFolder": data.get("location", ""),
+        "host": data.get("hostName", ""),
+        "hostFile": data.get("host", ""),
+        "locationFile": f"locations/{data.get('location', '')}/intro.pptx",
+        "roundFiles": [{"order": i+1, "type": rt, "file": rp} for i, (rt, rp) in enumerate(zip(data.get("roundTypes", []), data.get("rounds", [])))],
+        "roundNames": data.get("roundNames", []),
+        "roundTypes": data.get("roundTypes", []),
+        "sponsorFiles": [],
+        "totalSlides": 45 + len(data.get("rounds", [])) * 8,
+        "numRounds": data.get("numRounds", 5)
+    }
+    
+    await db.trivia_presentations.insert_one(pres_doc)
+    
+    # Record round usage
+    for i, (rt, rp) in enumerate(zip(data.get("roundTypes", []), data.get("rounds", []))):
+        rn = data.get("roundNames", [None] * 10)
+        round_name = rn[i] if i < len(rn) else rp.split("/")[-1].replace(".pptx", "")
+        await db.round_usage.insert_one({
+            "location": location_name,
+            "roundFile": rp,
+            "roundFileName": round_name,
+            "roundType": rt,
+            "roundNumber": i + 1,
+            "usedDate": now,
+            "expiresDate": now + timedelta(days=90),
+            "usedBy": data.get("userName", "unknown").lower(),
+            "presentationName": pres_doc["name"],
+            "presentationId": pres_id
+        })
+    
+    logger.info(f"Trivia presentation created: {pres_doc['name']} by {pres_doc['createdBy']}")
+    return {"id": pres_id, "name": pres_doc["name"], "success": True}
+
+@api_router.post("/presentations/import-trivia")
+async def import_trivia_from_roulette(request: Request):
+    """Alias endpoint for the SlotMachineRandomizer component"""
+    data = await request.json()
+    # Forward to our trivia import logic
+    import re
+    pres_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    location_name = data.get("locationName", data.get("location", "Unknown"))
+    if "/" in location_name:
+        location_name = location_name.split("/")[-1]
+    location_name = re.sub(r'^\d+_', '', location_name).replace('_', ' ')
+    
+    pres_doc = {
+        "id": pres_id,
+        "name": data.get("presentationName", f"{location_name} - {now.strftime('%b %d')}"),
+        "createdBy": data.get("userName", "unknown").lower(),
+        "createdAt": now.isoformat(),
+        "location": location_name,
+        "locationFolder": data.get("location", ""),
+        "host": data.get("hostName", ""),
+        "hostFile": data.get("host", ""),
+        "locationFile": "",
+        "roundFiles": [{"order": i+1, "type": rt, "file": rp} for i, (rt, rp) in enumerate(zip(data.get("roundTypes", []), data.get("rounds", [])))],
+        "roundNames": data.get("roundNames", []),
+        "roundTypes": data.get("roundTypes", []),
+        "sponsorFiles": [],
+        "totalSlides": 45 + len(data.get("rounds", [])) * 8,
+        "numRounds": data.get("numRounds", 5)
+    }
+    await db.trivia_presentations.insert_one(pres_doc)
+    
+    # Record round usage
+    for i, (rt, rp) in enumerate(zip(data.get("roundTypes", []), data.get("rounds", []))):
+        rnames = data.get("roundNames", [])
+        rname = rnames[i] if i < len(rnames) else rp.split("/")[-1].replace(".pptx", "") if "/" in rp else rp
+        await db.round_usage.insert_one({
+            "location": location_name, "roundFile": rp, "roundFileName": rname,
+            "roundType": rt, "roundNumber": i + 1,
+            "usedDate": now, "expiresDate": now + timedelta(days=90),
+            "usedBy": data.get("userName", "unknown").lower(),
+            "presentationName": pres_doc["name"], "presentationId": pres_id
+        })
+    
+    return {"id": pres_id, "name": pres_doc["name"]}
+
+@api_router.post("/story-builds/save")
+async def save_story_build(request: Request):
+    """Save story build data (stub for compatibility)"""
+    data = await request.json()
+    return {"success": True, "path": f"builds/{data.get('location', 'unknown')}"}
+
+
+
 # =============================================
 # HEALTH & MISC
 # =============================================

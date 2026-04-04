@@ -4,8 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import {
   HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock,
-  ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search
+  ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Dices
 } from 'lucide-react';
+import SlotMachineRandomizer from '../../components/trivia/SlotMachineRandomizer';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -29,9 +30,16 @@ export default function TriviaDashboard() {
   const [locationFilter, setLocationFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedLocation, setExpandedLocation] = useState(null);
+  const [showRoulette, setShowRoulette] = useState(false);
+  const [locations, setLocations] = useState([]);
 
   const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
   const userName = user?.name?.split(' ')[0]?.toLowerCase() || '';
+
+  // Store userName for SlotMachineRandomizer compatibility
+  useEffect(() => {
+    if (userName) localStorage.setItem('userName', userName);
+  }, [userName]);
 
   useEffect(() => {
     loadData();
@@ -46,6 +54,12 @@ export default function TriviaDashboard() {
       ]);
       setPresentations(presRes.data);
       setStats(statsRes.data);
+
+      // Load locations for Round Roulette
+      try {
+        const locRes = await axios.get(`${API}/trivia/locations`);
+        setLocations(locRes.data.map(l => l.display_name || l.name));
+      } catch { /* ignore */ }
 
       if (isAdmin) {
         const historyRes = await axios.get(`${API}/trivia/round-usage/by-location`);
@@ -95,6 +109,16 @@ export default function TriviaDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {/* Round Roulette Button */}
+              <button
+                onClick={() => setShowRoulette(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all hover:shadow-lg"
+                style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 15px rgba(251, 221, 104, 0.2)' }}
+                data-testid="round-roulette-button"
+              >
+                <Dices size={16} />
+                Round Roulette
+              </button>
               {stats && (
                 <div className="hidden sm:flex items-center gap-4">
                   <StatChip label="Shows" value={stats.totalPresentations} />
@@ -196,6 +220,19 @@ export default function TriviaDashboard() {
           </div>
         )}
       </main>
+
+      {/* Round Roulette Popup */}
+      <SlotMachineRandomizer
+        open={showRoulette}
+        onClose={() => { setShowRoulette(false); loadData(); }}
+        onComplete={(selectedRounds, location, paths, builtPresentation) => {
+          if (builtPresentation) {
+            loadData();
+          }
+          setShowRoulette(false);
+        }}
+        locations={locations}
+      />
     </div>
   );
 }
