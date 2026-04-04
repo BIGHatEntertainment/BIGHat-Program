@@ -6,36 +6,76 @@ export default function ChyronBar({ events, onClaim }) {
 
   return (
     <div className="mb-6 animate-slide-up stagger-1" data-testid="chyron-bar">
-      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(20, 27, 80, 0.5)', border: '1px solid rgba(251, 221, 104, 0.15)', maxHeight: '150px' }}>
-        {/* Label */}
-        <div className="flex items-center">
-          <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ backgroundColor: 'rgba(251, 221, 104, 0.15)' }}>
+      <div
+        className="rounded-xl"
+        style={{
+          backgroundColor: 'rgba(20, 27, 80, 0.5)',
+          border: '1px solid rgba(251, 221, 104, 0.15)',
+          height: '48px',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          {/* Label */}
+          <div
+            className="shrink-0"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '0 16px',
+              height: '100%',
+              backgroundColor: 'rgba(251, 221, 104, 0.15)',
+            }}
+          >
             <AlertCircle size={14} style={{ color: '#fbdd68' }} />
-            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#fbdd68' }}>Unclaimed Events</span>
+            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#fbdd68', whiteSpace: 'nowrap' }}>
+              Unclaimed Events
+            </span>
           </div>
 
-          {/* Scrolling content */}
-          <div className="chyron-container flex-1 py-2 px-4">
-            <div className="chyron-content flex items-center gap-8">
+          {/* Scrolling ticker */}
+          <div style={{ flex: 1, overflow: 'hidden', height: '100%', position: 'relative' }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: '100%',
+                whiteSpace: 'nowrap',
+                animation: 'chyron-scroll 40s linear infinite',
+                gap: '32px',
+                paddingLeft: '20px',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.animationPlayState = 'paused'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.animationPlayState = 'running'; }}
+            >
               {events.concat(events).map((event, idx) => (
-                <div key={idx} className="flex items-center gap-3 shrink-0">
+                <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', whiteSpace: 'nowrap' }}>
                   <span className="text-sm font-medium text-white">{event.title}</span>
-                  <span className="flex items-center gap-1 text-xs" style={{ color: '#8892b0' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#8892b0', fontSize: '12px' }}>
                     <MapPin size={10} /> {event.venue}
                   </span>
-                  <span className="flex items-center gap-1 text-xs" style={{ color: '#8892b0' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#8892b0', fontSize: '12px' }}>
                     <Clock size={10} /> {event.date} {event.time}
                   </span>
                   <button
                     onClick={() => onClaim(event._id)}
-                    className="px-3 py-1 rounded-full text-xs font-bold transition-all duration-200 hover:scale-105"
-                    style={{ backgroundColor: '#fbdd68', color: '#000e2a' }}
+                    className="hover:scale-105 transition-transform"
+                    style={{
+                      backgroundColor: '#fbdd68',
+                      color: '#000e2a',
+                      padding: '3px 12px',
+                      borderRadius: '9999px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                    }}
                     data-testid={`claim-event-${event._id}`}
                   >
                     Claim
                   </button>
-                  <span className="text-xs" style={{ color: 'rgba(251, 221, 104, 0.3)' }}>|</span>
-                </div>
+                  <span style={{ color: 'rgba(251, 221, 104, 0.3)', fontSize: '12px' }}>|</span>
+                </span>
               ))}
             </div>
           </div>
