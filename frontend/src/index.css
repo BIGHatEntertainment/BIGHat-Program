@@ -125,6 +125,30 @@ body {
   animation: shimmer 3s ease-in-out infinite;
 }
 
+/* Dark theme for schedule components - matches hub design system */
+.dark {
+  --background: 222 60% 5%;
+  --foreground: 0 0% 100%;
+  --card: 230 55% 13%;
+  --card-foreground: 0 0% 100%;
+  --popover: 230 55% 13%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 45 95% 70%;
+  --primary-foreground: 222 60% 5%;
+  --secondary: 230 55% 18%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 230 55% 18%;
+  --muted-foreground: 222 15% 61%;
+  --accent: 230 55% 18%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 230 40% 20%;
+  --input: 230 40% 20%;
+  --ring: 45 95% 70%;
+  --radius: 0.5rem;
+}
+
 /* Chyron bar */
 .chyron-container {
   overflow: hidden;

@@ -258,53 +258,47 @@ const SchedulingPage = () => {
   }
 
   return (
-    <div className="min-h-screen gradient-hero">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <div className="min-h-screen dark" style={{ backgroundColor: '#000e2a', color: '#fff' }}>
+      {/* Header - matches hub design */}
+      <header className="sticky top-0 z-50" style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104, 0.15)' }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-2">
-                <img 
-                  src="/assets/hat-logo.png" 
-                  alt="BIG Hat Entertainment" 
-                  className="h-12 w-12 object-contain"
-                />
-              </div>
+              <img src="/hat-logo.png" alt="BIG Hat" className="h-10 w-10 object-contain" />
               <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Event Scheduler</h1>
-                <p className="text-sm text-muted-foreground">
-                  Welcome, <span className="font-semibold text-primary">{loggedInHost.name}</span>
+                <h1 className="text-xl font-bold" style={{ color: '#fbdd68' }}>Event Scheduler</h1>
+                <p className="text-xs" style={{ color: '#8892b0' }}>
+                  Welcome, <span style={{ color: '#fbdd68' }}>{loggedInHost.name}</span>
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              <Button
-                onClick={() => navigate('/profile')}
-                variant="outline"
-                className="flex items-center space-x-2 hover:bg-purple-50 hover:text-purple-600 transition-smooth"
+              <button
+                onClick={() => navigate('/schedule/profile')}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
+                style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}
                 data-testid="profile-btn"
               >
-                <UserCircle className="h-4 w-4" />
+                <UserCircle className="h-4 w-4" style={{ color: '#fbdd68' }} />
                 <span className="hidden sm:inline">Profile</span>
-              </Button>
-              <Button
+              </button>
+              <button
                 onClick={handleLogout}
-                variant="outline"
-                className="flex items-center space-x-2 hover:bg-red-50 hover:text-red-600 transition-smooth"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
+                style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}
               >
                 <User className="h-4 w-4" />
-                <span className="hidden sm:inline">Logout</span>
-              </Button>
+                <span className="hidden sm:inline">Dashboard</span>
+              </button>
               {loggedInHost.is_admin && (
-                <Button
-                  onClick={() => navigate('/admin')}
-                  variant="outline"
-                  className="flex items-center space-x-2 hover:bg-primary hover:text-primary-foreground transition-smooth"
+                <button
+                  onClick={() => navigate('/schedule/admin')}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
+                  style={{ color: '#fbdd68', border: '1px solid rgba(251, 221, 104, 0.3)', backgroundColor: 'rgba(251, 221, 104, 0.1)' }}
                 >
                   <Settings className="h-4 w-4" />
                   <span className="hidden sm:inline">Admin</span>
-                </Button>
+                </button>
               )}
             </div>
           </div>
