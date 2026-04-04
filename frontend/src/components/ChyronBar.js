@@ -6,7 +6,7 @@ export default function ChyronBar({ events, onClaim }) {
 
   return (
     <div className="mb-6 animate-slide-up stagger-1" data-testid="chyron-bar">
-      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(20, 27, 80, 0.5)', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
+      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(20, 27, 80, 0.5)', border: '1px solid rgba(251, 221, 104, 0.15)', maxHeight: '150px' }}>
         {/* Label */}
         <div className="flex items-center">
           <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ backgroundColor: 'rgba(251, 221, 104, 0.15)' }}>
