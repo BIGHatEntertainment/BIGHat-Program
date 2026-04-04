@@ -97,3 +97,7 @@ frontend/node_modules/.cache/default-development/0.pack
 *.env
 *.env.*
 trivia-maestro.zip
+-e 
+# Environment files
+*.env
+*.env.*
