@@ -748,20 +748,42 @@ async def get_schedule_events(include_past: bool = False):
 
 @api_router.get("/events/unclaimed")
 async def get_unclaimed_events():
-    events = await db.events.find({"claimed_by": None, "status": "available", "date": {"$gte": datetime.now(timezone.utc).isoformat()}}, {"_id": 0}).sort("date", 1).to_list(100)
+    # Calculate current week boundaries in MST (UTC-7)
+    MST_OFFSET = timedelta(hours=-7)
+    now_mst = datetime.now(timezone.utc) + MST_OFFSET
+    
+    # Week runs Sunday to Saturday in MST
+    day_of_week = now_mst.weekday()  # 0=Mon, 6=Sun
+    # Days since last Sunday
+    days_since_sunday = (day_of_week + 1) % 7
+    week_start_mst = (now_mst - timedelta(days=days_since_sunday)).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end_mst = week_start_mst + timedelta(days=7)
+    
+    # Convert back to UTC for querying
+    week_start_utc = week_start_mst - MST_OFFSET
+    week_end_utc = week_end_mst - MST_OFFSET
+    
+    events = await db.events.find({
+        "claimed_by": None,
+        "status": "available",
+        "date": {"$gte": week_start_utc.isoformat(), "$lt": week_end_utc.isoformat()}
+    }, {"_id": 0}).sort("date", 1).to_list(100)
+    
     venues = await db.venues.find({}, {"_id": 0}).to_list(100)
     venue_map = {v["id"]: v["name"] for v in venues}
     result = []
     for e in events:
         if isinstance(e.get('date'), str):
             e['date'] = datetime.fromisoformat(e['date'])
+        # Convert to MST for display
+        event_mst = e['date'] + MST_OFFSET if e['date'].tzinfo else e['date'] + MST_OFFSET
         result.append({
             "_id": e["id"],
             "title": e["title"],
             "event_type": e["event_type"],
             "venue": venue_map.get(e["venue_id"], "Unknown"),
-            "date": e["date"].strftime("%Y-%m-%d") if isinstance(e["date"], datetime) else str(e["date"])[:10],
-            "time": e["date"].strftime("%I:%M %p") if isinstance(e["date"], datetime) else "",
+            "date": event_mst.strftime("%a %b %-d"),
+            "time": event_mst.strftime("%-I:%M %p"),
         })
     return result
 

@@ -59,8 +59,12 @@ export default function Dashboard() {
   };
 
   const handleClaimEvent = async (eventId) => {
+    if (!employeeId) {
+      console.error('No employee ID found for claiming');
+      return;
+    }
     try {
-      await api.claimEvent(eventId);
+      await axios.post(`${API_URL}/api/events/${eventId}/claim`, { employee_id: employeeId });
       loadData();
     } catch (err) {
       console.error('Failed to claim event:', err);
