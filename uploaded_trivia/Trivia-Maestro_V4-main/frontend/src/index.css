@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Web fonts — loaded from Google Fonts for cross-device consistency */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lemonada:wght@700&family=Montserrat:wght@400;500;600;700&display=swap');
+
+body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+        "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
+        "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
+        monospace;
+}
+
+/* BIG Hat Trivia Theme - Deep Navy & Gold */
+:root {
+    /* Primary Colors - Deep Navy */
+    --bh-navy-900: #000e2a;
+    --bh-navy-800: #001030;
+    --bh-navy-700: #0a1940;
+    --bh-navy-600: #141b50;
+    --bh-navy-500: #1a2260;
+    
+    /* Accent Colors - Gold */
+    --bh-gold-400: #fee16b;
+    --bh-gold-500: #fbdd68;
+    --bh-gold-600: #f5d050;
+    --bh-gold-700: #e6c040;
+    
+    /* Supporting Colors */
+    --bh-indigo: #151c51;
+    --bh-purple: #100117;
+    
+    /* Functional Colors */
+    --bh-success: #22c55e;
+    --bh-error: #ef4444;
+    --bh-warning: #f59e0b;
+}
+
+@layer base {
+  :root {
+        --background: 222 100% 5%;
+        --foreground: 45 95% 95%;
+        --card: 222 100% 8%;
+        --card-foreground: 45 95% 95%;
+        --popover: 222 100% 6%;
+        --popover-foreground: 45 95% 95%;
+        --primary: 45 95% 70%;
+        --primary-foreground: 222 100% 5%;
+        --secondary: 222 60% 20%;
+        --secondary-foreground: 45 95% 95%;
+        --muted: 222 50% 15%;
+        --muted-foreground: 220 15% 60%;
+        --accent: 45 95% 70%;
+        --accent-foreground: 222 100% 5%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 222 40% 20%;
+        --input: 222 40% 15%;
+        --ring: 45 95% 70%;
+        --chart-1: 45 95% 70%;
+        --chart-2: 222 70% 50%;
+        --chart-3: 280 65% 60%;
+        --chart-4: 160 60% 45%;
+        --chart-5: 340 75% 55%;
+        --radius: 0.5rem;
+    }
+    
+  .dark {
+        --background: 222 100% 5%;
+        --foreground: 45 95% 95%;
+        --card: 222 100% 8%;
+        --card-foreground: 45 95% 95%;
+        --popover: 222 100% 6%;
+        --popover-foreground: 45 95% 95%;
+        --primary: 45 95% 70%;
+        --primary-foreground: 222 100% 5%;
+        --secondary: 222 60% 20%;
+        --secondary-foreground: 45 95% 95%;
+        --muted: 222 50% 15%;
+        --muted-foreground: 220 15% 60%;
+        --accent: 45 95% 70%;
+        --accent-foreground: 222 100% 5%;
+        --destructive: 0 62% 30%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 222 40% 20%;
+        --input: 222 40% 15%;
+        --ring: 45 95% 70%;
+        --chart-1: 45 95% 70%;
+        --chart-2: 222 70% 50%;
+        --chart-3: 280 65% 60%;
+        --chart-4: 160 60% 45%;
+        --chart-5: 340 75% 55%;
+    }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+}
+
+/* Custom utility classes for BIG Hat theme */
+@layer utilities {
+  .bg-bh-navy {
+    background: linear-gradient(135deg, var(--bh-navy-900) 0%, var(--bh-navy-800) 50%, var(--bh-navy-700) 100%);
+  }
+  
+  .bg-bh-card {
+    background: linear-gradient(145deg, rgba(20, 27, 80, 0.6) 0%, rgba(0, 14, 42, 0.8) 100%);
+    backdrop-filter: blur(10px);
+  }
+  
+  .text-bh-gold {
+    color: var(--bh-gold-500);
+  }
+  
+  .border-bh-gold {
+    border-color: var(--bh-gold-500);
+  }
+  
+  .glow-gold {
+    box-shadow: 0 0 20px rgba(251, 221, 104, 0.3), 0 0 40px rgba(251, 221, 104, 0.1);
+  }
+  
+  .glow-gold-sm {
+    box-shadow: 0 0 10px rgba(251, 221, 104, 0.2);
+  }
+  
+  .glow-gold-hover:hover {
+    box-shadow: 0 0 25px rgba(251, 221, 104, 0.4), 0 0 50px rgba(251, 221, 104, 0.2);
+  }
+}
+
+/* Animation keyframes */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(251, 221, 104, 0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite;
+}

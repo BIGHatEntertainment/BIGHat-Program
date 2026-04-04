@@ -1202,6 +1202,96 @@ async def get_venue_services():
     return services
 
 # =============================================
+# TRIVIA - PRESENTATIONS & ROUND HISTORY
+# =============================================
+
+@api_router.get("/trivia/presentations")
+async def get_trivia_presentations(userName: Optional[str] = None, viewAll: bool = False):
+    """Get trivia presentations, optionally filtered by user"""
+    query = {}
+    if userName and not viewAll:
+        query["createdBy"] = userName.lower()
+    presentations = await db.trivia_presentations.find(query, {"_id": 0}).sort("createdAt", -1).to_list(200)
+    return presentations
+
+@api_router.get("/trivia/presentations/{pres_id}")
+async def get_trivia_presentation(pres_id: str):
+    pres = await db.trivia_presentations.find_one({"id": pres_id}, {"_id": 0})
+    if not pres:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    return pres
+
+@api_router.delete("/trivia/presentations/{pres_id}")
+async def delete_trivia_presentation(pres_id: str):
+    result = await db.trivia_presentations.delete_one({"id": pres_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    # Also clean up round usage for this presentation
+    await db.round_usage.delete_many({"presentationId": pres_id})
+    return {"success": True}
+
+@api_router.get("/trivia/round-usage")
+async def get_round_usage(location: Optional[str] = None):
+    """Get round usage history, optionally filtered by location"""
+    query = {}
+    if location:
+        query["location"] = {"$regex": location, "$options": "i"}
+    records = await db.round_usage.find(query, {"_id": 0}).sort("usedDate", -1).to_list(500)
+    # Serialize dates
+    for r in records:
+        for field in ['usedDate', 'expiresDate']:
+            if field in r and isinstance(r[field], datetime):
+                r[field] = r[field].isoformat()
+    return records
+
+@api_router.get("/trivia/round-usage/by-location")
+async def get_round_usage_by_location():
+    """Get round usage grouped by location for admin overview"""
+    pipeline = [
+        {"$group": {
+            "_id": "$location",
+            "count": {"$sum": 1},
+            "rounds": {"$push": {
+                "roundFile": "$roundFile",
+                "roundFileName": "$roundFileName",
+                "roundType": "$roundType",
+                "roundNumber": "$roundNumber",
+                "usedDate": "$usedDate",
+                "usedBy": "$usedBy",
+                "presentationName": "$presentationName",
+                "presentationId": "$presentationId"
+            }}
+        }},
+        {"$sort": {"_id": 1}}
+    ]
+    results = await db.round_usage.aggregate(pipeline).to_list(100)
+    for r in results:
+        for rnd in r.get("rounds", []):
+            if "usedDate" in rnd and isinstance(rnd["usedDate"], datetime):
+                rnd["usedDate"] = rnd["usedDate"].isoformat()
+    return results
+
+@api_router.get("/trivia/stats")
+async def get_trivia_stats():
+    """Get trivia overview stats"""
+    total_presentations = await db.trivia_presentations.count_documents({})
+    total_usage = await db.round_usage.count_documents({})
+    # Usage by type
+    pipeline = [{"$group": {"_id": "$roundType", "count": {"$sum": 1}}}]
+    usage_by_type = await db.round_usage.aggregate(pipeline).to_list(20)
+    # Usage by location
+    loc_pipeline = [{"$group": {"_id": "$location", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}]
+    usage_by_location = await db.round_usage.aggregate(loc_pipeline).to_list(50)
+    return {
+        "totalPresentations": total_presentations,
+        "totalRoundUsage": total_usage,
+        "usageByType": {item['_id']: item['count'] for item in usage_by_type if item['_id']},
+        "usageByLocation": [{"location": item['_id'], "count": item['count']} for item in usage_by_location if item['_id']]
+    }
+
+
+
+# =============================================
 # HEALTH & MISC
 # =============================================
 

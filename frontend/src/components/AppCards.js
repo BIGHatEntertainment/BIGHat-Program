@@ -40,7 +40,9 @@ export default function AppCards() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {apps.map((app) => (
           <AppCard key={app.id} app={app} onLaunch={() => {
-            if (app.id === 'trivia' || app.id === 'bingo') {
+            if (app.id === 'trivia') {
+              navigate('/trivia');
+            } else if (app.id === 'bingo') {
               navigate('/schedule');
             }
           }} />
