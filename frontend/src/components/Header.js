@@ -33,6 +33,12 @@ export default function Header() {
                 Admin
               </NavLink>
             )}
+            {isAdmin && (
+              <NavLink active={location.pathname === '/schedule/admin'} onClick={() => navigate('/schedule/admin')}>
+                <Settings size={14} className="mr-1" />
+                Schedule Admin
+              </NavLink>
+            )}
           </nav>
 
           {/* Right - Profile */}

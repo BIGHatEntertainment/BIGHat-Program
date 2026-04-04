@@ -1,14 +1,17 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import AdminPage from './pages/AdminPage';
+import SchedulingPage from './pages/schedule/SchedulingPage';
+import ScheduleAdminPage from './pages/schedule/ScheduleAdminPage';
+import ProfilePage from './pages/schedule/ProfilePage';
+import { Toaster } from './components/ui/sonner';
 import './index.css';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#000e2a' }}>
@@ -19,17 +22,12 @@ function ProtectedRoute({ children }) {
       </div>
     );
   }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 }
 
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#000e2a' }}>
@@ -40,11 +38,7 @@ function PublicRoute({ children }) {
       </div>
     );
   }
-
-  if (user) {
-    return <Navigate to="/" replace />;
-  }
-
+  if (user) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -54,6 +48,9 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
+      <Route path="/schedule" element={<ProtectedRoute><SchedulingPage /></ProtectedRoute>} />
+      <Route path="/schedule/admin" element={<ProtectedRoute><ScheduleAdminPage /></ProtectedRoute>} />
+      <Route path="/schedule/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -63,6 +60,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <Toaster richColors position="top-center" />
         <AppRoutes />
       </AuthProvider>
     </BrowserRouter>

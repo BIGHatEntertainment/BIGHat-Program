@@ -171,13 +171,24 @@ class BigHatAPITester:
 
     def test_create_event(self):
         """Test creating a new event"""
+        # First get a venue ID
+        venues_success, venues = self.run_test(
+            "Get Venues for Event Creation",
+            "GET", 
+            "venues",
+            200
+        )
+        if not venues_success or not venues:
+            print("   No venues available for event creation")
+            return None
+            
+        venue_id = venues[0]['id']
         event_data = {
             "title": f"Test Event {datetime.now().strftime('%H:%M:%S')}",
-            "event_type": "trivia",
-            "date": "2026-02-01",
-            "time": "7:00 PM",
-            "venue": "Test Venue",
-            "description": "Test event for API testing"
+            "event_type": "Trivia",
+            "venue_id": venue_id,
+            "date": "2026-02-01T19:00:00Z",
+            "duration_hours": 2.0
         }
         success, response = self.run_test(
             "Create New Event",
@@ -187,28 +198,34 @@ class BigHatAPITester:
             data=event_data
         )
         if success:
-            return response.get('_id')
+            return response.get('id')
         return None
 
     def test_claim_event(self, event_id):
         """Test claiming an event"""
         if not event_id:
             return False
+        
+        # Get an employee ID to claim the event
+        employees_success, employees = self.run_test(
+            "Get Employees for Event Claim",
+            "GET",
+            "employees", 
+            200
+        )
+        if not employees_success or not employees:
+            print("   No employees available for event claim")
+            return False
+            
+        employee_id = employees[0]['id']
+        claim_data = {"employee_id": employee_id}
+        
         success, response = self.run_test(
             "Claim Event",
             "POST",
             f"events/{event_id}/claim",
-            200
-        )
-        return success
-
-    def test_logout(self):
-        """Test logout"""
-        success, response = self.run_test(
-            "Logout",
-            "POST",
-            "auth/logout",
-            200
+            200,
+            data=claim_data
         )
         return success
 
@@ -225,6 +242,91 @@ class BigHatAPITester:
         )
         # Restore token
         self.token = temp_token
+        return success
+
+    def test_get_employees(self):
+        """Test getting all employees (should return 5)"""
+        success, response = self.run_test(
+            "Get All Employees",
+            "GET",
+            "employees",
+            200
+        )
+        if success:
+            print(f"   Found {len(response)} employees")
+            if len(response) != 5:
+                print(f"   ⚠️  Expected 5 employees, found {len(response)}")
+        return success
+
+    def test_get_venues(self):
+        """Test getting all venues (should return 6)"""
+        success, response = self.run_test(
+            "Get All Venues",
+            "GET",
+            "venues",
+            200
+        )
+        if success:
+            print(f"   Found {len(response)} venues")
+            if len(response) != 6:
+                print(f"   ⚠️  Expected 6 venues, found {len(response)}")
+        return success
+
+    def test_get_venue_pricing(self):
+        """Test getting venue pricing data"""
+        success, response = self.run_test(
+            "Get Venue Pricing",
+            "GET",
+            "venue_pricing",
+            200
+        )
+        if success:
+            print(f"   Found pricing for {len(response)} venues")
+        return success
+
+    def test_host_login(self):
+        """Test schedule host login"""
+        host_data = {
+            "name": "Nick Sellards",
+            "password": "B1GHat"
+        }
+        success, response = self.run_test(
+            "Schedule Host Login",
+            "POST",
+            "host/login",
+            200,
+            data=host_data,
+            auth_required=False
+        )
+        if success:
+            print(f"   Host logged in: {response.get('employee', {}).get('name')}")
+        return success
+
+    def test_admin_verify(self):
+        """Test schedule admin passcode verification"""
+        admin_data = {
+            "passcode": "121589"
+        }
+        success, response = self.run_test(
+            "Schedule Admin Verify",
+            "POST",
+            "admin/verify",
+            200,
+            data=admin_data,
+            auth_required=False
+        )
+        if success:
+            print(f"   Admin verified: {response.get('message')}")
+        return success
+
+    def test_logout(self):
+        """Test logout"""
+        success, response = self.run_test(
+            "Logout",
+            "POST",
+            "auth/logout",
+            200
+        )
         return success
 
 def main():
@@ -254,11 +356,18 @@ def main():
     # 3. Auth verification
     tester.test_auth_me()
 
-    # 4. User management tests
+    # 4. Schedule-specific tests
+    tester.test_get_employees()
+    tester.test_get_venues()
+    tester.test_get_venue_pricing()
+    tester.test_host_login()
+    tester.test_admin_verify()
+
+    # 5. User management tests
     tester.test_get_users()
     new_user_id = tester.test_create_user()
 
-    # 5. Event management tests
+    # 6. Event management tests
     events_success, events = tester.test_get_events()
     unclaimed_success, unclaimed_events = tester.test_get_unclaimed_events()
     
@@ -267,10 +376,10 @@ def main():
     if new_event_id:
         tester.test_claim_event(new_event_id)
 
-    # 6. Security tests
+    # 7. Security tests
     tester.test_protected_route_without_auth()
 
-    # 7. Logout
+    # 8. Logout
     tester.test_logout()
 
     # Print results

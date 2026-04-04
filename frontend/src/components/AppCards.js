@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Mic2, Music, HelpCircle } from 'lucide-react';
 
 const apps = [
@@ -32,24 +33,30 @@ const apps = [
 ];
 
 export default function AppCards() {
+  const navigate = useNavigate();
   return (
     <section className="mt-8 animate-slide-up stagger-2" data-testid="app-cards-section">
       <h3 className="text-lg font-semibold text-white mb-4">Event Apps</h3>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {apps.map((app) => (
-          <AppCard key={app.id} app={app} />
+          <AppCard key={app.id} app={app} onLaunch={() => {
+            if (app.id === 'trivia' || app.id === 'bingo') {
+              navigate('/schedule');
+            }
+          }} />
         ))}
       </div>
     </section>
   );
 }
 
-function AppCard({ app }) {
+function AppCard({ app, onLaunch }) {
   const Icon = app.icon;
   return (
     <div
       className={`relative glass-card rounded-2xl p-6 cursor-pointer group overflow-hidden ${!app.available ? 'opacity-70' : ''}`}
       data-testid={`app-card-${app.id}`}
+      onClick={() => app.available && onLaunch && onLaunch()}
     >
       {/* Glow accent */}
       <div
@@ -77,6 +84,7 @@ function AppCard({ app }) {
             className="mt-5 w-full py-2.5 rounded-lg font-bold text-sm transition-all duration-300 hover:shadow-lg"
             style={{ backgroundColor: app.color, color: '#000e2a', boxShadow: `0 0 10px ${app.color}30` }}
             data-testid={`launch-${app.id}-button`}
+            onClick={(e) => { e.stopPropagation(); onLaunch && onLaunch(); }}
           >
             Launch {app.title}
           </button>

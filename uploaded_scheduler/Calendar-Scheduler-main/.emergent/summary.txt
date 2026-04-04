@@ -1,0 +1,185 @@
+<analysis>**original_problem_statement:**
+I run an entertainment business providing Trivia, Karaoke, and Music Bingo services. I need a scheduling page for my employees to pick the events they want to work.
+
+**PRODUCT REQUIREMENTS:**
+- **Main Page:** A calendar view of events. Default should be a week view. A smaller monthly calendar on the side should allow for navigation. A full-screen monthly calendar view should also be available for hosts.
+- **Event Claiming:** Employees can claim an event (one employee per event) with a confirmation pop-up. They can also un-assign themselves.
+- **Host Login:** Hosts must log in to view the schedule. The primary login method should be Google OAuth. A secondary option using username/password (name from dropdown, password B1GHat) should be available as a fallback.
+- **Admin Panel:** An admin tab accessible with a universal passcode (121589) for managing Employees, Venues, Events, and reports.
+- **Event Management:** Admins can create, edit, delete, and unclaim events.
+- **Location Pricing:** Admins need a Pricing tab to set flat-rate prices for each event type (Trivia, Karaoke, Music Bingo) per venue.
+- **Payment & Reporting:**
+    - **Weekly Report:** A report for admins to see who worked what, where, and the event type for payroll, with a payment acknowledgment feature.
+    - **Monthly Report:**
+        - A tab for admins to track incoming venue payments against outgoing host payments.
+        - It should feature a full-size calendar to visualize the schedule.
+        - Admins should be able to quickly schedule new events by clicking on dates in this calendar.
+        - The calendar should also display major external events (concerts, sports) happening nearby to avoid conflicts.
+- **Franchise Location (Monkey Pants):** A special logic for Monkey Pants venue where they pay a host (50) directly. This payment should not count against the company's outgoing expenses but should be tracked as income if claimed by a specific host ('Nicholas Sellards').
+- **Branding:** The company's BIG Hat logo should be present on all major pages (Login, Scheduler, Admin Panel).
+
+**User's preferred language**: English
+
+**what currently exists?**
+A full-stack application with a React frontend and FastAPI backend. The application features a primary Google OAuth login for hosts, with a password-based fallback. The main page includes a weekly schedule and a full-screen monthly calendar view.
+
+The comprehensive admin panel, accessible via a passcode, includes:
+-   Management tabs for Employees (sorted alphabetically), Venues, and Events.
+-   A Location Pricing tab to set per-venue event rates.
+-   A Monthly Reports tab with a full-calendar view that:
+    -   Automatically calculates incoming revenue based on scheduled events and venue pricing.
+    -   Tracks outgoing payments from acknowledged payroll.
+    -   Allows admins to schedule new events by clicking on dates.
+    -   Integrates an event crawler (using a Ticketmaster API key) to display major external events as icons on the calendar, helping to avoid scheduling conflicts.
+-   A Weekly Report tab for managing host payroll and acknowledging payments.
+-   Special logic is implemented for Monkey Pants as a franchise location with unique payment rules.
+-   The BIG Hat logo is integrated across the UI.
+-   An automated background job archives financial data at the end of each month.
+
+**Last working item**:
+- **Last item agent was working:** Fixing a Google OAuth authentication failure. The user reported that the login was not working and they were being redirected back to the login page with a failed to load data message. The  was used to diagnose the problem.
+- **Status:** USER VERIFICATION PENDING
+- **Agent Testing Done:** Y (The agent identified and fixed a backend crash caused by a missing  import in  and verified the auth endpoints were no longer crashing. However, a full end-to-end OAuth flow test was not performed.)
+- **Which testing method agent to use?** frontend testing agent
+- **User Testing Done:** N
+
+**All Pending/In progress Issue list**:
+- **Issue 1: Google OAuth Authentication Might Still Be Failing (P0)**
+  - **Description:** The user reported an authentication failure with Google OAuth. The agent fixed a related backend crash, but the root cause of the user's failed to load data error might not be fully resolved. The entire login flow needs to be verified.
+  - **Attempted fixes:** Fixed a missing  import in  that was causing the server to crash upon startup after OAuth endpoints were added.
+  - **Next debug checklist:**
+    1.  Use the  to perform a full, end-to-end test of the Google OAuth login flow. The testing agent can simulate the redirect and callback process.
+    2.  Check the browser console logs during the test for any frontend errors (like the failed to load data message).
+    3.  Check the backend logs () during the test for any API errors during the  or  calls.
+  - **Why fix this issue and what will be achieved with the fix?** The primary login method for hosts is broken, preventing them from accessing the application.
+  - **Status:** USER VERIFICATION PENDING
+  - **Is recurring issue?** N
+  - **Should Test frontend/backend/both after fix?** both
+  - **Blocked on other issue:** None
+
+**In progress Task List**:
+- None.
+
+**Upcoming and Future Tasks**
+- None. All user requests from the session have been implemented. The next step is to verify the OAuth fix.
+
+**Completed work in this session**
+- **Google OAuth Login:** Implemented Google OAuth as the primary login method using , with the previous name/password system as a fallback.
+- **Event Crawler Integration (Ticketmaster):**
+    - Integrated a user-provided Python script to crawl major events in Phoenix.
+    - Implemented and configured Ticketmaster API integration using a user-provided key.
+    - Added an Event Crawler dialog in the admin panel to view upcoming external events.
+- **Calendar Event Conflict Warning:** Integrated the crawler results into the admin's monthly calendar, displaying an icon (🏀) on days with major external events to help avoid scheduling conflicts.
+- **Location-Based Pricing:** Created a Pricing tab in the admin panel for setting event rates per venue.
+- **Interactive Admin Calendar Scheduler:** Enabled admins to click on dates in the Monthly Reports calendar to quickly create new events for a selected venue.
+- **Enhanced Monthly Reports:** The Monthly Reports tab now automatically calculates Expected Income based on events and venue pricing, and tracks Outgoing Payments.
+- **Franchise Payment Logic (Monkey Pants):** Implemented special rules for a franchise venue, including conditional income tracking and exclusion from outgoing payments.
+- **Host-Facing Monthly Calendar:** Added a full-screen monthly calendar view for hosts on the main scheduling page, which grays out dates they have already claimed.
+- **Automated Monthly Archiving:** Created a scheduled background job to archive all financial data at the end of each month.
+- **Branding:** Added the BIG Hat logo to all login and main application pages.
+- **UI/UX:** Sorted the employee list alphabetically in the admin panel.
+
+**Earlier issues found/mentioned but not fixed**
+- None.
+
+**Known issue recurrence from previous fork**
+- N/A
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Frontend:** React, Tailwind CSS, Shadcn/UI, Axios, date-fns
+- **Backend:** Python, FastAPI, Motor
+- **Database:** MongoDB
+- **Authentication:** Google OAuth (via ), Session-based tokens
+- **Asynchronous Tasks:**  for running scheduled jobs (monthly archiving).
+- **Web Scraping/API:** , ,  for fetching data from the Ticketmaster API.
+
+**key DB schema**
+- : 
+- : 
+- : 
+- : 
+- : 
+- : 
+
+**changes in tech stack**
+- ****: Added for running background scheduled tasks.
+- **, , **: Added for the event crawler functionality.
+- ****: Used for implementing the Google OAuth flow.
+
+**All files of reference**
+- **Backend (Modified/Created):**
+  - : Heavily modified with new endpoints for OAuth, pricing, crawling, and archiving.
+  - : New file containing the Ticketmaster API logic.
+  - : New file to manage the monthly archive job.
+  - : Modified to include .
+- **Frontend (Modified/Created):**
+  - : Overhauled to support Google OAuth.
+  - : New component to handle the Google OAuth redirect.
+  - : Modified to add the  route.
+  - : Significantly enhanced with the event scheduler, crawler integration, and dynamic financial summaries.
+  - : New component for managing venue prices.
+  - : New component to display crawled events.
+  - : Modified to add the monthly calendar dialog.
+  - : New component for the host-facing monthly calendar.
+  - : Modified to sort employees alphabetically.
+
+**Areas that need refactoring**:
+-  has grown very large and contains logic for many distinct features (auth, events, admin, payments, crawling, archiving). It should be broken down into multiple router files (e.g., , ).
+-  is also very complex, managing state for the calendar, event creation, revenue calculation, and the event crawler. This could be broken down using custom hooks or smaller components.
+
+**key api endpoints**
+- **Auth:**
+  - : Initiates Google OAuth flow.
+  - : Handles the callback from Google.
+  - : Fetches the currently authenticated user's data.
+- **Admin:**
+  - : Manages venue-specific pricing.
+  - : Calculates projected monthly income.
+  - : Triggers the event crawler.
+  - : Manually triggers the monthly financial archive.
+
+**Critical Info for New Agent**
+- **Google OAuth is the primary focus.** The immediate task is to perform a full end-to-end test to verify the fix for the authentication failure reported by the user. Use the .
+- The **Ticketmaster API key** () is stored in  and is required for the event crawler to function.
+- The default host password is  and the admin passcode is .
+- The application uses  for the Google OAuth flow, which abstracts away some of the complexity. Refer to  for the playbook.
+
+**documents and test reports created in this job**
+- 
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User (Msg 462):** authentication failed. do a deep dive into why the sign in is not working. (IN PROGRESS - Fix applied, verification pending)
+2.  **User (Msg 437):** Requested changing the login to Google OAuth as primary, with the password as a fallback. (COMPLETED)
+3.  **User (Msg 428):** Requested sorting employees alphabetically in the admin panel. (COMPLETED)
+4.  **User (Msg 413):** Requested showing icons for crawled events on the admin calendar. (COMPLETED)
+5.  **User (Msg 378):** Provided the Ticketmaster API key to be integrated. (COMPLETED)
+6.  **User (Msg 359):** Pointed out that the crawler was using a bad URL and requested it be fixed. (COMPLETED)
+7.  **User (Msg 340):** Noticed the event crawler was returning dummy data and asked why. (COMPLETED)
+8.  **User (Msg 296):** Provided a  file with an event crawler and requested its integration. (COMPLETED)
+9.  **User (Msg 265):** Provided the BIG Hat logo and asked for it to be added for branding. (COMPLETED)
+10. **User (Msg 236):** Requested a full monthly calendar view on the main scheduling page for hosts. (COMPLETED)
+
+**Project Health Check:**
+- **Broken:** The Google OAuth login flow. Although a backend crash was fixed, the user-reported failure has not been confirmed as resolved.
+- **Mocked:** None.
+
+**3rd Party Integrations**
+- **Google OAuth**: Uses Emergent's managed OAuth credentials via the  library for the login flow.
+- **Ticketmaster Discovery API**: Uses a User API Key () provided by the user to fetch real-time event data.
+
+**Testing status**
+- **Testing agent used after significant changes:** YES (but not for the final OAuth fix)
+- **Troubleshoot agent used after agent stuck in loop:** YES (used to diagnose the OAuth backend crash)
+- **Test files created:** 
+- **Known regressions:** The Google OAuth login is not working correctly.
+
+**Credentials to test flow:**
+- **Admin Access:** Navigate to  and use passcode .
+- **Host (Password Fallback):** Navigate to , click OR USE PASSWORD, select a host from the dropdown, and use password .
+- **Host (Google OAuth):** Navigate to  and click the Sign in with Google button. This will require the testing agent to complete the flow.
+
+**What agent forgot to execute**
+The agent fixed a backend crash related to the Google OAuth implementation but did not follow up with a full end-to-end test to confirm that the user's original problem (authentication failed) was completely resolved. The next agent must prioritize this verification.</analysis>
