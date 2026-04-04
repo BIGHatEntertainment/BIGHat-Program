@@ -31,7 +31,7 @@ export default function ScheduleSection({ events, onRefresh }) {
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           <Calendar size={20} style={{ color: '#fbdd68' }} />
-          Upcoming Schedule
+          My Schedule This Week
         </h3>
         <button
           onClick={onRefresh}
@@ -46,7 +46,8 @@ export default function ScheduleSection({ events, onRefresh }) {
       {upcomingEvents.length === 0 ? (
         <div className="glass-card rounded-xl p-8 text-center">
           <Calendar size={40} style={{ color: '#8892b0' }} className="mx-auto mb-3 opacity-50" />
-          <p style={{ color: '#8892b0' }}>No upcoming events scheduled</p>
+          <p style={{ color: '#8892b0' }}>No events assigned to you this week</p>
+          <p className="text-xs mt-1" style={{ color: '#8892b0', opacity: 0.6 }}>Check the Schedule tab to claim available events</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
