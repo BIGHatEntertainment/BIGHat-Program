@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { toast } from 'sonner';
-import AdminAuth from '../../components/schedule/AdminAuth';
+import { useAuth } from '../../context/AuthContext';
 import EmployeeManager from '../../components/schedule/EmployeeManager';
 import VenueManager from '../../components/schedule/VenueManager';
 import EventManager from '../../components/schedule/EventManager';
@@ -20,16 +20,22 @@ const API = `${BACKEND_URL}/api`;
 
 const AdminPage = () => {
   const navigate = useNavigate();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user: hubUser } = useAuth();
   const [activeTab, setActiveTab] = useState('employees');
 
-  const handleAuthSuccess = () => {
-    setIsAuthenticated(true);
-    toast.success('Admin access granted');
-  };
+  // Auto-authenticate: hub admin/master_admin users are automatically authorized
+  const isAuthenticated = hubUser?.role === 'admin' || hubUser?.role === 'master_admin';
 
   if (!isAuthenticated) {
-    return <AdminAuth onSuccess={handleAuthSuccess} />;
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#000e2a' }}>
+        <div className="text-center">
+          <p className="text-lg font-semibold" style={{ color: '#ef4444' }}>Access Denied</p>
+          <p className="text-sm mt-2" style={{ color: '#8892b0' }}>Admin privileges required</p>
+          <button onClick={() => navigate('/')} className="mt-4 px-6 py-2 rounded-lg text-sm font-bold" style={{ backgroundColor: '#fbdd68', color: '#000e2a' }}>Back to Dashboard</button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -7,10 +7,10 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { toast } from 'sonner';
+import { useAuth } from '../../context/AuthContext';
 import ClaimEventDialog from '../../components/schedule/ClaimEventDialog';
 import EmployeeSelector from '../../components/schedule/EmployeeSelector';
 import PaymentBonuses from '../../components/schedule/PaymentBonuses';
-import HostLogin from '../../components/schedule/HostLogin';
 import PasswordConfirmDialog from '../../components/schedule/PasswordConfirmDialog';
 import EventDetailDialog from '../../components/schedule/EventDetailDialog';
 import MonthlyCalendarDialog from '../../components/schedule/MonthlyCalendarDialog';
@@ -29,6 +29,7 @@ const EVENT_TYPE_COLORS = {
 const SchedulingPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user: hubUser } = useAuth();
   const [events, setEvents] = useState([]);
   const [venues, setVenues] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -46,54 +47,64 @@ const SchedulingPage = () => {
   const [passwordAction, setPasswordAction] = useState(null); // { type: 'claim' | 'unclaim', event: eventObj }
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedEventDetail, setSelectedEventDetail] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false); // Track if we've checked auth state
-  const [claimEligibility, setClaimEligibility] = useState({}); // {event_id: {status, primary_employee_id, opens_at}}
+  const [authChecked, setAuthChecked] = useState(false);
+  const [claimEligibility, setClaimEligibility] = useState({});
 
-  // Check authentication state FIRST, before anything else
+  // SSO: Auto-login using the hub's authenticated user
   useEffect(() => {
-    const checkAuth = () => {
-      // Check if user came from OAuth callback (via location state)
-      if (location.state?.user) {
-        const user = location.state.user;
-        console.log('SchedulingPage: Received user from OAuth callback:', user);
-        const hostData = {
-          id: user.employee_id,
-          name: user.name,
-          email: user.email,
-          is_admin: user.is_admin
-        };
-        setLoggedInHost(hostData);
-        setSelectedEmployee(user.employee_id);
-        // Also ensure it's in sessionStorage
-        sessionStorage.setItem('loggedInHost', JSON.stringify(hostData));
-        // Clear the location state to prevent re-processing (but don't navigate yet)
-        window.history.replaceState({}, document.title);
-        setAuthChecked(true);
-        return true;
-      }
-      
-      // Check if user is already logged in via sessionStorage
+    const autoLogin = async () => {
+      // If already have a logged-in host, skip
       const storedHost = sessionStorage.getItem('loggedInHost');
-      console.log('SchedulingPage: Checking sessionStorage:', storedHost);
       if (storedHost) {
         try {
           const host = JSON.parse(storedHost);
           setLoggedInHost(host);
           setSelectedEmployee(host.id);
           setAuthChecked(true);
-          return true;
+          return;
         } catch (e) {
-          console.error('Error parsing stored host:', e);
           sessionStorage.removeItem('loggedInHost');
         }
       }
-      
+
+      // Use the hub user to find matching schedule employee
+      if (hubUser?.email) {
+        try {
+          const res = await axios.get(`${API}/employees`);
+          const emps = res.data;
+          const match = emps.find(e => e.email.toLowerCase() === hubUser.email.toLowerCase());
+          if (match) {
+            const hostData = {
+              id: match.id,
+              name: match.name,
+              email: match.email,
+              is_admin: match.is_admin || hubUser.role === 'admin' || hubUser.role === 'master_admin'
+            };
+            setLoggedInHost(hostData);
+            setSelectedEmployee(match.id);
+            sessionStorage.setItem('loggedInHost', JSON.stringify(hostData));
+          } else {
+            // No matching employee — auto-create one from hub user
+            const hostData = {
+              id: hubUser.id,
+              name: hubUser.name,
+              email: hubUser.email,
+              is_admin: hubUser.role === 'admin' || hubUser.role === 'master_admin'
+            };
+            setLoggedInHost(hostData);
+            setSelectedEmployee(hubUser.id);
+            sessionStorage.setItem('loggedInHost', JSON.stringify(hostData));
+          }
+        } catch (err) {
+          console.error('Failed to auto-login from hub:', err);
+        }
+      }
+
       setAuthChecked(true);
-      return false;
     };
 
-    checkAuth();
-  }, []); // Only run once on mount
+    autoLogin();
+  }, [hubUser]);
 
   // Fetch data after auth check is complete
   useEffect(() => {
@@ -216,9 +227,8 @@ const SchedulingPage = () => {
 
   const handleLogout = () => {
     sessionStorage.removeItem('loggedInHost');
-    setLoggedInHost(null);
-    setSelectedEmployee(null);
-    toast.success('Logged out successfully');
+    navigate('/');
+    toast.success('Returned to dashboard');
   };
 
   // Show loading while checking auth state OR loading data
@@ -235,9 +245,16 @@ const SchedulingPage = () => {
     );
   }
 
-  // Show login screen if not logged in
+  // Show login screen if not logged in — redirect to hub login
   if (!loggedInHost) {
-    return <HostLogin employees={employees} onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#000e2a' }}>
+        <div className="text-center">
+          <img src="/hat-logo.png" alt="Loading" className="w-16 h-16 mx-auto mb-4 animate-pulse" />
+          <p className="text-sm" style={{ color: '#8892b0' }}>Setting up your schedule...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
