@@ -1,15 +1,29 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, MapPin, Clock, User } from 'lucide-react';
+import axios from 'axios';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const eventTypeColors = {
-  trivia: '#fbdd68',
-  bingo: '#5973F7',
-  karaoke: '#22c55e',
+  Trivia: '#fbdd68',
+  'Music Bingo': '#5973F7',
+  Karaoke: '#22c55e',
+  Special: '#a855f7',
 };
 
 export default function ScheduleSection({ events, onRefresh }) {
+  const [venues, setVenues] = useState({});
+
+  useEffect(() => {
+    axios.get(`${API}/venues`).then(res => {
+      const map = {};
+      res.data.forEach(v => { map[v.id] = v.name; });
+      setVenues(map);
+    }).catch(() => {});
+  }, []);
+
   const upcomingEvents = events
-    .filter(e => e.status === 'upcoming')
+    .filter(e => e.status === 'upcoming' || e.status === 'available' || e.status === 'claimed')
     .slice(0, 6);
 
   return (
@@ -37,7 +51,7 @@ export default function ScheduleSection({ events, onRefresh }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {upcomingEvents.map((event) => (
-            <EventCard key={event._id} event={event} />
+            <EventCard key={event.id || event._id} event={event} venues={venues} />
           ))}
         </div>
       )}
@@ -45,11 +59,23 @@ export default function ScheduleSection({ events, onRefresh }) {
   );
 }
 
-function EventCard({ event }) {
+function EventCard({ event, venues }) {
   const typeColor = eventTypeColors[event.event_type] || '#fbdd68';
+  const venueName = venues[event.venue_id] || event.venue || 'Unknown';
+  
+  // Parse date
+  let dateStr = '';
+  let timeStr = '';
+  try {
+    const d = new Date(event.date);
+    dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    dateStr = event.date?.slice(0, 10) || '';
+  }
 
   return (
-    <div className="glass-card rounded-xl p-4 group" data-testid={`event-card-${event._id}`}>
+    <div className="glass-card rounded-xl p-4 group" data-testid={`event-card-${event.id || event._id}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: typeColor }} />
@@ -57,12 +83,12 @@ function EventCard({ event }) {
             {event.event_type}
           </span>
         </div>
-        {!event.claimed && (
+        {!event.claimed_by && (
           <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
             Open
           </span>
         )}
-        {event.claimed && (
+        {event.claimed_by && (
           <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
             Claimed
           </span>
@@ -74,18 +100,12 @@ function EventCard({ event }) {
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 text-xs" style={{ color: '#8892b0' }}>
           <Clock size={12} />
-          <span>{event.date} at {event.time}</span>
+          <span>{dateStr} {timeStr}</span>
         </div>
         <div className="flex items-center gap-2 text-xs" style={{ color: '#8892b0' }}>
           <MapPin size={12} />
-          <span>{event.venue}</span>
+          <span>{venueName}</span>
         </div>
-        {event.host_id && (
-          <div className="flex items-center gap-2 text-xs" style={{ color: '#8892b0' }}>
-            <User size={12} />
-            <span>Assigned</span>
-          </div>
-        )}
       </div>
     </div>
   );
