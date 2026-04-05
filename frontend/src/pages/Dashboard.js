@@ -101,6 +101,9 @@ export default function Dashboard() {
       case 'scoreboard-tool':
         navigate('/scoreboard');
         break;
+      case 'story-generator':
+        navigate('/story-generator');
+        break;
       case 'schedule':
         navigate('/schedule');
         break;

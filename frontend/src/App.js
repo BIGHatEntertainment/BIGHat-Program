@@ -17,6 +17,7 @@ import BingoHostDashboard from './pages/bingo/HostDashboard';
 import BingoAudienceView from './pages/bingo/AudienceView';
 import ScoreboardDashboard from './pages/scoreboard/ScoreboardDashboard';
 import ScoreboardLiveRender from './pages/scoreboard/LiveRender';
+import StoryGeneratorPage from './pages/story/StoryGeneratorPage';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
 
@@ -71,6 +72,7 @@ function AppRoutes() {
       <Route path="/bingo/audience" element={<ProtectedRoute><BingoAudienceView /></ProtectedRoute>} />
       <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />
       <Route path="/scoreboard/live" element={<ProtectedRoute><ScoreboardLiveRender /></ProtectedRoute>} />
+      <Route path="/story-generator" element={<ProtectedRoute><StoryGeneratorPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

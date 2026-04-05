@@ -113,3 +113,46 @@ export const storyBuildsAPI = {
     return response.data;
   },
 };
+
+// Story Generator API
+const STORY_API = `${process.env.REACT_APP_BACKEND_URL}/api/story-generator`;
+
+export const storyGeneratorAPI = {
+  getPresentations: async (userName = null) => {
+    const params = userName ? { userName: userName.toLowerCase() } : {};
+    const response = await axios.get(`${STORY_API}/presentations`, { params });
+    return response.data;
+  },
+  getPresentation: async (id) => {
+    const response = await axios.get(`${STORY_API}/presentation/${id}`);
+    return response.data;
+  },
+  getAssets: async (refresh = false) => {
+    const response = await axios.get(`${STORY_API}/assets`, { params: { refresh } });
+    return response.data;
+  },
+  refreshAssets: async () => {
+    const response = await axios.post(`${STORY_API}/refresh-assets`);
+    return response.data;
+  },
+  generatePreview: async (presentationId) => {
+    const response = await axios.post(`${STORY_API}/preview/${presentationId}`, {}, { timeout: 60000 });
+    return response.data;
+  },
+  generateVideo: async (presentationId) => {
+    const response = await axios.post(`${STORY_API}/generate/${presentationId}`, {}, { timeout: 300000 });
+    return response.data;
+  },
+  getDownloadUrl: (filename) => `${STORY_API}/download/${filename}`,
+  uploadAsset: async (file, assetType) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('asset_type', assetType);
+    const response = await axios.post(`${STORY_API}/upload-asset`, formData, { timeout: 60000 });
+    return response.data;
+  },
+  deleteAsset: async (assetType, assetId) => {
+    const response = await axios.delete(`${STORY_API}/assets/${assetType}/${assetId}`);
+    return response.data;
+  },
+};

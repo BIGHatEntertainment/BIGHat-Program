@@ -1,0 +1,248 @@
+{
+  "timestamp": "2026-01-15T13:37:37.743442",
+  "total_tests": 34,
+  "passed_tests": 34,
+  "failed_tests": 0,
+  "success_rate": 100.0,
+  "test_results": [
+    {
+      "name": "GET presentations (no filter)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.624144"
+    },
+    {
+      "name": "GET presentations (with userName)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.656784"
+    },
+    {
+      "name": "GET assets",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.692024"
+    },
+    {
+      "name": "Assets structure validation",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.692039"
+    },
+    {
+      "name": "Test presentation exists (5 rounds layout: b1b7943a-1fb9-4304-94c9-612636b161b1)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.727908"
+    },
+    {
+      "name": "Test presentation exists (6 rounds with 2 REG: 6de0675c-7499-439f-a4c9-a7139414151f)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.766029"
+    },
+    {
+      "name": "Denver presentation with 2 MISC found (4b0a74a5-0bc5-4188-9e4e-b4dbfe38eb32)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.834119"
+    },
+    {
+      "name": "GET presentation details (b1b7943a-1fb9-4304-94c9-612636b161b1)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.871950"
+    },
+    {
+      "name": "Presentation details structure",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.871966"
+    },
+    {
+      "name": "Round layout validation: 5-round layout (MC + 1 REG + 1 MISC + Mystery + BIG)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.871994"
+    },
+    {
+      "name": "POST generate preview (b1b7943a-1fb9-4304-94c9-612636b161b1)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.903979"
+    },
+    {
+      "name": "Preview structure validation",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:35:35.903994"
+    },
+    {
+      "name": "POST generate video (b1b7943a-1fb9-4304-94c9-612636b161b1)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.297712"
+    },
+    {
+      "name": "Video generation response structure",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.297727"
+    },
+    {
+      "name": "GET download video (story_9d08f79b.mp4)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.371904"
+    },
+    {
+      "name": "Video file content-type check",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.371916"
+    },
+    {
+      "name": "GET presentation details (6de0675c-7499-439f-a4c9-a7139414151f)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.410538"
+    },
+    {
+      "name": "Presentation details structure",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.410553"
+    },
+    {
+      "name": "Round layout validation: 6-round layout with 2 REGs (MC + 2 REG + 1 MISC + Mystery + BIG)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.410611"
+    },
+    {
+      "name": "POST generate preview (6de0675c-7499-439f-a4c9-a7139414151f)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.481865"
+    },
+    {
+      "name": "Preview structure validation",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:16.481880"
+    },
+    {
+      "name": "POST generate video (6de0675c-7499-439f-a4c9-a7139414151f)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:56.897021"
+    },
+    {
+      "name": "Video generation response structure",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:56.897037"
+    },
+    {
+      "name": "GET download video (story_0f746257.mp4)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:56.967596"
+    },
+    {
+      "name": "Video file content-type check",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:56.967607"
+    },
+    {
+      "name": "GET presentation details (4b0a74a5-0bc5-4188-9e4e-b4dbfe38eb32)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:57.001154"
+    },
+    {
+      "name": "Presentation details structure",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:57.001172"
+    },
+    {
+      "name": "Round layout validation: 6-round layout with 2 MISCs (MC + 1 REG + 2 MISC + Mystery + BIG)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:57.001208"
+    },
+    {
+      "name": "POST generate preview (4b0a74a5-0bc5-4188-9e4e-b4dbfe38eb32)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:57.038483"
+    },
+    {
+      "name": "Preview structure validation",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:36:57.038498"
+    },
+    {
+      "name": "POST generate video (4b0a74a5-0bc5-4188-9e4e-b4dbfe38eb32)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:37:37.684346"
+    },
+    {
+      "name": "Video generation response structure",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:37:37.684362"
+    },
+    {
+      "name": "GET download video (story_b4bab6bd.mp4)",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:37:37.742491"
+    },
+    {
+      "name": "Video file content-type check",
+      "success": true,
+      "status_code": 200,
+      "error": null,
+      "timestamp": "2026-01-15T13:37:37.742503"
+    }
+  ],
+  "failed_details": []
+}
