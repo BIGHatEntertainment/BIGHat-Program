@@ -1290,6 +1290,16 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Bingo routes: {e}")
 
+# Mount Scoreboard routes
+try:
+    from routes import scoreboard as scoreboard_routes
+    if hasattr(scoreboard_routes, 'set_database'):
+        scoreboard_routes.set_database(db)
+    api_router.include_router(scoreboard_routes.router)
+    logger.info("Scoreboard routes mounted successfully")
+except Exception as e:
+    logger.warning(f"Could not load Scoreboard routes: {e}")
+
 # Include router
 app.include_router(api_router)
 

@@ -98,6 +98,9 @@ export default function Dashboard() {
       case 'round-generator':
         navigate('/roundmaker');
         break;
+      case 'scoreboard-tool':
+        navigate('/scoreboard');
+        break;
       case 'schedule':
         navigate('/schedule');
         break;

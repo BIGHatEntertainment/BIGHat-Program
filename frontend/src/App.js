@@ -15,6 +15,8 @@ import RoundCreator from './pages/roundmaker/RoundCreator';
 import BingoLobby from './pages/bingo/Lobby';
 import BingoHostDashboard from './pages/bingo/HostDashboard';
 import BingoAudienceView from './pages/bingo/AudienceView';
+import ScoreboardDashboard from './pages/scoreboard/ScoreboardDashboard';
+import ScoreboardLiveRender from './pages/scoreboard/LiveRender';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
 
@@ -67,6 +69,8 @@ function AppRoutes() {
       <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
       <Route path="/bingo/host" element={<ProtectedRoute><BingoHostDashboard /></ProtectedRoute>} />
       <Route path="/bingo/audience" element={<ProtectedRoute><BingoAudienceView /></ProtectedRoute>} />
+      <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />
+      <Route path="/scoreboard/live" element={<ProtectedRoute><ScoreboardLiveRender /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

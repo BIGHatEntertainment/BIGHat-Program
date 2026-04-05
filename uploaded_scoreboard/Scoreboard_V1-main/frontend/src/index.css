@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Instagram gradient colors */
+  --ig-yellow: #FCAF45;
+  --ig-orange: #F77737;
+  --ig-pink: #FD1D1D;
+  --ig-magenta: #E1306C;
+  --ig-purple: #C13584;
+  --ig-violet: #833AB4;
+  --ig-blue: #5851DB;
+
+  /* Core palette */
+  --ink: #F4F2FF;
+  --paper: #0A0A12;
+  --deep-purple: #833AB4;
+  --orange: #F77737;
+
+  /* Broadcast / render surfaces */
+  --broadcast-bg: #07070E;
+  --broadcast-panel: rgba(16, 12, 34, 0.72);
+  --broadcast-stroke: rgba(255,255,255,0.14);
+  --broadcast-text: #F4F2FF;
+  --broadcast-muted: rgba(244,242,255,0.72);
+
+  /* Accent colors */
+  --sunset-peach: #FCAF45;
+  --dusk-lavender: #833AB4;
+  --sand: #F4E6D4;
+  --cactus: #2AA775;
+  --focus-ring: rgba(225, 48, 108, 0.55);
+
+  /* Gradients */
+  --ig-gradient: linear-gradient(45deg, #FCAF45, #F77737, #FD1D1D, #E1306C, #C13584, #833AB4);
+  --ig-gradient-soft: linear-gradient(135deg, rgba(252,175,69,0.15), rgba(225,48,108,0.15), rgba(131,58,180,0.15));
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  margin: 0;
+  padding: 0;
+}
+
+.font-display {
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.font-cyber {
+  font-family: 'Orbitron', sans-serif;
+}
+
+.font-mono-score {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}

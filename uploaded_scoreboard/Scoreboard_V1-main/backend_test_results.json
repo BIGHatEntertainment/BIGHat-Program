@@ -1,0 +1,107 @@
+{
+  "summary": {
+    "total_tests": 16,
+    "passed_tests": 16,
+    "failed_tests": 0,
+    "success_rate": "100.0%",
+    "timestamp": "2026-02-19T22:55:29.645606"
+  },
+  "detailed_results": [
+    {
+      "test": "Root API Endpoint",
+      "success": true,
+      "details": "Status: 200, Response keys: ['message', 'status']",
+      "timestamp": "2026-02-19T22:55:13.602995"
+    },
+    {
+      "test": "SharePoint Files Fetch",
+      "success": true,
+      "details": "Status: 200, Response keys: ['files', 'count']",
+      "timestamp": "2026-02-19T22:55:21.300444"
+    },
+    {
+      "test": "SharePoint Sync",
+      "success": true,
+      "details": "Status: 200, Response keys: ['synced', 'count']",
+      "timestamp": "2026-02-19T22:55:27.531793"
+    },
+    {
+      "test": "Get Synced Scores",
+      "success": true,
+      "details": "Status: 200, Response keys: ['files', 'count']",
+      "timestamp": "2026-02-19T22:55:27.706263"
+    },
+    {
+      "test": "Get Venue Scores",
+      "success": true,
+      "details": "Status: 200, Response keys: ['files', 'count']",
+      "timestamp": "2026-02-19T22:55:27.863712"
+    },
+    {
+      "test": "Create Preset",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'mode', 'aspect_ratio', 'animation_speed', 'config', 'id', 'created_at', 'updated_at']",
+      "timestamp": "2026-02-19T22:55:28.048130"
+    },
+    {
+      "test": "Get All Presets",
+      "success": true,
+      "details": "Status: 200, Response keys: ['presets']",
+      "timestamp": "2026-02-19T22:55:28.275758"
+    },
+    {
+      "test": "Get Specific Preset",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'mode', 'aspect_ratio', 'animation_speed', 'config', 'id', 'created_at', 'updated_at']",
+      "timestamp": "2026-02-19T22:55:28.409534"
+    },
+    {
+      "test": "Update Preset",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'mode', 'aspect_ratio', 'animation_speed', 'config', 'id', 'created_at', 'updated_at']",
+      "timestamp": "2026-02-19T22:55:28.544553"
+    },
+    {
+      "test": "Delete Preset",
+      "success": true,
+      "details": "Status: 200, Response keys: ['deleted']",
+      "timestamp": "2026-02-19T22:55:28.765829"
+    },
+    {
+      "test": "Create Tournament",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'total_teams', 'bye_count', 'teams', 'bracket_state', 'id', 'created_at', 'updated_at', 'status']",
+      "timestamp": "2026-02-19T22:55:28.878293"
+    },
+    {
+      "test": "Get All Tournaments",
+      "success": true,
+      "details": "Status: 200, Response keys: ['tournaments']",
+      "timestamp": "2026-02-19T22:55:29.067335"
+    },
+    {
+      "test": "Get Specific Tournament",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'total_teams', 'bye_count', 'teams', 'bracket_state', 'id', 'created_at', 'updated_at', 'status']",
+      "timestamp": "2026-02-19T22:55:29.234696"
+    },
+    {
+      "test": "Update Tournament",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'total_teams', 'bye_count', 'teams', 'bracket_state', 'id', 'created_at', 'updated_at', 'status']",
+      "timestamp": "2026-02-19T22:55:29.415027"
+    },
+    {
+      "test": "Advance Tournament",
+      "success": true,
+      "details": "Status: 200, Response keys: ['name', 'total_teams', 'bye_count', 'teams', 'bracket_state', 'id', 'created_at', 'updated_at', 'status']",
+      "timestamp": "2026-02-19T22:55:29.535234"
+    },
+    {
+      "test": "Delete Tournament",
+      "success": true,
+      "details": "Status: 200, Response keys: ['deleted']",
+      "timestamp": "2026-02-19T22:55:29.644659"
+    }
+  ]
+}
