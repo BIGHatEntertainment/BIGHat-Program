@@ -1293,55 +1293,54 @@ async def get_trivia_stats():
 
 @api_router.get("/trivia/locations")
 async def get_trivia_locations():
-    """Get venue locations for trivia round selection"""
+    """Get venue locations for trivia round selection - from real data"""
+    # Try real trivia_locations first
+    locs = await db.trivia_locations.find({}, {"_id": 0}).to_list(100)
+    if locs:
+        import re
+        return [{"name": l["name"], "path": l.get("path", ""), "display_name": re.sub(r'^\d+_', '', l["name"])} for l in locs]
+    # Fallback to venues
     venues_list = await db.venues.find({}, {"_id": 0}).to_list(100)
-    locations = []
-    for i, v in enumerate(venues_list):
-        folder_name = f"{i+1:02d}_{v['name'].replace(' ', '_')}"
-        locations.append({
-            "name": folder_name,
-            "path": f"locations/{folder_name}",
-            "display_name": v['name']
-        })
-    return locations
+    return [{"name": f"{i+1:02d}_{v['name']}", "path": f"locations/{v['name']}", "display_name": v['name']} for i, v in enumerate(venues_list)]
 
 @api_router.get("/trivia/hosts")
 async def get_trivia_hosts():
-    """Get available hosts for trivia presentations"""
+    """Get available hosts for trivia presentations - from real data"""
+    hosts = await db.trivia_hosts.find({}, {"_id": 0}).to_list(100)
+    if hosts:
+        return hosts
     employees = await db.employees.find({}, {"_id": 0, "name": 1, "id": 1}).to_list(100)
     return [{"name": e["name"], "path": f"hosts/{e['name']}.pptx"} for e in employees]
 
 @api_router.get("/trivia/round-files/{round_type}")
 async def get_trivia_round_files(round_type: str, location: Optional[str] = None):
-    """Get available round files for a specific type, filtered by location usage"""
+    """Get available round files from real SharePoint data"""
     round_type_upper = round_type.upper()
     
-    # Define available rounds per type
-    round_pools = {
-        "REG": ["General Knowledge", "Random Facts", "Potpourri", "Grab Bag", "Mixed Bag", "Hodgepodge", "Everything Everywhere", "Brain Dump", "Trivia Salad", "Wild Card"],
-        "MC": ["Pop Culture MC", "Sports MC", "Science MC", "History MC", "Geography MC", "Music MC", "Movies MC", "TV Shows MC", "Food MC", "Animals MC"],
-        "MISC": ["Name That Tune", "Picture Round", "True or False", "Before & After", "Rhyme Time", "Finish The Lyric", "Emoji Decode", "Logo Quiz", "Famous Faces", "Map It Out"],
-        "MYS": ["Mystery Round 1", "Mystery Round 2", "Mystery Round 3", "Mystery Connections", "Mystery Categories", "Mystery Mix", "Hidden Gems", "Cryptic Clues"],
-        "BIG": ["BIG Question: Movies", "BIG Question: History", "BIG Question: Science", "BIG Question: Sports", "BIG Question: Music", "BIG Question: Geography", "BIG Question: Pop Culture", "BIG Question: Food"]
-    }
-    
-    pool = round_pools.get(round_type_upper, round_pools.get(round_type.lower().upper(), []))
+    # Get rounds from the imported real data
+    rounds = await db.trivia_rounds.find({"roundType": round_type_upper}, {"_id": 0}).to_list(500)
     
     # Filter out recently used rounds for this location
-    used_rounds = set()
+    used_paths = set()
     if location:
-        usage = await db.round_usage.find({"location": {"$regex": location, "$options": "i"}, "roundType": round_type_upper}, {"_id": 0, "roundFileName": 1}).to_list(500)
-        used_rounds = {u.get("roundFileName", "") for u in usage}
+        usage = await db.round_usage.find({"location": {"$regex": location, "$options": "i"}}, {"_id": 0, "roundFile": 1}).to_list(1000)
+        used_paths = {u.get("roundFile", "") for u in usage}
     
     results = []
-    for name in pool:
+    for r in rounds:
+        path = r.get("path", "")
         results.append({
-            "name": name,
-            "path": f"rounds/{round_type_upper}/{name}.pptx",
-            "used": name in used_rounds
+            "id": r.get("id", r.get("itemId", "")),
+            "name": r.get("name", r.get("displayName", "")),
+            "path": path,
+            "driveId": r.get("driveId", ""),
+            "itemId": r.get("itemId", ""),
+            "displayName": r.get("displayName", r.get("name", "")),
+            "folder": r.get("folder", round_type_upper),
+            "used": path in used_paths
         })
     
-    return results
+    return sorted(results, key=lambda x: x.get("displayName", x.get("name", "")))
 
 @api_router.post("/trivia/presentations/import")
 async def import_trivia_presentation(request: Request):
