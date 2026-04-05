@@ -9,6 +9,7 @@ import ScheduleSection from '../components/ScheduleSection';
 import ChyronBar from '../components/ChyronBar';
 import ResourcesSection from '../components/ResourcesSection';
 import SlotMachineRandomizer from '../components/trivia/SlotMachineRandomizer';
+import TriviaBuilderWizard from '../components/trivia/TriviaBuilderWizard';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -19,6 +20,7 @@ export default function Dashboard() {
   const [unclaimedEvents, setUnclaimedEvents] = useState([]);
   const [employeeId, setEmployeeId] = useState(null);
   const [showRoulette, setShowRoulette] = useState(false);
+  const [showBuildWizard, setShowBuildWizard] = useState(false);
   const [locations, setLocations] = useState([]);
 
   // Find the schedule employee ID matching the hub user's email
@@ -90,6 +92,9 @@ export default function Dashboard() {
       case 'round-roulette':
         setShowRoulette(true);
         break;
+      case 'build-wizard':
+        setShowBuildWizard(true);
+        break;
       case 'schedule':
         navigate('/schedule');
         break;
@@ -131,6 +136,14 @@ export default function Dashboard() {
         onComplete={(selectedRounds, location, paths, builtPresentation) => {
           setShowRoulette(false);
         }}
+        locations={locations}
+      />
+
+      {/* Build Wizard Popup */}
+      <TriviaBuilderWizard
+        open={showBuildWizard}
+        onClose={() => setShowBuildWizard(false)}
+        onComplete={() => setShowBuildWizard(false)}
         locations={locations}
       />
     </div>
