@@ -51,7 +51,7 @@ const LiveRender = () => {
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === '?') setShowHelp(prev => !prev);
-      if (e.key === 'Escape') setShowHelp(false);
+      if (e.key === 'Escape') { setShowHelp(false); window.location.href = '/scoreboard'; }
       if (e.key === 'f' || e.key === 'F') {
         if (document.fullscreenElement) {
           document.exitFullscreen();

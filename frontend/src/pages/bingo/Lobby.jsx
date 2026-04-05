@@ -132,7 +132,12 @@ export default function Lobby() {
   const prevStep = () => setStep(s => Math.max(s - 1, 0));
 
   return (
-    <div className="min-h-screen bg-gradient-radial flex flex-col items-center justify-center p-8">
+    <div className="min-h-screen bg-gradient-radial flex flex-col items-center justify-center p-8 relative">
+      {/* Back to Dashboard */}
+      <button onClick={() => navigate('/')} className="absolute top-4 left-4 flex items-center gap-2 px-3 py-2 rounded-lg text-sm z-50 hover:bg-white/5 transition-colors" style={{ color: '#fbdd68' }} data-testid="back-to-dashboard">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Dashboard
+      </button>
       {/* Header */}
       <motion.div 
         initial={{ y: -50, opacity: 0 }}

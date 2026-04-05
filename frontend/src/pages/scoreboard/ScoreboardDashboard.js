@@ -415,6 +415,9 @@ const Dashboard = () => {
       <header className="border-b border-pink-500/20 bg-[#0A0A12]/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <button onClick={() => { window.location.href = '/'; }} className="p-2 rounded-lg hover:bg-white/5" data-testid="back-to-dashboard">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbdd68" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </button>
             <div className="h-10 w-10 rounded-xl ig-gradient flex items-center justify-center neon-glow pulse-ring">
               <Zap className="h-5 w-5 text-white" />
             </div>

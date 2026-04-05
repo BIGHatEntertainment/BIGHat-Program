@@ -141,22 +141,18 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1629]">
+    <div className="min-h-screen" style={{ backgroundColor: '#000e2a' }}>
       {/* Header */}
-      <header className="backdrop-blur-md bg-slate-900/70 border-b border-white/5 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <h1
-            data-testid="app-title"
-            className="text-4xl md:text-5xl font-bold tracking-tight uppercase"
-            style={{ fontFamily: "'Space Grotesk', sans-serif" }}
-          >
-            <span className="bg-gradient-to-r from-teal-400 to-blue-500 bg-clip-text text-transparent">
-              BIG Hat Presenter
-            </span>
-          </h1>
-          <p className="text-slate-400 text-sm mt-1 tracking-wide uppercase" style={{ fontFamily: "'Manrope', sans-serif" }}>
-            Trivia Round Creator
-          </p>
+      <header className="sticky top-0 z-50" style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104, 0.15)' }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
+          <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-white/5" data-testid="back-to-dashboard">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbdd68" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <img src="/hat-logo.png" alt="BIG Hat" className="h-9 w-9 object-contain" />
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: '#fbdd68' }}>Round Generator</h1>
+            <p className="text-xs" style={{ color: '#8892b0' }}>Trivia Round Creator</p>
+          </div>
         </div>
       </header>
 
