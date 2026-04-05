@@ -1270,6 +1270,16 @@ try:
 except Exception as e:
     logger.warning(f"Could not load trivia presenter routes: {e}")
 
+# Mount Round Generator routes
+try:
+    from routes import roundmaker as roundmaker_routes
+    if hasattr(roundmaker_routes, 'set_database'):
+        roundmaker_routes.set_database(db)
+    api_router.include_router(roundmaker_routes.router)
+    logger.info("Round Generator routes mounted successfully")
+except Exception as e:
+    logger.warning(f"Could not load Round Generator routes: {e}")
+
 # Include router
 app.include_router(api_router)
 

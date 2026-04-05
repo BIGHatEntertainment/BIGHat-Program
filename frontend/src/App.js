@@ -10,6 +10,8 @@ import ProfilePage from './pages/schedule/ProfilePage';
 import TriviaDashboard from './pages/trivia/TriviaDashboard';
 import TriviaPresenterView from './pages/trivia/TriviaPresenterView';
 import TriviaEditor from './pages/trivia/Editor';
+import RoundMakerDashboard from './pages/roundmaker/RoundMakerDashboard';
+import RoundCreator from './pages/roundmaker/RoundCreator';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
 
@@ -57,6 +59,8 @@ function AppRoutes() {
       <Route path="/trivia" element={<ProtectedRoute><TriviaDashboard /></ProtectedRoute>} />
       <Route path="/trivia/present" element={<ProtectedRoute><TriviaPresenterView /></ProtectedRoute>} />
       <Route path="/trivia/editor" element={<ProtectedRoute><TriviaEditor /></ProtectedRoute>} />
+      <Route path="/roundmaker" element={<ProtectedRoute><RoundMakerDashboard /></ProtectedRoute>} />
+      <Route path="/roundmaker/create/:roundType" element={<ProtectedRoute><RoundCreator /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

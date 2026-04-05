@@ -95,6 +95,9 @@ export default function Dashboard() {
       case 'build-wizard':
         setShowBuildWizard(true);
         break;
+      case 'round-generator':
+        navigate('/roundmaker');
+        break;
       case 'schedule':
         navigate('/schedule');
         break;
