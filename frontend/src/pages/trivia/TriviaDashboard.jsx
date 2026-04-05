@@ -75,8 +75,8 @@ export default function TriviaDashboard() {
   };
 
   const handlePresent = (presId) => {
-    // Open the deployed trivia presenter's editor with this presentation
-    window.open(`${TRIVIA_PRESENTER_URL}/editor?id=${presId}`, '_blank');
+    // Navigate to the in-app presenter view with full details
+    navigate(`/trivia/present?id=${presId}`);
   };
 
   const filteredPresentations = presentations.filter(p => {

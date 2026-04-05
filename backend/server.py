@@ -1449,6 +1449,147 @@ async def save_story_build(request: Request):
     return {"success": True, "path": f"builds/{data.get('location', 'unknown')}"}
 
 
+@api_router.get("/story-builds/list")
+async def list_story_builds():
+    """List trivia builds (from presentations data)"""
+    presentations = await db.trivia_presentations.find({}, {"_id": 0}).sort("createdAt", -1).to_list(100)
+    builds = []
+    for p in presentations:
+        builds.append({
+            "id": p.get("id", ""),
+            "name": p.get("name", ""),
+            "location": p.get("location", ""),
+            "locationFolder": p.get("locationFolder", ""),
+            "host": p.get("host", ""),
+            "numRounds": p.get("numRounds", 5),
+            "roundNames": p.get("roundNames", []),
+            "roundTypes": p.get("roundTypes", []),
+            "createdBy": p.get("createdBy", ""),
+            "createdAt": p.get("createdAt", ""),
+        })
+    return builds
+
+# Trivia viewer routes (for presentation details)
+@api_router.get("/trivia-viewer/list")
+async def list_trivia_viewer(userName: str = "", viewAll: bool = False):
+    """List trivia presentations for viewer"""
+    query = {}
+    if userName and not viewAll:
+        query["createdBy"] = {"$regex": f"^{userName}$", "$options": "i"}
+    presentations = await db.trivia_presentations.find(query, {"_id": 0}).sort("createdAt", -1).to_list(100)
+    return [{
+        "id": p.get("id", ""),
+        "name": p.get("name", ""),
+        "createdBy": p.get("createdBy", ""),
+        "createdAt": p.get("createdAt", ""),
+        "totalSlides": p.get("totalSlides", 0),
+        "location": p.get("location", ""),
+    } for p in presentations]
+
+@api_router.get("/trivia-viewer/{presentation_id}")
+async def get_trivia_viewer_detail(presentation_id: str):
+    """Get full trivia presentation details"""
+    pres = await db.trivia_presentations.find_one({"id": presentation_id}, {"_id": 0})
+    if not pres:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    return {
+        "id": pres.get("id", ""),
+        "name": pres.get("name", ""),
+        "createdBy": pres.get("createdBy", ""),
+        "createdAt": pres.get("createdAt", ""),
+        "location": pres.get("location", ""),
+        "locationFile": pres.get("locationFile", ""),
+        "locationFolder": pres.get("locationFolder", ""),
+        "totalSlides": pres.get("totalSlides", 0),
+        "numRounds": pres.get("numRounds", 5),
+        "roundTypes": pres.get("roundTypes", []),
+        "roundNames": pres.get("roundNames", []),
+        "roundFiles": pres.get("roundFiles", []),
+        "host": pres.get("host", ""),
+        "hostFile": pres.get("hostFile", ""),
+    }
+
+@api_router.delete("/trivia-viewer/delete/{presentation_id}")
+async def delete_trivia_viewer(presentation_id: str):
+    """Delete a trivia presentation"""
+    result = await db.trivia_presentations.delete_one({"id": presentation_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    await db.round_usage.delete_many({"presentationId": presentation_id})
+    await db.presentations.delete_one({"id": presentation_id})
+    return {"message": "Deleted", "id": presentation_id}
+
+# Slide fetcher stubs (sections list for the editor)
+@api_router.get("/slide-fetcher/sections-list/{presentation_id}")
+async def get_sections_list(presentation_id: str):
+    """Get list of sections for a trivia presentation"""
+    pres = await db.trivia_presentations.find_one({"id": presentation_id}, {"_id": 0})
+    if not pres:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    sections = ["host", "location"]
+    for rf in pres.get("roundFiles", []):
+        sections.append(f"round_{rf.get('order', 0)}")
+    if pres.get("sponsorFiles"):
+        sections.append("sponsors")
+    return {"presentationId": presentation_id, "sections": sections, "totalSections": len(sections)}
+
+@api_router.get("/trivia-import/slides-metadata/{presentation_id}")
+async def get_slides_metadata(presentation_id: str):
+    """Get slides metadata for a presentation"""
+    pres = await db.trivia_presentations.find_one({"id": presentation_id}, {"_id": 0})
+    if not pres:
+        return {"hasGridFSSlides": False, "totalSlides": 0, "totalChunks": 0}
+    return {"hasGridFSSlides": False, "totalSlides": pres.get("totalSlides", 0), "totalChunks": 0, "message": "Use the deployed presenter for live slides"}
+
+# Scores route - save to DB instead of SharePoint
+@api_router.post("/scores/save")
+async def save_scores(request: Request):
+    """Save trivia scores to database"""
+    data = await request.json()
+    data["savedAt"] = datetime.now(timezone.utc).isoformat()
+    await db.trivia_scores.insert_one(data)
+    return {"success": True, "teams": len(data.get("teams", []))}
+
+@api_router.get("/scores/history")
+async def get_scores_history(location: Optional[str] = None):
+    """Get saved scores"""
+    query = {}
+    if location:
+        query["locationName"] = {"$regex": location, "$options": "i"}
+    scores = await db.trivia_scores.find(query, {"_id": 0}).sort("savedAt", -1).to_list(100)
+    return scores
+
+# Presentations route stubs for editor compatibility
+@api_router.get("/presentations")
+async def get_presentations_list(userName: str = "", viewAll: bool = False):
+    """List presentations for the editor"""
+    query = {}
+    if userName and not viewAll:
+        query["createdBy"] = {"$regex": f"^{userName}$", "$options": "i"}
+    presentations = await db.presentations.find(query, {"_id": 0}).to_list(200)
+    result = []
+    for p in presentations:
+        result.append({
+            "id": p.get("id", ""),
+            "name": p.get("name", ""),
+            "createdBy": p.get("createdBy", ""),
+            "createdAt": p.get("createdAt", ""),
+            "type": p.get("type", "regular"),
+            "totalSlides": p.get("totalSlides", 0),
+            "slides": [],
+        })
+    return result
+
+@api_router.get("/presentations/{presentation_id}")
+async def get_presentation_detail(presentation_id: str):
+    """Get presentation details for editor"""
+    pres = await db.presentations.find_one({"id": presentation_id}, {"_id": 0})
+    if not pres:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    return pres
+
+
+
 
 # =============================================
 # HEALTH & MISC
