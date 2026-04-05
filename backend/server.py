@@ -1519,6 +1519,22 @@ async def delete_trivia_viewer(presentation_id: str):
     await db.presentations.delete_one({"id": presentation_id})
     return {"message": "Deleted", "id": presentation_id}
 
+
+@api_router.get("/trivia-viewer/{presentation_id}/slides")
+async def get_trivia_viewer_slides(presentation_id: str):
+    """Proxy slide generation to deployed trivia presenter"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.get(f"{trivia_url}/api/trivia-viewer/{presentation_id}/slides")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy viewer slides failed: {e}")
+    raise HTTPException(status_code=503, detail="Slide generation requires the presentation server")
+
+
 # Slide fetcher stubs (sections list for the editor)
 @api_router.get("/slide-fetcher/sections-list/{presentation_id}")
 async def get_sections_list(presentation_id: str):
@@ -1575,7 +1591,7 @@ async def get_imported_slides(presentation_id: str):
     import httpx
     trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.get(f"{trivia_url}/api/trivia-import/slides/{presentation_id}")
             if resp.status_code == 200:
                 return resp.json()
@@ -1589,7 +1605,7 @@ async def get_slide_chunk(presentation_id: str, chunk_number: int):
     import httpx
     trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.get(f"{trivia_url}/api/trivia-import/chunk/{presentation_id}/{chunk_number}")
             if resp.status_code == 200:
                 return resp.json()
@@ -1607,7 +1623,7 @@ async def fetch_section_proxy(presentation_id: str, section_name: str, request: 
     except:
         body = {}
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(f"{trivia_url}/api/slide-fetcher/fetch-section/{presentation_id}/{section_name}", json=body)
             if resp.status_code == 200:
                 return resp.json()
@@ -1622,7 +1638,7 @@ async def store_all_slides_proxy(presentation_id: str, request: Request):
     trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
     try:
         body = await request.json()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(f"{trivia_url}/api/slide-fetcher/store-all/{presentation_id}", json=body)
             if resp.status_code == 200:
                 return resp.json()
