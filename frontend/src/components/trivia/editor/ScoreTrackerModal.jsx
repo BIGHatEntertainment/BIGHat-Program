@@ -5,17 +5,14 @@ import { Trash2, ArrowUpDown, Send, X } from 'lucide-react';
 import { toast } from '../../../utils/toastCompat';
 
 const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores, presentationId, roundTypes = [] }) => {
-  
   const [roundMode, setRoundMode] = useState(defaultRoundMode);
   const [teams, setTeams] = useState([]);
   const maxTeams = 20;
-  const [focusedInput, setFocusedInput] = useState(null); // Track focused input for team highlighting
-  
-  // Track previous state for comparison
+  const [focusedInput, setFocusedInput] = useState(null);
+
   const prevOpenRef = useRef(false);
   const prevPresentationIdRef = useRef(null);
 
-  // Color mapping for round types
   const roundColorMap = useMemo(() => ({
     'MC': '#22c55e',
     'REG': '#ef4444',
@@ -24,7 +21,6 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     'BIG': '#eab308'
   }), []);
 
-  // Multiplier mapping for round types
   const roundMultiplierMap = useMemo(() => ({
     'MC': 1,
     'REG': 1,
@@ -33,7 +29,6 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     'BIG': 3
   }), []);
 
-  // Base round configurations (fallback when no roundTypes provided)
   const baseRoundConfigs = useMemo(() => ({
     3: [
       { label: 'REG', color: '#ef4444', multiplier: 1 },
@@ -57,9 +52,7 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     ]
   }), []);
 
-  // Smart round configuration: use roundTypes from presentation if available
   const currentRounds = useMemo(() => {
-    // If we have roundTypes from the presentation, use them to build the config
     if (roundTypes && roundTypes.length > 0 && roundTypes.length === roundMode) {
       return roundTypes.map(type => {
         const upperType = (type || 'REG').toUpperCase();
@@ -70,7 +63,6 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
         };
       });
     }
-    // Fallback to base configs
     return baseRoundConfigs[roundMode] || baseRoundConfigs[5];
   }, [roundMode, roundTypes, roundColorMap, roundMultiplierMap, baseRoundConfigs]);
 
@@ -84,36 +76,25 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     return initialTeams;
   }, [maxTeams]);
 
-  // SMART AUTO-DETECT & INITIALIZE: When modal opens, automatically set round mode and load data
-  // Note: setState in effect is intentional here for initialization on modal open
   useEffect(() => {
     const justOpened = isOpen && !prevOpenRef.current;
     const presentationChanged = presentationId !== prevPresentationIdRef.current;
-    
+
     if (isOpen && (justOpened || presentationChanged)) {
-      // Determine the round mode: first from defaultRoundMode, then from roundTypes length
       let detectedRoundMode = defaultRoundMode;
-      
-      // If roundTypes array is provided and has valid length, use that
       if (roundTypes && roundTypes.length > 0 && [3, 5, 6].includes(roundTypes.length)) {
         detectedRoundMode = roundTypes.length;
       }
-      
-      // Auto-set the round mode based on presentation's numRounds or roundTypes
-      // This is the "smart" feature that detects 3, 5, or 6 round presentations
       if ([3, 5, 6].includes(detectedRoundMode)) {
         setRoundMode(detectedRoundMode);
       }
-      
-      // Load saved data or initialize fresh - ONLY if we have a valid presentationId
+
       if (presentationId && presentationId !== 'undefined') {
         const storageKey = `triviaScoreData_${presentationId}`;
         const savedData = localStorage.getItem(storageKey);
         if (savedData) {
           const parsed = JSON.parse(savedData);
           setTeams(parsed.teams || initializeTeams());
-          // Only use saved roundMode if we're using default (5) and saved is valid
-          // This allows users to override the presentation's round count
           if (detectedRoundMode === 5 && parsed.roundMode && [3, 5, 6].includes(parsed.roundMode)) {
             setRoundMode(parsed.roundMode);
           }
@@ -121,30 +102,24 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
           setTeams(initializeTeams());
         }
       } else {
-        // No presentation ID - just initialize fresh
         setTeams(initializeTeams());
       }
     }
-    
-    // Update refs for next comparison
+
     prevOpenRef.current = isOpen;
     prevPresentationIdRef.current = presentationId;
   }, [isOpen, presentationId, defaultRoundMode, roundTypes, initializeTeams]);
 
-  // Sync roundMode when roundTypes arrive asynchronously while modal is already open
   useEffect(() => {
     if (isOpen && roundTypes?.length > 0 && [3, 5, 6].includes(roundTypes.length) && roundMode !== roundTypes.length) {
       const newLen = roundTypes.length;
-      // Defer setState to avoid synchronous cascading render in effect
       const timer = setTimeout(() => {
-        console.log(`[ScoreTracker] Syncing roundMode -> ${newLen} (roundTypes arrived async)`);
         setRoundMode(newLen);
       }, 0);
       return () => clearTimeout(timer);
     }
   }, [roundTypes, isOpen, roundMode]);
 
-  // Save to localStorage with debounce to prevent race conditions during rapid input
   const saveTimerRef = useRef(null);
   useEffect(() => {
     if (teams.length > 0 && isOpen && presentationId) {
@@ -157,11 +132,9 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [teams, roundMode, isOpen, presentationId]);
 
-  // Calculate total for a team
   const calculateTotal = (team) => {
     if (!team) return 0;
     let total = parseInt(team.swag) || 0;
-    // CRASH FIX: Add bounds checking for team.rounds
     const teamRounds = Array.isArray(team.rounds) ? team.rounds : [];
     currentRounds.forEach((round, index) => {
       const score = parseInt(teamRounds[index]) || 0;
@@ -171,7 +144,6 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     return total;
   };
 
-  // Update team data
   const updateTeam = (teamId, field, value) => {
     setTeams(prev => prev.map(team => {
       if (team.id === teamId) {
@@ -188,91 +160,53 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
     }));
   };
 
-  // Clear all data
   const handleClear = () => {
     if (window.confirm('Are you sure you want to clear all scores? This action cannot be undone.')) {
       setTeams(initializeTeams());
-      toast({
-        title: 'Cleared',
-        description: 'All scores have been cleared',
-      });
+      toast({ title: 'Cleared', description: 'All scores have been cleared' });
     }
   };
 
-  // Sort teams by total score
   const handleSort = () => {
-    const sorted = [...teams].sort((a, b) => {
-      const totalA = calculateTotal(a);
-      const totalB = calculateTotal(b);
-      return totalB - totalA;
-    });
+    const sorted = [...teams].sort((a, b) => calculateTotal(b) - calculateTotal(a));
     setTeams(sorted);
-    toast({
-      title: 'Sorted',
-      description: 'Teams sorted by total score',
-    });
+    toast({ title: 'Sorted', description: 'Teams sorted by total score' });
   };
 
-  // Send to presentation
   const handleSendToPresentation = () => {
-    // Filter out empty teams with robust null checking
     const activeTeams = teams.filter(team => team && team.name && team.name.trim() !== '');
-    
     if (activeTeams.length === 0) {
-      toast({
-        title: 'No Teams',
-        description: 'Please add at least one team with a name',
-        variant: 'destructive'
-      });
+      toast({ title: 'No Teams', description: 'Please add at least one team with a name', variant: 'destructive' });
       return;
     }
-    
-    // Prepare data for export with validation
     const exportData = activeTeams.map(team => ({
       name: team.name || '',
       swag: team.swag || '',
       rounds: Array.isArray(team.rounds) ? team.rounds.slice(0, roundMode) : [],
       total: calculateTotal(team)
     }));
-
-    // Call parent callback
     if (onSendScores) {
       onSendScores(exportData, roundMode, currentRounds);
     }
-
-    toast({
-      title: 'Sent to Presentation',
-      description: `${activeTeams.length} teams sent successfully`,
-    });
-    
-    // Close modal after sending
+    toast({ title: 'Sent to Presentation', description: `${activeTeams.length} teams sent successfully` });
     onClose();
   };
 
-  // Change round mode
   const changeRoundMode = (mode) => {
     if (window.confirm(`Switch to ${mode}-round mode? This will keep your data but adjust the rounds.`)) {
       setRoundMode(mode);
-      toast({
-        title: 'Mode Changed',
-        description: `Switched to ${mode}-round mode`,
-      });
+      toast({ title: 'Mode Changed', description: `Switched to ${mode}-round mode` });
     }
   };
 
   if (!isOpen) return null;
 
-  // Helper function to handle keyboard navigation between rows
   const handleKeyDown = (e, teamIndex, fieldType) => {
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      e.preventDefault(); // Prevent number increment/decrement
-      
+      e.preventDefault();
       const direction = e.key === 'ArrowUp' ? -1 : 1;
       const newIndex = teamIndex + direction;
-      
-      // Check bounds
       if (newIndex >= 0 && newIndex < teams.length) {
-        // Find the same type of input in the target row
         let selector;
         if (fieldType === 'swag') {
           selector = `[data-testid="swag-input-${newIndex}"]`;
@@ -282,12 +216,9 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
           const roundIdx = fieldType.replace('round', '');
           selector = `[data-testid="round-${roundIdx}-input-${newIndex}"]`;
         }
-        
         if (selector) {
           const nextInput = document.querySelector(selector);
-          if (nextInput) {
-            nextInput.focus();
-          }
+          if (nextInput) nextInput.focus();
         }
       }
     }
@@ -302,42 +233,16 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-3xl font-bold text-gray-800">BIG Hat Trivia Score Tracker</h1>
               <div className="flex gap-3 items-center">
-                <Button
-                  onClick={() => changeRoundMode(3)}
-                  className={`font-semibold ${
-                    roundMode === 3 
-                      ? 'bg-green-500 hover:bg-green-600 text-white' 
-                      : 'bg-yellow-400 hover:bg-yellow-500 text-black'
-                  }`}
-                >
-                  3 Rounds
-                </Button>
-                <Button
-                  onClick={() => changeRoundMode(5)}
-                  className={`font-semibold ${
-                    roundMode === 5 
-                      ? 'bg-green-500 hover:bg-green-600 text-white' 
-                      : 'bg-yellow-400 hover:bg-yellow-500 text-black'
-                  }`}
-                >
-                  5 Rounds
-                </Button>
-                <Button
-                  onClick={() => changeRoundMode(6)}
-                  className={`font-semibold ${
-                    roundMode === 6 
-                      ? 'bg-green-500 hover:bg-green-600 text-white' 
-                      : 'bg-yellow-400 hover:bg-yellow-500 text-black'
-                  }`}
-                >
-                  6 Rounds
-                </Button>
-                <Button
-                  onClick={onClose}
-                  variant="ghost"
-                  size="sm"
-                  className="ml-4 bg-red-500 hover:bg-red-600 text-white"
-                >
+                {[3, 5, 6].map(mode => (
+                  <Button
+                    key={mode}
+                    onClick={() => changeRoundMode(mode)}
+                    className={`font-semibold ${roundMode === mode ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-black'}`}
+                  >
+                    {mode} Rounds
+                  </Button>
+                ))}
+                <Button onClick={onClose} variant="ghost" size="sm" className="ml-4 bg-red-500 hover:bg-red-600 text-white">
                   <X className="w-5 h-5" />
                 </Button>
               </div>
@@ -345,27 +250,14 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
 
             {/* Action Buttons */}
             <div className="flex gap-3 flex-wrap">
-              <Button
-                onClick={handleClear}
-                variant="destructive"
-                className="flex items-center gap-2"
-              >
-                <Trash2 size={18} />
-                Clear
+              <Button onClick={handleClear} variant="destructive" className="flex items-center gap-2">
+                <Trash2 size={18} /> Clear
               </Button>
-              <Button
-                onClick={handleSort}
-                className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-black"
-              >
-                <ArrowUpDown size={18} />
-                Sort
+              <Button onClick={handleSort} className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-black">
+                <ArrowUpDown size={18} /> Sort
               </Button>
-              <Button
-                onClick={handleSendToPresentation}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
-              >
-                <Send size={18} />
-                Send to Presentation
+              <Button onClick={handleSendToPresentation} className="flex items-center gap-2 bg-green-600 hover:bg-green-700">
+                <Send size={18} /> Send to Presentation
               </Button>
             </div>
           </div>
@@ -379,15 +271,9 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
                     <th className="border border-gray-400 p-2 text-sm font-bold w-20 bg-gray-600 text-white">Swag</th>
                     <th className="border border-gray-400 p-2 text-sm font-bold min-w-[250px] bg-gray-600 text-white">Team Name</th>
                     {currentRounds.map((round, index) => (
-                      <th
-                        key={index}
-                        className="border border-gray-400 p-2 text-sm font-bold w-24"
-                        style={{ backgroundColor: round.color, color: 'white' }}
-                      >
+                      <th key={index} className="border border-gray-400 p-2 text-sm font-bold w-24" style={{ backgroundColor: round.color, color: 'white' }}>
                         {round.label}
-                        {round.multiplier > 1 && (
-                          <span className="text-xs ml-1">(x{round.multiplier})</span>
-                        )}
+                        {round.multiplier > 1 && <span className="text-xs ml-1">(x{round.multiplier})</span>}
                       </th>
                     ))}
                     <th className="border border-gray-400 p-2 text-sm font-bold w-24 bg-blue-600 text-white">Total</th>
@@ -395,63 +281,54 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
                 </thead>
                 <tbody>
                   {teams.map((team, teamIndex) => {
-                    // Check if any score input for this team is currently focused
                     const isTeamHighlighted = focusedInput?.teamId === team.id && focusedInput?.type === 'score';
-                    
                     return (
-                    <tr key={team.id} className={teamIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="border border-gray-400 p-1">
-                        <Input
-                          type="number"
-                          value={team.swag}
-                          onChange={(e) => updateTeam(team.id, 'swag', e.target.value)}
-                          onFocus={() => setFocusedInput({ teamId: team.id, type: 'score' })}
-                          onBlur={() => setFocusedInput(null)}
-                          onKeyDown={(e) => handleKeyDown(e, teamIndex, 'swag')}
-                          className="w-full text-center border-0 focus-visible:ring-0 bg-transparent text-black font-medium"
-                          min="0"
-                          data-testid={`swag-input-${teamIndex}`}
-                        />
-                      </td>
-                      <td className={`border border-gray-400 p-1 transition-all duration-200 ${
-                        isTeamHighlighted 
-                          ? 'ring-4 ring-yellow-400 ring-inset bg-yellow-100' 
-                          : ''
-                      }`}>
-                        <Input
-                          type="text"
-                          value={team.name}
-                          onChange={(e) => updateTeam(team.id, 'name', e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(e, teamIndex, 'name')}
-                          className={`w-full border-0 focus-visible:ring-0 font-medium placeholder:text-blue-300 transition-all duration-200 ${
-                            isTeamHighlighted 
-                              ? 'bg-yellow-400 text-black font-bold' 
-                              : 'bg-blue-800 text-white'
-                          }`}
-                          placeholder="Enter team name"
-                          data-testid={`team-name-input-${teamIndex}`}
-                        />
-                      </td>
-                      {currentRounds.map((round, roundIndex) => (
-                        <td key={roundIndex} className="border border-gray-400 p-1">
+                      <tr key={team.id} className={teamIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="border border-gray-400 p-1">
                           <Input
                             type="number"
-                            value={team.rounds[roundIndex]}
-                            onChange={(e) => updateTeam(team.id, `round${roundIndex}`, e.target.value)}
-                            onFocus={() => setFocusedInput({ teamId: team.id, type: 'score', roundIndex })}
+                            value={team.swag}
+                            onChange={(e) => updateTeam(team.id, 'swag', e.target.value)}
+                            onFocus={() => setFocusedInput({ teamId: team.id, type: 'score' })}
                             onBlur={() => setFocusedInput(null)}
-                            onKeyDown={(e) => handleKeyDown(e, teamIndex, `round${roundIndex}`)}
+                            onKeyDown={(e) => handleKeyDown(e, teamIndex, 'swag')}
                             className="w-full text-center border-0 focus-visible:ring-0 bg-transparent text-black font-medium"
                             min="0"
-                            data-testid={`round-${roundIndex}-input-${teamIndex}`}
+                            data-testid={`swag-input-${teamIndex}`}
                           />
                         </td>
-                      ))}
-                      <td className="border border-gray-400 p-2 text-center font-bold text-lg bg-blue-600 text-white">
-                        {calculateTotal(team)}
-                      </td>
-                    </tr>
-                  )})}
+                        <td className={`border border-gray-400 p-1 transition-all duration-200 ${isTeamHighlighted ? 'ring-4 ring-yellow-400 ring-inset bg-yellow-100' : ''}`}>
+                          <Input
+                            type="text"
+                            value={team.name}
+                            onChange={(e) => updateTeam(team.id, 'name', e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, teamIndex, 'name')}
+                            className={`w-full border-0 focus-visible:ring-0 font-medium placeholder:text-blue-300 transition-all duration-200 ${isTeamHighlighted ? 'bg-yellow-400 text-black font-bold' : 'bg-blue-800 text-white'}`}
+                            placeholder="Enter team name"
+                            data-testid={`team-name-input-${teamIndex}`}
+                          />
+                        </td>
+                        {currentRounds.map((round, roundIndex) => (
+                          <td key={roundIndex} className="border border-gray-400 p-1">
+                            <Input
+                              type="number"
+                              value={team.rounds[roundIndex]}
+                              onChange={(e) => updateTeam(team.id, `round${roundIndex}`, e.target.value)}
+                              onFocus={() => setFocusedInput({ teamId: team.id, type: 'score', roundIndex })}
+                              onBlur={() => setFocusedInput(null)}
+                              onKeyDown={(e) => handleKeyDown(e, teamIndex, `round${roundIndex}`)}
+                              className="w-full text-center border-0 focus-visible:ring-0 bg-transparent text-black font-medium"
+                              min="0"
+                              data-testid={`round-${roundIndex}-input-${teamIndex}`}
+                            />
+                          </td>
+                        ))}
+                        <td className="border border-gray-400 p-2 text-center font-bold text-lg bg-blue-600 text-white">
+                          {calculateTotal(team)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
