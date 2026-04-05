@@ -12,6 +12,9 @@ import TriviaPresenterView from './pages/trivia/TriviaPresenterView';
 import TriviaEditor from './pages/trivia/Editor';
 import RoundMakerDashboard from './pages/roundmaker/RoundMakerDashboard';
 import RoundCreator from './pages/roundmaker/RoundCreator';
+import BingoLobby from './pages/bingo/Lobby';
+import BingoHostDashboard from './pages/bingo/HostDashboard';
+import BingoAudienceView from './pages/bingo/AudienceView';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
 
@@ -61,6 +64,9 @@ function AppRoutes() {
       <Route path="/trivia/editor" element={<ProtectedRoute><TriviaEditor /></ProtectedRoute>} />
       <Route path="/roundmaker" element={<ProtectedRoute><RoundMakerDashboard /></ProtectedRoute>} />
       <Route path="/roundmaker/create/:roundType" element={<ProtectedRoute><RoundCreator /></ProtectedRoute>} />
+      <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
+      <Route path="/bingo/host" element={<ProtectedRoute><BingoHostDashboard /></ProtectedRoute>} />
+      <Route path="/bingo/audience" element={<ProtectedRoute><BingoAudienceView /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

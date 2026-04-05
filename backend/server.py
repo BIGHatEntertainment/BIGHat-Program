@@ -1280,8 +1280,42 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Round Generator routes: {e}")
 
+# Mount Bingo routes
+try:
+    from routes import bingo as bingo_routes
+    if hasattr(bingo_routes, 'set_database'):
+        bingo_routes.set_database(db)
+    api_router.include_router(bingo_routes.router)
+    logger.info("Bingo routes mounted successfully")
+except Exception as e:
+    logger.warning(f"Could not load Bingo routes: {e}")
+
 # Include router
 app.include_router(api_router)
+
+
+# Bingo WebSocket endpoint (must be on app level, not sub-router)
+try:
+    from routes.bingo import manager as bingo_manager
+    from fastapi import WebSocket, WebSocketDisconnect
+    
+    @app.websocket("/api/bingo/ws/game")
+    async def bingo_websocket(websocket: WebSocket):
+        await bingo_manager.connect(websocket)
+        try:
+            while True:
+                data = await websocket.receive_json()
+                if data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+        except WebSocketDisconnect:
+            bingo_manager.disconnect(websocket)
+        except Exception:
+            bingo_manager.disconnect(websocket)
+    
+    logger.info("Bingo WebSocket endpoint registered at /api/bingo/ws/game")
+except Exception as e:
+    logger.warning(f"Could not register Bingo WebSocket: {e}")
+
 
 @app.get("/health")
 async def root_health():

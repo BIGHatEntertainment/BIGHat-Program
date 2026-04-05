@@ -1,0 +1,154 @@
+{
+  "identity": {
+    "brand_name": "BIG Hat Entertainment",
+    "app_name": "Music Bingo",
+    "style_reference": "Trivia-Maestro_V4",
+    "design_philosophy": {
+      "core_vibe": "Vegas Nightclub meets Pro DJ Software",
+      "emotional_tone": "Energetic, Professional, High-Stakes, Fun",
+      "visual_archetype": "Electric & Neon",
+      "key_principles": [
+        "Dark Mode Only: The app lives in bars and venues. No light mode.",
+        "High Contrast: Text must pop against dark backgrounds.",
+        "Tactical Controls: Host buttons must be large and mistake-proof.",
+        "Audience Spectacle: The TV view is for entertainment, not just data."
+      ]
+    }
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Anton, sans-serif",
+      "body": "Manrope, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "imports": [
+      "https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap"
+    ],
+    "usage_rules": {
+      "headings": "Use 'Anton' for all major headers, round titles, and the 'BINGO' shout. Tracking-wide for effect.",
+      "body": "Use 'Manrope' for all UI controls, lists, and settings. It has excellent legibility for numbers.",
+      "numbers": "Use 'Manrope' (Bold) or 'Anton' for the Bingo Numbers. They are the stars of the show."
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#0A0A0A",
+      "foreground": "#FAFAFA",
+      "card": "#121212",
+      "card_foreground": "#FFFFFF",
+      "popover": "#171717",
+      "popover_foreground": "#FFFFFF",
+      "primary": "#D946EF",
+      "primary_foreground": "#FFFFFF",
+      "secondary": "#8B5CF6",
+      "secondary_foreground": "#FFFFFF",
+      "muted": "#27272A",
+      "muted_foreground": "#A1A1AA",
+      "accent": "#06B6D4",
+      "accent_foreground": "#000000",
+      "destructive": "#EF4444",
+      "destructive_foreground": "#FFFFFF",
+      "border": "#27272A",
+      "input": "#27272A",
+      "ring": "#D946EF"
+    },
+    "semantic_usage": {
+      "host_controls": "Primary (Fuchsia) for 'Call Number', Accent (Cyan) for 'Timer'.",
+      "bingo_button": "Gold (#EAB308) or Bright Green (#22C55E) for the 'Verify Bingo' moment.",
+      "audience_bg": "Deep gradient from #0A0A0A to #2E0249.",
+      "video_player_border": "Neon glow using Primary color."
+    }
+  },
+  "layout_strategies": {
+    "host_dashboard": {
+      "grid_type": "High Density Grid (Bento Mode B)",
+      "structure": [
+        "Header: Timer, Round Info, Audience Toggle",
+        "Main Left (2/3): Video Player (The Hero)",
+        "Main Right (1/3): Current Number, Last 5 Numbers, Control Panel",
+        "Bottom: Bingo Board Grid (Small view for verification)"
+      ],
+      "spacing": "Compact (p-4) to fit everything on a laptop screen."
+    },
+    "audience_view": {
+      "grid_type": "Tetris Grid (Bento Mode A)",
+      "structure": [
+        "Center/Hero: Current Number (Massive)",
+        "Top: Round Name & Timer",
+        "Bottom: Recently Called Numbers (Horizontal Scroll or Grid)",
+        "Overlay: Winner Celebration (Z-Index 50)"
+      ],
+      "spacing": "Generous (p-12) for TV visibility."
+    }
+  },
+  "components": {
+    "custom_components": [
+      {
+        "name": "BingoBall",
+        "description": "A 3D-looking sphere using CSS radial gradients. Animates in when called.",
+        "props": ["number", "size", "state (active, history, board)"]
+      },
+      {
+        "name": "VideoPlayerFrame",
+        "description": "Wrapper for the video player with a neon border and 'Now Playing' overlay.",
+        "props": ["src", "isPlaying", "volume"]
+      },
+      {
+        "name": "CelebrationOverlay",
+        "description": "Full-screen overlay with confetti and 'BINGO!' text animation.",
+        "props": ["winnerName", "prize"]
+      }
+    ],
+    "shadcn_customizations": {
+      "Button": "Rounded-md, font-bold. Primary buttons should have a subtle 'glow' shadow.",
+      "Card": "Border-zinc-800, bg-zinc-900/50 (glassmorphism).",
+      "Dialog": "Backdrop-blur-xl, border-zinc-700."
+    }
+  },
+  "assets": {
+    "image_urls": [
+      {
+        "category": "backgrounds",
+        "url": "https://images.unsplash.com/photo-1547336784-331eea969948?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Abstract Neon Green/Blue/Red - Good for Audience Background"
+      },
+      {
+        "category": "backgrounds",
+        "url": "https://images.unsplash.com/photo-1718367583651-ce9817a15132?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Disco Ball Dark - Good for Lobby or Wait Screen"
+      }
+    ]
+  },
+  "motion": {
+    "animations": [
+      "BallRoll: CSS keyframe animation for the ball entering the screen.",
+      "NumberPop: Scale up/down bounce effect when a number is called.",
+      "Confetti: Use 'canvas-confetti' library for the win state."
+    ],
+    "transitions": "All interactive elements must have `transition-all duration-200 ease-out`."
+  },
+  "universal_guidelines": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: `transition: all`. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }` in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use `sonner` for toasts"
+  ],
+  "dependencies_to_install": [
+    "yarn add canvas-confetti",
+    "yarn add @phosphor-icons/react",
+    "yarn add framer-motion"
+  ],
+  "instructions_to_main_agent": "You are building the 'Trivia-Maestro_V4' sibling app. It must feel like part of the same suite. Use the provided colors and fonts strictly. The Host Dashboard is your complex view; keep it organized. The Audience View is your 'Art' view; make it beautiful and readable from 20 feet away."
+}

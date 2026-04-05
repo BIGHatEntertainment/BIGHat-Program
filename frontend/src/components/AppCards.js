@@ -43,7 +43,7 @@ export default function AppCards() {
             if (app.id === 'trivia') {
               navigate('/trivia');
             } else if (app.id === 'bingo') {
-              navigate('/schedule');
+              navigate('/bingo');
             }
           }} />
         ))}
