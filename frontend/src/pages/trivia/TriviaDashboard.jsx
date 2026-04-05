@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import {
-  HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock,
+  HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock, ExternalLink,
   ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const TRIVIA_PRESENTER_URL = 'https://quiz-presenter.emergent.host';
 
 const ROUND_TYPE_COLORS = {
   MC: { bg: '#22c55e', label: 'Multiple Choice' },
@@ -73,8 +74,13 @@ export default function TriviaDashboard() {
     }
   };
 
+  const handlePresent = (presId) => {
+    // Open the deployed trivia presenter's editor with this presentation
+    window.open(`${TRIVIA_PRESENTER_URL}/editor?id=${presId}`, '_blank');
+  };
+
   const filteredPresentations = presentations.filter(p => {
-    if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase()) && !p.location?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (searchTerm && !p.name?.toLowerCase().includes(searchTerm.toLowerCase()) && !p.location?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
 
@@ -96,7 +102,7 @@ export default function TriviaDashboard() {
               <img src="/hat-logo.png" alt="BIG Hat" className="h-10 w-10 object-contain" />
               <div>
                 <h1 className="text-xl font-bold" style={{ color: '#fbdd68' }}>Trivia Presenter</h1>
-                <p className="text-xs" style={{ color: '#8892b0' }}>Manage trivia presentations</p>
+                <p className="text-xs" style={{ color: '#8892b0' }}>Manage & present trivia shows</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -150,11 +156,12 @@ export default function TriviaDashboard() {
               <div className="text-center py-12 glass-card rounded-xl">
                 <HelpCircle size={48} className="mx-auto mb-3 opacity-40" style={{ color: '#8892b0' }} />
                 <p style={{ color: '#8892b0' }}>No trivia presentations found</p>
+                <p className="text-xs mt-1" style={{ color: '#8892b0', opacity: 0.6 }}>Use the Build Wizard or Round Roulette from the dashboard to create one</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredPresentations.map(pres => (
-                  <PresentationCard key={pres.id} pres={pres} onDelete={handleDelete} isAdmin={isAdmin} />
+                  <PresentationCard key={pres.id} pres={pres} onDelete={handleDelete} onPresent={handlePresent} isAdmin={isAdmin} />
                 ))}
               </div>
             )}
@@ -230,9 +237,10 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   );
 }
 
-function PresentationCard({ pres, onDelete, isAdmin }) {
+function PresentationCard({ pres, onDelete, onPresent, isAdmin }) {
   const createdDate = new Date(pres.createdAt);
   const roundTypes = pres.roundTypes || pres.roundFiles?.map(r => r.type) || [];
+  const roundNames = pres.roundNames || [];
 
   return (
     <div className="glass-card rounded-xl p-5 group" data-testid={`trivia-pres-${pres.id}`}>
@@ -267,8 +275,25 @@ function PresentationCard({ pres, onDelete, isAdmin }) {
         </div>
       </div>
 
+      {/* Round Lineup */}
+      {roundNames.length > 0 && (
+        <div className="mb-3 space-y-1">
+          {roundNames.slice(0, 6).map((name, idx) => {
+            const type = roundTypes[idx] || '';
+            const conf = ROUND_TYPE_COLORS[type] || { bg: '#8892b0' };
+            return (
+              <div key={idx} className="flex items-center gap-2 text-[11px]">
+                <span className="w-4 text-center font-bold" style={{ color: conf.bg }}>{idx + 1}</span>
+                <span className="font-bold uppercase w-8" style={{ color: conf.bg, fontSize: '9px' }}>{type}</span>
+                <span className="text-white truncate flex-1">{name}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Round Type Badges */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 mb-4">
         {roundTypes.map((rt, idx) => {
           const conf = ROUND_TYPE_COLORS[rt] || { bg: '#8892b0', label: rt };
           return (
@@ -278,12 +303,22 @@ function PresentationCard({ pres, onDelete, isAdmin }) {
           );
         })}
       </div>
+
+      {/* Present Button */}
+      <button
+        onClick={() => onPresent(pres.id)}
+        className="w-full py-2.5 rounded-lg font-bold text-sm transition-all hover:shadow-lg flex items-center justify-center gap-2"
+        style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 10px rgba(251, 221, 104, 0.2)' }}
+        data-testid={`present-trivia-${pres.id}`}
+      >
+        <Play size={16} />
+        Open Presentation
+      </button>
     </div>
   );
 }
 
 function LocationRoundHistory({ location, rounds, count, expanded, onToggle }) {
-  // Group rounds by type
   const roundsByType = {};
   rounds.forEach(r => {
     const type = r.roundType || 'Unknown';
@@ -291,18 +326,20 @@ function LocationRoundHistory({ location, rounds, count, expanded, onToggle }) {
     roundsByType[type].push(r);
   });
 
+  // Clean location name for display
+  const displayName = location ? location.split('/').pop().replace(/^\d+_/, '') : 'Unknown';
+
   return (
-    <div className="glass-card rounded-xl overflow-hidden" data-testid={`location-history-${location}`}>
+    <div className="glass-card rounded-xl overflow-hidden" data-testid={`location-history-${displayName}`}>
       <button onClick={onToggle} className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors">
         <div className="flex items-center gap-3">
           <MapPin size={18} style={{ color: '#fbdd68' }} />
           <div className="text-left">
-            <h4 className="text-sm font-semibold text-white">{location || 'Unknown Location'}</h4>
+            <h4 className="text-sm font-semibold text-white">{displayName}</h4>
             <p className="text-xs" style={{ color: '#8892b0' }}>{count} rounds used</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Round type summary badges */}
           <div className="hidden sm:flex gap-1.5">
             {Object.entries(roundsByType).map(([type, items]) => {
               const conf = ROUND_TYPE_COLORS[type] || { bg: '#8892b0' };
@@ -336,7 +373,7 @@ function LocationRoundHistory({ location, rounds, count, expanded, onToggle }) {
                           <span className="text-white truncate flex-1">{r.roundFileName || r.roundFile?.split('/').pop()?.replace('.pptx', '') || 'Unknown'}</span>
                           <div className="flex items-center gap-3 shrink-0 ml-2">
                             <span style={{ color: '#8892b0' }}>{r.usedBy}</span>
-                            {usedDate && <span style={{ color: '#8892b0' }}>{usedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                            {usedDate && !isNaN(usedDate) && <span style={{ color: '#8892b0' }}>{usedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                           </div>
                         </div>
                       );
