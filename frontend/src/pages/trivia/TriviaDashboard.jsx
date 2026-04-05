@@ -47,15 +47,23 @@ export default function TriviaDashboard() {
     setLoading(true);
     try {
       const [presRes, statsRes] = await Promise.all([
-        axios.get(`${API}/trivia/presentations`, { params: { userName, viewAll } }),
-        axios.get(`${API}/trivia/stats`),
+        axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll } }),
+        axios.get(`${API}/admin/stats`, { params: { userName } }),
       ]);
       setPresentations(presRes.data);
       setStats(statsRes.data);
 
       if (isAdmin) {
-        const historyRes = await axios.get(`${API}/trivia/round-usage/by-location`);
-        setRoundHistory(historyRes.data);
+        const historyRes = await axios.get(`${API}/admin/round-usage`, { params: { userName } });
+        // Group by location
+        const grouped = {};
+        for (const r of historyRes.data) {
+          const loc = r.location || r.locationName || 'Unknown';
+          if (!grouped[loc]) grouped[loc] = { _id: loc, count: 0, rounds: [] };
+          grouped[loc].count++;
+          grouped[loc].rounds.push(r);
+        }
+        setRoundHistory(Object.values(grouped));
       }
     } catch (err) {
       console.error('Failed to load trivia data:', err);
@@ -67,7 +75,7 @@ export default function TriviaDashboard() {
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this presentation?')) return;
     try {
-      await axios.delete(`${API}/trivia/presentations/${id}`);
+      await axios.delete(`${API}/trivia-viewer/delete/${id}`);
       setPresentations(prev => prev.filter(p => p.id !== id));
     } catch (err) {
       console.error('Delete failed:', err);
