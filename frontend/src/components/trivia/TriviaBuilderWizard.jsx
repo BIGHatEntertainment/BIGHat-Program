@@ -1,303 +1,743 @@
 import React, { useState, useEffect } from 'react';
-import { Wand2, MapPin, User, ChevronRight, ChevronLeft, X, Loader2, Check, HelpCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Input } from '../ui/input';
+import { Loader2, ChevronRight, ChevronLeft } from 'lucide-react';
 import axios from 'axios';
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API_BASE = `${BACKEND_URL}/api`;
+import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-
-const ROUND_TYPE_CONFIG = {
-  MC: { label: 'Multiple Choice', color: '#22c55e' },
-  REG: { label: 'General Knowledge', color: '#ef4444' },
-  MISC: { label: 'Specific Topic', color: '#3b82f6' },
-  MYS: { label: 'Mystery', color: '#a855f7' },
-  BIG: { label: 'BIG Question', color: '#fbdd68' },
-};
-
-export default function TriviaBuilderWizard({ open, onClose, onComplete, locations = [] }) {
+const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
   const [step, setStep] = useState(1);
-  const [selectedLocation, setSelectedLocation] = useState(null);
-  const [selectedHost, setSelectedHost] = useState(null);
-  const [numRounds, setNumRounds] = useState(5);
-  const [roundSelections, setRoundSelections] = useState({});
-  const [availableRounds, setAvailableRounds] = useState({});
-  const [hostsList, setHostsList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [building, setBuilding] = useState(false);
-  const [error, setError] = useState('');
-
-  // The 5 standard round slots + optional 6th
-  const roundSlots = numRounds === 6
-    ? ['MC', 'REG', 'MISC', 'MYS', 'BIG', 'REG']
-    : ['MC', 'REG', 'MISC', 'MYS', 'BIG'];
+  
+  // Fuzzy search helper function
+  const fuzzyMatch = (text, search) => {
+    if (!search) return true;
+    
+    const searchLower = search.toLowerCase();
+    const textLower = text.toLowerCase();
+    
+    // Exact match or substring match gets highest priority
+    if (textLower.includes(searchLower)) return true;
+    
+    // Fuzzy match - check if all characters in search appear in order in text
+    let searchIndex = 0;
+    for (let i = 0; i < textLower.length && searchIndex < searchLower.length; i++) {
+      if (textLower[i] === searchLower[searchIndex]) {
+        searchIndex++;
+      }
+    }
+    return searchIndex === searchLower.length;
+  };
+  
+  // Filter rounds based on search
+  const filterRounds = (rounds, searchTerm) => {
+    if (!searchTerm || searchTerm.trim() === '') return rounds;
+    return rounds.filter(round => fuzzyMatch(round.name, searchTerm));
+  };
+  
+  // Options from SharePoint
+  const [hosts, setHosts] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [mcRounds, setMcRounds] = useState([]);
+  const [regRounds, setRegRounds] = useState([]);
+  const [miscRounds, setMiscRounds] = useState([]);
+  const [mysRounds, setMysRounds] = useState([]);
+  const [bigRounds, setBigRounds] = useState([]);
+  
+  // User selections
+  const [selectedHost, setSelectedHost] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState('');
+  const [numRounds, setNumRounds] = useState(5);
+  const [selectedMC, setSelectedMC] = useState('');
+  const [selectedREG1, setSelectedREG1] = useState('');
+  const [selectedMISC1, setSelectedMISC1] = useState('');
+  const [selectedExtra, setSelectedExtra] = useState(''); // For 6 rounds only
+  const [extraType, setExtraType] = useState('reg'); // 'reg' or 'misc'
+  const [selectedMYS, setSelectedMYS] = useState('');
+  const [selectedBIG, setSelectedBIG] = useState('');
+  const [presentationName, setPresentationName] = useState('');
+  
+  // Search filters for MISC, MYS, and BIG rounds
+  const [miscSearch, setMiscSearch] = useState('');
+  const [mysSearch, setMysSearch] = useState('');
+  const [bigSearch, setBigSearch] = useState('');
 
   useEffect(() => {
-    if (!open) {
-      setStep(1);
-      setSelectedLocation(null);
-      setSelectedHost(null);
-      setNumRounds(5);
-      setRoundSelections({});
-      setError('');
+    if (open) {
+      loadOptions();
+      resetForm();
     }
   }, [open]);
 
-  const loadRoundsForLocation = async (locationName) => {
-    setLoading(true);
+  const resetForm = () => {
+    setStep(1);
+    setSelectedHost('');
+    setSelectedLocation('');
+    setNumRounds(5);
+    setSelectedMC('');
+    setSelectedREG1('');
+    setSelectedMISC1('');
+    setSelectedExtra('');
+    setExtraType('reg');
+    setSelectedMYS('');
+    setSelectedBIG('');
+    setPresentationName(''); // Will be set when location is selected
+    
+    // Reset search filters
+    setMiscSearch('');
+    setMysSearch('');
+    setBigSearch('');
+  };
+
+  const loadOptions = async () => {
     try {
-      const [regRes, miscRes, bigRes, mcRes, mysRes, hostsRes] = await Promise.all([
-        axios.get(`${API}/trivia/round-files/reg`, { params: { location: locationName } }),
-        axios.get(`${API}/trivia/round-files/misc`, { params: { location: locationName } }),
-        axios.get(`${API}/trivia/round-files/big`, { params: { location: locationName } }),
-        axios.get(`${API}/trivia/round-files/mc`, { params: { location: locationName } }),
-        axios.get(`${API}/trivia/round-files/mys`, { params: { location: locationName } }),
-        axios.get(`${API}/trivia/hosts`),
+      setLoading(true);
+      const [hostsData, locationsData] = await Promise.all([
+        axios.get(`${API_BASE}/trivia/hosts`).then(r => r.data),
+        axios.get(`${API_BASE}/trivia/locations`).then(r => r.data)
       ]);
-      setAvailableRounds({
-        REG: regRes.data, MISC: miscRes.data, BIG: bigRes.data,
-        MC: mcRes.data, MYS: mysRes.data,
-      });
-      setHostsList(hostsRes.data);
-    } catch (err) {
-      setError('Failed to load round data');
+      setHosts(hostsData);
+      // Filter out "99_Live Stream Show" from main wizard
+      const filteredLocations = locationsData.filter(loc => 
+        !loc.name.includes('99_Live Stream Show') && !loc.name.includes('Live Stream Show')
+      );
+      setLocations(filteredLocations);
+    } catch (error) {
+      console.error('Error loading options:', error);
+      toast.success("Action completed");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLocationSelect = (loc) => {
-    setSelectedLocation(loc);
-    loadRoundsForLocation(loc);
-    setStep(2);
+  // Load round files after location is selected
+  const loadRoundFiles = async (location) => {
+    try {
+      setLoading(true);
+      const [mcData, regData, miscData, mysData, bigData] = await Promise.all([
+        axios.get(`${API_BASE}/trivia/round-files/mc`, { params: { location } }).then(r => r.data),
+        axios.get(`${API_BASE}/trivia/round-files/reg`, { params: { location } }).then(r => r.data),
+        axios.get(`${API_BASE}/trivia/round-files/misc`, { params: { location } }).then(r => r.data),
+        axios.get(`${API_BASE}/trivia/round-files/mys`, { params: { location } }).then(r => r.data),
+        axios.get(`${API_BASE}/trivia/round-files/big`, { params: { location } }).then(r => r.data)
+      ]);
+      setMcRounds(mcData);
+      setRegRounds(regData);
+      setMiscRounds(miscData);
+      setMysRounds(mysData);
+      setBigRounds(bigData);
+    } catch (error) {
+      console.error('Error loading round files:', error);
+      toast.success("Action completed");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRoundSelect = (slotIndex, round) => {
-    setRoundSelections(prev => ({ ...prev, [slotIndex]: round }));
+  const handleNext = () => {
+    if (step === 1 && !selectedHost) {
+      toast.error('Please select a host');
+      return;
+    }
+    if (step === 2 && !selectedLocation) {
+      toast.error('Please select a location');
+      return;
+    }
+    if (step === 3 && mcRounds.length === 0) {
+      toast.error('Please wait for round files to load');
+      return;
+    }
+    // Validate round selections based on current step
+    if (step === 4 && !selectedMC) {
+      toast.error('Please select a Multiple Choice round');
+      return;
+    }
+    if (step === 5 && !selectedREG1) {
+      toast.error('Please select a General round');
+      return;
+    }
+    if (step === 6 && numRounds === 6 && !selectedExtra) {
+      toast.error('Please select an additional round');
+      return;
+    }
+    if (step === 7 && !selectedMISC1) {
+      toast.error('Please select a Specific themed round');
+      return;
+    }
+    if (step === 8 && !selectedMYS) {
+      toast.error('Please select a Mystery round');
+      return;
+    }
+    if (step === 9 && !selectedBIG) {
+      toast.error('Please select a BIG Question round');
+      return;
+    }
+    
+    // Skip step 6 if 5 rounds
+    if (step === 5 && numRounds === 5) {
+      setStep(7);
+    } else {
+      setStep(step + 1);
+    }
   };
 
-  const allRoundsSelected = roundSlots.every((_, i) => roundSelections[i]);
+  const handleBack = () => {
+    // Skip step 6 if going back and 5 rounds
+    if (step === 7 && numRounds === 5) {
+      setStep(5);
+    } else {
+      setStep(step - 1);
+    }
+  };
 
   const handleBuild = async () => {
-    setBuilding(true);
-    setError('');
     try {
-      const userName = localStorage.getItem('userName') || 'unknown';
-      const rounds = roundSlots.map((_, i) => roundSelections[i]?.path || '');
-      const roundNames = roundSlots.map((_, i) => roundSelections[i]?.name || '');
-      const roundTypes = [...roundSlots];
-      const presName = `${selectedLocation} - ${new Date().toLocaleDateString()}`;
-
-      await axios.post(`${API}/presentations/import-trivia`, {
+      setBuilding(true);
+      
+      // Build rounds array based on number of rounds
+      let rounds = [];
+      let roundTypes = [];
+      let roundNames = [];
+      if (numRounds === 5) {
+        rounds = [selectedMC, selectedREG1, selectedMISC1, selectedMYS, selectedBIG];
+        roundTypes = ['MC', 'REG', 'MISC', 'MYS', 'BIG'];
+        roundNames = [
+          mcRounds.find(r => r.path === selectedMC)?.name || mcRounds.find(r => r.path === selectedMC)?.displayName || 'MC Round',
+          regRounds.find(r => r.path === selectedREG1)?.name || regRounds.find(r => r.path === selectedREG1)?.displayName || 'REG Round',
+          miscRounds.find(r => r.path === selectedMISC1)?.name || miscRounds.find(r => r.path === selectedMISC1)?.displayName || 'MISC Round',
+          mysRounds.find(r => r.path === selectedMYS)?.name || mysRounds.find(r => r.path === selectedMYS)?.displayName || 'Mystery Round',
+          bigRounds.find(r => r.path === selectedBIG)?.name || bigRounds.find(r => r.path === selectedBIG)?.displayName || 'BIG Round'
+        ];
+      } else {
+        // 6 rounds: MC, REG, Extra (REG or MISC), MISC, MYS, BIG
+        rounds = [selectedMC, selectedREG1, selectedExtra, selectedMISC1, selectedMYS, selectedBIG];
+        // Determine extra round type based on which pool it came from
+        const extraRoundType = regRounds.some(r => r.path === selectedExtra) ? 'REG' : 'MISC';
+        const extraRoundName = regRounds.find(r => r.path === selectedExtra)?.name 
+          || regRounds.find(r => r.path === selectedExtra)?.displayName 
+          || miscRounds.find(r => r.path === selectedExtra)?.name 
+          || miscRounds.find(r => r.path === selectedExtra)?.displayName 
+          || 'Extra Round';
+        roundTypes = ['MC', 'REG', extraRoundType, 'MISC', 'MYS', 'BIG'];
+        roundNames = [
+          mcRounds.find(r => r.path === selectedMC)?.name || mcRounds.find(r => r.path === selectedMC)?.displayName || 'MC Round',
+          regRounds.find(r => r.path === selectedREG1)?.name || regRounds.find(r => r.path === selectedREG1)?.displayName || 'REG Round',
+          extraRoundName,
+          miscRounds.find(r => r.path === selectedMISC1)?.name || miscRounds.find(r => r.path === selectedMISC1)?.displayName || 'MISC Round',
+          mysRounds.find(r => r.path === selectedMYS)?.name || mysRounds.find(r => r.path === selectedMYS)?.displayName || 'Mystery Round',
+          bigRounds.find(r => r.path === selectedBIG)?.name || bigRounds.find(r => r.path === selectedBIG)?.displayName || 'BIG Round'
+        ];
+      }
+      
+      const triviaData = {
         userName,
-        host: selectedHost?.path || '',
-        hostName: selectedHost?.name || '',
+        host: selectedHost,
         location: selectedLocation,
-        locationName: selectedLocation,
         numRounds,
         rounds,
-        roundTypes,
-        roundNames,
-        presentationName: presName,
-      });
+        roundTypes, // Include round types for proper metadata
+        roundNames, // Include round names for admin tracking
+        presentationName,
+        // Additional data for Story Generator save
+        hostName: hosts.find(h => h.path === selectedHost)?.name || 'Unknown',
+        locationFolder: locations.find(l => l.path === selectedLocation)?.name || 'Unknown',
+        locationName: (locations.find(l => l.path === selectedLocation)?.name || 'Unknown').replace(/^\d+_/, '')
+      };
 
-      // Also save as story build
-      await axios.post(`${API}/story-builds/save`, {
-        host: selectedHost?.name || '',
-        location: selectedLocation,
-        locationFolder: selectedLocation,
-        numRounds,
-        roundNames,
-        roundTypes,
-        presentationName: presName,
-        createdBy: userName,
-      }).catch(() => {}); // Non-critical
-
-      if (onComplete) onComplete();
-      onClose();
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to build presentation');
+      await onComplete(triviaData);
+      onOpenChange(false);
+      
+    } catch (error) {
+      console.error('Error building presentation:', error);
+      toast.success("Action completed");
     } finally {
       setBuilding(false);
     }
   };
 
-  if (!open) return null;
+  // Get available REG rounds excluding already selected ones
+  const getAvailableREG = () => {
+    const excluded = [selectedREG1, selectedExtra].filter(Boolean);
+    return regRounds.filter(r => !excluded.includes(r.path));
+  };
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.85)' }}>
-      <div className="relative w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto rounded-2xl" style={{ background: 'linear-gradient(135deg, #0a1940 0%, #000e2a 100%)', border: '2px solid rgba(251, 221, 104, 0.3)' }}>
-        {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 rounded-t-2xl" style={{ backgroundColor: 'rgba(0, 14, 42, 0.95)', borderBottom: '1px solid rgba(251, 221, 104, 0.15)' }}>
-          <div className="flex items-center gap-3">
-            <Wand2 size={24} style={{ color: '#fbdd68' }} />
-            <div>
-              <h2 className="text-lg font-bold" style={{ color: '#fbdd68' }}>Build Wizard</h2>
-              <p className="text-xs" style={{ color: '#8892b0' }}>Step {step} of 5</p>
-            </div>
-          </div>
-          {/* Step indicators */}
-          <div className="flex items-center gap-1.5">
-            {[1,2,3,4,5].map(s => (
-              <div key={s} className="w-8 h-1.5 rounded-full transition-all" style={{ backgroundColor: s <= step ? '#fbdd68' : 'rgba(251, 221, 104, 0.15)' }} />
-            ))}
-            <button onClick={onClose} className="ml-4 p-1.5 rounded-lg hover:bg-white/10 transition-colors">
-              <X size={20} style={{ color: '#8892b0' }} />
-            </button>
-          </div>
+  // Get available MISC rounds excluding already selected ones
+  const getAvailableMISC = () => {
+    const excluded = [selectedMISC1, selectedExtra].filter(Boolean);
+    return miscRounds.filter(r => !excluded.includes(r.path));
+  };
+
+  const renderStep = () => {
+    if (loading) {
+      return (
+        <div className="text-center py-12">
+          <Loader2 className="w-12 h-12 text-[#FFC107] mx-auto mb-4 animate-spin" />
+          <p className="text-gray-400">Loading options from SharePoint...</p>
         </div>
+      );
+    }
 
-        <div className="p-6">
-          {error && (
-            <div className="mb-4 p-3 rounded-lg text-sm" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444' }}>
-              {error}
-            </div>
-          )}
-
-          {/* Step 1: Location */}
-          {step === 1 && (
+    switch (step) {
+      case 1:
+        return (
+          <div className="space-y-4">
             <div>
-              <h3 className="text-white font-semibold mb-1">Select Location</h3>
-              <p className="text-xs mb-5" style={{ color: '#8892b0' }}>Choose the venue for this trivia show</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {locations.map(loc => (
-                  <button key={loc} onClick={() => handleLocationSelect(loc)} className="p-4 rounded-xl text-left transition-all hover:scale-[1.02]" style={{ background: 'linear-gradient(135deg, #141b50, #0a1940)', border: '1px solid rgba(251, 221, 104, 0.15)' }} data-testid={`wizard-location-${loc}`}>
-                    <MapPin size={16} style={{ color: '#fbdd68' }} className="mb-2" />
-                    <span className="text-sm font-medium text-white block">{loc}</span>
-                  </button>
-                ))}
-              </div>
+              <Label className="text-gray-300">Select Host</Label>
+              <Select value={selectedHost} onValueChange={setSelectedHost}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-2">
+                  <SelectValue placeholder="Choose a host..." />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                  {hosts.map((host) => (
+                    <SelectItem key={host.id} value={host.path} className="text-white hover:bg-[#3a3a3a]">
+                      {host.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          )}
+          </div>
+        );
 
-          {/* Step 2: Host */}
-          {step === 2 && (
+      case 2:
+        return (
+          <div className="space-y-4">
             <div>
-              <h3 className="text-white font-semibold mb-1">Select Host</h3>
-              <p className="text-xs mb-5" style={{ color: '#8892b0' }}>Who's hosting at {selectedLocation}?</p>
+              <Label className="text-gray-300">Select Location</Label>
+              <Select value={selectedLocation} onValueChange={(val) => {
+                setSelectedLocation(val);
+                loadRoundFiles(val); // Load round files for this location
+                
+                // Update presentation name with location name
+                const location = locations.find(l => l.path === val);
+                if (location) {
+                  const locationName = location.name;
+                  setPresentationName(`${locationName} - ${new Date().toLocaleDateString()}`);
+                }
+              }}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-2">
+                  <SelectValue placeholder="Choose a location..." />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                  {locations.map((location) => (
+                    <SelectItem key={location.id} value={location.path} className="text-white hover:bg-[#3a3a3a]">
+                      {location.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedLocation && loading && (
+                <div className="flex items-center gap-2 text-[#FFC107] mt-3">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <p className="text-sm">Loading available rounds for this location...</p>
+                </div>
+              )}
+              {selectedLocation && !loading && mcRounds.length > 0 && (
+                <p className="text-sm text-green-400 mt-2">
+                  ✓ {mcRounds.length + regRounds.length + miscRounds.length + mysRounds.length + bigRounds.length} rounds loaded
+                </p>
+              )}
+            </div>
+          </div>
+        );
+
+      case 3:
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Number of Rounds</Label>
+              <Select value={numRounds.toString()} onValueChange={(val) => setNumRounds(parseInt(val))}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                  <SelectItem value="5" className="text-white hover:bg-[#3a3a3a]">5 Rounds</SelectItem>
+                  <SelectItem value="6" className="text-white hover:bg-[#3a3a3a]">6 Rounds</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-gray-500 mt-2">
+                {numRounds === 5 
+                  ? 'MC → General → Specific → Mystery → BIG'
+                  : 'MC → General → Extra → Specific → Mystery → BIG'}
+              </p>
+            </div>
+          </div>
+        );
+
+      case 4:
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Round 1: Multiple Choice</Label>
+              <p className="text-sm text-gray-500 mb-2">This round is always Multiple Choice</p>
               {loading ? (
-                <div className="text-center py-8">
-                  <Loader2 size={24} className="animate-spin mx-auto mb-2" style={{ color: '#fbdd68' }} />
-                  <p className="text-sm" style={{ color: '#8892b0' }}>Loading hosts...</p>
+                <div className="flex items-center gap-2 text-[#FFC107] mt-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <p className="text-sm">Loading rounds...</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {hostsList.map(host => (
-                    <button key={host.name} onClick={() => { setSelectedHost(host); setStep(3); }} className="p-4 rounded-xl text-left transition-all hover:scale-[1.02]" style={{ background: selectedHost?.name === host.name ? 'rgba(251, 221, 104, 0.15)' : 'linear-gradient(135deg, #141b50, #0a1940)', border: `1px solid ${selectedHost?.name === host.name ? 'rgba(251, 221, 104, 0.5)' : 'rgba(251, 221, 104, 0.15)'}` }}>
-                      <User size={16} style={{ color: '#fbdd68' }} className="mb-2" />
-                      <span className="text-sm font-medium text-white block">{host.name}</span>
-                    </button>
-                  ))}
-                </div>
+                <Select value={selectedMC} onValueChange={setSelectedMC}>
+                  <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-2">
+                    <SelectValue placeholder="Choose MC round..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#2a2a2a] border-gray-600 max-h-[300px]">
+                    {mcRounds.length === 0 ? (
+                      <div className="px-2 py-1 text-gray-400">
+                        No available rounds (all may have been used recently at this location)
+                      </div>
+                    ) : (
+                      mcRounds.map((round) => (
+                        <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                          {round.displayName}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
               )}
             </div>
-          )}
+          </div>
+        );
 
-          {/* Step 3: Number of Rounds */}
-          {step === 3 && (
+      case 5:
+        return (
+          <div className="space-y-4">
             <div>
-              <h3 className="text-white font-semibold mb-1">Number of Rounds</h3>
-              <p className="text-xs mb-5" style={{ color: '#8892b0' }}>Standard is 5 rounds, or 6 for an extended show</p>
-              <div className="flex gap-4 justify-center">
-                {[5, 6].map(n => (
-                  <button key={n} onClick={() => { setNumRounds(n); setStep(4); }} className="w-32 h-32 rounded-2xl flex flex-col items-center justify-center transition-all hover:scale-105" style={{ background: numRounds === n ? 'rgba(251, 221, 104, 0.15)' : 'linear-gradient(135deg, #141b50, #0a1940)', border: `2px solid ${numRounds === n ? '#fbdd68' : 'rgba(251, 221, 104, 0.15)'}` }}>
-                    <span className="text-3xl font-bold" style={{ color: '#fbdd68' }}>{n}</span>
-                    <span className="text-xs mt-1" style={{ color: '#8892b0' }}>Rounds</span>
-                  </button>
-                ))}
-              </div>
+              <Label className="text-gray-300">Round 2: General Themed</Label>
+              <p className="text-sm text-gray-500 mb-2">Select a general themed round (REG)</p>
+              <Select value={selectedREG1} onValueChange={setSelectedREG1}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-2">
+                  <SelectValue placeholder="Choose general round...">
+                    {selectedREG1 ? regRounds.find(r => r.path === selectedREG1)?.displayName : 'Choose general round...'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600 max-h-[300px]">
+                  {regRounds.length === 0 ? (
+                    <div className="px-2 py-1 text-gray-400">No available rounds</div>
+                  ) : (
+                    getAvailableREG().map((round) => (
+                      <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                        {round.displayName}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
             </div>
-          )}
+          </div>
+        );
 
-          {/* Step 4: Select Rounds */}
-          {step === 4 && (
+      case 6:
+        // Only shown for 6 rounds
+        return (
+          <div className="space-y-4">
             <div>
-              <h3 className="text-white font-semibold mb-1">Select Your Rounds</h3>
-              <p className="text-xs mb-5" style={{ color: '#8892b0' }}>Pick one round for each slot</p>
-              <div className="space-y-4">
-                {roundSlots.map((type, idx) => {
-                  const conf = ROUND_TYPE_CONFIG[type];
-                  const rounds = availableRounds[type] || [];
-                  const selected = roundSelections[idx];
-                  const label = idx === 5 ? `${conf.label} (Extra)` : conf.label;
-                  return (
-                    <div key={idx} className="rounded-xl p-4" style={{ background: 'rgba(20, 27, 80, 0.4)', border: `1px solid ${selected ? conf.color + '50' : 'rgba(251, 221, 104, 0.08)'}` }}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: conf.color }} />
-                        <span className="text-xs font-bold uppercase" style={{ color: conf.color }}>Round {idx + 1}: {label}</span>
-                        {selected && <Check size={14} style={{ color: '#22c55e' }} />}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {rounds.map(r => (
-                          <button key={r.name} onClick={() => handleRoundSelect(idx, r)} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ backgroundColor: selected?.name === r.name ? `${conf.color}25` : 'rgba(0, 14, 42, 0.6)', color: selected?.name === r.name ? conf.color : '#8892b0', border: `1px solid ${selected?.name === r.name ? conf.color + '60' : 'rgba(251, 221, 104, 0.08)'}` }}>
-                            {r.name}{r.used ? ' (used)' : ''}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {allRoundsSelected && (
-                <button onClick={() => setStep(5)} className="mt-5 w-full py-3 rounded-lg font-bold text-sm transition-all" style={{ backgroundColor: '#fbdd68', color: '#000e2a' }} data-testid="wizard-review-button">
-                  Review Build
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Step 5: Review & Build */}
-          {step === 5 && (
-            <div>
-              <h3 className="text-white font-semibold mb-1">Review & Build</h3>
-              <p className="text-xs mb-5" style={{ color: '#8892b0' }}>Confirm your trivia show configuration</p>
+              <Label className="text-gray-300">Round 3: Additional Round</Label>
+              <p className="text-sm text-gray-500 mb-2">Choose another General or Specific round</p>
               
-              <div className="space-y-3 mb-6">
-                <SummaryRow label="Location" value={selectedLocation} icon={MapPin} />
-                <SummaryRow label="Host" value={selectedHost?.name} icon={User} />
-                <SummaryRow label="Rounds" value={`${numRounds} rounds`} icon={HelpCircle} />
-              </div>
+              <Label className="text-gray-400 text-sm mt-4">Round Type</Label>
+              <Select value={extraType} onValueChange={(val) => {
+                setExtraType(val);
+                setSelectedExtra('');
+              }}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                  <SelectItem value="reg" className="text-white hover:bg-[#3a3a3a]">General (REG)</SelectItem>
+                  <SelectItem value="misc" className="text-white hover:bg-[#3a3a3a]">Specific (MISC)</SelectItem>
+                </SelectContent>
+              </Select>
 
-              <div className="rounded-xl p-4 mb-6" style={{ background: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
-                <h4 className="text-xs font-bold uppercase mb-3" style={{ color: '#fbdd68' }}>Round Lineup</h4>
-                <div className="space-y-2">
-                  {roundSlots.map((type, idx) => {
-                    const conf = ROUND_TYPE_CONFIG[type];
-                    const sel = roundSelections[idx];
-                    return (
-                      <div key={idx} className="flex items-center gap-3 py-1.5">
-                        <div className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: `${conf.color}20`, color: conf.color }}>{idx + 1}</div>
-                        <span className="text-[10px] font-bold uppercase w-12" style={{ color: conf.color }}>{type}</span>
-                        <span className="text-sm text-white flex-1">{sel?.name}</span>
-                      </div>
-                    );
-                  })}
+              <Label className="text-gray-400 text-sm mt-4">Select Round</Label>
+              <Select value={selectedExtra} onValueChange={setSelectedExtra}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white mt-1">
+                  <SelectValue placeholder="Choose round...">
+                    {selectedExtra 
+                      ? (extraType === 'reg' 
+                          ? regRounds.find(r => r.path === selectedExtra)?.displayName 
+                          : miscRounds.find(r => r.path === selectedExtra)?.displayName)
+                      : 'Choose round...'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600 max-h-[300px]">
+                  {extraType === 'reg' 
+                    ? getAvailableREG().length === 0 ? (
+                        <div className="px-2 py-1 text-gray-400">No available rounds</div>
+                      ) : (
+                        getAvailableREG().map((round) => (
+                          <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                            {round.displayName}
+                          </SelectItem>
+                        ))
+                      )
+                    : getAvailableMISC().length === 0 ? (
+                        <div className="px-2 py-1 text-gray-400">No available rounds</div>
+                      ) : (
+                        getAvailableMISC().map((round) => (
+                          <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                            {round.displayName}
+                          </SelectItem>
+                        ))
+                      )
+                  }
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        );
+
+      case 7:
+        const filteredMISC = filterRounds(getAvailableMISC(), miscSearch);
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Round {numRounds === 5 ? '3' : '4'}: Specific Themed</Label>
+              <p className="text-sm text-gray-500 mb-2">Select a specific themed round (MISC)</p>
+              
+              {/* Search Input */}
+              <Input
+                type="text"
+                placeholder="🔍 Search MISC rounds..."
+                value={miscSearch}
+                onChange={(e) => setMiscSearch(e.target.value)}
+                className="bg-[#2a2a2a] border-gray-600 text-white mb-2 mt-2"
+              />
+              <p className="text-xs text-gray-500 mb-2">
+                {miscSearch && `Found ${filteredMISC.length} matches`}
+              </p>
+              
+              <Select value={selectedMISC1} onValueChange={setSelectedMISC1}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                  <SelectValue placeholder="Choose specific round...">
+                    {selectedMISC1 ? miscRounds.find(r => r.path === selectedMISC1)?.displayName : 'Choose specific round...'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600 max-h-[300px]">
+                  {filteredMISC.length === 0 ? (
+                    <div className="px-2 py-1 text-gray-400">
+                      {miscSearch ? 'No matches found' : 'No available rounds'}
+                    </div>
+                  ) : (
+                    filteredMISC.map((round) => (
+                      <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                        {round.displayName}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        );
+
+      case 8:
+        const filteredMYS = filterRounds(mysRounds, mysSearch);
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Round {numRounds === 5 ? '4' : '5'}: Mystery</Label>
+              <p className="text-sm text-gray-500 mb-2">Select a mystery round (MYS)</p>
+              
+              {/* Search Input */}
+              <Input
+                type="text"
+                placeholder="🔍 Search Mystery rounds..."
+                value={mysSearch}
+                onChange={(e) => setMysSearch(e.target.value)}
+                className="bg-[#2a2a2a] border-gray-600 text-white mb-2 mt-2"
+              />
+              <p className="text-xs text-gray-500 mb-2">
+                {mysSearch && `Found ${filteredMYS.length} matches`}
+              </p>
+              
+              <Select value={selectedMYS} onValueChange={setSelectedMYS}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                  <SelectValue placeholder="Choose mystery round...">
+                    {selectedMYS ? mysRounds.find(r => r.path === selectedMYS)?.displayName : 'Choose mystery round...'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600 max-h-[300px]">
+                  {filteredMYS.length === 0 ? (
+                    <div className="px-2 py-1 text-gray-400">
+                      {mysSearch ? 'No matches found' : 'No available rounds'}
+                    </div>
+                  ) : (
+                    filteredMYS.map((round) => (
+                      <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                        {round.displayName}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        );
+
+      case 9:
+        const filteredBIG = filterRounds(bigRounds, bigSearch);
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Round {numRounds === 5 ? '5' : '6'}: BIG Question</Label>
+              <p className="text-sm text-gray-500 mb-2">Select the final BIG question round</p>
+              
+              {/* Search Input */}
+              <Input
+                type="text"
+                placeholder="🔍 Search BIG rounds..."
+                value={bigSearch}
+                onChange={(e) => setBigSearch(e.target.value)}
+                className="bg-[#2a2a2a] border-gray-600 text-white mb-2 mt-2"
+              />
+              <p className="text-xs text-gray-500 mb-2">
+                {bigSearch && `Found ${filteredBIG.length} matches`}
+              </p>
+              
+              <Select value={selectedBIG} onValueChange={setSelectedBIG}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                  <SelectValue placeholder="Choose BIG round...">
+                    {selectedBIG ? bigRounds.find(r => r.path === selectedBIG)?.displayName : 'Choose BIG round...'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600 max-h-[300px]">
+                  {filteredBIG.length === 0 ? (
+                    <div className="px-2 py-1 text-gray-400">
+                      {bigSearch ? 'No matches found' : 'No available rounds'}
+                    </div>
+                  ) : (
+                    filteredBIG.map((round) => (
+                      <SelectItem key={round.id} value={round.path} className="text-white hover:bg-[#3a3a3a]">
+                        {round.displayName}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        );
+
+      case 10:
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Presentation Name</Label>
+              <Input
+                value={presentationName}
+                onChange={(e) => setPresentationName(e.target.value)}
+                className="bg-[#2a2a2a] border-gray-600 text-white mt-2"
+                placeholder="Enter presentation name..."
+              />
+            </div>
+            <div className="bg-[#2a2a2a] border border-gray-600 rounded-lg p-4 mt-6">
+              <h4 className="text-[#FFC107] font-semibold mb-3">Summary</h4>
+              <div className="space-y-2 text-sm text-gray-300">
+                <p><span className="text-gray-500">Host:</span> {hosts.find(h => h.path === selectedHost)?.name}</p>
+                <p><span className="text-gray-500">Location:</span> {locations.find(l => l.path === selectedLocation)?.name}</p>
+                <p><span className="text-gray-500">Total Rounds:</span> {numRounds}</p>
+                <div>
+                  <span className="text-gray-500">Rounds:</span>
+                  <ul className="ml-4 mt-1">
+                    <li>1. {mcRounds.find(r => r.path === selectedMC)?.name} (MC)</li>
+                    <li>2. {regRounds.find(r => r.path === selectedREG1)?.name} (General)</li>
+                    {numRounds === 6 && (
+                      <li>3. {(extraType === 'reg' ? regRounds : miscRounds).find(r => r.path === selectedExtra)?.name} ({extraType === 'reg' ? 'General' : 'Specific'})</li>
+                    )}
+                    <li>{numRounds === 5 ? '3' : '4'}. {miscRounds.find(r => r.path === selectedMISC1)?.name} (Specific)</li>
+                    <li>{numRounds === 5 ? '4' : '5'}. {mysRounds.find(r => r.path === selectedMYS)?.name} (Mystery)</li>
+                    <li>{numRounds === 5 ? '5' : '6'}. {bigRounds.find(r => r.path === selectedBIG)?.name} (BIG)</li>
+                  </ul>
                 </div>
               </div>
-
-              <button onClick={handleBuild} disabled={building} className="w-full py-3.5 rounded-lg font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 20px rgba(251, 221, 104, 0.2)' }} data-testid="wizard-build-button">
-                {building ? <><Loader2 size={16} className="animate-spin" /> Building...</> : <><Wand2 size={16} /> Build Presentation</>}
-              </button>
             </div>
-          )}
+          </div>
+        );
 
-          {/* Navigation */}
-          {step > 1 && step < 5 && (
-            <div className="mt-6 flex justify-between">
-              <button onClick={() => setStep(Math.max(1, step - 1))} className="flex items-center gap-1 px-4 py-2 rounded-lg text-sm transition-all" style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
-                <ChevronLeft size={16} /> Back
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+      default:
+        return null;
+    }
+  };
 
-function SummaryRow({ label, value, icon: Icon }) {
+  const getStepTitle = () => {
+    const titles = {
+      1: 'Choose Host',
+      2: 'Choose Location',
+      3: 'Number of Rounds',
+      4: 'Round 1: Multiple Choice',
+      5: 'Round 2: General',
+      6: 'Round 3: Additional',
+      7: `Round ${numRounds === 5 ? '3' : '4'}: Specific`,
+      8: `Round ${numRounds === 5 ? '4' : '5'}: Mystery`,
+      9: `Round ${numRounds === 5 ? '5' : '6'}: BIG Question`,
+      10: 'Review & Build'
+    };
+    return titles[step] || '';
+  };
+
+  const totalSteps = numRounds === 5 ? 10 : 10; // 10 steps total (skip step 6 for 5 rounds)
+
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ background: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.08)' }}>
-      <Icon size={16} style={{ color: '#fbdd68' }} />
-      <span className="text-xs" style={{ color: '#8892b0' }}>{label}:</span>
-      <span className="text-sm font-medium text-white">{value}</span>
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-gradient-to-br from-[#1a1a2e] to-[#16213e] border-[#FFC107]/30 text-white max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-[#FFC107] text-2xl">Build Trivia Presentation</DialogTitle>
+          <DialogDescription className="text-gray-400">
+            Step {step} of {totalSteps}: {getStepTitle()}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-6">
+          {renderStep()}
+        </div>
+
+        <DialogFooter className="flex gap-3">
+          {step > 1 && (
+            <Button
+              onClick={handleBack}
+              variant="outline"
+              className="border-gray-600 text-gray-300 hover:bg-[#2a2a2a]"
+              disabled={building}
+            >
+              <ChevronLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+          )}
+          {step < 10 ? (
+            <Button
+              onClick={handleNext}
+              className="bg-[#1657E8] hover:bg-[#1F5EE9] text-white"
+            >
+              Next
+              <ChevronRight className="w-4 h-4 ml-2" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleBuild}
+              disabled={building}
+              className="bg-[#FFC107] hover:bg-[#FFD54F] text-black font-semibold"
+            >
+              {building ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Building...
+                </>
+              ) : (
+                'Build Presentation'
+              )}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
-}
+};
+
+export default TriviaBuilderWizard;

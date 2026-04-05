@@ -142,9 +142,26 @@ export default function Dashboard() {
       {/* Build Wizard Popup */}
       <TriviaBuilderWizard
         open={showBuildWizard}
-        onClose={() => setShowBuildWizard(false)}
-        onComplete={() => setShowBuildWizard(false)}
-        locations={locations}
+        onOpenChange={setShowBuildWizard}
+        onComplete={async (triviaData) => {
+          try {
+            const normalizedData = { ...triviaData, userName: (triviaData.userName || '').toLowerCase() };
+            await axios.post(`${API_URL}/api/presentations/import-trivia`, normalizedData);
+            await axios.post(`${API_URL}/api/story-builds/save`, {
+              host: triviaData.hostName || '',
+              location: triviaData.locationName || '',
+              locationFolder: triviaData.locationFolder || '',
+              numRounds: triviaData.numRounds,
+              roundNames: triviaData.roundNames || [],
+              roundTypes: triviaData.roundTypes || [],
+              presentationName: triviaData.presentationName || '',
+              createdBy: (triviaData.userName || '').toLowerCase()
+            }).catch(() => {});
+          } catch (err) {
+            console.error('Build failed:', err);
+          }
+        }}
+        userName={user?.name?.split(' ')[0]?.toLowerCase() || ''}
       />
     </div>
   );
