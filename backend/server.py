@@ -1526,20 +1526,138 @@ async def get_sections_list(presentation_id: str):
     pres = await db.trivia_presentations.find_one({"id": presentation_id}, {"_id": 0})
     if not pres:
         raise HTTPException(status_code=404, detail="Presentation not found")
-    sections = ["host", "location"]
-    for rf in pres.get("roundFiles", []):
-        sections.append(f"round_{rf.get('order', 0)}")
+    
+    sections = []
+    # Host section
+    if pres.get("hostFile"):
+        sections.append({"name": "host", "type": "host"})
+    # Location section
+    if pres.get("locationFile"):
+        sections.append({"name": "location", "type": "location"})
+    # Round sections - from roundFiles or roundTypes
+    round_files = pres.get("roundFiles", [])
+    round_types = pres.get("roundTypes", [])
+    
+    if round_files:
+        for rf in round_files:
+            order = rf.get('order', 0)
+            sections.append({"name": f"round_{order}", "type": "round", "roundType": rf.get('type', ''), "roundOrder": order})
+    elif round_types:
+        for i, rt in enumerate(round_types):
+            sections.append({"name": f"round_{i+1}", "type": "round", "roundType": rt, "roundOrder": i + 1})
+    
+    # Sponsors
     if pres.get("sponsorFiles"):
-        sections.append("sponsors")
+        sections.append({"name": "sponsors", "type": "sponsors"})
+    
     return {"presentationId": presentation_id, "sections": sections, "totalSections": len(sections)}
 
 @api_router.get("/trivia-import/slides-metadata/{presentation_id}")
 async def get_slides_metadata(presentation_id: str):
-    """Get slides metadata for a presentation"""
+    """Proxy to deployed trivia presenter for slides metadata"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(f"{trivia_url}/api/trivia-import/slides-metadata/{presentation_id}")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy slides-metadata failed: {e}")
     pres = await db.trivia_presentations.find_one({"id": presentation_id}, {"_id": 0})
     if not pres:
         return {"hasGridFSSlides": False, "totalSlides": 0, "totalChunks": 0}
-    return {"hasGridFSSlides": False, "totalSlides": pres.get("totalSlides", 0), "totalChunks": 0, "message": "Use the deployed presenter for live slides"}
+    return {"hasGridFSSlides": False, "totalSlides": pres.get("totalSlides", 0), "totalChunks": 0}
+
+@api_router.get("/trivia-import/slides/{presentation_id}")
+async def get_imported_slides(presentation_id: str):
+    """Proxy to deployed trivia presenter for slides"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(f"{trivia_url}/api/trivia-import/slides/{presentation_id}")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy slides failed: {e}")
+    return {"slides": [], "totalSlides": 0, "status": "unavailable", "message": "Slides are fetched from the presentation server. Please ensure the presentation has been imported."}
+
+@api_router.get("/trivia-import/chunk/{presentation_id}/{chunk_number}")
+async def get_slide_chunk(presentation_id: str, chunk_number: int):
+    """Proxy to deployed trivia presenter for slide chunks"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(f"{trivia_url}/api/trivia-import/chunk/{presentation_id}/{chunk_number}")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy chunk failed: {e}")
+    raise HTTPException(status_code=404, detail="Slide chunk not available")
+
+@api_router.post("/slide-fetcher/fetch-section/{presentation_id}/{section_name}")
+async def fetch_section_proxy(presentation_id: str, section_name: str, request: Request):
+    """Proxy section fetch to deployed trivia presenter"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    except:
+        body = {}
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{trivia_url}/api/slide-fetcher/fetch-section/{presentation_id}/{section_name}", json=body)
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy fetch-section failed: {e}")
+    raise HTTPException(status_code=503, detail="Slide fetching is handled by the presentation server")
+
+@api_router.post("/slide-fetcher/store-all/{presentation_id}")
+async def store_all_slides_proxy(presentation_id: str, request: Request):
+    """Proxy store-all to deployed presenter"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{trivia_url}/api/slide-fetcher/store-all/{presentation_id}", json=body)
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy store-all failed: {e}")
+    return {"success": True, "stored": 0}
+
+@api_router.get("/overlays/metadata/{location_name}")
+async def get_overlay_metadata(location_name: str):
+    """Proxy overlay metadata to deployed presenter"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(f"{trivia_url}/api/overlays/metadata/{location_name}")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy overlay metadata failed: {e}")
+    return {"hasOverlays": False, "overlays": {}}
+
+@api_router.post("/overlays/apply-section")
+async def apply_section_overlays(request: Request):
+    """Proxy overlay apply to deployed presenter"""
+    import httpx
+    trivia_url = os.environ.get("TRIVIA_BACKEND_URL", "https://quiz-presenter.emergent.host")
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{trivia_url}/api/overlays/apply-section", json=body)
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        logger.warning(f"Proxy apply-section failed: {e}")
+    return {"slides": [], "applied": 0}
 
 # Scores route - save to DB instead of SharePoint
 @api_router.post("/scores/save")
@@ -1582,11 +1700,30 @@ async def get_presentations_list(userName: str = "", viewAll: bool = False):
 
 @api_router.get("/presentations/{presentation_id}")
 async def get_presentation_detail(presentation_id: str):
-    """Get presentation details for editor"""
+    """Get presentation details for editor - checks both collections"""
+    # First check presentations collection
     pres = await db.presentations.find_one({"id": presentation_id}, {"_id": 0})
-    if not pres:
-        raise HTTPException(status_code=404, detail="Presentation not found")
-    return pres
+    if pres:
+        return pres
+    # Fall back to trivia_presentations (trivia-imported type)
+    trivia_pres = await db.trivia_presentations.find_one({"id": presentation_id}, {"_id": 0})
+    if trivia_pres:
+        return {
+            "id": trivia_pres.get("id", ""),
+            "name": trivia_pres.get("name", ""),
+            "createdBy": trivia_pres.get("createdBy", ""),
+            "createdAt": trivia_pres.get("createdAt", ""),
+            "type": "trivia-imported",
+            "triviaId": trivia_pres.get("id", ""),
+            "totalSlides": trivia_pres.get("totalSlides", 0),
+            "location": trivia_pres.get("location", ""),
+            "locationFolder": trivia_pres.get("locationFolder", ""),
+            "numRounds": trivia_pres.get("numRounds", 5),
+            "roundTypes": trivia_pres.get("roundTypes", []),
+            "roundNames": trivia_pres.get("roundNames", []),
+            "slides": []
+        }
+    raise HTTPException(status_code=404, detail="Presentation not found")
 
 
 

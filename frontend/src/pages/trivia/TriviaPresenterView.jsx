@@ -42,14 +42,14 @@ export default function TriviaPresenterView() {
   };
 
   const handlePresentLive = () => {
-    // Store the presentation ID and open the deployed presenter's editor
+    // Store the presentation ID and open the editor
     localStorage.setItem('currentPresentationId', presId);
-    window.open(`${TRIVIA_PRESENTER_URL}/editor`, '_blank');
+    navigate('/trivia/editor');
   };
 
   const handlePresentFullscreen = () => {
     localStorage.setItem('currentPresentationId', presId);
-    window.open(`${TRIVIA_PRESENTER_URL}/editor`, '_blank');
+    navigate('/trivia/editor');
   };
 
   if (loading) {
@@ -154,7 +154,6 @@ export default function TriviaPresenterView() {
           <button onClick={handlePresentLive} className="flex-1 flex items-center justify-center gap-3 py-4 rounded-xl text-base font-bold transition-all hover:shadow-lg" style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 20px rgba(251, 221, 104, 0.2)' }} data-testid="present-full-button">
             <Monitor size={20} />
             Open in Trivia Presenter
-            <ExternalLink size={14} />
           </button>
           <button onClick={() => navigate('/trivia')} className="px-8 py-4 rounded-xl text-sm font-medium transition-all" style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
             Back to Dashboard

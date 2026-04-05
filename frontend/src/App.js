@@ -9,6 +9,7 @@ import ScheduleAdminPage from './pages/schedule/ScheduleAdminPage';
 import ProfilePage from './pages/schedule/ProfilePage';
 import TriviaDashboard from './pages/trivia/TriviaDashboard';
 import TriviaPresenterView from './pages/trivia/TriviaPresenterView';
+import TriviaEditor from './pages/trivia/Editor';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
 
@@ -55,6 +56,7 @@ function AppRoutes() {
       <Route path="/schedule/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="/trivia" element={<ProtectedRoute><TriviaDashboard /></ProtectedRoute>} />
       <Route path="/trivia/present" element={<ProtectedRoute><TriviaPresenterView /></ProtectedRoute>} />
+      <Route path="/trivia/editor" element={<ProtectedRoute><TriviaEditor /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
