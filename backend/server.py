@@ -415,6 +415,14 @@ async def lifespan(app: FastAPI):
     # Seed data
     await seed_data()
     
+    # Initialize GridFS
+    try:
+        from gridfs_service import init_gridfs_service
+        init_gridfs_service(db)
+        logger.info("GridFS service initialized")
+    except Exception as e:
+        logger.warning(f"GridFS not initialized: {e}")
+    
     # Start scheduler
     try:
         from scheduler import start_scheduler

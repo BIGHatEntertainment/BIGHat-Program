@@ -65,8 +65,12 @@ async def get_slides_metadata(presentation_id: str):
         }
     
     except Exception as e:
-        logger.error(f"Error getting slides metadata: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(f"Slides metadata not available: {str(e)}")
+        return {
+            "hasGridFSSlides": False,
+            "totalSlides": 0,
+            "totalChunks": 0
+        }
 
 
 @router.get("/generation-status/{presentation_id}")

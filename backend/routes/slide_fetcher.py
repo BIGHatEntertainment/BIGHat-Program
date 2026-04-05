@@ -136,7 +136,8 @@ async def fetch_section(presentation_id: str, section_name: str, request: Reques
                     
                     # Derive file path from location and round type
                     if location:
-                        location_folder = location.rsplit('/', 1)[0] if '/' in location else location
+                        # Use location directly - it's already the location folder path
+                        location_folder = location
                         
                         # Map round types to folder names
                         round_folder_map = {
