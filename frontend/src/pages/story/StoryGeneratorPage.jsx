@@ -87,24 +87,24 @@ export default function StoryGeneratorPage() {
   // ====== LOBBY VIEW ======
   if (!selectedPres) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: '#0a0f1c' }}>
+      <div className="min-h-screen" style={{ backgroundColor: '#000e2a' }}>
         {/* Header */}
-        <header style={{ backgroundColor: '#0d1220', borderBottom: '1px solid rgba(255,193,7,0.15)' }}>
+        <header style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104,0.15)' }}>
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button onClick={() => navigate('/')} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#FFC107', color: '#000' }} data-testid="back-to-dashboard">
+              <button onClick={() => navigate('/')} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#fbdd68', color: '#000' }} data-testid="back-to-dashboard">
                 <Home size={14} /> Exit
               </button>
-              <span style={{ color: '#4a5568' }}>—</span>
+              <span style={{ color: '#8892b0' }}>—</span>
               <div className="flex items-center gap-2">
-                <Video size={24} style={{ color: '#FFC107' }} />
+                <Video size={24} style={{ color: '#fbdd68' }} />
                 <div>
                   <h1 className="text-lg font-bold tracking-wider uppercase text-white" style={{ fontFamily: "'Space Grotesk', monospace" }}>Story Generator</h1>
-                  <p className="text-[10px] uppercase tracking-[0.2em]" style={{ color: '#FFC107' }}>// Select Presentation</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em]" style={{ color: '#fbdd68' }}>// Select Presentation</p>
                 </div>
               </div>
             </div>
-            <button onClick={loadPresentations} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#fff' }}>
+            <button onClick={loadPresentations} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }}>
               <RefreshCw size={14} /> Refresh
             </button>
           </div>
@@ -114,27 +114,27 @@ export default function StoryGeneratorPage() {
           {/* Section Header */}
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-2">
-              <Sparkles size={14} style={{ color: '#FFC107' }} />
-              <span className="text-[11px] uppercase tracking-[0.25em] font-bold" style={{ color: '#FFC107' }}>Your Recent Presentations</span>
-              <div className="flex-1 h-px ml-3" style={{ backgroundColor: '#FFC107' }} />
+              <Sparkles size={14} style={{ color: '#fbdd68' }} />
+              <span className="text-[11px] uppercase tracking-[0.25em] font-bold" style={{ color: '#fbdd68' }}>Your Recent Presentations</span>
+              <div className="flex-1 h-px ml-3" style={{ backgroundColor: '#fbdd68' }} />
             </div>
             <h2 className="text-4xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-              Select a <span style={{ color: '#FFC107' }}>Presentation</span>
+              Select a <span style={{ color: '#fbdd68' }}>Presentation</span>
             </h2>
-            <p className="mt-2 text-sm" style={{ color: '#64748b' }}>
+            <p className="mt-2 text-sm" style={{ color: '#8892b0' }}>
               Click on a presentation to generate an Instagram Story. The same presentations from your home screen are shown here.
             </p>
             {/* Stats */}
             <div className="flex items-center gap-6 mt-4">
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: '#64748b' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#FFC107' }} />
+              <span className="flex items-center gap-1.5 text-xs" style={{ color: '#8892b0' }}>
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#fbdd68' }} />
                 {presentations.length} Presentations
               </span>
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: '#64748b' }}>
+              <span className="flex items-center gap-1.5 text-xs" style={{ color: '#8892b0' }}>
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#a855f7' }} />
                 9:16 Format
               </span>
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: '#64748b' }}>
+              <span className="flex items-center gap-1.5 text-xs" style={{ color: '#8892b0' }}>
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#22c55e' }} />
                 ~25s Duration
               </span>
@@ -143,22 +143,22 @@ export default function StoryGeneratorPage() {
 
           {/* Cards Grid */}
           {loading ? (
-            <div className="text-center py-20"><Loader2 size={32} className="animate-spin mx-auto" style={{ color: '#FFC107' }} /></div>
+            <div className="text-center py-20"><Loader2 size={32} className="animate-spin mx-auto" style={{ color: '#fbdd68' }} /></div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {presentations.map(pres => {
                 const location = cleanLocation(pres.location);
                 const roundTypes = pres.roundTypes || [];
                 return (
-                  <div key={pres.id} onClick={() => handleSelect(pres)} className="cursor-pointer group rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl" style={{ border: '1px solid rgba(255,255,255,0.08)' }} data-testid={`story-card-${pres.id}`}>
+                  <div key={pres.id} onClick={() => handleSelect(pres)} className="cursor-pointer group rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl" style={{ border: '1px solid rgba(251, 221, 104, 0.08)' }} data-testid={`story-card-${pres.id}`}>
                     {/* Card Top - Venue Name */}
-                    <div className="relative h-44 flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #0d1f3c 50%, #162447 100%)' }}>
-                      <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at 30% 50%, rgba(255,193,7,0.3), transparent 60%)' }} />
-                      <h3 className="text-3xl font-black uppercase tracking-wider text-center px-4 relative z-10" style={{ color: 'rgba(255,255,255,0.4)', fontFamily: "'Space Grotesk', monospace", textShadow: '0 2px 20px rgba(0,0,0,0.5)' }}>
+                    <div className="relative h-44 flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #141b50, #0a1940)' }}>
+                      <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at 30% 50%, rgba(251, 221, 104,0.3), transparent 60%)' }} />
+                      <h3 className="text-3xl font-black uppercase tracking-wider text-center px-4 relative z-10" style={{ color: 'rgba(251, 221, 104, 0.25)', fontFamily: "'Space Grotesk', monospace", textShadow: '0 2px 20px rgba(0,0,0,0.5)' }}>
                         {location}
                       </h3>
                       {/* TRIVIA badge */}
-                      <div className="absolute top-3 right-3 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: '#FFC107', color: '#000' }}>
+                      <div className="absolute top-3 right-3 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
                         Trivia
                       </div>
                       {/* Date */}
@@ -168,9 +168,9 @@ export default function StoryGeneratorPage() {
                     </div>
 
                     {/* Card Bottom - Details */}
-                    <div className="p-4" style={{ backgroundColor: '#0d1525' }}>
+                    <div className="p-4" style={{ backgroundColor: '#141b50' }}>
                       <h4 className="text-sm font-bold text-white mb-1 truncate">{pres.name}</h4>
-                      <div className="flex items-center gap-1.5 text-xs mb-3" style={{ color: '#64748b' }}>
+                      <div className="flex items-center gap-1.5 text-xs mb-3" style={{ color: '#8892b0' }}>
                         <MapPin size={11} /> {location}
                       </div>
                       {/* Round dots */}
@@ -181,8 +181,8 @@ export default function StoryGeneratorPage() {
                       </div>
                       {/* Footer */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs" style={{ color: '#64748b' }}>{pres.totalSlides || '~50'} slides</span>
-                        <span className="text-xs font-semibold flex items-center gap-1 group-hover:text-[#FFC107] transition-colors" style={{ color: '#94a3b8' }}>
+                        <span className="text-xs" style={{ color: '#8892b0' }}>{pres.totalSlides || '~50'} slides</span>
+                        <span className="text-xs font-semibold flex items-center gap-1 group-hover:text-[#fbdd68] transition-colors" style={{ color: '#8892b0' }}>
                           Generate <ChevronRight size={12} />
                         </span>
                       </div>
@@ -203,25 +203,25 @@ export default function StoryGeneratorPage() {
   const roundNames = selectedPres.roundNames || [];
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#0a0f1c' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#000e2a' }}>
       {/* Header */}
-      <header style={{ backgroundColor: '#0d1220', borderBottom: '1px solid rgba(255,193,7,0.15)' }}>
+      <header style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104,0.15)' }}>
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => { setSelectedPres(null); setPreview(null); setGeneratedVideo(null); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#fff' }}>
+            <button onClick={() => { setSelectedPres(null); setPreview(null); setGeneratedVideo(null); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }}>
               <ArrowLeft size={14} /> Back
             </button>
-            <button onClick={() => navigate('/')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#FFC107', color: '#000' }}>
+            <button onClick={() => navigate('/')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
               <Home size={14} /> Exit
             </button>
-            <span style={{ color: '#4a5568' }}>—</span>
+            <span style={{ color: '#8892b0' }}>—</span>
             <div>
               <h1 className="text-lg font-bold tracking-wider uppercase text-white" style={{ fontFamily: "'Space Grotesk', monospace" }}>Story Generator</h1>
-              <p className="text-[10px] uppercase tracking-[0.2em]" style={{ color: '#FFC107' }}>// Create Your Trivia Story</p>
+              <p className="text-[10px] uppercase tracking-[0.2em]" style={{ color: '#fbdd68' }}>// Create Your Trivia Story</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs" style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8' }}>
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#8892b0' }}>
               <Settings size={12} /> 9:16
             </span>
           </div>
@@ -233,24 +233,24 @@ export default function StoryGeneratorPage() {
           {/* LEFT SIDEBAR - Presentation Info */}
           <div className="col-span-12 lg:col-span-3 space-y-4">
             {/* Presentation Card */}
-            <div className="rounded-xl p-5" style={{ border: '1px solid rgba(255,255,255,0.1)', backgroundColor: '#0d1525' }}>
+            <div className="rounded-xl p-5" style={{ border: '1px solid rgba(251, 221, 104, 0.1)', backgroundColor: '#141b50' }}>
               <h3 className="text-sm font-bold text-white mb-4">{selectedPres.name}</h3>
               <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm" style={{ color: '#94a3b8' }}>
-                  <MapPin size={14} style={{ color: '#FFC107' }} /> {location}
+                <div className="flex items-center gap-2 text-sm" style={{ color: '#8892b0' }}>
+                  <MapPin size={14} style={{ color: '#fbdd68' }} /> {location}
                 </div>
-                <div className="flex items-center gap-2 text-sm" style={{ color: '#94a3b8' }}>
-                  <Calendar size={14} style={{ color: '#FFC107' }} /> {formatDate(selectedPres.createdAt)}
+                <div className="flex items-center gap-2 text-sm" style={{ color: '#8892b0' }}>
+                  <Calendar size={14} style={{ color: '#fbdd68' }} /> {formatDate(selectedPres.createdAt)}
                 </div>
-                <div className="flex items-center gap-2 text-sm" style={{ color: '#94a3b8' }}>
-                  <User size={14} style={{ color: '#FFC107' }} /> {selectedPres.host || selectedPres.createdBy}
+                <div className="flex items-center gap-2 text-sm" style={{ color: '#8892b0' }}>
+                  <User size={14} style={{ color: '#fbdd68' }} /> {selectedPres.host || selectedPres.createdBy}
                 </div>
               </div>
             </div>
 
             {/* Tonight's Rounds */}
-            <div className="rounded-xl p-5" style={{ border: '1px solid rgba(255,255,255,0.1)', backgroundColor: '#0d1525' }}>
-              <h4 className="text-[10px] uppercase tracking-[0.2em] font-bold mb-4 flex items-center gap-2" style={{ color: '#94a3b8' }}>
+            <div className="rounded-xl p-5" style={{ border: '1px solid rgba(251, 221, 104, 0.1)', backgroundColor: '#141b50' }}>
+              <h4 className="text-[10px] uppercase tracking-[0.2em] font-bold mb-4 flex items-center gap-2" style={{ color: '#8892b0' }}>
                 <Sparkles size={12} /> Tonight's Rounds ({roundTypes.length})
               </h4>
               <div className="space-y-2">
@@ -258,7 +258,7 @@ export default function StoryGeneratorPage() {
                   const name = roundNames[idx] || ROUND_LABELS[rt] || rt;
                   const cleanName = name.replace(/\.pptx$/i, '').replace(/_/g, ' ');
                   return (
-                    <div key={idx} className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.06)', backgroundColor: '#111827' }}>
+                    <div key={idx} className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{ border: '1px solid rgba(251, 221, 104, 0.06)', backgroundColor: '#141b50' }}>
                       <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ROUND_DOT_COLORS[rt] || '#6b7280' }} />
                       <span className="text-sm text-white truncate">{cleanName}</span>
                     </div>
@@ -271,47 +271,47 @@ export default function StoryGeneratorPage() {
           {/* CENTER - Phone Preview & Video Timeline */}
           <div className="col-span-12 lg:col-span-6 flex flex-col items-center">
             {/* Phone Preview */}
-            <div className="w-[320px] rounded-3xl overflow-hidden mb-6" style={{ border: '2px solid rgba(255,193,7,0.3)', backgroundColor: '#000', aspectRatio: '9/16', maxHeight: '500px' }}>
+            <div className="w-[320px] rounded-3xl overflow-hidden mb-6" style={{ border: '2px solid rgba(251, 221, 104,0.3)', backgroundColor: '#000', aspectRatio: '9/16', maxHeight: '500px' }}>
               {loadingPreview ? (
                 <div className="w-full h-full flex items-center justify-center">
-                  <Loader2 size={32} className="animate-spin" style={{ color: '#FFC107' }} />
+                  <Loader2 size={32} className="animate-spin" style={{ color: '#fbdd68' }} />
                 </div>
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center p-8 relative" style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #000 100%)' }}>
-                  <p className="text-[10px] uppercase tracking-[0.2em] mb-1" style={{ color: '#FFC107' }}>Location</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] mb-1" style={{ color: '#fbdd68' }}>Location</p>
                   <p className="text-xs uppercase tracking-[0.15em] mb-4" style={{ color: 'rgba(255,255,255,0.5)' }}>This Week At</p>
                   <div className="flex-1" />
                   <h2 className="text-2xl font-black uppercase tracking-wider text-center" style={{ color: '#fff', fontFamily: "'Space Grotesk', monospace" }}>
                     {location}
                   </h2>
                   {/* Corner marks */}
-                  <div className="absolute top-8 left-8 w-6 h-6 border-t-2 border-l-2" style={{ borderColor: 'rgba(255,193,7,0.5)' }} />
-                  <div className="absolute top-8 right-8 w-6 h-6 border-t-2 border-r-2" style={{ borderColor: 'rgba(255,193,7,0.5)' }} />
-                  <div className="absolute bottom-8 left-8 w-6 h-6 border-b-2 border-l-2" style={{ borderColor: 'rgba(255,193,7,0.5)' }} />
-                  <div className="absolute bottom-8 right-8 w-6 h-6 border-b-2 border-r-2" style={{ borderColor: 'rgba(255,193,7,0.5)' }} />
+                  <div className="absolute top-8 left-8 w-6 h-6 border-t-2 border-l-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />
+                  <div className="absolute top-8 right-8 w-6 h-6 border-t-2 border-r-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />
+                  <div className="absolute bottom-8 left-8 w-6 h-6 border-b-2 border-l-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />
+                  <div className="absolute bottom-8 right-8 w-6 h-6 border-b-2 border-r-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />
                 </div>
               )}
             </div>
 
             {/* Video Timeline */}
-            <div className="w-full max-w-md rounded-xl p-5" style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="w-full max-w-md rounded-xl p-5" style={{ backgroundColor: '#141b50', border: '1px solid rgba(251, 221, 104, 0.1)' }}>
               <h4 className="text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2 text-white">
-                <Video size={14} style={{ color: '#FFC107' }} /> Video Timeline
+                <Video size={14} style={{ color: '#fbdd68' }} /> Video Timeline
               </h4>
               <div className="flex items-center gap-3 mb-4">
-                <TimelineChip label="Location" duration={preview?.location?.duration || 3} color="#FFC107" icon={MapPin} />
+                <TimelineChip label="Location" duration={preview?.location?.duration || 3} color="#fbdd68" icon={MapPin} />
                 <TimelineChip label="Host" duration={preview?.host?.duration || 3} color="#ef4444" icon={User} />
                 <TimelineChip label="Rounds" duration={preview?.rounds?.duration || 19} color="#a855f7" icon={Sparkles} />
               </div>
               {/* Progress Bar */}
-              <div className="w-full h-2 rounded-full overflow-hidden flex mb-2" style={{ backgroundColor: '#1e293b' }}>
-                <div style={{ width: '12%', backgroundColor: '#FFC107' }} />
+              <div className="w-full h-2 rounded-full overflow-hidden flex mb-2" style={{ backgroundColor: '#0a1940' }}>
+                <div style={{ width: '12%', backgroundColor: '#fbdd68' }} />
                 <div style={{ width: '12%', backgroundColor: '#ef4444' }} />
                 <div style={{ width: '76%', backgroundColor: '#a855f7' }} />
               </div>
-              <div className="flex justify-between text-[10px]" style={{ color: '#64748b' }}>
+              <div className="flex justify-between text-[10px]" style={{ color: '#8892b0' }}>
                 <span>0:00</span>
-                <span className="font-bold" style={{ color: '#FFC107' }}>Total: {preview?.totalDuration || 25}s</span>
+                <span className="font-bold" style={{ color: '#fbdd68' }}>Total: {preview?.totalDuration || 25}s</span>
               </div>
             </div>
 
@@ -322,11 +322,11 @@ export default function StoryGeneratorPage() {
                   <Download size={20} /> Download Story Video
                 </button>
               ) : (
-                <button onClick={handleGenerate} disabled={generating} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50" style={{ backgroundColor: '#FFC107', color: '#000', boxShadow: '0 0 30px rgba(255,193,7,0.2)' }}>
+                <button onClick={handleGenerate} disabled={generating} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50" style={{ backgroundColor: '#fbdd68', color: '#000', boxShadow: '0 0 30px rgba(251, 221, 104,0.2)' }}>
                   {generating ? <><Loader2 size={20} className="animate-spin" /> Generating...</> : <><Video size={20} /> Generate Video</>}
                 </button>
               )}
-              <p className="text-center text-[10px] mt-2" style={{ color: '#64748b' }}>MP4 format for Instagram Stories. ~25s video.</p>
+              <p className="text-center text-[10px] mt-2" style={{ color: '#8892b0' }}>MP4 format for Instagram Stories. ~25s video.</p>
             </div>
           </div>
 
@@ -340,7 +340,7 @@ export default function StoryGeneratorPage() {
 
 function TimelineChip({ label, duration, color, icon: Icon }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.08)' }}>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#0a1940', border: '1px solid rgba(251, 221, 104, 0.08)' }}>
       <Icon size={12} style={{ color }} />
       <span className="text-xs text-white">{label}</span>
       <span className="text-[10px] font-bold" style={{ color }}>{duration}s</span>
