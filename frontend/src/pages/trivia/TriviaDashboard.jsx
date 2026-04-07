@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import {
   HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock, ExternalLink,
-  ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search
+  ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Shield, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -130,6 +130,7 @@ export default function TriviaDashboard() {
         <div className="flex gap-2 mb-6">
           <TabButton active={activeTab === 'presentations'} onClick={() => setActiveTab('presentations')} icon={Play} label="Presentations" />
           {isAdmin && <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={BarChart3} label="Round History" />}
+          {isAdmin && <TabButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={Shield} label="Trivia Admin" />}
         </div>
 
         {/* Presentations Tab */}
@@ -214,6 +215,11 @@ export default function TriviaDashboard() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Trivia Admin Tab */}
+        {activeTab === 'admin' && isAdmin && (
+          <TriviaAdminPanel userName={userName} onRefresh={loadData} />
         )}
       </main>
     </div>
@@ -393,6 +399,160 @@ function LocationRoundHistory({ location, rounds, count, expanded, onToggle }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function TriviaAdminPanel({ userName, onRefresh }) {
+  const [adminUsage, setAdminUsage] = useState([]);
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminLoading, setAdminLoading] = useState(true);
+  const [adminFilter, setAdminFilter] = useState('');
+
+  useEffect(() => {
+    loadAdminData();
+  }, []);
+
+  const loadAdminData = async () => {
+    setAdminLoading(true);
+    try {
+      const [usageRes, statsRes] = await Promise.all([
+        axios.get(`${API}/admin/round-usage`, { params: { userName } }),
+        axios.get(`${API}/admin/stats`, { params: { userName } }),
+      ]);
+      setAdminUsage(usageRes.data);
+      setAdminStats(statsRes.data);
+    } catch (err) {
+      console.error('Admin data load failed:', err);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleReleaseRound = async (usageId) => {
+    if (!window.confirm('Release this round back into the selection pool?')) return;
+    try {
+      await axios.delete(`${API}/admin/round-usage/${usageId}`, { params: { userName } });
+      loadAdminData();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error('Release failed:', err);
+    }
+  };
+
+  const handleReleasePresentationRounds = async (presentationId, presentationName) => {
+    if (!window.confirm(`Release ALL rounds from "${presentationName}"?`)) return;
+    try {
+      await axios.delete(`${API}/admin/round-usage/by-presentation/${presentationId}`, { params: { userName } });
+      loadAdminData();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error('Release failed:', err);
+    }
+  };
+
+  const handleCleanupExpired = async () => {
+    if (!window.confirm('Remove all expired round usage records?')) return;
+    try {
+      const res = await axios.post(`${API}/admin/cleanup-expired`, null, { params: { userName } });
+      alert(`Cleaned up ${res.data.deletedCount} expired records`);
+      loadAdminData();
+    } catch (err) {
+      console.error('Cleanup failed:', err);
+    }
+  };
+
+  // Group by presentation
+  const byPresentation = {};
+  adminUsage.filter(u => {
+    if (adminFilter && !u.location?.toLowerCase().includes(adminFilter.toLowerCase()) && !u.roundFileName?.toLowerCase().includes(adminFilter.toLowerCase())) return false;
+    return true;
+  }).forEach(u => {
+    const key = u.presentationId || 'unknown';
+    if (!byPresentation[key]) byPresentation[key] = { name: u.presentationName || 'Unknown', location: u.locationName || u.location || '', rounds: [] };
+    byPresentation[key].rounds.push(u);
+  });
+
+  if (adminLoading) {
+    return (
+      <div className="text-center py-12">
+        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{ borderColor: '#fbdd68', borderTopColor: 'transparent' }} />
+        <p style={{ color: '#8892b0' }}>Loading admin data...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid="trivia-admin-panel">
+      {/* Admin Stats */}
+      {adminStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <AdminStatCard label="Total Records" value={adminStats.totalUsageRecords} color="#fbdd68" />
+          <AdminStatCard label="Active" value={adminStats.activeRecords} color="#22c55e" />
+          <AdminStatCard label="Expired" value={adminStats.expiredRecords} color="#ef4444" />
+          <AdminStatCard label="Presentations" value={adminStats.totalPresentations} color="#5973F7" />
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 mb-6">
+        <button onClick={handleCleanupExpired} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+          <RefreshCw size={14} /> Cleanup Expired
+        </button>
+        <div className="flex-1 relative">
+          <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#8892b0' }} />
+          <input type="text" placeholder="Filter rounds..." value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg text-sm text-white outline-none" style={{ backgroundColor: 'rgba(20, 27, 80, 0.6)', border: '1px solid rgba(251, 221, 104, 0.15)' }} />
+        </div>
+      </div>
+
+      {/* Rounds by Presentation */}
+      <div className="space-y-3">
+        {Object.entries(byPresentation).map(([presId, pres]) => (
+          <div key={presId} className="glass-card rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid rgba(251, 221, 104, 0.1)' }}>
+              <div>
+                <h4 className="text-sm font-semibold text-white">{pres.name}</h4>
+                <p className="text-xs" style={{ color: '#8892b0' }}>{pres.location} - {pres.rounds.length} rounds</p>
+              </div>
+              <button onClick={() => handleReleasePresentationRounds(presId, pres.name)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-red-500/20" style={{ color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }} data-testid={`release-all-${presId}`}>
+                <Trash2 size={12} /> Release All
+              </button>
+            </div>
+            <div className="px-5 py-2 space-y-1">
+              {pres.rounds.map((r, idx) => {
+                const conf = ROUND_TYPE_COLORS[r.roundType] || { bg: '#8892b0' };
+                const usedDate = r.usedDate ? new Date(r.usedDate) : null;
+                return (
+                  <div key={idx} className="flex items-center justify-between py-1.5 text-xs" style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold uppercase w-10" style={{ color: conf.bg }}>{r.roundType}</span>
+                      <span className="text-white">{r.roundFileName || 'Unknown'}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span style={{ color: '#8892b0' }}>{r.usedBy}</span>
+                      {usedDate && !isNaN(usedDate) && <span style={{ color: '#8892b0' }}>{usedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                      {r.isExpired && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Expired</span>}
+                      <button onClick={() => handleReleaseRound(r.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors" title="Release round" data-testid={`release-round-${r.id}`}>
+                        <Trash2 size={12} style={{ color: '#ef4444' }} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminStatCard({ label, value, color }) {
+  return (
+    <div className="p-4 rounded-xl" style={{ background: 'linear-gradient(135deg, rgba(20, 27, 80, 0.5), rgba(10, 25, 64, 0.5))', border: `1px solid ${color}20` }}>
+      <p className="text-[10px] uppercase tracking-wider" style={{ color: '#8892b0' }}>{label}</p>
+      <p className="text-2xl font-bold mt-1" style={{ color }}>{value}</p>
     </div>
   );
 }

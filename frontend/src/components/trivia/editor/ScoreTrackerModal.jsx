@@ -250,7 +250,7 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
 
             {/* Action Buttons */}
             <div className="flex gap-3 flex-wrap">
-              <Button onClick={handleClear} variant="destructive" className="flex items-center gap-2">
+              <Button onClick={handleClear} variant="destructive" className="flex items-center gap-2 bg-black hover:bg-gray-800 text-white border border-white">
                 <Trash2 size={18} /> Clear
               </Button>
               <Button onClick={handleSort} className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-black">
