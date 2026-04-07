@@ -104,6 +104,9 @@ export default function Dashboard() {
       case 'story-generator':
         navigate('/story-generator');
         break;
+      case 'sponsor-portal':
+        navigate('/sponsor');
+        break;
       case 'schedule':
         navigate('/schedule');
         break;

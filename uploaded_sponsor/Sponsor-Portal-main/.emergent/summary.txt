@@ -1,0 +1,186 @@
+<analysis>**original_problem_statement:**
+The user wants to build a Sponsor Portal for their business, BIG Hat Entertainment.
+
+**PRODUCT REQUIREMENTS:**
+1.  **Sponsorship Tiers & Authentication:** Display packages, allow Google social login, and provide sponsor/admin dashboards.
+2.  **Asset Management:** Sponsors can upload  and  images with tier-based restrictions. Admins can approve assets.
+3.  **Onboarding Flow:** New users create an account, upload assets, and then select a package from within their dashboard. Admin-created users must reset a default password on first login.
+4.  **Canva Integration:** Automatically sync approved sponsor images to a Canva Teams account daily, with a manual sync option for admins.
+5.  **SharePoint Integration:** Approved  images are automatically uploaded to a dedicated SharePoint folder for that sponsor.
+6.  **Sponsor Visibility Matrix:** In the admin panel, provide a matrix UI for each sponsor to control where their assets can appear.
+7.  **Profile Management:** Users can add a profile picture. Admins can link sponsor profiles to registered user accounts.
+8.  **Payment Integration (Stripe):** Implement a monthly subscription model for sponsorship tiers, allowing users to select packages, purchase à la carte options, and manage their subscriptions.
+9.  **Legal Pages:** Add standard Terms of Service and Privacy Policy pages.
+10. **Account Deletion:** Users should be able to delete their account via a process that includes email confirmation.
+11. **Discount Codes:** Support for various discount types, including one-time use codes.
+
+**User's preferred language**: English
+
+**what currently exists?**
+A full-stack application with a React frontend and FastAPI/MongoDB backend. Key features include:
+- A complete authentication system (JWT & Google social login) with session persistence.
+- Separate dashboards for sponsors and admins.
+- An admin panel for managing sponsors, locations, user profiles, and assets. Admins can create sponsor profiles from existing user accounts.
+- A complex sponsorship package system with multiple tiers and standalone à la carte items, fully integrated with a Stripe product catalog.
+- A functional Stripe integration for monthly subscriptions, one-time payments, and a discount system.
+- A complete, email-confirmed account deletion flow using the Resend API.
+- Functional but blocked Canva integration and a functional SharePoint integration.
+- A recurring data integrity issue where stale  data can cause new users to incorrectly inherit a premium Venue Sponsor status.
+
+**Last working item**:
+- **Last item agent was working:** The user reported a new account on the production environment was incorrectly assigned Venue Sponsor status. The agent identified this as a recurring issue caused by stale data in the browser's  being preserved by the frontend state management. The agent located a potential bug in  where the previous state was being incorrectly preferred over fresh data from the backend during user profile initialization.
+- **Status:** IN PROGRESS
+- **Agent Testing Done:** N
+- **Which testing method agent to use?** Frontend testing agent. The agent should test the full signup and login flow for a new user to verify they are correctly assigned No Active Plan status and are not a Venue Sponsor.
+- **User Testing Done:** N
+
+**All Pending/In progress Issue list**:
+- **Issue 1: New accounts incorrectly get Venue Sponsor status (P0)**
+- **Issue 2: Canva API Sync fails due to  mismatch. (P2 - Blocked)**
+
+**Issues Detail:**
+- **Issue 1:**
+    - **Attempted fixes:** The agent identified that the  function in  was preserving the  flag from the previous state () if the new user data didn't explicitly have it. This allows stale  data to persist across sessions for new users. The agent was in the process of fixing this logic.
+    - **Next debug checklist:**
+        1.  In , modify the  function (around line 551 in previous attempts) to ensure  defaults to  if not explicitly provided by the backend. The logic should be .
+        2.  Create a temporary backend endpoint/script to find and reset any user accounts in the production database that have  incorrectly.
+        3.  After deploying the fix, use the frontend testing agent to sign up a brand-new user and log in to confirm they have the No Active Plan status.
+    - **Why fix this issue and what will be achieved with the fix?** This is a critical data integrity bug that grants new users unearned premium features, impacting business logic and potential revenue. Fixing it ensures a clean state for all new signups.
+    - **Status:** IN PROGRESS
+    - **Is recurring issue?** Y
+    - **Should Test frontend/backend/both after fix?** frontend
+    - **Blocked on other issue:** No.
+- **Issue 2:**
+    - **Attempted fixes:** Correctly identified the cause is the user's Canva Developer Portal having an old .
+    - **Next debug checklist:** Blocked until the user confirms they have updated the redirect URI in their Canva app settings.
+    - **Why fix this issue and what will be achieved with the fix?** This will re-enable the Canva integration, allowing admins to sync sponsor assets.
+    - **Status:** BLOCKED
+    - **Is recurring issue?** N
+    - **Should Test frontend/backend/both after fix?** backend
+    - **Blocked on other issue:** Blocked on user action.
+
+**In progress Task List**:
+- None.
+
+**Upcoming and Future Tasks**
+- **Upcoming Tasks:**
+    - **(P3) Automated Reporting Tools:** Build reporting tools for sponsors and admins.
+- **Future Tasks:**
+    - **(P4) SharePoint Media Integration:** This was the original plan for media storage and could be an alternative if the Canva integration fails.
+    - **(P5) Asset Upload to Slides:** Create a general tool to upload sponsor assets directly into presentation slides.
+
+**Completed work in this session**
+- **Image Preview Functionality (DONE):** Fixed broken image previews across , , and added a new preview feature to the  admin modal.
+- **Data Integrity & Sponsor Types (DONE):**
+    - Refactored the system to enforce two clear sponsor types: Sponsors (inactive until payment) and Venue Sponsors (admin-designated only).
+    - Fixed multiple bugs that incorrectly auto-assigned tiers or Venue Sponsor status to new users.
+    - Corrected the Admin Sponsor list to display all sponsors with distinct badges for their type and tier.
+- **Account Deletion Flow (DONE):** Implemented a complete, two-step account deletion process using Resend for email confirmation. This flow also handles Stripe subscription cancellation.
+- **Stripe Product Catalog Sync (DONE):** Synchronized the application's packages with the user's Stripe account, creating all missing Tiers and À La Carte items.
+- **One-Time Discount Code (DONE):** Created a special discount code (99-SPONSOR-99) for a one-time,  purchase of the Prize Sponsor item, with logic to disable the code after its first use.
+- **UI & Wording Cleanup (DONE):**
+    - Renamed all instances of Top Tier to Star Tier in the UI, backend code, and existing database records.
+    - Implemented a proactive fix in  to clean stale Top Tier references from .
+    - Fixed a non-functional Upgrade Plan button by implementing an upgrade selection modal.
+- **Code Cleanup (DONE):** Performed a deep-dive code cleanup, removing  statements, unused code, fixing linter errors, and clearing server-side caches.
+
+**Earlier issues found/mentioned but not fixed**
+- **Issue 1: Canva API Sync Failure**
+    - **Debug checklist:** This is blocked on user action. The user needs to update the redirect URI in their Canva Developer Portal.
+    - **Why to solve this issue and what will be achieved with this?** Enables asset syncing with Canva.
+    - **Should Test frontend/backend/both after fix:** backend
+    - **Is recurring issue?** N
+
+**Known issue recurrence from previous fork**
+- **Issue recurrence in previous fork:** Yes, the core issue of users being assigned incorrect status/tiers due to stale frontend data has recurred. It previously manifested as the Top Tier bug and now as the Venue Sponsor bug.
+- **Recurrence count:** 2
+- **Status:** IN PROGRESS
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Frontend:** React, React Context API, Shadcn UI, Tailwind CSS
+- **Backend:** FastAPI, Python, Motor
+- **Database:** MongoDB
+- **Authentication:** Custom JWT, Emergent-managed Google OAuth
+- **Payments:** Stripe (native Python SDK)
+- **Email:** Resend
+- **3rd Party APIs:** Canva Connect API, Microsoft Graph API
+
+**key DB schema**
+- **registered_accounts:** Base user accounts. Includes , , .
+- **sponsors:** Business profiles linked to . Includes , , , and . Schema defaults are set to , , and .
+
+**changes in tech stack**
+- **Resend** was added for transactional emails (account deletion confirmation).
+
+**All files of reference**
+- **Core Logic (High Impact):**
+    - : Central to the recurring state bug. Manages user profile and application state.
+    - : Handles initial user session loading from .
+    - : Manages user session data returned upon login.
+    - : Logic for creating and updating sponsor profiles.
+- **New Features:**
+    - : New backend route for the deletion flow.
+    - : New frontend page for email confirmation.
+    - : Updated with the Delete Account modal and logic.
+- **Other Modified Files:**
+    - : Updated with new Stripe Price IDs and one-time discount logic.
+    - : Updated with new badges and filtering.
+    - : Added new functions for deletion and sponsor creation.
+    - : Registered the new  router.
+
+**Areas that need refactoring**:
+- The state initialization logic in  is fragile. Its reliance on merging new data with potentially stale data from  is the root cause of recurring bugs. This should be refactored to prioritize backend data as the single source of truth upon login, completely discarding outdated  structures.
+
+**key api endpoints**
+- ** (POST):** Initiates the account deletion process by sending a confirmation email.
+- ** (GET):** Confirms account deletion using a token from the email link.
+- ** (POST):** Creates a new, inactive sponsor profile from an existing registered user account.
+
+**Critical Info for New Agent**
+- **BEWARE THE RECURRING STATE BUG:** The most critical issue is that the frontend's state management () incorrectly preserves stale data from , causing new users to inherit incorrect statuses (like Venue Sponsor). The production database contains data that has exposed this bug. Your top priority is to fix this data integrity issue once and for all by ensuring fresh data from the backend always overwrites stale  data on login.
+- **Production vs. Development Data:** The user is testing on a live production environment. Be aware that the production database may contain data not present in your development environment, which can reveal bugs not seen locally.
+- **Canva Integration is BLOCKED:** Do not attempt to work on the Canva integration. It is blocked pending an action from the user.
+
+**documents and test reports created in this job**
+-  was updated multiple times for frontend testing.
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User:** Requests an account deletion flow with email confirmation. (COMPLETED)
+2.  **User:** Provides Resend API key. (COMPLETED)
+3.  **User:** Confirms email domain is verified and provides sender email. (COMPLETED)
+4.  **User:** Reports that the admin sponsor list doesn't show all sponsors and asks for different badges. (COMPLETED)
+5.  **User:** Reports seeing Top Tier again and asks for it to be removed. (COMPLETED - Agent fixed stale  data.)
+6.  **User:** Asks to clean up dead code and clear caches. (COMPLETED)
+7.  **User:** Reports a new account was *still* auto-enrolled as a Venue Sponsor. (IN PROGRESS - Agent identified root cause in .)
+8.  **User:** Asks for a deep dive to ensure new accounts have no plan and only admins can create venue sponsors. (COMPLETED - Agent performed an audit.)
+9.  **User:** Reports that a specific account in production (Steve N.) is *still* a venue sponsor. (IN PROGRESS - Agent identified this is a production data issue exposing the same  bug.)
+10. **Human Message (pending):** None.
+
+**Project Health Check:**
+- **Broken:** The user authentication and state initialization flow is critically flawed, allowing stale data to grant incorrect permissions to new users.
+- **Mocked:** None.
+
+**3rd Party Integrations**
+- **Emergent Google Auth:** Implemented and functional.
+- **Stripe (Payments):** Implemented using native Python SDK. Fully functional.
+- **Canva Connect API:** Implemented, but currently **BLOCKED**.
+- **Microsoft Graph API (SharePoint):** Implemented and functional.
+- **Resend (Email):** Implemented and functional for account deletion emails.
+
+**Testing status**
+- **Testing agent used after significant changes:** YES. Used to verify image previews, sponsor type fixes, and the final deep dive audit.
+- **Troubleshoot agent used after agent stuck in loop:** NO
+- **Test files created:** None.
+- **Known regressions:** The data integrity bug regarding user status is a significant, recurring regression.
+
+**Credentials to test flow:**
+- **Admin:**  (password: )
+- **Venue Sponsor:**  (password: )
+- **Regular Sponsor (for testing payments):**  (password: )
+- **User's Test Account:**  (Google OAuth user, no password)
+
+**What agent forgot to execute**
+The agent did not forget any tasks but was in the middle of applying a fix for the recurring state management bug in  when the session ended. The final implementation of the fix is pending.</analysis>
