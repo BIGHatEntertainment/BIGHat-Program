@@ -62,15 +62,60 @@ export default function StoryGeneratorPage() {
     if (!selectedPres) return;
     try {
       setGenerating(true);
-      toast({ title: 'Generating...', description: 'Creating your Instagram Story video.' });
-      const res = await axios.post(`${API}/story-generator/generate/${selectedPres.id}`, {}, { timeout: 300000 });
-      if (res.data.success) {
-        setGeneratedVideo({ filename: res.data.filename, downloadUrl: `${API}/story-generator/download/${res.data.filename}` });
-        toast({ title: 'Video Ready!' });
+      toast({ title: 'Generating...', description: 'Creating your Instagram Story video. This may take ~20 seconds.' });
+      
+      // Start the generation job
+      const startRes = await axios.post(`${API}/story-generator/generate/${selectedPres.id}`, {}, { timeout: 30000 });
+      const jobId = startRes.data.jobId;
+      
+      if (!jobId) {
+        // Direct response with filename
+        if (startRes.data.filename) {
+          setGeneratedVideo({ filename: startRes.data.filename, downloadUrl: `${API}/story-generator/download/${startRes.data.filename}` });
+          toast({ title: 'Video Ready!' });
+          setGenerating(false);
+          return;
+        }
+        throw new Error('No job ID returned');
       }
+
+      // Poll for job completion
+      let attempts = 0;
+      const maxAttempts = 60; // 60 * 2s = 2 minutes max
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const statusRes = await axios.get(`${API}/story-generator/job-status/${jobId}`, { timeout: 10000 });
+          const status = statusRes.data;
+          
+          if (status.status === 'completed' && status.result) {
+            clearInterval(pollInterval);
+            const filename = status.result.filename || status.filename;
+            setGeneratedVideo({ filename, downloadUrl: `${API}/story-generator/download/${filename}` });
+            toast({ title: 'Video Ready!', description: `Generated in ${status.result.duration || '~20'}s` });
+            setGenerating(false);
+          } else if (status.status === 'failed') {
+            clearInterval(pollInterval);
+            toast({ title: 'Error', description: status.error || 'Generation failed', variant: 'destructive' });
+            setGenerating(false);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            toast({ title: 'Timeout', description: 'Video generation is taking longer than expected. Try again.', variant: 'destructive' });
+            setGenerating(false);
+          }
+        } catch {
+          // Continue polling on transient errors
+          if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            setGenerating(false);
+          }
+        }
+      }, 2000);
+      
     } catch (err) {
-      toast({ title: 'Error', description: err.response?.data?.detail || 'Failed to generate', variant: 'destructive' });
-    } finally { setGenerating(false); }
+      toast({ title: 'Error', description: err.response?.data?.detail || 'Failed to start generation', variant: 'destructive' });
+      setGenerating(false);
+    }
   };
 
   const cleanLocation = (loc) => {
