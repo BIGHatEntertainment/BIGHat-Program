@@ -98,12 +98,12 @@ export default function HostDashboard() {
           }
         } else {
           toast.error("No active game found");
-          navigate("/");
+          navigate("/bingo");
         }
       } catch (error) {
         console.error("Error fetching game state:", error);
         toast.error("Failed to load game");
-        navigate("/");
+        navigate("/bingo");
       } finally {
         setIsLoading(false);
       }
@@ -114,7 +114,7 @@ export default function HostDashboard() {
   // Fetch song list from API (SharePoint or sample)
   const fetchSongList = async (decade) => {
     try {
-      const response = await axios.get(`${API}/songlist/${decade}`);
+      const response = await axios.get(`${API}/bingo/songlist/${decade}`);
       if (response.data.songs) {
         setSongList(response.data.songs);
         setSongListSource(response.data.source || "sample");
@@ -690,7 +690,7 @@ export default function HostDashboard() {
         {/* Header */}
         <header className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="text-zinc-400 hover:text-white hover:bg-zinc-800" data-testid="back-to-lobby-btn">
+            <Button variant="ghost" size="icon" onClick={() => navigate("/bingo")} className="text-zinc-400 hover:text-white hover:bg-zinc-800" data-testid="back-to-lobby-btn">
               <ArrowLeft size={24} />
             </Button>
             <h1 className="font-display text-2xl text-white">Music Bingo</h1>
@@ -979,7 +979,7 @@ export default function HostDashboard() {
     <div className="min-h-screen bg-background p-4" data-testid="host-dashboard">
       <header className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="text-zinc-400 hover:text-white hover:bg-zinc-800" data-testid="back-to-lobby-btn">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/bingo")} className="text-zinc-400 hover:text-white hover:bg-zinc-800" data-testid="back-to-lobby-btn">
             <ArrowLeft size={24} />
           </Button>
           <h1 className="font-display text-2xl text-white">Traditional Bingo</h1>
