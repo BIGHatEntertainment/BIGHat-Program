@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -66,13 +66,32 @@ export default function Lobby() {
     { id: "blackout", name: "Blackout", icon: Circle, description: "Cover all squares" }
   ];
 
-  const decades = [
+  const [decades, setDecades] = useState([
     { id: "1970s", name: "1970s", emoji: "Disco Era" },
     { id: "1980s", name: "1980s", emoji: "Synth Pop" },
     { id: "1990s", name: "1990s", emoji: "Grunge & Pop" },
     { id: "2000s", name: "2000s", emoji: "Y2K Hits" },
     { id: "Emo", name: "Emo", emoji: "Emo & Pop Punk" }
-  ];
+  ]);
+  const [decadesLoading, setDecadesLoading] = useState(false);
+
+  // Fetch available decades from SharePoint
+  useEffect(() => {
+    const fetchDecades = async () => {
+      setDecadesLoading(true);
+      try {
+        const res = await axios.get(`${API}/bingo/available-decades`);
+        if (res.data.success && res.data.decades.length > 0) {
+          setDecades(res.data.decades.map(d => ({ id: d.id, name: d.name, emoji: d.subtitle })));
+        }
+      } catch (err) {
+        console.error('Failed to fetch decades from SharePoint:', err);
+      } finally {
+        setDecadesLoading(false);
+      }
+    };
+    fetchDecades();
+  }, []);
 
   // Timer intervals depend on game type
   const getLightningIntervals = () => [
@@ -366,8 +385,15 @@ export default function Lobby() {
                         <>
                           <h3 className="text-xl font-semibold text-zinc-200">Select Music Decade</h3>
                           <p className="text-zinc-500 text-sm">
-                            This will load the song list from SharePoint for the selected era.
+                            {decadesLoading ? 'Fetching available decades from SharePoint...' : 'This will load the song list from SharePoint for the selected era.'}
                           </p>
+                          {decadesLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                              <div className="loading-balls">
+                                <div className="loading-ball" /><div className="loading-ball" /><div className="loading-ball" /><div className="loading-ball" /><div className="loading-ball" />
+                              </div>
+                            </div>
+                          ) : (
                           <RadioGroup
                             value={settings.musicDecade}
                             onValueChange={(v) => setSettings(s => ({ ...s, musicDecade: v }))}
@@ -389,6 +415,7 @@ export default function Lobby() {
                               </Label>
                             ))}
                           </RadioGroup>
+                          )}
                         </>
                       ) : (
                         <>

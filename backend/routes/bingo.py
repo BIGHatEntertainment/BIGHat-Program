@@ -835,3 +835,59 @@ async def test_sharepoint():
         return {"success": True, "has_token": True, "site_id": site_id, "drive_id": drive_id}
     return {"success": False, "has_token": False, "message": "Could not authenticate with SharePoint"}
 
+
+@router.get("/available-decades")
+async def get_available_decades():
+    """
+    Fetch available music decades from SharePoint by listing 
+    Excel files in the 03_Songs folder. Returns only playable decades.
+    """
+    import re
+    try:
+        songs_path = "03_Bingo/Web App/00_Builder/03_Songs"
+        items = sharepoint_service.list_folder(songs_path)
+        
+        # Reverse map for file labels back to decade names
+        LABEL_TO_DECADE = {
+            "1970s": {"id": "1970s", "name": "1970s", "subtitle": "Disco Era"},
+            "1980s": {"id": "1980s", "name": "1980s", "subtitle": "Synth Pop"},
+            "1990s": {"id": "1990s", "name": "1990s", "subtitle": "Grunge & Pop"},
+            "Y2K":   {"id": "2000s", "name": "2000s", "subtitle": "Y2K Hits"},
+            "2000s": {"id": "2000s", "name": "2000s", "subtitle": "Y2K Hits"},
+            "Emo":   {"id": "emo", "name": "Emo", "subtitle": "Emo & Pop Punk"},
+            "2010s": {"id": "2010s", "name": "2010s", "subtitle": "Modern Pop"},
+            "Country": {"id": "country", "name": "Country", "subtitle": "Country Hits"},
+            "Reggaeton": {"id": "reggaeton", "name": "Reggaeton", "subtitle": "Latin Beats"},
+            "R&B":   {"id": "rnb", "name": "R&B", "subtitle": "R&B & Soul"},
+            "Hip Hop": {"id": "hiphop", "name": "Hip Hop", "subtitle": "Hip Hop Classics"},
+        }
+        
+        decades = []
+        seen = set()
+        for item in items:
+            name = item.name if hasattr(item, 'name') else str(item.get('name', ''))
+            # Match "Bingo List (LABEL).xlsx" pattern
+            match = re.search(r'Bingo List \((.+?)\)\.xlsx', name)
+            if match:
+                label = match.group(1)
+                info = LABEL_TO_DECADE.get(label)
+                if not info:
+                    # Auto-generate for unknown labels
+                    info = {"id": label.lower(), "name": label, "subtitle": f"{label} Music"}
+                if info["id"] not in seen:
+                    decades.append(info)
+                    seen.add(info["id"])
+        
+        logger.info(f"Found {len(decades)} available decades from SharePoint")
+        return {"success": True, "decades": decades}
+    except Exception as e:
+        logger.error(f"Error fetching available decades: {e}")
+        # Return defaults as fallback
+        return {"success": False, "decades": [
+            {"id": "1970s", "name": "1970s", "subtitle": "Disco Era"},
+            {"id": "1980s", "name": "1980s", "subtitle": "Synth Pop"},
+            {"id": "1990s", "name": "1990s", "subtitle": "Grunge & Pop"},
+            {"id": "2000s", "name": "2000s", "subtitle": "Y2K Hits"},
+            {"id": "emo", "name": "Emo", "subtitle": "Emo & Pop Punk"},
+        ]}
+
