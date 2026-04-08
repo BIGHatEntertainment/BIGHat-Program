@@ -71,7 +71,7 @@ export default function Dashboard() {
 
   const checkSharepoint = async () => {
     try {
-      const res = await axios.get(`${API}/sharepoint-status`);
+      const res = await axios.get(`${API}/roundmaker/sharepoint-status`);
       setSharepointReady(res.data.configured && res.data.token_valid);
     } catch (e) {
       setSharepointReady(false);
@@ -134,7 +134,7 @@ export default function Dashboard() {
     try {
       const res = await axios.post(`${API}/roundmaker/rounds/${round.id}/duplicate`);
       toast.success(`Duplicated as "${res.data.name}"`);
-      navigate(`/create/${res.data.round_type}?edit=${res.data.id}`);
+      navigate(`/roundmaker/create/${res.data.round_type}?edit=${res.data.id}`);
     } catch (e) {
       toast.error("Failed to duplicate round");
     }
@@ -169,7 +169,7 @@ export default function Dashboard() {
                 <button
                   key={rt.id}
                   data-testid={`round-card-${rt.id.toLowerCase()}`}
-                  onClick={() => navigate(`/create/${rt.id}`)}
+                  onClick={() => navigate(`/roundmaker/create/${rt.id}`)}
                   className={`${rt.cardClass} bg-slate-800/40 border border-slate-700/50 rounded-xl p-6 text-left
                     hover:shadow-xl hover:-translate-y-1 cursor-pointer group
                     backdrop-blur-sm transition-transform transition-shadow duration-300`}

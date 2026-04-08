@@ -71,7 +71,7 @@ export default function RoundCreator() {
     if (roundType === "REG") {
       (async () => {
         try {
-          const res = await axios.get(`${API}/reg-title-images`);
+          const res = await axios.get(`${API}/roundmaker/reg-title-images`);
           setRegImages(res.data.images || []);
         } catch (e) {
           console.error("Failed to load REG title images", e);
@@ -84,7 +84,7 @@ export default function RoundCreator() {
     if (roundType === "MC" && !editId) {
       (async () => {
         try {
-          const res = await axios.get(`${API}/mc-next-name`);
+          const res = await axios.get(`${API}/roundmaker/mc-next-name`);
           setRoundName(res.data.round_name);
         } catch (e) {
           console.error("Failed to get MC next name", e);
@@ -100,14 +100,14 @@ export default function RoundCreator() {
     setSelectedCategory(img);
     try {
       // Get next available number (checks SharePoint for existing files)
-      const numRes = await axios.get(`${API}/reg-next-number/${encodeURIComponent(img.name_no_ext)}`);
+      const numRes = await axios.get(`${API}/roundmaker/reg-next-number/${encodeURIComponent(img.name_no_ext)}`);
       const num = numRes.data.next_number;
       const autoName = numRes.data.round_name || `${img.name_no_ext}_${num}`;
       setNextNumber(num);
       setRoundName(autoName);
 
       // Download the image from SharePoint for PPTX generation
-      const dlRes = await axios.post(`${API}/reg-download-title-image`, null, {
+      const dlRes = await axios.post(`${API}/roundmaker/reg-download-title-image`, null, {
         params: { item_id: img.item_id, drive_id: img.drive_id, filename: img.name },
       });
       setCoverFileId(dlRes.data.file_id);
