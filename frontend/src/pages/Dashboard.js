@@ -105,7 +105,7 @@ export default function Dashboard() {
         navigate('/story-generator');
         break;
       case 'sponsor-portal':
-        navigate('/sponsor');
+        window.open('https://sponsor.bighat.live', '_blank');
         break;
       case 'schedule':
         navigate('/schedule');

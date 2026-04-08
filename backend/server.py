@@ -1308,16 +1308,6 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Scoreboard routes: {e}")
 
-# Mount Sponsor Portal routes
-try:
-    from routes import sponsor_portal as sponsor_routes
-    if hasattr(sponsor_routes, 'set_database'):
-        sponsor_routes.set_database(db)
-    api_router.include_router(sponsor_routes.router)
-    logger.info("Sponsor Portal routes mounted successfully")
-except Exception as e:
-    logger.warning(f"Could not load Sponsor Portal routes: {e}")
-
 # Include router
 app.include_router(api_router)
 

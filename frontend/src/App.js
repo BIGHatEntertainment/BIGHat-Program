@@ -18,12 +18,6 @@ import BingoAudienceView from './pages/bingo/AudienceView';
 import ScoreboardDashboard from './pages/scoreboard/ScoreboardDashboard';
 import ScoreboardLiveRender from './pages/scoreboard/LiveRender';
 import StoryGeneratorPage from './pages/story/StoryGeneratorPage';
-import SponsorHome from './pages/sponsor/Home';
-import SponsorLogin from './pages/sponsor/Login';
-import SponsorSignup from './pages/sponsor/Signup';
-import SponsorAdminLayout from './pages/sponsor/AdminLayout';
-import SponsorDashboardLayout from './pages/sponsor/DashboardLayout';
-import { SponsorProvider } from './context/SponsorContext';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
 
@@ -79,11 +73,6 @@ function AppRoutes() {
       <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />
       <Route path="/scoreboard/live" element={<ProtectedRoute><ScoreboardLiveRender /></ProtectedRoute>} />
       <Route path="/story-generator" element={<ProtectedRoute><StoryGeneratorPage /></ProtectedRoute>} />
-      <Route path="/sponsor" element={<SponsorProvider><SponsorHome /></SponsorProvider>} />
-      <Route path="/sponsor/login" element={<SponsorProvider><SponsorLogin /></SponsorProvider>} />
-      <Route path="/sponsor/signup" element={<SponsorProvider><SponsorSignup /></SponsorProvider>} />
-      <Route path="/sponsor/admin/*" element={<ProtectedRoute><SponsorProvider><SponsorAdminLayout /></SponsorProvider></ProtectedRoute>} />
-      <Route path="/sponsor/dashboard/*" element={<SponsorProvider><SponsorDashboardLayout /></SponsorProvider>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
