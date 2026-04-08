@@ -662,194 +662,81 @@ class StoryGeneratorService:
     
     def _create_rounds_overlay(self, rounds_info: List[Dict], location_name: str, num_rounds: int = 5) -> Image.Image:
         """
-        Create a text overlay for round names to be placed on top of the background image.
-        
-        The background image already contains:
-        - "Multiple Choice" text on the green box
-        - "Mystery" text on the purple box
-        
-        This function ONLY adds text for:
-        - REG round name → Red box
-        - MISC round name → Blue box (2nd MISC if 6 rounds)
-        - BIG Question name → Yellow box
-        
-        For 6-round layout: The background has an EMPTY SLOT for round 3.
-        We need to draw a colored box (red for REG, blue for MISC) at that position.
-        
-        Font: Lemonada Bold with black outline
+        Create a text overlay for ALL round names with colored boxes behind each.
+        Draws every round's colored box + text (nothing is pre-drawn on the background).
         """
-        # Create transparent overlay
         overlay = Image.new('RGBA', (STORY_WIDTH, STORY_HEIGHT), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # Load Lemonada Bold font (bundled TTF version)
+        # Load font
         try:
-            lemonada_font = ImageFont.truetype(str(BUNDLED_FONT_PATH), 48)
-            big_font = ImageFont.truetype(str(BUNDLED_FONT_PATH), 52)
-            logger.info(f"Lemonada Bold font loaded from bundled file: {BUNDLED_FONT_PATH}")
-        except (IOError, OSError) as e:
-            logger.warning(f"Bundled Lemonada font not found ({e}), falling back to DejaVu")
+            lemonada_font = ImageFont.truetype(str(BUNDLED_FONT_PATH), 44)
+            big_font = ImageFont.truetype(str(BUNDLED_FONT_PATH), 48)
+        except (IOError, OSError):
             try:
-                lemonada_font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
-                big_font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 52)
+                lemonada_font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 44)
+                big_font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
             except (IOError, OSError):
                 lemonada_font = ImageFont.load_default()
                 big_font = ImageFont.load_default()
         
-        # Extract rounds by type
-        reg_rounds = [r for r in rounds_info if r.get('type') == 'REG']
-        misc_rounds = [r for r in rounds_info if r.get('type') == 'MISC']
-        big_rounds = [r for r in rounds_info if r.get('type') == 'BIG']
+        # Color map for each round type (RGBA)
+        COLOR_MAP = {
+            'MC':   (34, 197, 94, 230),    # Green
+            'REG':  (239, 68, 68, 230),     # Red
+            'MISC': (59, 130, 246, 230),    # Blue
+            'MYS':  (168, 85, 247, 230),    # Purple
+            'BIG':  (255, 193, 7, 230),     # Yellow/Gold
+        }
         
-        # Color definitions for drawing boxes
-        RED_COLOR = (255, 49, 49, 255)    # REG rounds
-        BLUE_COLOR = (82, 113, 255, 255)  # MISC rounds
+        # Calculate Y positions for all rounds evenly spaced
+        # Leave space at top (400px for logo area) and bottom (200px margin)
+        top_start = 420
+        bottom_end = 1750
+        available_height = bottom_end - top_start
         
-        # Define Y positions for the boxes where we need to add text
-        # These are calibrated based on the actual background images (1080x1920)
-        # Positions determined by sampling pixel colors
-        if num_rounds == 5:
-            # 5-round layout:
-            # Green (MC): Y 550-650 - has text already
-            # Red (REG): Y 750-850, center ~800
-            # Blue (MISC): Y 950-1050, center ~1000
-            # Purple (Mystery): Y 1150-1350 - has text already
-            # Yellow (BIG): Y 1450-1750, center ~1600
-            text_positions = {
-                'REG': 800,      # Red box Y center
-                'MISC': 1000,   # Blue box Y center
-                'BIG': 1675     # Yellow box Y center - lowered by 50px to center in box
-            }
-        else:
-            # 6-round layout:
-            # Green (MC): Y 550-600 - has text already
-            # Red (REG1): Y 700-800, center ~750
-            # EMPTY SLOT (Round 3): Y 870 - NEED TO DRAW BOX (centered between REG1 and MISC)
-            # Blue (MISC): Y 1050-1150, center ~1075
-            # Purple (Mystery): Y 1150-1350 - has text already
-            # Yellow (BIG): Y 1400-1750, center ~1525
-            text_positions = {
-                'REG1': 750,    # First red box Y center
-                'ROUND3': 920,  # Empty slot - lowered by 50px (was 870)
-                'MISC': 1075,   # Blue box Y center (raised to center text)
-                'BIG': 1675     # Yellow box Y center - lowered by 50px (was 1625)
-            }
+        if num_rounds <= 0:
+            return overlay
+        
+        spacing = available_height // (num_rounds + 1)
+        box_height = min(85, spacing - 20)
         
         def draw_text_with_outline(text, x, y, font, fill_color='white', outline_color='black', outline_width=3):
-            """Draw text with black outline for better visibility"""
-            # Draw outline by offsetting in all directions
             for dx in range(-outline_width, outline_width + 1):
                 for dy in range(-outline_width, outline_width + 1):
                     if dx != 0 or dy != 0:
                         draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
-            # Draw main text
             draw.text((x, y), text, font=font, fill=fill_color)
         
-        def draw_rounded_box(y_center, color, height=90, narrow=False):
-            """Draw a rounded rectangle box matching the style of existing boxes
+        for i, round_info in enumerate(rounds_info):
+            round_type = round_info.get('type', 'REG')
+            round_name = round_info.get('name', f'Round {i+1}')
             
-            Args:
-                y_center: Y coordinate for center of box
-                color: Fill color (RGBA tuple)
-                height: Box height (default 90 to match existing boxes)
-                narrow: If True, narrow the box by 125px on each side to match other boxes
-            """
-            margin = 60
-            if narrow:
-                margin = 185  # 60 + 125 = 185 on each side (75 + 50 additional)
+            y_center = top_start + spacing * (i + 1)
+            color = COLOR_MAP.get(round_type, (128, 128, 128, 230))
+            
+            # Draw the colored box
+            margin = 80
             x1, x2 = margin, STORY_WIDTH - margin
-            y1 = y_center - height // 2
-            y2 = y_center + height // 2
-            # Draw with rounded corners matching existing boxes
-            draw.rounded_rectangle([(x1, y1), (x2, y2)], radius=25, fill=color)
-        
-        if num_rounds == 5:
-            # 5-round layout - simpler
-            # REG round name on red box
-            if reg_rounds:
-                text = reg_rounds[0].get('name', 'General')
-                bbox = draw.textbbox((0, 0), text, font=lemonada_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['REG'] - (bbox[3] - bbox[1]) // 2
-                draw_text_with_outline(text, x, y, lemonada_font, fill_color='white', outline_color='black')
+            y1 = y_center - box_height // 2
+            y2 = y_center + box_height // 2
+            draw.rounded_rectangle([(x1, y1), (x2, y2)], radius=20, fill=color)
             
-            # MISC round name on blue box
-            if misc_rounds:
-                text = misc_rounds[0].get('name', 'Specific')
-                bbox = draw.textbbox((0, 0), text, font=lemonada_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['MISC'] - (bbox[3] - bbox[1]) // 2
-                draw_text_with_outline(text, x, y, lemonada_font, fill_color='white', outline_color='black')
+            # Choose font and text color
+            use_font = big_font if round_type == 'BIG' else lemonada_font
+            text_color = 'black' if round_type == 'BIG' else 'white'
+            outline_color = 'white' if round_type == 'BIG' else 'black'
+            outline_w = 2 if round_type == 'BIG' else 3
             
-            # BIG question name on yellow box
-            if big_rounds:
-                text = big_rounds[0].get('name', 'Final Question')
-                bbox = draw.textbbox((0, 0), text, font=big_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['BIG'] - (bbox[3] - bbox[1]) // 2
-                # BIG text on yellow box - use black text
-                draw_text_with_outline(text, x, y, big_font, fill_color='black', outline_color='white', outline_width=2)
-        
-        else:
-            # 6-round layout
-            # Determine what round types we have
-            reg_index = 0
-            misc_index = 0
+            # Draw round name text centered in the box
+            bbox = draw.textbbox((0, 0), round_name, font=use_font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            x = (STORY_WIDTH - text_width) // 2
+            y = y_center - text_height // 2
+            draw_text_with_outline(round_name, x, y, use_font, fill_color=text_color, outline_color=outline_color, outline_width=outline_w)
             
-            # Round 2: First REG round on first red box (Y ~750)
-            if reg_rounds and reg_index < len(reg_rounds):
-                text = reg_rounds[reg_index].get('name', 'General')
-                bbox = draw.textbbox((0, 0), text, font=lemonada_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['REG1'] - (bbox[3] - bbox[1]) // 2
-                draw_text_with_outline(text, x, y, lemonada_font, fill_color='white', outline_color='black')
-                reg_index += 1
-            
-            # Round 3: EMPTY SLOT - need to determine if it's REG or MISC and draw box
-            round3_is_reg = reg_index < len(reg_rounds)  # True if we have another REG
-            
-            if round3_is_reg:
-                # Draw a RED box for the 2nd REG round (narrow=True to match other boxes)
-                draw_rounded_box(text_positions['ROUND3'], RED_COLOR, height=90, narrow=True)
-                text = reg_rounds[reg_index].get('name', 'General')
-                reg_index += 1
-            elif misc_index < len(misc_rounds):
-                # Draw a BLUE box for the 1st MISC round (narrow=True to match other boxes)
-                draw_rounded_box(text_positions['ROUND3'], BLUE_COLOR, height=90, narrow=True)
-                text = misc_rounds[misc_index].get('name', 'Specific')
-                misc_index += 1
-            else:
-                text = None
-            
-            if text:
-                bbox = draw.textbbox((0, 0), text, font=lemonada_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['ROUND3'] - (bbox[3] - bbox[1]) // 2
-                draw_text_with_outline(text, x, y, lemonada_font, fill_color='white', outline_color='black')
-            
-            # Round 4: MISC round on blue box (Y ~1100)
-            if misc_rounds and misc_index < len(misc_rounds):
-                text = misc_rounds[misc_index].get('name', 'Specific')
-                bbox = draw.textbbox((0, 0), text, font=lemonada_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['MISC'] - (bbox[3] - bbox[1]) // 2
-                draw_text_with_outline(text, x, y, lemonada_font, fill_color='white', outline_color='black')
-            
-            # BIG question name on yellow box (Y ~1575)
-            if big_rounds:
-                text = big_rounds[0].get('name', 'Final Question')
-                bbox = draw.textbbox((0, 0), text, font=big_font)
-                text_width = bbox[2] - bbox[0]
-                x = (STORY_WIDTH - text_width) // 2
-                y = text_positions['BIG'] - (bbox[3] - bbox[1]) // 2
-                # BIG text on yellow box - use black text
-                draw_text_with_outline(text, x, y, big_font, fill_color='black', outline_color='white', outline_width=2)
+            logger.info(f"  Drew round {i+1}: [{round_type}] {round_name} at y={y_center} color={color[:3]}")
         
         return overlay
     
