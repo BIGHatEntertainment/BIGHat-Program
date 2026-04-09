@@ -614,7 +614,7 @@ export default function HostDashboard() {
       audienceWindowRef.current.focus();
       return;
     }
-    const audienceUrl = `${window.location.origin}/audience`;
+    const audienceUrl = `${window.location.origin}/bingo/audience`;
     audienceWindowRef.current = window.open(
       audienceUrl,
       "MusicBingoAudience",

@@ -69,7 +69,7 @@ function AppRoutes() {
       <Route path="/roundmaker/create/:roundType" element={<ProtectedRoute><RoundCreator /></ProtectedRoute>} />
       <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
       <Route path="/bingo/host" element={<ProtectedRoute><BingoHostDashboard /></ProtectedRoute>} />
-      <Route path="/bingo/audience" element={<ProtectedRoute><BingoAudienceView /></ProtectedRoute>} />
+      <Route path="/bingo/audience" element={<BingoAudienceView />} />
       <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />
       <Route path="/scoreboard/live" element={<ProtectedRoute><ScoreboardLiveRender /></ProtectedRoute>} />
       <Route path="/story-generator" element={<ProtectedRoute><StoryGeneratorPage /></ProtectedRoute>} />
