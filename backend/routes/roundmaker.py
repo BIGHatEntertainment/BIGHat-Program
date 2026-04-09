@@ -682,9 +682,9 @@ async def get_mc_next_name():
 @router.get("/sharepoint-status")
 async def sharepoint_status():
     """Check if SharePoint credentials are configured and test the connection."""
-    tenant_id = os.environ.get("AZURE_TENANT_ID")
-    client_id = os.environ.get("AZURE_CLIENT_ID")
-    client_secret = os.environ.get("AZURE_CLIENT_SECRET")
+    tenant_id = os.environ.get("ROUNDMAKER_TENANT_ID", os.environ.get("AZURE_TENANT_ID"))
+    client_id = os.environ.get("ROUNDMAKER_CLIENT_ID", os.environ.get("AZURE_CLIENT_ID"))
+    client_secret = os.environ.get("ROUNDMAKER_CLIENT_SECRET", os.environ.get("AZURE_CLIENT_SECRET"))
     configured = all([tenant_id, client_id, client_secret])
     
     # Test token acquisition if configured
