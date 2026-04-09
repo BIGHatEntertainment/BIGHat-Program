@@ -157,7 +157,7 @@ const VenueRoleManager = () => {
               <span>{sendingSecondary ? 'Sending...' : 'Send Secondary Monday Availability'}</span>
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Emails auto-send: Fridays 9AM (primaries) &amp; Mondays 9AM (secondaries). Use buttons to send manually.</p>
+          <p className="text-xs text-gray-400 mt-2">Emails auto-send: Fridays 9AM (primaries) &amp; Mondays 9AM (secondaries). Use buttons to send manually.</p>
         </CardContent>
       </Card>
 
@@ -271,7 +271,7 @@ const VenueRoleManager = () => {
 
       {Object.keys(venueServices).length === 0 && (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
+          <CardContent className="py-8 text-center text-gray-400">
             No venues have pricing configured. Set up venue pricing first to manage roles.
           </CardContent>
         </Card>
@@ -292,7 +292,7 @@ const RoleCategorySection = ({ title, roles, getEmployeeName, onRemove, colorBg,
       <div className="mb-3">
         <p className={`text-xs font-semibold ${colorText} uppercase tracking-wider mb-1`}>Primary</p>
         {primary ? (
-          <div className="flex items-center justify-between p-2 bg-[#111827] rounded border border-gray-200">
+          <div className="flex items-center justify-between p-2 bg-[#111827] rounded border border-[#1e293b]">
             <div className="flex items-center space-x-2">
               <ShieldCheck className="h-4 w-4 text-blue-600" />
               <span className="font-medium text-sm">{getEmployeeName(primary.employee_id)}</span>
@@ -312,9 +312,9 @@ const RoleCategorySection = ({ title, roles, getEmployeeName, onRemove, colorBg,
         {secondaries.length > 0 ? (
           <div className="space-y-1">
             {secondaries.map(role => (
-              <div key={role.id} className="flex items-center justify-between p-2 bg-[#111827] rounded border border-gray-200">
+              <div key={role.id} className="flex items-center justify-between p-2 bg-[#111827] rounded border border-[#1e293b]">
                 <div className="flex items-center space-x-2">
-                  <Shield className="h-4 w-4 text-gray-500" />
+                  <Shield className="h-4 w-4 text-gray-400" />
                   <span className="text-sm">{getEmployeeName(role.employee_id)}</span>
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onRemove(role.id)} data-testid={`remove-role-${role.id}`}>

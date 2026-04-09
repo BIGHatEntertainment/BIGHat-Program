@@ -131,7 +131,7 @@ const VenueManager = () => {
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-lg text-foreground">{venue.name}</h3>
+                        <h3 className="font-semibold text-lg text-white">{venue.name}</h3>
                       </div>
                       <div className="flex space-x-1">
                         <Button
@@ -152,7 +152,7 @@ const VenueManager = () => {
                         </Button>
                       </div>
                     </div>
-                    <div className="space-y-2 text-sm text-muted-foreground">
+                    <div className="space-y-2 text-sm text-gray-400">
                       <div className="flex items-start space-x-2">
                         <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
                         <div>
@@ -161,7 +161,7 @@ const VenueManager = () => {
                         </div>
                       </div>
                       {venue.notes && (
-                        <div className="pt-2 border-t border-border">
+                        <div className="pt-2 border-t border-[#1e293b]">
                           <p className="text-xs italic">{venue.notes}</p>
                         </div>
                       )}
@@ -172,7 +172,7 @@ const VenueManager = () => {
             ))}
           </div>
           {venues.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
+            <div className="text-center py-12 text-gray-400">
               <Building className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No venues added yet</p>
             </div>
@@ -259,7 +259,7 @@ const VenueManager = () => {
                   >
                     Franchise Location (Venue Pays Host Directly)
                   </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-xs text-gray-400 mt-0.5">
                     For locations like Monkey Pants where the venue pays the host directly. Income only counts when Nicholas Sellards claims events.
                   </p>
                 </div>

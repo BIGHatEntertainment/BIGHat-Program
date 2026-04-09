@@ -237,7 +237,7 @@ const SchedulingPage = () => {
       <div className="min-h-screen gradient-hero flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto mb-4"></div>
-          <p className="text-lg text-muted-foreground">
+          <p className="text-lg text-gray-400">
             {!authChecked ? 'Checking authentication...' : 'Loading schedule...'}
           </p>
         </div>
@@ -336,7 +336,7 @@ const SchedulingPage = () => {
           </div>
           
           <div className="flex items-center space-x-2">
-            <h2 className="text-xl font-semibold text-foreground">
+            <h2 className="text-xl font-semibold text-white">
               {format(weekDays[0], 'MMM d')} - {format(weekDays[6], 'MMM d, yyyy')}
             </h2>
           </div>

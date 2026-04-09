@@ -152,7 +152,7 @@ const EmployeeManager = () => {
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-lg text-foreground">{employee.name}</h3>
+                        <h3 className="font-semibold text-lg text-white">{employee.name}</h3>
                         {employee.is_admin && (
                           <Badge className="mt-1 bg-primary text-primary-foreground">
                             <Shield className="h-3 w-3 mr-1" />
@@ -193,7 +193,7 @@ const EmployeeManager = () => {
                         </Button>
                       </div>
                     </div>
-                    <div className="space-y-2 text-sm text-muted-foreground">
+                    <div className="space-y-2 text-sm text-gray-400">
                       <div className="flex items-center space-x-2">
                         <Mail className="h-4 w-4" />
                         <span className="truncate">{employee.email}</span>
@@ -211,7 +211,7 @@ const EmployeeManager = () => {
             ))}
           </div>
           {employees.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
+            <div className="text-center py-12 text-gray-400">
               <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No employees added yet</p>
             </div>
@@ -321,7 +321,7 @@ const EmployeeManager = () => {
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="border-2"
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-gray-400">
                 Can be any length or format - keep it simple for the host
               </p>
             </div>

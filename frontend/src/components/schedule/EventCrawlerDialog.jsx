@@ -86,7 +86,7 @@ const EventCrawlerDialog = ({ open, onOpenChange }) => {
                 <RefreshCw className="h-5 w-5 mr-2" />
                 Crawl Phoenix Events
               </Button>
-              <p className="text-sm text-muted-foreground mt-4">
+              <p className="text-sm text-gray-400 mt-4">
                 Searches Chase Field, Footprint Center, and Phoenix Convention Center
               </p>
             </div>
@@ -97,7 +97,7 @@ const EventCrawlerDialog = ({ open, onOpenChange }) => {
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-primary mx-auto mb-4"></div>
               <p className="text-lg font-semibold">Crawling Phoenix venues...</p>
-              <p className="text-sm text-muted-foreground">This may take a few moments</p>
+              <p className="text-sm text-gray-400">This may take a few moments</p>
             </div>
           )}
 
@@ -109,11 +109,11 @@ const EventCrawlerDialog = ({ open, onOpenChange }) => {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Found Events</p>
+                      <p className="text-sm text-gray-400">Found Events</p>
                       <p className="text-3xl font-bold text-blue-700">{crawledEvents.length}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-muted-foreground">Venues Searched</p>
+                      <p className="text-sm text-gray-400">Venues Searched</p>
                       <p className="text-lg font-semibold">{venuesCrawled.join(', ')}</p>
                     </div>
                     <Button
@@ -126,7 +126,7 @@ const EventCrawlerDialog = ({ open, onOpenChange }) => {
                     </Button>
                   </div>
                   {crawledAt && (
-                    <p className="text-xs text-muted-foreground mt-2">
+                    <p className="text-xs text-gray-400 mt-2">
                       Last updated: {(() => {
                         try {
                           return format(parseISO(crawledAt), 'MMM d, yyyy h:mm a');
@@ -178,14 +178,14 @@ const EventCrawlerDialog = ({ open, onOpenChange }) => {
                         {groupedEvents[date].map((event) => (
                           <div
                             key={event.id}
-                            className="p-3 bg-muted rounded-lg flex items-start justify-between"
+                            className="p-3 bg-[#141b50] rounded-lg flex items-start justify-between"
                           >
                             <div className="flex-1">
                               <div className="flex items-center space-x-2 mb-1">
                                 <span className="text-2xl">{event.icon}</span>
                                 <h5 className="font-semibold">{event.name}</h5>
                               </div>
-                              <div className="flex items-center space-x-4 text-sm text-muted-foreground">
+                              <div className="flex items-center space-x-4 text-sm text-gray-400">
                                 <div className="flex items-center space-x-1">
                                   <MapPin className="h-3 w-3" />
                                   <span>{event.venue}</span>

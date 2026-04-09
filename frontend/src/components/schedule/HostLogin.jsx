@@ -120,7 +120,7 @@ const HostLogin = ({ employees, onLoginSuccess }) => {
                 <div>
                   <Button
                     onClick={handleGoogleLogin}
-                    className="w-full bg-[#111827] hover:bg-gray-50 text-gray-700 border-2 border-gray-300 font-semibold py-6 text-lg shadow-md"
+                    className="w-full bg-[#111827] hover:bg-[#111827] text-gray-200 border-2 border-[#1e293b] font-semibold py-6 text-lg shadow-md"
                     type="button"
                   >
                     <svg className="w-6 h-6 mr-3" viewBox="0 0 24 24">
@@ -131,7 +131,7 @@ const HostLogin = ({ employees, onLoginSuccess }) => {
                     </svg>
                     Sign in with Google
                   </Button>
-                  <p className="text-xs text-center text-muted-foreground mt-2">
+                  <p className="text-xs text-center text-gray-400 mt-2">
                     Secure login using your Google account
                   </p>
                 </div>
@@ -139,10 +139,10 @@ const HostLogin = ({ employees, onLoginSuccess }) => {
                 {/* Divider */}
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t border-gray-300" />
+                    <span className="w-full border-t border-[#1e293b]" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">Or use password</span>
+                    <span className="bg-card px-2 text-gray-400">Or use password</span>
                   </div>
                 </div>
 
@@ -214,7 +214,7 @@ const HostLogin = ({ employees, onLoginSuccess }) => {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-gray-400">
                 Optional - You can keep using the default password if you prefer
               </p>
             </div>
