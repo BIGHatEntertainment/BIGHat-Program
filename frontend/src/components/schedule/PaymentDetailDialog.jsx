@@ -87,7 +87,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center space-x-2">
             <DollarSign className="h-6 w-6 text-green-600" />

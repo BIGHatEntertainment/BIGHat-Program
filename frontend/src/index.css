@@ -867,3 +867,16 @@ body {
     height: 100vh;
     padding: 2rem;
 }
+
+/* Fix all schedule/dark theme dialogs to have solid backgrounds */
+.dark [role="dialog"],
+.dark [data-state="open"] > [role="dialog"] {
+  background-color: #0d1220 !important;
+  border-color: rgba(251, 221, 104, 0.2) !important;
+}
+
+/* Fix AlertDialog content too */
+.dark [role="alertdialog"] {
+  background-color: #0d1220 !important;
+  border-color: rgba(251, 221, 104, 0.2) !important;
+}

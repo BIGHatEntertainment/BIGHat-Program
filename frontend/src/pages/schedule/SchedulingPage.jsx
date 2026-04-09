@@ -475,7 +475,7 @@ const SchedulingPage = () => {
                                     handleUnclaimEvent(event);
                                   }}
                                   variant="outline"
-                                  className="w-full border-red-300 text-red-600 hover:bg-red-50 transition-smooth"
+                                  className="w-full border-red-500 text-red-600 hover:bg-red-600 hover:text-white transition-smooth"
                                   size="sm"
                                 >
                                   Unclaim
@@ -496,7 +496,8 @@ const SchedulingPage = () => {
                             ) : (
                               <Button
                                 variant="outline"
-                                className="w-full cursor-not-allowed"
+                                className="w-full cursor-not-allowed border-gray-400 text-gray-500"
+                                style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}
                                 size="sm"
                                 disabled
                               >

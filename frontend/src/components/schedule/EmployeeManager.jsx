@@ -221,7 +221,7 @@ const EmployeeManager = () => {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>{editingEmployee ? 'Edit Employee' : 'Add New Employee'}</DialogTitle>
             <DialogDescription>
@@ -295,7 +295,7 @@ const EmployeeManager = () => {
 
       {/* Password Reset Dialog */}
       <Dialog open={passwordResetDialog} onOpenChange={setPasswordResetDialog}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
               <Key className="h-5 w-5 text-orange-600" />

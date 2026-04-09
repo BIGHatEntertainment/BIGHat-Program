@@ -339,7 +339,7 @@ const EventManager = () => {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingEvent ? 'Edit Event' : 'Add New Event'}</DialogTitle>
             <DialogDescription>
@@ -497,7 +497,7 @@ const EventManager = () => {
 
       {/* Assign Host Dialog */}
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent className="sm:max-w-[450px]">
+        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
               <UserPlus className="h-5 w-5 text-green-600" />

@@ -151,7 +151,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
   return (
     <>
       <Dialog open={open && !showConfirm} onOpenChange={handleClose}>
-        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
               <Ban className="h-5 w-5 text-gray-800" />
@@ -360,7 +360,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
 
       {/* Confirmation Dialog */}
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Confirm Blackout Dates</DialogTitle>
           </DialogHeader>

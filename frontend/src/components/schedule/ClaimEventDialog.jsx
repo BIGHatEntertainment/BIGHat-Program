@@ -19,7 +19,7 @@ const ClaimEventDialog = ({ open, onOpenChange, event, venue, onConfirm }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px]" style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }}>
         <DialogHeader>
           <DialogTitle className="text-2xl">Confirm Event Claim</DialogTitle>
           <DialogDescription>

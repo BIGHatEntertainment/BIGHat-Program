@@ -89,7 +89,7 @@ const PasswordConfirmDialog = ({ open, onOpenChange, employeeId, employeeName, a
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px]" style={{ backgroundColor: '#0d1220', border: '1px solid rgba(251, 221, 104, 0.2)' }}>
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Lock className="h-5 w-5 text-primary" />

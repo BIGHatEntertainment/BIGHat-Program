@@ -51,7 +51,7 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#0d1220', border: '1px solid rgba(251, 221, 104, 0.2)' }}>
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center space-x-2">
             <Calendar className="h-6 w-6 text-primary" />
