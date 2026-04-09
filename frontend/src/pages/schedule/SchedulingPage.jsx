@@ -369,22 +369,20 @@ const SchedulingPage = () => {
 
             return (
               <div key={idx} className="flex flex-col">
-                <div className={`text-center p-3 rounded-t-xl border-2 ${
-                  isToday
-                    ? 'bg-primary text-primary-foreground border-primary shadow-glow'
-                    : 'bg-card border-border'
-                }`}>
+                <div className={`text-center p-3 rounded-t-xl border-2`} style={{
+                  backgroundColor: isToday ? '#fbdd68' : '#141b50',
+                  borderColor: isToday ? '#fbdd68' : '#1e293b',
+                  color: isToday ? '#000e2a' : '#e5e7eb'
+                }}>
                   <div className="text-sm font-medium">{format(day, 'EEE')}</div>
-                  <div className={`text-2xl font-bold ${
-                    isToday ? 'text-primary-foreground' : 'text-foreground'
-                  }`}>
+                  <div className="text-2xl font-bold">
                     {format(day, 'd')}
                   </div>
                 </div>
 
-                <div className="flex-1 bg-card border-2 border-t-0 border-border rounded-b-xl p-3 space-y-3 min-h-[200px]">
+                <div className="flex-1 border-2 border-t-0 rounded-b-xl p-3 space-y-3 min-h-[200px]" style={{ backgroundColor: '#0d1525', borderColor: '#1e293b' }}>
                   {dayEvents.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground text-sm">
+                    <div className="text-center py-8 text-sm" style={{ color: '#8892b0' }}>
                       No events
                     </div>
                   ) : (

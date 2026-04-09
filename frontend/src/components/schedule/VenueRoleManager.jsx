@@ -292,7 +292,7 @@ const RoleCategorySection = ({ title, roles, getEmployeeName, onRemove, colorBg,
       <div className="mb-3">
         <p className={`text-xs font-semibold ${colorText} uppercase tracking-wider mb-1`}>Primary</p>
         {primary ? (
-          <div className="flex items-center justify-between p-2 bg-white rounded border border-gray-200">
+          <div className="flex items-center justify-between p-2 bg-[#111827] rounded border border-gray-200">
             <div className="flex items-center space-x-2">
               <ShieldCheck className="h-4 w-4 text-blue-600" />
               <span className="font-medium text-sm">{getEmployeeName(primary.employee_id)}</span>
@@ -312,7 +312,7 @@ const RoleCategorySection = ({ title, roles, getEmployeeName, onRemove, colorBg,
         {secondaries.length > 0 ? (
           <div className="space-y-1">
             {secondaries.map(role => (
-              <div key={role.id} className="flex items-center justify-between p-2 bg-white rounded border border-gray-200">
+              <div key={role.id} className="flex items-center justify-between p-2 bg-[#111827] rounded border border-gray-200">
                 <div className="flex items-center space-x-2">
                   <Shield className="h-4 w-4 text-gray-500" />
                   <span className="text-sm">{getEmployeeName(role.employee_id)}</span>

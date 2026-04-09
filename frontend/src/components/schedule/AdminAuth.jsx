@@ -43,7 +43,7 @@ const AdminAuth = ({ onSuccess }) => {
         <Button
           onClick={() => navigate('/')}
           variant="ghost"
-          className="mb-4 hover:bg-white/50"
+          className="mb-4 hover:bg-[#111827]/50"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Schedule

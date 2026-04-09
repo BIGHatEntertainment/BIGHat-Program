@@ -45,7 +45,7 @@ const AdminPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <button onClick={() => navigate('/')} className="p-2 rounded-lg transition-colors hover:bg-white/5">
+              <button onClick={() => navigate('/')} className="p-2 rounded-lg transition-colors hover:bg-[#111827]/5">
                 <ArrowLeft className="h-5 w-5" style={{ color: '#fbdd68' }} />
               </button>
               <img src="/hat-logo.png" alt="BIG Hat" className="h-10 w-10 object-contain" />

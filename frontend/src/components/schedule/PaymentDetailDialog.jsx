@@ -160,7 +160,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                   className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                     bonuses.wore_big_hat 
                       ? 'bg-green-50 border-green-400' 
-                      : 'bg-white border-gray-300 hover:border-gray-400'
+                      : 'bg-[#111827] border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="flex items-center space-x-3 cursor-pointer" onClick={() => handleToggleBonus('wore_big_hat')}>
@@ -183,7 +183,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                   className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                     bonuses.social_media_posts 
                       ? 'bg-green-50 border-green-400' 
-                      : 'bg-white border-gray-300 hover:border-gray-400'
+                      : 'bg-[#111827] border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="flex items-center space-x-3 cursor-pointer" onClick={() => handleToggleBonus('social_media_posts')}>
@@ -206,7 +206,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                   className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                     bonuses.winners_post 
                       ? 'bg-green-50 border-green-400' 
-                      : 'bg-white border-gray-300 hover:border-gray-400'
+                      : 'bg-[#111827] border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="flex items-center space-x-3 cursor-pointer" onClick={() => handleToggleBonus('winners_post')}>

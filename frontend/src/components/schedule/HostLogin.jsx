@@ -120,7 +120,7 @@ const HostLogin = ({ employees, onLoginSuccess }) => {
                 <div>
                   <Button
                     onClick={handleGoogleLogin}
-                    className="w-full bg-white hover:bg-gray-50 text-gray-700 border-2 border-gray-300 font-semibold py-6 text-lg shadow-md"
+                    className="w-full bg-[#111827] hover:bg-gray-50 text-gray-700 border-2 border-gray-300 font-semibold py-6 text-lg shadow-md"
                     type="button"
                   >
                     <svg className="w-6 h-6 mr-3" viewBox="0 0 24 24">

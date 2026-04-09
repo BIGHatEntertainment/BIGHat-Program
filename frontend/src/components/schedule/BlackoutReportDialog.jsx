@@ -122,7 +122,7 @@ const BlackoutReportDialog = ({ open, onOpenChange, month }) => {
                           .map((blackout, index) => (
                             <div
                               key={blackout.id || index}
-                              className="px-4 py-3 flex items-center justify-between bg-white hover:bg-gray-50"
+                              className="px-4 py-3 flex items-center justify-between bg-[#111827] hover:bg-gray-50"
                             >
                               <div className="flex items-center space-x-3">
                                 <Ban className="h-4 w-4 text-red-500" />

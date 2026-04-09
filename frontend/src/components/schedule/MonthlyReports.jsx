@@ -376,7 +376,7 @@ const MonthlyReports = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <div className="p-3 bg-white rounded border space-y-2">
+                  <div className="p-3 bg-[#111827] rounded border space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-muted-foreground">Expected Income (Auto-calculated):</span>
                       <span className="font-bold text-green-600 text-lg" data-testid="expected-income-total">${expectedIncome.toFixed(2)}</span>
