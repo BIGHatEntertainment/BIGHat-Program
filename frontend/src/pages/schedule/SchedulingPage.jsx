@@ -426,16 +426,16 @@ const SchedulingPage = () => {
                             </div>
 
                             <div className="space-y-1">
-                              <div className="flex items-center text-sm text-muted-foreground">
+                              <div className="flex items-center text-sm" style={{ color: '#1a1a1a' }}>
                                 <Clock className="h-3 w-3 mr-1" />
                                 {format(parseISO(event.date), 'h:mm a')}
                               </div>
-                              <div className="flex items-start text-sm font-medium text-foreground">
+                              <div className="flex items-start text-sm font-medium" style={{ color: '#000000' }}>
                                 <MapPin className="h-3 w-3 mr-1 mt-0.5 flex-shrink-0" />
                                 <span className="line-clamp-2">{getVenueName(event.venue_id)}</span>
                               </div>
                               {isClaimed && (
-                                <div className="flex items-center text-sm text-muted-foreground">
+                                <div className="flex items-center text-sm" style={{ color: '#333333' }}>
                                   <User className="h-3 w-3 mr-1" />
                                   {getEmployeeName(event.claimed_by)}
                                 </div>
