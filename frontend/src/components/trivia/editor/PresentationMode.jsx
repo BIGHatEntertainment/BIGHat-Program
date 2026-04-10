@@ -692,8 +692,8 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
               }
             });
             
-            // Hide cursor and disable context menu
-            document.body.style.cursor = 'none';
+            // Keep cursor visible for hosts to click buttons
+            // document.body.style.cursor = 'none'; // Removed - hosts need to see cursor
             document.addEventListener('contextmenu', function(e) {
               e.preventDefault();
               return false;
