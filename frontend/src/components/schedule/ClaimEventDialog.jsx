@@ -19,7 +19,7 @@ const ClaimEventDialog = ({ open, onOpenChange, event, venue, onConfirm }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]" style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }}>
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="text-2xl">Confirm Event Claim</DialogTitle>
           <DialogDescription>
@@ -30,18 +30,18 @@ const ClaimEventDialog = ({ open, onOpenChange, event, venue, onConfirm }) => {
         <div className="space-y-4 py-4">
           {/* Event Type Badge */}
           <div className="flex items-center space-x-2">
-            <Badge className={`${EVENT_TYPE_COLORS[event.event_type] || 'bg-[#111827]0'} text-white text-sm px-3 py-1`}>
+            <Badge className={`${EVENT_TYPE_COLORS[event.event_type] || 'bg-gray-500'} text-white text-sm px-3 py-1`}>
               {event.event_type}
             </Badge>
           </div>
 
           {/* Event Details */}
-          <div className="space-y-3 bg-[#141b50]/50 p-4 rounded-lg">
+          <div className="space-y-3 bg-muted/50 p-4 rounded-lg">
             <div className="flex items-start space-x-3">
               <Calendar className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
               <div>
-                <p className="font-semibold text-white">{format(eventDate, 'EEEE, MMMM d, yyyy')}</p>
-                <div className="flex items-center text-sm text-gray-400 mt-1">
+                <p className="font-semibold text-foreground">{format(eventDate, 'EEEE, MMMM d, yyyy')}</p>
+                <div className="flex items-center text-sm text-muted-foreground mt-1">
                   <Clock className="h-4 w-4 mr-1" />
                   {format(eventDate, 'h:mm a')} ({event.duration_hours} hours)
                 </div>
@@ -51,21 +51,21 @@ const ClaimEventDialog = ({ open, onOpenChange, event, venue, onConfirm }) => {
             <div className="flex items-start space-x-3">
               <MapPin className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
               <div>
-                <p className="font-semibold text-white">{venue.name}</p>
-                <p className="text-sm text-gray-400">{venue.address}</p>
-                <p className="text-sm text-gray-400">{venue.city}, {venue.state}</p>
+                <p className="font-semibold text-foreground">{venue.name}</p>
+                <p className="text-sm text-muted-foreground">{venue.address}</p>
+                <p className="text-sm text-muted-foreground">{venue.city}, {venue.state}</p>
               </div>
             </div>
 
             {event.notes && (
-              <div className="pt-2 border-t border-[#1e293b]">
-                <p className="text-sm text-gray-400">{event.notes}</p>
+              <div className="pt-2 border-t border-border">
+                <p className="text-sm text-muted-foreground">{event.notes}</p>
               </div>
             )}
 
             {event.pay_rate && (
-              <div className="pt-2 border-t border-[#1e293b]">
-                <p className="text-sm font-medium text-white">
+              <div className="pt-2 border-t border-border">
+                <p className="text-sm font-medium text-foreground">
                   Pay Rate: ${event.pay_rate}/hour
                 </p>
               </div>

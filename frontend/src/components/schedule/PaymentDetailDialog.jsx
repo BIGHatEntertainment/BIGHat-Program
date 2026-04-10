@@ -87,7 +87,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center space-x-2">
             <DollarSign className="h-6 w-6 text-green-600" />
@@ -100,20 +100,20 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
 
         <div className="space-y-6 py-4">
           {/* Event Information */}
-          <div className="space-y-3 bg-[#141b50]/50 p-4 rounded-lg">
+          <div className="space-y-3 bg-muted/50 p-4 rounded-lg">
             <div className="flex items-start space-x-3">
               <User className="h-5 w-5 text-primary mt-0.5" />
               <div>
-                <p className="font-semibold text-white text-lg">{payment.employee_name}</p>
-                <p className="text-sm text-gray-400">Host</p>
+                <p className="font-semibold text-foreground text-lg">{payment.employee_name}</p>
+                <p className="text-sm text-muted-foreground">Host</p>
               </div>
             </div>
 
             <div className="flex items-start space-x-3">
               <Calendar className="h-5 w-5 text-primary mt-0.5" />
               <div>
-                <p className="font-semibold text-white">{payment.event_title}</p>
-                <p className="text-sm text-gray-400">
+                <p className="font-semibold text-foreground">{payment.event_title}</p>
+                <p className="text-sm text-muted-foreground">
                   {format(parseISO(payment.date), 'EEEE, MMMM d, yyyy • h:mm a')}
                 </p>
               </div>
@@ -122,14 +122,14 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
             <div className="flex items-start space-x-3">
               <MapPin className="h-5 w-5 text-primary mt-0.5" />
               <div>
-                <p className="font-semibold text-white">{payment.venue_name}</p>
-                <p className="text-sm text-gray-400">Venue</p>
+                <p className="font-semibold text-foreground">{payment.venue_name}</p>
+                <p className="text-sm text-muted-foreground">Venue</p>
               </div>
             </div>
 
             <div className="flex items-center space-x-2">
               <Badge className="bg-blue-500 text-white">{payment.event_type}</Badge>
-              <span className="text-sm text-gray-400">
+              <span className="text-sm text-muted-foreground">
                 {payment.duration_hours} hours
               </span>
             </div>
@@ -146,21 +146,21 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
 
             {/* Base Pay */}
             <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-              <span className="font-medium text-white">Base Pay</span>
+              <span className="font-medium text-foreground">Base Pay</span>
               <span className="text-lg font-bold text-green-700">${payment.base_pay.toFixed(2)}</span>
             </div>
 
             {/* Bonuses - Only show for Trivia and Music Bingo */}
             {payment.event_type !== 'Karaoke' && (
               <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-400">Bonus Breakdown:</p>
+                <p className="text-sm font-medium text-muted-foreground">Bonus Breakdown:</p>
 
                 {/* BIG Hat Bonus */}
                 <div 
                   className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                     bonuses.wore_big_hat 
                       ? 'bg-green-50 border-green-400' 
-                      : 'bg-[#111827] border-[#1e293b] hover:border-gray-400'
+                      : 'bg-white border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="flex items-center space-x-3 cursor-pointer" onClick={() => handleToggleBonus('wore_big_hat')}>
@@ -169,7 +169,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                       onCheckedChange={() => handleToggleBonus('wore_big_hat')}
                       className="pointer-events-auto"
                     />
-                    <span className={`text-sm select-none ${bonuses.wore_big_hat ? 'font-medium' : 'text-gray-400'}`}>
+                    <span className={`text-sm select-none ${bonuses.wore_big_hat ? 'font-medium' : 'text-muted-foreground'}`}>
                       Wore BIG Hat
                     </span>
                   </div>
@@ -183,7 +183,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                   className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                     bonuses.social_media_posts 
                       ? 'bg-green-50 border-green-400' 
-                      : 'bg-[#111827] border-[#1e293b] hover:border-gray-400'
+                      : 'bg-white border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="flex items-center space-x-3 cursor-pointer" onClick={() => handleToggleBonus('social_media_posts')}>
@@ -192,7 +192,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                       onCheckedChange={() => handleToggleBonus('social_media_posts')}
                       className="pointer-events-auto"
                     />
-                    <span className={`text-sm select-none ${bonuses.social_media_posts ? 'font-medium' : 'text-gray-400'}`}>
+                    <span className={`text-sm select-none ${bonuses.social_media_posts ? 'font-medium' : 'text-muted-foreground'}`}>
                       Pre & Post-Show Social Media
                     </span>
                   </div>
@@ -206,7 +206,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                   className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                     bonuses.winners_post 
                       ? 'bg-green-50 border-green-400' 
-                      : 'bg-[#111827] border-[#1e293b] hover:border-gray-400'
+                      : 'bg-white border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="flex items-center space-x-3 cursor-pointer" onClick={() => handleToggleBonus('winners_post')}>
@@ -215,7 +215,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                       onCheckedChange={() => handleToggleBonus('winners_post')}
                       className="pointer-events-auto"
                     />
-                    <span className={`text-sm select-none ${bonuses.winners_post ? 'font-medium' : 'text-gray-400'}`}>
+                    <span className={`text-sm select-none ${bonuses.winners_post ? 'font-medium' : 'text-muted-foreground'}`}>
                       Winners Congratulations Post
                     </span>
                   </div>
@@ -227,7 +227,7 @@ const PaymentDetailDialog = ({ open, onOpenChange, payment, onAcknowledge }) => 
                 {/* Total Bonuses */}
                 {calculateBonusTotal() > 0 && (
                   <div className="flex items-center justify-between p-3 bg-green-100 border-2 border-green-400 rounded-lg">
-                    <span className="font-semibold text-white">Total Bonuses</span>
+                    <span className="font-semibold text-foreground">Total Bonuses</span>
                     <span className="text-lg font-bold text-green-700">+${calculateBonusTotal().toFixed(2)}</span>
                   </div>
                 )}

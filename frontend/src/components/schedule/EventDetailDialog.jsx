@@ -51,7 +51,7 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#0d1220', border: '1px solid rgba(251, 221, 104, 0.2)' }}>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center space-x-2">
             <Calendar className="h-6 w-6 text-primary" />
@@ -65,7 +65,7 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
         <div className="space-y-6 py-4">
           {/* Event Type and Status */}
           <div className="flex items-center justify-between">
-            <Badge className={`${EVENT_TYPE_COLORS[event.event_type] || 'bg-[#111827]0'} text-white text-base px-4 py-1`}>
+            <Badge className={`${EVENT_TYPE_COLORS[event.event_type] || 'bg-gray-500'} text-white text-base px-4 py-1`}>
               {event.event_type}
             </Badge>
             {isClaimed && (
@@ -100,7 +100,7 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
           )}
 
           {/* Event Details */}
-          <div className="space-y-3 bg-[#141b50]/50 p-4 rounded-lg">
+          <div className="space-y-3 bg-muted/50 p-4 rounded-lg">
             <h3 className="font-semibold text-base flex items-center space-x-2">
               <Info className="h-5 w-5 text-primary" />
               <span>Event Details</span>
@@ -110,8 +110,8 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
               <div className="flex items-start space-x-3">
                 <Calendar className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-white">{format(eventDate, 'EEEE, MMMM d, yyyy')}</p>
-                  <div className="flex items-center text-sm text-gray-400 mt-1">
+                  <p className="font-semibold text-foreground">{format(eventDate, 'EEEE, MMMM d, yyyy')}</p>
+                  <div className="flex items-center text-sm text-muted-foreground mt-1">
                     <Clock className="h-4 w-4 mr-1" />
                     {format(eventDate, 'h:mm a')} • {event.duration_hours} hours
                   </div>
@@ -121,23 +121,23 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
               <div className="flex items-start space-x-3">
                 <MapPin className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-white">{venue.name}</p>
-                  <p className="text-sm text-gray-400">{venue.address}</p>
-                  <p className="text-sm text-gray-400">{venue.city}, {venue.state}</p>
+                  <p className="font-semibold text-foreground">{venue.name}</p>
+                  <p className="text-sm text-muted-foreground">{venue.address}</p>
+                  <p className="text-sm text-muted-foreground">{venue.city}, {venue.state}</p>
                 </div>
               </div>
 
               {event.notes && (
-                <div className="pt-2 border-t border-[#1e293b]">
-                  <p className="text-sm font-medium text-white mb-1">Event Notes:</p>
-                  <p className="text-sm text-gray-400 italic">{event.notes}</p>
+                <div className="pt-2 border-t border-border">
+                  <p className="text-sm font-medium text-foreground mb-1">Event Notes:</p>
+                  <p className="text-sm text-muted-foreground italic">{event.notes}</p>
                 </div>
               )}
 
               {venue.notes && (
-                <div className="pt-2 border-t border-[#1e293b]">
-                  <p className="text-sm font-medium text-white mb-1">Venue Notes:</p>
-                  <p className="text-sm text-gray-400 italic">{venue.notes}</p>
+                <div className="pt-2 border-t border-border">
+                  <p className="text-sm font-medium text-foreground mb-1">Venue Notes:</p>
+                  <p className="text-sm text-muted-foreground italic">{venue.notes}</p>
                 </div>
               )}
             </div>
@@ -154,14 +154,14 @@ const EventDetailDialog = ({ open, onOpenChange, event, venue, onClaim, onUnclai
 
             {/* Base Pay */}
             <div className="flex items-center justify-between p-3 bg-green-50 border-2 border-green-300 rounded-lg">
-              <span className="font-medium text-white">Base Pay</span>
+              <span className="font-medium text-foreground">Base Pay</span>
               <span className="text-xl font-bold text-green-700">${basePay.toFixed(2)}</span>
             </div>
 
             {/* Bonuses - Hidden for franchise venues */}
             {!isFranchiseVenue && event.event_type !== 'Karaoke' && (
               <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-400">Bonus Opportunities:</p>
+                <p className="text-sm font-medium text-muted-foreground">Bonus Opportunities:</p>
 
                 {bonuses > 0 ? (
                   <>

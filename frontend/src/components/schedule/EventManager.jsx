@@ -226,7 +226,7 @@ const EventManager = () => {
         </CardHeader>
         <CardContent>
           {venues.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-muted-foreground">
               <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>Please add venues first before creating events</p>
             </div>
@@ -246,12 +246,12 @@ const EventManager = () => {
                             {event.is_special_event && (
                               <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
                             )}
-                            <h3 className="font-semibold text-lg text-white">{event.title}</h3>
+                            <h3 className="font-semibold text-lg text-foreground">{event.title}</h3>
                             {event.status === 'claimed' && (
                               <Badge variant="secondary">Claimed</Badge>
                             )}
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-400">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-muted-foreground">
                             <div className="flex items-center space-x-2">
                               <Calendar className="h-4 w-4" />
                               <span>{format(eventDate, 'EEEE, MMM d, yyyy')}</span>
@@ -265,16 +265,16 @@ const EventManager = () => {
                               <span>{getVenueName(event.venue_id)}</span>
                             </div>
                             {event.pay_rate && (
-                              <div className="font-medium text-white">
+                              <div className="font-medium text-foreground">
                                 ${event.pay_rate}/hour
                               </div>
                             )}
                           </div>
                           {event.notes && (
-                            <p className="text-sm text-gray-400 italic">{event.notes}</p>
+                            <p className="text-sm text-muted-foreground italic">{event.notes}</p>
                           )}
                           {event.claimed_by && (
-                            <div className="flex items-center space-x-2 pt-2 border-t border-[#1e293b]">
+                            <div className="flex items-center space-x-2 pt-2 border-t border-border">
                               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
                                 Claimed by: {getEmployeeName(event.claimed_by)}
                               </Badge>
@@ -327,7 +327,7 @@ const EventManager = () => {
                 );
               })}
               {events.length === 0 && (
-                <div className="text-center py-12 text-gray-400">
+                <div className="text-center py-12 text-muted-foreground">
                   <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No events added yet</p>
                 </div>
@@ -339,7 +339,7 @@ const EventManager = () => {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingEvent ? 'Edit Event' : 'Add New Event'}</DialogTitle>
             <DialogDescription>
@@ -469,7 +469,7 @@ const EventManager = () => {
                     <Star className="h-4 w-4 text-yellow-600 fill-yellow-500" />
                     <span>Special Event (Giveaway/Promotion)</span>
                   </Label>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     Displays a yellow star on the schedule to highlight this event
                   </p>
                 </div>
@@ -497,7 +497,7 @@ const EventManager = () => {
 
       {/* Assign Host Dialog */}
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[450px]">
+        <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
               <UserPlus className="h-5 w-5 text-green-600" />
@@ -511,12 +511,12 @@ const EventManager = () => {
           {assigningEvent && (
             <div className="py-4 space-y-4">
               {/* Event Info */}
-              <div className="bg-[#111827] border border-[#1e293b] rounded-lg p-3">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                 <div className="font-medium text-gray-800">{assigningEvent.title}</div>
-                <div className="text-sm text-gray-300 mt-1">
+                <div className="text-sm text-gray-600 mt-1">
                   {format(parseISO(assigningEvent.date), 'EEEE, MMM d, yyyy')} at {format(parseISO(assigningEvent.date), 'h:mm a')}
                 </div>
-                <div className="text-sm text-gray-300">
+                <div className="text-sm text-gray-600">
                   {getVenueName(assigningEvent.venue_id)}
                 </div>
                 {assigningEvent.claimed_by && (

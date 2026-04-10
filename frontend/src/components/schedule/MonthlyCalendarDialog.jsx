@@ -39,7 +39,7 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#0d1220', border: '1px solid rgba(251, 221, 104, 0.2)' }}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle className="text-2xl flex items-center space-x-2">
@@ -82,27 +82,27 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
           {/* Legend */}
           <div className="flex items-center justify-center space-x-4 text-sm">
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-[#1e293b] rounded"></div>
-              <span className="text-gray-300">You&apos;re claimed</span>
+              <div className="w-4 h-4 bg-gray-200 rounded"></div>
+              <span className="text-muted-foreground">You&apos;re claimed</span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-green-500 rounded"></div>
-              <span className="text-gray-300">Trivia</span>
+              <span className="text-muted-foreground">Trivia</span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-blue-500 rounded"></div>
-              <span className="text-gray-300">Music Bingo</span>
+              <span className="text-muted-foreground">Music Bingo</span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-pink-500 rounded"></div>
-              <span className="text-gray-300">Karaoke</span>
+              <span className="text-muted-foreground">Karaoke</span>
             </div>
           </div>
 
           {/* Calendar Header */}
           <div className="grid grid-cols-7 gap-2 mb-2">
             {daysOfWeek.map(day => (
-              <div key={day} className="text-center font-semibold text-sm py-2" style={{ color: '#fbdd68' }}>
+              <div key={day} className="text-center font-semibold text-sm text-muted-foreground py-2">
                 {day}
               </div>
             ))}
@@ -112,7 +112,7 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
           <div className="grid grid-cols-7 gap-2">
             {/* Empty cells for days before month starts */}
             {Array.from({ length: firstDayOfMonth }).map((_, idx) => (
-              <div key={`empty-${idx}`} className="min-h-[100px] rounded-lg" style={{ backgroundColor: '#0a0f1c' }}></div>
+              <div key={`empty-${idx}`} className="min-h-[100px] bg-muted/20 rounded-lg"></div>
             ))}
 
             {/* Days of month */}
@@ -125,15 +125,17 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
               return (
                 <div
                   key={day.toString()}
-                  className={`min-h-[100px] border-2 rounded-lg p-2 transition-colors`}
-                  style={{
-                    backgroundColor: isToday ? 'rgba(251, 221, 104, 0.1)' : isUserClaimed && !hasMultipleEvents ? '#1a2744' : '#111827',
-                    borderColor: isToday ? '#fbdd68' : isUserClaimed ? '#4b5563' : '#1e293b'
-                  }}
+                  className={`min-h-[100px] border-2 rounded-lg p-2 transition-colors ${
+                    isToday ? 'border-primary bg-primary/5' : 
+                    isUserClaimed && !hasMultipleEvents ? 'border-gray-500 bg-gray-300' :
+                    'border-border bg-card'
+                  }`}
                 >
-                  <div className="text-sm font-semibold mb-2" style={{
-                    color: isToday ? '#fbdd68' : isUserClaimed ? '#d1d5db' : '#e5e7eb'
-                  }}>
+                  <div className={`text-sm font-semibold mb-2 ${
+                    isToday ? 'text-primary' : 
+                    isUserClaimed ? 'text-gray-600' :
+                    'text-foreground'
+                  }`}>
                     {format(day, 'd')}
                   </div>
                   
@@ -145,18 +147,17 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
                           onEventClick(event);
                           onOpenChange(false);
                         }}
-                        className={`text-xs p-1.5 rounded cursor-pointer hover:shadow-md transition-shadow ${
+                        className={`text-xs p-1 rounded cursor-pointer hover:shadow-md transition-shadow ${
                           EVENT_TYPE_COLORS[event.event_type]
-                        }`}
-                        style={{ backgroundColor: event.event_type === 'Trivia' ? '#166534' : event.event_type === 'Music Bingo' ? '#1e3a5f' : event.event_type === 'Karaoke' ? '#831843' : '#374151' }}
+                        } bg-opacity-20 border border-current`}
                       >
-                        <div className="font-semibold truncate text-white">{event.event_type}</div>
-                        <div className="truncate flex items-center text-gray-200" style={{ fontSize: '10px' }}>
+                        <div className="font-medium truncate">{event.event_type}</div>
+                        <div className="text-[10px] truncate flex items-center">
                           <Clock className="h-2 w-2 mr-0.5" />
                           {format(parseISO(event.date), 'h:mm a')}
                         </div>
                         {event.claimed_by && (
-                          <div className="truncate text-gray-300" style={{ fontSize: '10px' }}>
+                          <div className="text-[10px] text-gray-600 truncate">
                             {event.claimed_by === currentUserId ? '✓ You' : 'Claimed'}
                           </div>
                         )}

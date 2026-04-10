@@ -59,7 +59,7 @@ const BlackoutReportDialog = ({ open, onOpenChange, month }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Ban className="h-5 w-5 text-red-600" />
@@ -73,24 +73,24 @@ const BlackoutReportDialog = ({ open, onOpenChange, month }) => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-800"></div>
             </div>
           ) : blackouts.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-500">
               <Calendar className="h-12 w-12 mx-auto mb-3 text-gray-300" />
               <p>No blackout dates for {formatMonthDisplay()}</p>
             </div>
           ) : (
             <>
               {/* Summary */}
-              <div className="bg-[#111827] border border-[#1e293b] rounded-lg p-4 mb-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
                 <div className="grid grid-cols-2 gap-4 text-center">
                   <div>
                     <div className="text-2xl font-bold text-gray-800">{employeeCount}</div>
-                    <div className="text-sm text-gray-400">
+                    <div className="text-sm text-gray-500">
                       {employeeCount === 1 ? 'Employee' : 'Employees'} with Blackouts
                     </div>
                   </div>
                   <div>
                     <div className="text-2xl font-bold text-red-600">{totalBlackouts}</div>
-                    <div className="text-sm text-gray-400">
+                    <div className="text-sm text-gray-500">
                       Total Blackout {totalBlackouts === 1 ? 'Period' : 'Periods'}
                     </div>
                   </div>
@@ -104,13 +104,13 @@ const BlackoutReportDialog = ({ open, onOpenChange, month }) => {
                   .map(([employeeName, employeeBlackouts]) => (
                     <div
                       key={employeeName}
-                      className="border border-[#1e293b] rounded-lg overflow-hidden"
+                      className="border border-gray-200 rounded-lg overflow-hidden"
                     >
                       {/* Employee Header */}
-                      <div className="bg-[#141b50] px-4 py-2 flex items-center space-x-2">
-                        <User className="h-4 w-4 text-gray-300" />
+                      <div className="bg-gray-100 px-4 py-2 flex items-center space-x-2">
+                        <User className="h-4 w-4 text-gray-600" />
                         <span className="font-medium">{employeeName}</span>
-                        <span className="text-sm text-gray-400">
+                        <span className="text-sm text-gray-500">
                           ({employeeBlackouts.length} {employeeBlackouts.length === 1 ? 'period' : 'periods'})
                         </span>
                       </div>
@@ -122,7 +122,7 @@ const BlackoutReportDialog = ({ open, onOpenChange, month }) => {
                           .map((blackout, index) => (
                             <div
                               key={blackout.id || index}
-                              className="px-4 py-3 flex items-center justify-between bg-[#111827] hover:bg-[#111827]"
+                              className="px-4 py-3 flex items-center justify-between bg-white hover:bg-gray-50"
                             >
                               <div className="flex items-center space-x-3">
                                 <Ban className="h-4 w-4 text-red-500" />
@@ -132,7 +132,7 @@ const BlackoutReportDialog = ({ open, onOpenChange, month }) => {
                                     <span className="mx-2 text-gray-400">→</span>
                                     {format(parseISO(blackout.end_date), 'MMM d, yyyy')}
                                   </div>
-                                  <div className="text-sm text-gray-400">
+                                  <div className="text-sm text-gray-500">
                                     {calculateDays(blackout.start_date, blackout.end_date)} days
                                   </div>
                                 </div>

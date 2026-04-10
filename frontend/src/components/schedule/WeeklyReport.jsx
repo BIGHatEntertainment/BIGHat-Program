@@ -130,7 +130,7 @@ const WeeklyReport = () => {
               >
                 Previous Week
               </Button>
-              <div className="px-4 py-2 bg-[#141b50] rounded-md font-medium">
+              <div className="px-4 py-2 bg-muted rounded-md font-medium">
                 {reportData && (
                   <>
                     {format(parseISO(reportData.week_start), 'MMM d')} - {format(parseISO(reportData.week_end), 'MMM d, yyyy')}
@@ -150,7 +150,7 @@ const WeeklyReport = () => {
           {loading ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-primary mx-auto mb-4"></div>
-              <p className="text-gray-400">Loading report...</p>
+              <p className="text-muted-foreground">Loading report...</p>
             </div>
           ) : reportData && reportData.events && reportData.events.length > 0 ? (
             <>
@@ -160,8 +160,8 @@ const WeeklyReport = () => {
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-400">Total Events</p>
-                        <p className="text-3xl font-bold text-white">{reportData.events.length}</p>
+                        <p className="text-sm text-muted-foreground">Total Events</p>
+                        <p className="text-3xl font-bold text-foreground">{reportData.events.length}</p>
                       </div>
                       <Calendar className="h-10 w-10 text-primary opacity-50" />
                     </div>
@@ -171,8 +171,8 @@ const WeeklyReport = () => {
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-400">Total Hours</p>
-                        <p className="text-3xl font-bold text-white">{totals.totalHours.toFixed(1)}</p>
+                        <p className="text-sm text-muted-foreground">Total Hours</p>
+                        <p className="text-3xl font-bold text-foreground">{totals.totalHours.toFixed(1)}</p>
                       </div>
                       <FileText className="h-10 w-10 text-primary opacity-50" />
                     </div>
@@ -182,8 +182,8 @@ const WeeklyReport = () => {
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-400">Total Payout</p>
-                        <p className="text-3xl font-bold text-white">${totals.totalPay.toFixed(2)}</p>
+                        <p className="text-sm text-muted-foreground">Total Payout</p>
+                        <p className="text-3xl font-bold text-foreground">${totals.totalPay.toFixed(2)}</p>
                       </div>
                       <DollarSign className="h-10 w-10 text-primary opacity-50" />
                     </div>
@@ -225,13 +225,13 @@ const WeeklyReport = () => {
                             <div className="flex flex-col items-end">
                               <span className="font-semibold text-green-600">+${event.bonuses}</span>
                               {event.bonus_details && event.bonus_details.length > 0 && (
-                                <span className="text-xs text-gray-400">
+                                <span className="text-xs text-muted-foreground">
                                   {event.bonus_details.join(', ')}
                                 </span>
                               )}
                             </div>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right font-semibold">
@@ -265,7 +265,7 @@ const WeeklyReport = () => {
               </div>
             </>
           ) : (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No events found for this week</p>
             </div>

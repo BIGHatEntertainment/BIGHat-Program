@@ -145,7 +145,7 @@ export default function ProfilePage() {
 
   if (loading || !host) {
     return (
-      <div className="min-h-screen bg-[#000e2a] flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-primary"></div>
       </div>
     );
@@ -154,19 +154,21 @@ export default function ProfilePage() {
   const categoryLabel = (cat) => cat === 'trivia' ? 'Trivia' : 'Bingo/Karaoke';
 
   return (
-    <div className="min-h-screen dark" style={{ backgroundColor: '#000e2a', color: '#fff' }}>
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-50" style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104, 0.15)' }}>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+      <header className="bg-white border-b border-border shadow-sm sticky top-0 z-50">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Button onClick={() => navigate('/schedule')} variant="ghost" size="icon" data-testid="profile-back-btn">
-                <ArrowLeft className="h-5 w-5" style={{ color: '#fbdd68' }} />
+              <Button onClick={() => navigate('/')} variant="ghost" size="icon" data-testid="profile-back-btn">
+                <ArrowLeft className="h-5 w-5" />
               </Button>
-              <img src="/hat-logo.png" alt="BIG Hat" className="h-10 w-10 object-contain" />
+              <div className="p-1">
+                <img src="/hat-logo.png" alt="BIG Hat Entertainment" className="h-10 w-10 object-contain" />
+              </div>
               <div>
-                <h1 className="text-xl font-bold" style={{ color: '#fbdd68' }}>My Profile</h1>
-                <p className="text-sm" style={{ color: '#8892b0' }}>{host.name} &middot; {host.email}</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-foreground">My Profile</h1>
+                <p className="text-sm text-muted-foreground">{host.name} &middot; {host.email}</p>
               </div>
             </div>
           </div>
@@ -209,7 +211,7 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             {myPrimaryRoles.length === 0 ? (
-              <p className="text-gray-400 text-sm">You are not assigned as a primary at any venue. Admins assign primary roles.</p>
+              <p className="text-muted-foreground text-sm">You are not assigned as a primary at any venue. Admins assign primary roles.</p>
             ) : (
               <div className="space-y-3">
                 {myPrimaryRoles.map(role => (
@@ -217,7 +219,7 @@ export default function ProfilePage() {
                     <div className="flex items-center space-x-3">
                       <MapPin className="h-4 w-4 text-blue-600" />
                       <div>
-                        <p className="font-medium text-white">{getVenueName(role.venue_id)}</p>
+                        <p className="font-medium text-foreground">{getVenueName(role.venue_id)}</p>
                         <Badge variant="outline" className="text-xs mt-1">{categoryLabel(role.role_category)}</Badge>
                       </div>
                     </div>
@@ -233,21 +235,21 @@ export default function ProfilePage() {
         <Card data-testid="secondary-roles-section">
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
-              <Shield className="h-5 w-5 text-gray-300" />
+              <Shield className="h-5 w-5 text-gray-600" />
               <span>My Secondary Roles</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {mySecondaryRoles.length === 0 ? (
-              <p className="text-gray-400 text-sm">You haven't signed up as a secondary at any venue yet.</p>
+              <p className="text-muted-foreground text-sm">You haven't signed up as a secondary at any venue yet.</p>
             ) : (
               <div className="space-y-3">
                 {mySecondaryRoles.map(role => (
-                  <div key={role.id} className="flex items-center justify-between p-3 bg-[#111827] rounded-lg border border-[#1e293b]" data-testid={`secondary-role-${role.id}`}>
+                  <div key={role.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200" data-testid={`secondary-role-${role.id}`}>
                     <div className="flex items-center space-x-3">
                       <MapPin className="h-4 w-4 text-gray-500" />
                       <div>
-                        <p className="font-medium text-white">{getVenueName(role.venue_id)}</p>
+                        <p className="font-medium text-foreground">{getVenueName(role.venue_id)}</p>
                         <Badge variant="outline" className="text-xs mt-1">{categoryLabel(role.role_category)}</Badge>
                       </div>
                     </div>
@@ -260,8 +262,8 @@ export default function ProfilePage() {
             )}
 
             {/* Sign Up as Secondary */}
-            <div className="pt-4 border-t border-[#1e293b]">
-              <h4 className="text-sm font-semibold mb-3 text-white">Sign Up as Secondary</h4>
+            <div className="pt-4 border-t border-border">
+              <h4 className="text-sm font-semibold mb-3 text-foreground">Sign Up as Secondary</h4>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Select value={selectedVenue} onValueChange={(v) => { setSelectedVenue(v); setSelectedCategory(''); }} data-testid="secondary-venue-select">
                   <SelectTrigger className="flex-1" data-testid="secondary-venue-trigger">
@@ -313,7 +315,7 @@ export default function ProfilePage() {
                 const bkSecondaries = bkRoles.filter(r => r.role_type === 'secondary');
 
                 return (
-                  <div key={vs.venue_id} className="p-4 rounded-lg border border-[#1e293b] bg-[#111827]" data-testid={`venue-overview-${vs.venue_id}`}>
+                  <div key={vs.venue_id} className="p-4 rounded-lg border border-border bg-white" data-testid={`venue-overview-${vs.venue_id}`}>
                     <h4 className="font-semibold text-lg mb-3">{vs.venue_name}</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {vs.offers_trivia && (
@@ -355,7 +357,7 @@ export default function ProfilePage() {
                 );
               })}
               {Object.keys(venueServices).length === 0 && (
-                <p className="text-gray-400 text-sm">No venues have pricing configured yet. Ask an admin to set up venue pricing.</p>
+                <p className="text-muted-foreground text-sm">No venues have pricing configured yet. Ask an admin to set up venue pricing.</p>
               )}
             </div>
           </CardContent>

@@ -47,13 +47,12 @@ const SchedulingPage = () => {
   const [passwordAction, setPasswordAction] = useState(null); // { type: 'claim' | 'unclaim', event: eventObj }
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedEventDetail, setSelectedEventDetail] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [claimEligibility, setClaimEligibility] = useState({});
+  const [authChecked, setAuthChecked] = useState(false); // Track if we've checked auth state
+  const [claimEligibility, setClaimEligibility] = useState({}); // {event_id: {status, primary_employee_id, opens_at}}
 
   // SSO: Auto-login using the hub's authenticated user
   useEffect(() => {
     const autoLogin = async () => {
-      // If already have a logged-in host, skip
       const storedHost = sessionStorage.getItem('loggedInHost');
       if (storedHost) {
         try {
@@ -66,43 +65,26 @@ const SchedulingPage = () => {
           sessionStorage.removeItem('loggedInHost');
         }
       }
-
-      // Use the hub user to find matching schedule employee
       if (hubUser?.email) {
         try {
           const res = await axios.get(`${API}/employees`);
           const emps = res.data;
           const match = emps.find(e => e.email.toLowerCase() === hubUser.email.toLowerCase());
           if (match) {
-            const hostData = {
-              id: match.id,
-              name: match.name,
-              email: match.email,
-              is_admin: match.is_admin || hubUser.role === 'admin' || hubUser.role === 'master_admin'
-            };
+            const hostData = { id: match.id, name: match.name, email: match.email, is_admin: match.is_admin || hubUser.role === 'admin' || hubUser.role === 'master_admin' };
             setLoggedInHost(hostData);
             setSelectedEmployee(match.id);
             sessionStorage.setItem('loggedInHost', JSON.stringify(hostData));
           } else {
-            // No matching employee — auto-create one from hub user
-            const hostData = {
-              id: hubUser.id,
-              name: hubUser.name,
-              email: hubUser.email,
-              is_admin: hubUser.role === 'admin' || hubUser.role === 'master_admin'
-            };
+            const hostData = { id: hubUser.id, name: hubUser.name, email: hubUser.email, is_admin: hubUser.role === 'admin' || hubUser.role === 'master_admin' };
             setLoggedInHost(hostData);
             setSelectedEmployee(hubUser.id);
             sessionStorage.setItem('loggedInHost', JSON.stringify(hostData));
           }
-        } catch (err) {
-          console.error('Failed to auto-login from hub:', err);
-        }
+        } catch (err) { console.error('SSO auto-login failed:', err); }
       }
-
       setAuthChecked(true);
     };
-
     autoLogin();
   }, [hubUser]);
 
@@ -237,7 +219,7 @@ const SchedulingPage = () => {
       <div className="min-h-screen gradient-hero flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto mb-4"></div>
-          <p className="text-lg text-gray-400">
+          <p className="text-lg text-muted-foreground">
             {!authChecked ? 'Checking authentication...' : 'Loading schedule...'}
           </p>
         </div>
@@ -245,7 +227,7 @@ const SchedulingPage = () => {
     );
   }
 
-  // Show login screen if not logged in — redirect to hub login
+  // Show loading if not logged in yet
   if (!loggedInHost) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#000e2a' }}>
@@ -258,47 +240,53 @@ const SchedulingPage = () => {
   }
 
   return (
-    <div className="min-h-screen dark" style={{ backgroundColor: '#000e2a', color: '#fff' }}>
-      {/* Header - matches hub design */}
-      <header className="sticky top-0 z-50" style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104, 0.15)' }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+    <div className="min-h-screen gradient-hero">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <img src="/hat-logo.png" alt="BIG Hat" className="h-10 w-10 object-contain" />
+              <div className="p-2">
+                <img 
+                  src="/assets/hat-logo.png" 
+                  alt="BIG Hat Entertainment" 
+                  className="h-12 w-12 object-contain"
+                />
+              </div>
               <div>
-                <h1 className="text-xl font-bold" style={{ color: '#fbdd68' }}>Event Scheduler</h1>
-                <p className="text-xs" style={{ color: '#8892b0' }}>
-                  Welcome, <span style={{ color: '#fbdd68' }}>{loggedInHost.name}</span>
+                <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Event Scheduler</h1>
+                <p className="text-sm text-muted-foreground">
+                  Welcome, <span className="font-semibold text-primary">{loggedInHost.name}</span>
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              <button
+              <Button
                 onClick={() => navigate('/schedule/profile')}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
-                style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}
+                variant="outline"
+                className="flex items-center space-x-2 hover:bg-purple-50 hover:text-purple-600 transition-smooth"
                 data-testid="profile-btn"
               >
-                <UserCircle className="h-4 w-4" style={{ color: '#fbdd68' }} />
+                <UserCircle className="h-4 w-4" />
                 <span className="hidden sm:inline">Profile</span>
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleLogout}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
-                style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}
+                variant="outline"
+                className="flex items-center space-x-2 hover:bg-red-50 hover:text-red-600 transition-smooth"
               >
                 <User className="h-4 w-4" />
-                <span className="hidden sm:inline">Dashboard</span>
-              </button>
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
               {loggedInHost.is_admin && (
-                <button
+                <Button
                   onClick={() => navigate('/schedule/admin')}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
-                  style={{ color: '#fbdd68', border: '1px solid rgba(251, 221, 104, 0.3)', backgroundColor: 'rgba(251, 221, 104, 0.1)' }}
+                  variant="outline"
+                  className="flex items-center space-x-2 hover:bg-primary hover:text-primary-foreground transition-smooth"
                 >
                   <Settings className="h-4 w-4" />
                   <span className="hidden sm:inline">Admin</span>
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -336,7 +324,7 @@ const SchedulingPage = () => {
           </div>
           
           <div className="flex items-center space-x-2">
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-foreground">
               {format(weekDays[0], 'MMM d')} - {format(weekDays[6], 'MMM d, yyyy')}
             </h2>
           </div>
@@ -369,20 +357,22 @@ const SchedulingPage = () => {
 
             return (
               <div key={idx} className="flex flex-col">
-                <div className={`text-center p-3 rounded-t-xl border-2`} style={{
-                  backgroundColor: isToday ? '#fbdd68' : '#141b50',
-                  borderColor: isToday ? '#fbdd68' : '#1e293b',
-                  color: isToday ? '#000e2a' : '#e5e7eb'
-                }}>
+                <div className={`text-center p-3 rounded-t-xl border-2 ${
+                  isToday
+                    ? 'bg-primary text-primary-foreground border-primary shadow-glow'
+                    : 'bg-card border-border'
+                }`}>
                   <div className="text-sm font-medium">{format(day, 'EEE')}</div>
-                  <div className="text-2xl font-bold">
+                  <div className={`text-2xl font-bold ${
+                    isToday ? 'text-primary-foreground' : 'text-foreground'
+                  }`}>
                     {format(day, 'd')}
                   </div>
                 </div>
 
-                <div className="flex-1 border-2 border-t-0 rounded-b-xl p-3 space-y-3 min-h-[200px]" style={{ backgroundColor: '#0d1525', borderColor: '#1e293b' }}>
+                <div className="flex-1 bg-card border-2 border-t-0 border-border rounded-b-xl p-3 space-y-3 min-h-[200px]">
                   {dayEvents.length === 0 ? (
-                    <div className="text-center py-8 text-sm" style={{ color: '#8892b0' }}>
+                    <div className="text-center py-8 text-muted-foreground text-sm">
                       No events
                     </div>
                   ) : (
@@ -424,16 +414,16 @@ const SchedulingPage = () => {
                             </div>
 
                             <div className="space-y-1">
-                              <div className="flex items-center text-sm" style={{ color: '#1a1a1a' }}>
+                              <div className="flex items-center text-sm text-muted-foreground">
                                 <Clock className="h-3 w-3 mr-1" />
                                 {format(parseISO(event.date), 'h:mm a')}
                               </div>
-                              <div className="flex items-start text-sm font-medium" style={{ color: '#000000' }}>
+                              <div className="flex items-start text-sm font-medium text-foreground">
                                 <MapPin className="h-3 w-3 mr-1 mt-0.5 flex-shrink-0" />
                                 <span className="line-clamp-2">{getVenueName(event.venue_id)}</span>
                               </div>
                               {isClaimed && (
-                                <div className="flex items-center text-sm" style={{ color: '#333333' }}>
+                                <div className="flex items-center text-sm text-muted-foreground">
                                   <User className="h-3 w-3 mr-1" />
                                   {getEmployeeName(event.claimed_by)}
                                 </div>
@@ -473,7 +463,7 @@ const SchedulingPage = () => {
                                     handleUnclaimEvent(event);
                                   }}
                                   variant="outline"
-                                  className="w-full border-red-500 text-red-600 hover:bg-red-600 hover:text-white transition-smooth"
+                                  className="w-full border-red-300 text-red-600 hover:bg-red-50 transition-smooth"
                                   size="sm"
                                 >
                                   Unclaim
@@ -494,8 +484,7 @@ const SchedulingPage = () => {
                             ) : (
                               <Button
                                 variant="outline"
-                                className="w-full cursor-not-allowed border-gray-400 text-gray-500"
-                                style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}
+                                className="w-full cursor-not-allowed"
                                 size="sm"
                                 disabled
                               >

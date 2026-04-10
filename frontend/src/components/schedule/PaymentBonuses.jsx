@@ -78,23 +78,23 @@ const PaymentBonuses = ({ event, onUpdate }) => {
         <div className="flex items-center justify-between p-2 bg-primary/10 rounded-lg">
           <span className="text-sm font-medium text-primary">{event.event_type}</span>
           {event.event_type === 'Karaoke' && (
-            <span className="text-xs text-gray-400">${25}/hour × {event.duration_hours}h</span>
+            <span className="text-xs text-muted-foreground">${25}/hour × {event.duration_hours}h</span>
           )}
         </div>
 
         {/* Base Pay */}
-        <div className="flex items-center justify-between p-3 bg-[#111827] rounded-lg border-2 border-green-300">
-          <span className="font-semibold text-white">Base Pay</span>
+        <div className="flex items-center justify-between p-3 bg-white rounded-lg border-2 border-green-300">
+          <span className="font-semibold text-foreground">Base Pay</span>
           <span className="text-lg font-bold text-green-700">${getBasePay()}</span>
         </div>
 
         {/* Bonuses - Only for Trivia and Music Bingo */}
         {showBonuses() && (
           <div className="space-y-3">
-            <div className="text-sm font-medium text-gray-400 mb-2">Bonus Opportunities:</div>
+            <div className="text-sm font-medium text-muted-foreground mb-2">Bonus Opportunities:</div>
           
           {/* BIG Hat Bonus */}
-          <div className="flex items-start space-x-3 p-3 bg-[#111827] rounded-lg border hover:border-green-400 transition-colors">
+          <div className="flex items-start space-x-3 p-3 bg-white rounded-lg border hover:border-green-400 transition-colors">
             <Checkbox
               id="wore_big_hat"
               checked={bonuses.wore_big_hat}
@@ -113,7 +113,7 @@ const PaymentBonuses = ({ event, onUpdate }) => {
           </div>
 
           {/* Social Media Posts */}
-          <div className="flex items-start space-x-3 p-3 bg-[#111827] rounded-lg border hover:border-green-400 transition-colors">
+          <div className="flex items-start space-x-3 p-3 bg-white rounded-lg border hover:border-green-400 transition-colors">
             <Checkbox
               id="social_media_posts"
               checked={bonuses.social_media_posts}
@@ -128,14 +128,14 @@ const PaymentBonuses = ({ event, onUpdate }) => {
                 <span>Pre & Post-Show Social Media</span>
                 <span className="text-green-600 font-bold">+$5</span>
               </Label>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Tagged @bighattrivia in pre-show and post-show posts/stories
               </p>
             </div>
           </div>
 
           {/* Winners Congratulations */}
-          <div className="flex items-start space-x-3 p-3 bg-[#111827] rounded-lg border hover:border-green-400 transition-colors">
+          <div className="flex items-start space-x-3 p-3 bg-white rounded-lg border hover:border-green-400 transition-colors">
             <Checkbox
               id="winners_post"
               checked={bonuses.winners_post}
@@ -150,7 +150,7 @@ const PaymentBonuses = ({ event, onUpdate }) => {
                 <span>Winners Congratulations Post</span>
                 <span className="text-green-600 font-bold">+$5</span>
               </Label>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Posted congratulating the winners on social media
               </p>
             </div>

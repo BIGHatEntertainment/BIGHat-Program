@@ -276,7 +276,7 @@ const MonthlyReports = () => {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-primary mx-auto mb-4"></div>
-        <p className="text-gray-400">Loading monthly report...</p>
+        <p className="text-muted-foreground">Loading monthly report...</p>
       </div>
     );
   }
@@ -370,15 +370,15 @@ const MonthlyReports = () => {
               <CardContent className="pt-6 space-y-3">
                 <div>
                   <Label className="text-base font-semibold">Revenue for {getVenueName(selectedVenue)}</Label>
-                  <p className="text-sm text-gray-400 mt-1">
+                  <p className="text-sm text-muted-foreground mt-1">
                     Expected income is auto-calculated from scheduled events &times; venue pricing.
                   </p>
                 </div>
                 
                 <div className="space-y-2">
-                  <div className="p-3 bg-[#111827] rounded border space-y-2">
+                  <div className="p-3 bg-white rounded border space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-400">Expected Income (Auto-calculated):</span>
+                      <span className="text-sm font-medium text-muted-foreground">Expected Income (Auto-calculated):</span>
                       <span className="font-bold text-green-600 text-lg" data-testid="expected-income-total">${expectedIncome.toFixed(2)}</span>
                     </div>
                     {/* Per-type breakdown */}
@@ -393,7 +393,7 @@ const MonthlyReports = () => {
                           });
                           return Object.entries(byType).map(([type, data]) => (
                             <div key={type} className="flex justify-between text-xs" data-testid={`venue-breakdown-${type}`}>
-                              <span className="text-gray-400">{data.count}x {type} @ ${data.perEvent.toFixed(2)}/event</span>
+                              <span className="text-muted-foreground">{data.count}x {type} @ ${data.perEvent.toFixed(2)}/event</span>
                               <span className="font-medium text-green-700">${data.total.toFixed(2)}</span>
                             </div>
                           ));
@@ -401,7 +401,7 @@ const MonthlyReports = () => {
                       </div>
                     )}
                     {incomeBreakdown.length === 0 && (
-                      <p className="text-xs text-gray-400">No events scheduled this month.</p>
+                      <p className="text-xs text-muted-foreground">No events scheduled this month.</p>
                     )}
                   </div>
                   
@@ -449,14 +449,14 @@ const MonthlyReports = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Incoming Revenue</p>
+                <p className="text-sm text-muted-foreground">Incoming Revenue</p>
                 <p className="text-3xl font-bold text-green-600" data-testid="incoming-revenue">${totalIncoming.toFixed(2)}</p>
               </div>
               <TrendingUp className="h-10 w-10 text-green-600 opacity-50" />
             </div>
             {/* Income Breakdown by Event Type */}
             {incomeBreakdown.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-[#1e293b] space-y-1">
+              <div className="mt-3 pt-3 border-t border-border space-y-1">
                 {(() => {
                   const byType = {};
                   incomeBreakdown.forEach(e => {
@@ -465,7 +465,7 @@ const MonthlyReports = () => {
                     byType[e.event_type].total += e.expected_income;
                   });
                   return Object.entries(byType).map(([type, data]) => (
-                    <div key={type} className="flex justify-between text-xs text-gray-400" data-testid={`income-breakdown-${type}`}>
+                    <div key={type} className="flex justify-between text-xs text-muted-foreground" data-testid={`income-breakdown-${type}`}>
                       <span>{data.count}x {type}</span>
                       <span className="font-medium text-green-700">${data.total.toFixed(2)}</span>
                     </div>
@@ -480,7 +480,7 @@ const MonthlyReports = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Outgoing Payments</p>
+                <p className="text-sm text-muted-foreground">Outgoing Payments</p>
                 <p className="text-3xl font-bold text-red-600">${totalOutgoing.toFixed(2)}</p>
               </div>
               <TrendingDown className="h-10 w-10 text-red-600 opacity-50" />
@@ -492,11 +492,11 @@ const MonthlyReports = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Balance</p>
+                <p className="text-sm text-muted-foreground">Balance</p>
                 <p className={`text-3xl font-bold ${balance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                   ${Math.abs(balance).toFixed(2)}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {balance >= 0 ? 'Profit' : 'Loss'}
                 </p>
               </div>
@@ -512,7 +512,7 @@ const MonthlyReports = () => {
           {/* Calendar Header */}
           <div className="grid grid-cols-7 gap-2 mb-2">
             {daysOfWeek.map(day => (
-              <div key={day} className="text-center font-semibold text-sm text-gray-400 py-2">
+              <div key={day} className="text-center font-semibold text-sm text-muted-foreground py-2">
                 {day}
               </div>
             ))}
@@ -522,7 +522,7 @@ const MonthlyReports = () => {
           <div className="grid grid-cols-7 gap-2">
             {/* Empty cells for days before month starts */}
             {Array.from({ length: firstDayOfMonth }).map((_, idx) => (
-              <div key={`empty-${idx}`} className="min-h-[120px] bg-[#0a0f1c] rounded-lg"></div>
+              <div key={`empty-${idx}`} className="min-h-[120px] bg-muted/20 rounded-lg"></div>
             ))}
 
             {/* Days of month */}
@@ -537,10 +537,10 @@ const MonthlyReports = () => {
                   key={day.toString()}
                   onClick={() => canAddEvent && handleDateClick(day)}
                   className={`min-h-[120px] border-2 rounded-lg p-2 transition-all ${
-                    isToday ? 'border-primary bg-primary/5' : 'border-[#1e293b] bg-card'
+                    isToday ? 'border-primary bg-primary/5' : 'border-border bg-card'
                   } ${canAddEvent ? 'cursor-pointer hover:border-blue-500 hover:bg-blue-50 hover:shadow-md' : ''}`}
                 >
-                  <div className={`text-sm font-semibold mb-2 flex items-center justify-between ${isToday ? 'text-primary' : 'text-white'}`}>
+                  <div className={`text-sm font-semibold mb-2 flex items-center justify-between ${isToday ? 'text-primary' : 'text-foreground'}`}>
                     <span>{format(day, 'd')}</span>
                     {canAddEvent && (
                       <Plus className="h-4 w-4 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -560,7 +560,7 @@ const MonthlyReports = () => {
                         </div>
                       ))}
                       {phoenixDayEvents.length > 3 && (
-                        <span className="text-xs text-gray-400">+{phoenixDayEvents.length - 3}</span>
+                        <span className="text-xs text-muted-foreground">+{phoenixDayEvents.length - 3}</span>
                       )}
                     </div>
                   )}
@@ -625,7 +625,7 @@ const MonthlyReports = () => {
             <div className="space-y-2">
               <Label htmlFor="start_time">Start Time *</Label>
               <div className="flex items-center space-x-2">
-                <Clock className="h-5 w-5 text-gray-400" />
+                <Clock className="h-5 w-5 text-muted-foreground" />
                 <Input
                   id="start_time"
                   type="time"

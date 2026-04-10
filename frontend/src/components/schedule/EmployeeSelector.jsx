@@ -25,7 +25,7 @@ const EmployeeSelector = ({ employees, selectedEmployee, onSelectEmployee }) => 
         </SelectContent>
       </Select>
       {!selectedEmployee && (
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-muted-foreground">
           Please select your name to claim events
         </p>
       )}

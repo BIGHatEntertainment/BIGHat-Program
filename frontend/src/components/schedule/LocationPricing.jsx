@@ -134,7 +134,7 @@ const LocationPricing = () => {
                 {loading ? (
                   <div className="text-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-4 border-primary mx-auto"></div>
-                    <p className="text-gray-400 mt-2">Loading pricing...</p>
+                    <p className="text-muted-foreground mt-2">Loading pricing...</p>
                   </div>
                 ) : (
                   <div className="space-y-6">
@@ -154,7 +154,7 @@ const LocationPricing = () => {
                           onChange={(e) => setPricing({ ...pricing, trivia_price: e.target.value })}
                           className="w-48 text-lg"
                         />
-                        <span className="text-sm text-gray-400">per event</span>
+                        <span className="text-sm text-muted-foreground">per event</span>
                       </div>
                     </div>
 
@@ -174,7 +174,7 @@ const LocationPricing = () => {
                           onChange={(e) => setPricing({ ...pricing, music_bingo_price: e.target.value })}
                           className="w-48 text-lg"
                         />
-                        <span className="text-sm text-gray-400">per event</span>
+                        <span className="text-sm text-muted-foreground">per event</span>
                       </div>
                     </div>
 
@@ -194,12 +194,12 @@ const LocationPricing = () => {
                           onChange={(e) => setPricing({ ...pricing, karaoke_price: e.target.value })}
                           className="w-48 text-lg"
                         />
-                        <span className="text-sm text-gray-400">per event</span>
+                        <span className="text-sm text-muted-foreground">per event</span>
                       </div>
                     </div>
 
                     {/* Save Button */}
-                    <div className="pt-4 border-t border-[#1e293b]">
+                    <div className="pt-4 border-t border-border">
                       <Button
                         onClick={handleSave}
                         disabled={saving}
@@ -216,7 +216,7 @@ const LocationPricing = () => {
           )}
 
           {!selectedVenue && (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-muted-foreground">
               <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>Select a location to set pricing</p>
             </div>
@@ -228,8 +228,8 @@ const LocationPricing = () => {
       <Card className="border-2 bg-blue-50">
         <CardContent className="pt-6">
           <div className="space-y-2 text-sm">
-            <p className="font-semibold text-white">💡 About Location Pricing:</p>
-            <ul className="list-disc list-inside space-y-1 text-gray-400">
+            <p className="font-semibold text-foreground">💡 About Location Pricing:</p>
+            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
               <li>Set the flat rate you charge each venue per event type</li>
               <li>Prices are locked in based on when the venue joined</li>
               <li>These rates are used to calculate expected income in Monthly Reports</li>

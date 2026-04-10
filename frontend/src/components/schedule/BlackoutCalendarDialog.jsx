@@ -151,7 +151,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
   return (
     <>
       <Dialog open={open && !showConfirm} onOpenChange={handleClose}>
-        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
               <Ban className="h-5 w-5 text-gray-800" />
@@ -161,7 +161,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
 
           <div className="space-y-4">
             {/* Instructions */}
-            <div className="bg-[#111827] border border-[#1e293b] rounded-lg p-3 text-sm text-gray-200">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
               <p className="font-medium mb-1">How to set blackout dates:</p>
               <ol className="list-decimal list-inside space-y-1">
                 <li>Click a date to set your <strong>Start Date</strong></li>
@@ -193,16 +193,16 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
 
             {/* Selection Display */}
             {(startDate || endDate) && (
-              <div className="flex items-center justify-between bg-[#141b50] rounded-lg p-3">
+              <div className="flex items-center justify-between bg-gray-100 rounded-lg p-3">
                 <div className="flex items-center space-x-4">
                   <div>
-                    <span className="text-sm text-gray-400">Start:</span>
+                    <span className="text-sm text-gray-500">Start:</span>
                     <span className="ml-2 font-medium">
                       {startDate ? format(parseISO(startDate), 'MMM d, yyyy') : '—'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-sm text-gray-400">End:</span>
+                    <span className="text-sm text-gray-500">End:</span>
                     <span className="ml-2 font-medium">
                       {endDate ? format(parseISO(endDate), 'MMM d, yyyy') : '—'}
                     </span>
@@ -217,9 +217,9 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
             {/* Calendar Grid */}
             <div className="border rounded-lg overflow-hidden">
               {/* Day Headers */}
-              <div className="grid grid-cols-7 bg-[#141b50]">
+              <div className="grid grid-cols-7 bg-gray-100">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="py-2 text-center text-sm font-medium text-gray-300">
+                  <div key={day} className="py-2 text-center text-sm font-medium text-gray-600">
                     {day}
                   </div>
                 ))}
@@ -228,7 +228,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
               {/* Calendar Days */}
               <div className="grid grid-cols-7">
                 {paddingDays.map((_, index) => (
-                  <div key={`pad-${index}`} className="h-16 border-t border-r bg-[#111827]" />
+                  <div key={`pad-${index}`} className="h-16 border-t border-r bg-gray-50" />
                 ))}
                 {calendarDays.map(day => {
                   const dateStr = format(day, 'yyyy-MM-dd');
@@ -244,10 +244,10 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
                       onClick={() => handleDateClick(day)}
                       className={`
                         h-16 border-t border-r p-1 cursor-pointer transition-colors relative
-                        ${isSelected ? 'bg-[#fbdd68] text-[#000e2a]' : ''}
-                        ${isInRange && !isSelected ? 'bg-[#1e3a5f]' : ''}
+                        ${isSelected ? 'bg-gray-800 text-white' : ''}
+                        ${isInRange && !isSelected ? 'bg-gray-300' : ''}
                         ${isBlacked && !isSelected && !isInRange ? 'bg-red-100' : ''}
-                        ${!isSelected && !isInRange && !isBlacked ? 'hover:bg-[#141b50]' : ''}
+                        ${!isSelected && !isInRange && !isBlacked ? 'hover:bg-gray-100' : ''}
                       `}
                     >
                       <div className={`
@@ -290,11 +290,11 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
             {/* Legend */}
             <div className="flex flex-wrap gap-4 text-sm">
               <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-[#fbdd68] rounded"></div>
+                <div className="w-4 h-4 bg-gray-800 rounded"></div>
                 <span>Selected</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-[#1e3a5f] rounded"></div>
+                <div className="w-4 h-4 bg-gray-300 rounded"></div>
                 <span>In Range</span>
               </div>
               <div className="flex items-center space-x-2">
@@ -350,7 +350,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
             <Button
               onClick={handleAddBlackout}
               disabled={!startDate || !endDate}
-              className="bg-[#fbdd68] hover:bg-[#f5d050] text-[#000e2a] text-white"
+              className="bg-gray-800 hover:bg-gray-900 text-white"
             >
               Add Blackout
             </Button>
@@ -360,27 +360,27 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
 
       {/* Confirmation Dialog */}
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
-        <DialogContent style={{ backgroundColor: "#0d1220", border: "1px solid rgba(251, 221, 104, 0.2)" }} className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Confirm Blackout Dates</DialogTitle>
           </DialogHeader>
           
           <div className="py-4">
-            <div className="bg-[#111827] border border-[#1e293b] rounded-lg p-4 space-y-3">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
               <div className="flex justify-between">
-                <span className="text-gray-300">Start Date:</span>
+                <span className="text-gray-600">Start Date:</span>
                 <span className="font-semibold">
                   {startDate && format(parseISO(startDate), 'MMMM d, yyyy')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-300">End Date:</span>
+                <span className="text-gray-600">End Date:</span>
                 <span className="font-semibold">
                   {endDate && format(parseISO(endDate), 'MMMM d, yyyy')}
                 </span>
               </div>
             </div>
-            <p className="text-sm text-gray-400 mt-3">
+            <p className="text-sm text-gray-500 mt-3">
               You will be marked as unavailable during this period.
             </p>
           </div>
@@ -392,7 +392,7 @@ const BlackoutCalendarDialog = ({ open, onOpenChange, employeeId, employeeName, 
             <Button
               onClick={confirmBlackout}
               disabled={loading}
-              className="bg-[#fbdd68] hover:bg-[#f5d050] text-[#000e2a] text-white"
+              className="bg-gray-800 hover:bg-gray-900 text-white"
             >
               {loading ? 'Saving...' : 'Confirm'}
             </Button>
