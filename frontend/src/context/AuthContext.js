@@ -6,7 +6,7 @@ const AuthContext = createContext(null);
 const API = process.env.REACT_APP_BACKEND_URL;
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null); // null = checking, false = not auth'd
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
@@ -14,7 +14,6 @@ export function AuthProvider({ children }) {
       const { data } = await axios.get(`${API}/api/auth/me`, { withCredentials: true });
       setUser(data);
     } catch {
-      // Try token from localStorage
       const token = localStorage.getItem('token');
       if (token) {
         try {
@@ -35,11 +34,27 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    // CRITICAL: If returning from OAuth callback, skip the /me check.
+    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+    // AuthCallback will exchange the session_id and establish the session first.
+    if (window.location.hash?.includes('session_id=')) {
+      setLoading(false);
+      return;
+    }
     checkAuth();
   }, [checkAuth]);
 
   const login = async (email, password) => {
     const { data } = await axios.post(`${API}/api/auth/login`, { email, password }, { withCredentials: true });
+    if (data.token) {
+      localStorage.setItem('token', data.token);
+    }
+    setUser(data);
+    return data;
+  };
+
+  const loginWithGoogle = async (sessionId) => {
+    const { data } = await axios.post(`${API}/api/auth/google-callback`, { session_id: sessionId }, { withCredentials: true });
     if (data.token) {
       localStorage.setItem('token', data.token);
     }
@@ -56,7 +71,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, checkAuth, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, logout, checkAuth, setUser }}>
       {children}
     </AuthContext.Provider>
   );

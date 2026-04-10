@@ -510,6 +510,62 @@ async def logout(response: Response):
     response.delete_cookie("refresh_token", path="/")
     return {"message": "Logged out"}
 
+@api_router.post("/auth/google-callback")
+async def google_callback(request: Request, response: Response):
+    """Exchange session_id from Emergent Google Auth for a user session"""
+    import httpx
+    body = await request.json()
+    session_id = body.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    # Exchange session_id for user data from Emergent Auth
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": session_id}
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid session")
+            google_data = resp.json()
+    except httpx.HTTPError as e:
+        logger.error(f"Google auth error: {e}")
+        raise HTTPException(status_code=500, detail="Auth service unavailable")
+    
+    email = google_data.get("email", "").lower().strip()
+    name = google_data.get("name", "")
+    picture = google_data.get("picture", "")
+    
+    # Find or create user
+    user = await db.users.find_one({"email": email})
+    if user:
+        # Update name/picture if changed
+        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture}})
+        user_id = str(user["_id"])
+        role = user.get("role", "host")
+    else:
+        # Create new user as host
+        result = await db.users.insert_one({
+            "email": email, "password_hash": hash_password(secrets.token_hex(16)),
+            "name": name, "picture": picture, "role": "host",
+            "created_at": datetime.now(timezone.utc).isoformat(), "auth_method": "google"
+        })
+        user_id = str(result.inserted_id)
+        role = "host"
+    
+    # Create JWT tokens
+    access_token = create_access_token(user_id, email, role)
+    refresh_token_val = create_refresh_token(user_id)
+    
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token_val, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    
+    logger.info(f"Google auth: {email} logged in as {role}")
+    return {"id": user_id, "email": email, "name": name, "role": role, "token": access_token}
+
+
+
 @api_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
     return {"id": user["_id"], "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "host")}

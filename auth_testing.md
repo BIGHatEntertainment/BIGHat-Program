@@ -1,19 +1,15 @@
-# Auth Testing Playbook
+# Auth Testing Playbook for BIG Hat Hub
 
-## Step 1: MongoDB Verification
-```
-mongosh
-use test_database
-db.users.find({role: "master_admin"}).pretty()
-db.users.findOne({role: "master_admin"}, {password_hash: 1})
-```
-Verify: bcrypt hash starts with `$2b$`, indexes exist on users.email (unique), login_attempts.identifier.
+## Google OAuth Flow
+1. User clicks "Sign in with Google" on login page
+2. Redirects to https://auth.emergentagent.com/?redirect={origin}/
+3. Google authenticates user
+4. Returns to {origin}/#session_id={session_id}
+5. AuthCallback processes session_id, calls backend /api/auth/google-callback
+6. Backend exchanges session_id for user data via Emergent Auth API
+7. Creates/updates user, creates session, sets cookie
+8. Redirects to dashboard
 
-## Step 2: API Testing
-```
-API_URL=https://show-command.preview.emergentagent.com
-curl -c cookies.txt -X POST $API_URL/api/auth/login -H "Content-Type: application/json" -d '{"email":"Sellards@bighat.live","password":"BigHat2024!"}'
-curl -b cookies.txt $API_URL/api/auth/me
-```
-
-Login should return the user object with token. The `/me` call should return the same user.
+## Test Credentials
+- Master Admin: Sellards@bighat.live / BigHat2024!
+- Default host password: B1GHat
