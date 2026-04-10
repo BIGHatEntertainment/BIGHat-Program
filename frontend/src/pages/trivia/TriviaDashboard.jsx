@@ -40,8 +40,8 @@ export default function TriviaDashboard() {
   }, [userName]);
 
   useEffect(() => {
-    loadData();
-  }, [viewAll]);
+    if (user) loadData();
+  }, [viewAll, user]);
 
   const loadData = async () => {
     setLoading(true);

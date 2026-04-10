@@ -19,7 +19,7 @@ def set_database(database):
 
 
 @router.get("/list")
-async def list_trivia_presentations(userName: str, viewAll: bool = False) -> List[Dict]:
+async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -> List[Dict]:
     """List all trivia presentations for a user (case-insensitive) or all users"""
     try:
         if viewAll:

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 db: AsyncIOMotorDatabase = None
 
 # List of authorized admin users (case-insensitive)
-ADMIN_USERS = ['nick', 'caelie', 'tommy']
+ADMIN_USERS = ['nick', 'nicholas', 'caelie', 'tommy', 'al', 'chase', 'chloe', 'zach']
 
 def set_database(database):
     global db
