@@ -73,12 +73,12 @@ export default function TriviaDashboard() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this presentation?')) return;
+    if (!window.confirm('Remove this presentation from the lobby? Round history will be preserved.')) return;
     try {
-      await axios.delete(`${API}/trivia-viewer/delete/${id}`);
+      await axios.post(`${API}/trivia-viewer/hide/${id}`);
       setPresentations(prev => prev.filter(p => p.id !== id));
     } catch (err) {
-      console.error('Delete failed:', err);
+      console.error('Hide failed:', err);
     }
   };
 

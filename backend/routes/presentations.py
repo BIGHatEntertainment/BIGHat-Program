@@ -111,7 +111,30 @@ async def get_presentations(userName: str, viewAll: bool = False):
 @router.get("/{presentation_id}")
 async def get_presentation(presentation_id: str):
     presentation = await db.presentations.find_one({"id": presentation_id})
+    
+    # Fallback: check trivia_presentations collection
     if not presentation:
+        trivia_pres = await db.trivia_presentations.find_one({"id": presentation_id})
+        if trivia_pres:
+            return {
+                'id': trivia_pres['id'],
+                'name': trivia_pres.get('name', ''),
+                'createdBy': trivia_pres.get('createdBy', ''),
+                'createdAt': trivia_pres.get('createdAt', ''),
+                'type': 'trivia-imported',
+                'triviaId': trivia_pres['id'],
+                'totalSlides': trivia_pres.get('totalSlides', 0),
+                'location': trivia_pres.get('location', ''),
+                'locationFolder': trivia_pres.get('locationFolder', ''),
+                'locationName': trivia_pres.get('location', ''),
+                'numRounds': trivia_pres.get('numRounds', 5),
+                'roundTypes': trivia_pres.get('roundTypes', []),
+                'roundNames': trivia_pres.get('roundNames', []),
+                'roundFiles': trivia_pres.get('roundFiles', []),
+                'hostFile': trivia_pres.get('hostFile', ''),
+                'host': trivia_pres.get('host', ''),
+                'slides': []
+            }
         raise HTTPException(status_code=404, detail="Presentation not found")
     
     # For special presentation types, return metadata without full validation

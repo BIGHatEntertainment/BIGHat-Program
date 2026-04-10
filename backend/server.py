@@ -297,6 +297,40 @@ scheduler_instance = None
 
 # ===== LIFESPAN =====
 
+
+async def reconstruct_round_files():
+    """Reconstruct roundFiles/hostFile for presentations that have roundNames but no roundFiles"""
+    import re as regex_module
+    fixed = 0
+    async for tp in db.trivia_presentations.find({"roundNames": {"$exists": True}, "$or": [{"roundFiles": None}, {"roundFiles": {"$size": 0}}, {"roundFiles": {"$exists": False}}]}):
+        rnames = tp.get("roundNames", [])
+        rtypes = tp.get("roundTypes", [])
+        if not rnames or not rtypes:
+            continue
+        round_files = []
+        for i, (rname, rtype) in enumerate(zip(rnames, rtypes)):
+            match = await db.trivia_rounds.find_one({"name": rname, "roundType": rtype}, {"_id": 0})
+            if not match:
+                match = await db.trivia_rounds.find_one({"name": {"$regex": rname, "$options": "i"}, "roundType": rtype}, {"_id": 0})
+            if match:
+                round_files.append({"order": i+1, "type": rtype, "file": match.get("path", ""), "driveId": match.get("driveId", ""), "itemId": match.get("itemId", ""), "slideCount": 12})
+            else:
+                round_files.append({"order": i+1, "type": rtype, "file": "", "slideCount": 12})
+        host = tp.get("host", "")
+        host_file = tp.get("hostFile")
+        if not host_file and host:
+            host_match = await db.trivia_hosts.find_one({"name": host}, {"_id": 0})
+            if host_match:
+                host_file = host_match.get("path", "")
+        update = {"roundFiles": round_files}
+        if host_file:
+            update["hostFile"] = host_file
+        await db.trivia_presentations.update_one({"id": tp["id"]}, {"$set": update})
+        fixed += 1
+    if fixed:
+        logger.info(f"Reconstructed roundFiles for {fixed} presentations")
+
+
 async def seed_trivia_data():
     """Seed trivia data from the deployed Trivia Presenter API if collections are empty"""
     import httpx
@@ -325,6 +359,8 @@ async def seed_trivia_data():
                                     logger.info(f"  Synced new presentation: {detail.get('name')}")
                 except Exception as e:
                     logger.warning(f"Could not sync new presentations: {e}")
+                # Always reconstruct roundFiles for any presentations missing them
+                await reconstruct_round_files()
                 return
             
             logger.info("Seeding trivia data from deployed Trivia Presenter...")
@@ -384,6 +420,10 @@ async def seed_trivia_data():
                 logger.info(f"  Seeded {len(pres_list)} trivia presentations")
             
             logger.info("Trivia data seed complete!")
+            
+            # Reconstruct roundFiles for any presentations missing them
+            await reconstruct_round_files()
+            
     except Exception as e:
         logger.warning(f"Could not seed trivia data from deployed app: {e}")
 

@@ -22,16 +22,24 @@ def set_database(database):
 async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -> List[Dict]:
     """List all trivia presentations for a user (case-insensitive) or all users"""
     try:
+        from datetime import datetime as dt
+        now = dt.utcnow().isoformat()
+        
+        # Base filter: exclude hidden presentations and auto-hidden (completed > 3 days ago)
+        base_filter = {
+            '$and': [
+                {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]},
+                {'$or': [{'autoHideAt': {'$exists': False}}, {'autoHideAt': {'$gt': now}}]}
+            ]
+        }
+        
         if viewAll:
-            # View all trivia presentations regardless of creator
-            presentations = await db.trivia_presentations.find({}).sort('createdAt', -1).to_list(100)
+            presentations = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
             logger.info(f"Found {len(presentations)} total trivia presentations (view all)")
         else:
-            # Case-insensitive username match using regex
-            presentations = await db.trivia_presentations.find(
-                {'createdBy': {'$regex': f'^{userName}$', '$options': 'i'}}
-            ).sort('createdAt', -1).to_list(100)
-            logger.info(f"Found {len(presentations)} trivia presentations for {userName} (case-insensitive)")
+            base_filter['createdBy'] = {'$regex': f'^{userName}$', '$options': 'i'}
+            presentations = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
+            logger.info(f"Found {len(presentations)} trivia presentations for {userName}")
         
         return [{
             'id': p['id'],
@@ -201,4 +209,41 @@ async def delete_trivia_presentation(presentation_id: str) -> Dict:
         raise
     except Exception as e:
         logger.error(f"Error deleting trivia presentation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/hide/{presentation_id}")
+async def hide_trivia_presentation(presentation_id: str) -> Dict:
+    """Hide a presentation from the trivia lobby. Does NOT delete round usage data."""
+    try:
+        result = await db.trivia_presentations.update_one(
+            {'id': presentation_id},
+            {'$set': {'hidden': True}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Presentation not found")
+        return {"message": "Presentation hidden from lobby", "id": presentation_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/complete/{presentation_id}")
+async def mark_presentation_complete(presentation_id: str) -> Dict:
+    """Mark a presentation as completed (Save & Exit). Will auto-hide after 3 days."""
+    from datetime import timedelta
+    try:
+        now = datetime.utcnow()
+        auto_hide_at = now + timedelta(days=3)
+        result = await db.trivia_presentations.update_one(
+            {'id': presentation_id},
+            {'$set': {'completedAt': now.isoformat(), 'autoHideAt': auto_hide_at.isoformat()}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Presentation not found")
+        return {"message": "Presentation marked complete. Will auto-hide in 3 days.", "id": presentation_id}
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
