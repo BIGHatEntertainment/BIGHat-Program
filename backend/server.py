@@ -296,6 +296,98 @@ class UpdateBonuses(BaseModel):
 scheduler_instance = None
 
 # ===== LIFESPAN =====
+
+async def seed_trivia_data():
+    """Seed trivia data from the deployed Trivia Presenter API if collections are empty"""
+    import httpx
+    
+    TRIVIA_API = "https://quiz-presenter.emergent.host/api"
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Check if trivia_rounds is empty (main indicator of fresh DB)
+            rounds_count = await db.trivia_rounds.count_documents({})
+            if rounds_count > 0:
+                logger.info(f"Trivia data already exists ({rounds_count} rounds). Skipping seed.")
+                # Still check for new presentations
+                try:
+                    resp = await client.get(f"{TRIVIA_API}/trivia-viewer/list", params={"userName": "nick", "viewAll": "true"})
+                    if resp.status_code == 200:
+                        remote_pres = resp.json()
+                        for p in remote_pres:
+                            existing = await db.trivia_presentations.find_one({"id": p["id"]})
+                            if not existing:
+                                detail_resp = await client.get(f"{TRIVIA_API}/trivia-viewer/{p['id']}")
+                                if detail_resp.status_code == 200:
+                                    detail = detail_resp.json()
+                                    detail.pop("_id", None)
+                                    await db.trivia_presentations.insert_one(detail)
+                                    logger.info(f"  Synced new presentation: {detail.get('name')}")
+                except Exception as e:
+                    logger.warning(f"Could not sync new presentations: {e}")
+                return
+            
+            logger.info("Seeding trivia data from deployed Trivia Presenter...")
+            
+            # 1. Round files
+            total_rounds = 0
+            for rt in ['mc', 'reg', 'misc', 'mys', 'big']:
+                resp = await client.get(f"{TRIVIA_API}/trivia/round-files/{rt}")
+                if resp.status_code == 200:
+                    rounds = resp.json()
+                    for r in rounds:
+                        r.pop("_id", None)
+                        r["roundType"] = rt.upper()
+                    if rounds:
+                        await db.trivia_rounds.insert_many(rounds)
+                        total_rounds += len(rounds)
+            logger.info(f"  Seeded {total_rounds} trivia round files")
+            
+            # 2. Hosts
+            resp = await client.get(f"{TRIVIA_API}/trivia/hosts")
+            if resp.status_code == 200:
+                hosts = resp.json()
+                if hosts:
+                    await db.trivia_hosts.insert_many([{"name": h["name"], "path": h["path"]} for h in hosts])
+                    logger.info(f"  Seeded {len(hosts)} trivia hosts")
+            
+            # 3. Locations
+            resp = await client.get(f"{TRIVIA_API}/trivia/locations")
+            if resp.status_code == 200:
+                locs = resp.json()
+                if locs:
+                    await db.trivia_locations.insert_many([{"name": l["name"], "path": l["path"]} for l in locs])
+                    logger.info(f"  Seeded {len(locs)} trivia locations")
+            
+            # 4. Round usage
+            resp = await client.get(f"{TRIVIA_API}/admin/round-usage", params={"userName": "nick"})
+            if resp.status_code == 200:
+                usage = resp.json()
+                if usage:
+                    for u in usage:
+                        u.pop("_id", None)
+                    await db.round_usage.insert_many(usage)
+                    logger.info(f"  Seeded {len(usage)} round usage records")
+            
+            # 5. Presentations
+            resp = await client.get(f"{TRIVIA_API}/trivia-viewer/list", params={"userName": "nick", "viewAll": "true"})
+            if resp.status_code == 200:
+                pres_list = resp.json()
+                for p in pres_list:
+                    detail_resp = await client.get(f"{TRIVIA_API}/trivia-viewer/{p['id']}")
+                    if detail_resp.status_code == 200:
+                        detail = detail_resp.json()
+                        detail.pop("_id", None)
+                        existing = await db.trivia_presentations.find_one({"id": detail.get("id")})
+                        if not existing:
+                            await db.trivia_presentations.insert_one(detail)
+                logger.info(f"  Seeded {len(pres_list)} trivia presentations")
+            
+            logger.info("Trivia data seed complete!")
+    except Exception as e:
+        logger.warning(f"Could not seed trivia data from deployed app: {e}")
+
+
 async def seed_data():
     """Seed master admin, employees, venues and events"""
     # Seed master admin user
@@ -414,6 +506,10 @@ async def lifespan(app: FastAPI):
     
     # Seed data
     await seed_data()
+
+    # Seed trivia data from deployed Trivia Presenter API
+    await seed_trivia_data()
+    
     
     # Initialize GridFS
     try:
