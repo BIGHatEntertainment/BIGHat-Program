@@ -125,30 +125,6 @@ body {
   animation: shimmer 3s ease-in-out infinite;
 }
 
-/* Dark theme for schedule components - matches hub design system */
-.dark {
-  --background: 222 60% 5%;
-  --foreground: 0 0% 100%;
-  --card: 230 55% 13%;
-  --card-foreground: 0 0% 100%;
-  --popover: 230 55% 13%;
-  --popover-foreground: 0 0% 100%;
-  --primary: 45 95% 70%;
-  --primary-foreground: 222 60% 5%;
-  --secondary: 230 55% 18%;
-  --secondary-foreground: 0 0% 100%;
-  --muted: 230 55% 18%;
-  --muted-foreground: 222 15% 61%;
-  --accent: 230 55% 18%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 230 40% 20%;
-  --input: 230 40% 20%;
-  --ring: 45 95% 70%;
-  --radius: 0.5rem;
-}
-
 /* Chyron bar */
 .chyron-container {
   overflow: hidden;
@@ -868,19 +844,6 @@ body {
     padding: 2rem;
 }
 
-/* Fix all schedule/dark theme dialogs to have solid backgrounds */
-.dark [role="dialog"],
-.dark [data-state="open"] > [role="dialog"] {
-  background-color: #0d1220 !important;
-  border-color: rgba(251, 221, 104, 0.2) !important;
-}
-
-/* Fix AlertDialog content too */
-.dark [role="alertdialog"] {
-  background-color: #0d1220 !important;
-  border-color: rgba(251, 221, 104, 0.2) !important;
-}
-
 /* Force light theme for schedule pages */
 .force-light {
   --background: 0 0% 100%;
@@ -907,4 +870,26 @@ body {
 }
 .force-light * {
   color-scheme: light;
+}
+/* Ensure ALL dialogs have white backgrounds - critical fix */
+[data-radix-portal] [role="dialog"],
+[data-radix-portal] [role="alertdialog"],
+[data-radix-portal] > div > [role="dialog"],
+[data-radix-portal] > div > div {
+  --background: 0 0% 100% !important;
+  --foreground: 222.2 84% 4.9% !important;
+  --card: 0 0% 100% !important;
+  --card-foreground: 222.2 84% 4.9% !important;
+  --popover: 0 0% 100% !important;
+  --popover-foreground: 222.2 84% 4.9% !important;
+  --primary: 221.2 83.2% 53.3% !important;
+  --primary-foreground: 210 40% 98% !important;
+  --secondary: 210 40% 96.1% !important;
+  --secondary-foreground: 222.2 47.4% 11.2% !important;
+  --muted: 210 40% 96.1% !important;
+  --muted-foreground: 215.4 16.3% 46.9% !important;
+  --border: 214.3 31.8% 91.4% !important;
+  --input: 214.3 31.8% 91.4% !important;
+  background-color: white !important;
+  color: #1a1a2e !important;
 }

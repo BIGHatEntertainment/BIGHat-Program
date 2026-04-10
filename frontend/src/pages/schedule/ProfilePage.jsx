@@ -154,7 +154,7 @@ export default function ProfilePage() {
   const categoryLabel = (cat) => cat === 'trivia' ? 'Trivia' : 'Bingo/Karaoke';
 
   return (
-    <div className="min-h-screen bg-background force-light">
+    <div className="min-h-screen force-light" style={{ background: "linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e0f2fe 100%)" }}>
       {/* Header */}
       <header className="bg-white border-b border-border shadow-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
