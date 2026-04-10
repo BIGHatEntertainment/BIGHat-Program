@@ -2,34 +2,38 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Users, MapPin, Calendar, FileText, Plus, Pencil, Trash2, Lock, DollarSign, ShieldCheck } from 'lucide-react';
-import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { useAuth } from '../../context/AuthContext';
-import EmployeeManager from '../../components/schedule/EmployeeManager';
-import VenueManager from '../../components/schedule/VenueManager';
-import EventManager from '../../components/schedule/EventManager';
-import WeeklyReport from '../../components/schedule/WeeklyReport';
-import MonthlyReports from '../../components/schedule/MonthlyReports';
-import LocationPricing from '../../components/schedule/LocationPricing';
-import VenueRoleManager from '../../components/schedule/VenueRoleManager';
+import AdminAuth from '../components/AdminAuth';
+import EmployeeManager from '../components/EmployeeManager';
+import VenueManager from '../components/VenueManager';
+import EventManager from '../components/EventManager';
+import WeeklyReport from '../components/WeeklyReport';
+import MonthlyReports from '../components/MonthlyReports';
+import LocationPricing from '../components/LocationPricing';
+import VenueRoleManager from '../components/VenueRoleManager';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const AdminPage = () => {
   const navigate = useNavigate();
-  const { user: hubUser } = useAuth();
-  const isAuthenticated = hubUser?.role === 'admin' || hubUser?.role === 'master_admin';
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState('employees');
 
+  const handleAuthSuccess = () => {
+    setIsAuthenticated(true);
+    toast.success('Admin access granted');
+  };
+
   if (!isAuthenticated) {
-    return (<div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50"><p className="text-red-500 font-semibold">Admin access required</p></div>);
+    return <AdminAuth onSuccess={handleAuthSuccess} />;
   }
 
   return (
-    <div className="min-h-screen bg-background force-light">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="bg-white border-b border-border shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -45,7 +49,7 @@ const AdminPage = () => {
               </Button>
               <div className="p-1">
                 <img 
-                  src="/hat-logo.png" 
+                  src="/assets/hat-logo.png" 
                   alt="BIG Hat Entertainment" 
                   className="h-10 w-10 object-contain"
                 />

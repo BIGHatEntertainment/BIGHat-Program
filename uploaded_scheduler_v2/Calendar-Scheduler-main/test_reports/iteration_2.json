@@ -1,0 +1,58 @@
+{
+  "summary": "Comprehensive testing of Primary/Secondary venue role claiming rules. All 14 backend tests pass (100%). Frontend tests verified lock/open status display correctly for primaries vs non-primaries.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_claim_eligibility.py",
+    "/app/test_reports/pytest/pytest_claim_eligibility.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "HostLogin component lacks data-testid attributes on select trigger and login button - recommend adding for better testability"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_claim_eligibility.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 tests passed)",
+    "frontend": "100% (All claiming rule features working)"
+  },
+  "test_credentials": {
+    "admin_passcode": "121589",
+    "default_host_password": "B1GHat"
+  },
+  "seed_data_creation": "Created and deleted test events (UITEST_*) during testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Claiming rules fully tested. Key IDs: Whining Pig Downtown (88b01df3), Chloe (3b3566d6) is trivia primary, Chase (8e1389db) is bingo_karaoke primary. Nick (2d3a5242) is not a primary at this venue. Tests verify: locked events show 'Reserved for [name]' + opens date, primaries see 'Claim Event' button on their locked events, non-primaries get 403 when trying to claim locked events, blackouts auto-open events, Sunday deadline auto-opens events.",
+  "tested_features": {
+    "backend_apis": [
+      "GET /api/events/claim-eligibility - Returns correct status (primary_only/open) for all unclaimed future events",
+      "POST /api/events/{id}/claim - Rejects non-primary users with 403 for primary-locked events",
+      "POST /api/events/{id}/claim - Allows primary to claim their locked events (200)",
+      "Blackout auto-release: Events open when primary has blackout on event date",
+      "Sunday deadline: Events open when prior Sunday has passed",
+      "No-primary venues: Events are open at venues without assigned primary"
+    ],
+    "frontend_verification": [
+      "Non-primary user (Nick) sees 'Reserved for [name]' text on locked events",
+      "Non-primary user sees 'Opens [date]' indicating when event becomes claimable",
+      "Non-primary user sees lock icon on locked events",
+      "Primary user (Chloe) sees 'Claim Event' button on HER locked trivia events",
+      "Primary user (Chloe) sees 'Reserved for Chase' on Music Bingo events (not her category)",
+      "Open events show normal 'Claim Event' button for all users"
+    ]
+  },
+  "verification_screenshots": {
+    "nick_current_week": "Shows open event with Claim Event button (past Sunday deadline)",
+    "nick_future_week": "Shows locked events with 'Reserved for [name]' and 'Opens [date]'",
+    "chloe_future_week": "Shows Claim Event on her trivia, Reserved for Chase on bingo"
+  }
+}

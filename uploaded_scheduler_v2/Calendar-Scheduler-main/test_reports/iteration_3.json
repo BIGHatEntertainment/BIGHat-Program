@@ -1,0 +1,62 @@
+{
+  "summary": "Comprehensive testing of the monthly income calculation fix. All 11 backend tests pass (100%). Frontend correctly displays per-event-type income breakdown in both the summary card and venue-specific section.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_monthly_income.py",
+    "/app/test_reports/pytest/pytest_monthly_income.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_monthly_income.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 tests passed)",
+    "frontend": "100% (All income breakdown features working)"
+  },
+  "test_credentials": {
+    "admin_passcode": "121589",
+    "default_host_password": "B1GHat"
+  },
+  "seed_data_creation": "Created and cleaned up 6 test events (TEST_Karaoke_1, TEST_Karaoke_2, TEST_Trivia_1, TEST_MusicBingo_1, TEST_MP_Trivia, TEST_MP_Karaoke)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Monthly income calculation is working correctly. Key venue IDs: The Whining Pig Downtown (88b01df3) has pricing Trivia=$100, Music Bingo=$120, Karaoke=$160. Monkey Pants (6e334fbd) is a franchise venue with venue_pays_host_directly=true which uses fixed $150 per event. The frontend MonthlyReports.jsx correctly displays per-event-type breakdown in both the Incoming Revenue summary card (data-testid='income-breakdown-{type}') and the venue-specific section (data-testid='venue-breakdown-{type}').",
+  "tested_features": {
+    "backend_apis": [
+      "GET /api/reports/monthly/expected_income - Correctly calculates total from venue pricing",
+      "GET /api/reports/monthly/expected_income?venue_id={id} - Filters by venue correctly",
+      "Venue pricing lookup: Trivia, Music Bingo, Karaoke prices used correctly",
+      "Franchise venue (venue_pays_host_directly=true) uses fixed $150 per event",
+      "Venues without pricing are excluded from income total",
+      "Income breakdown includes event_id, event_type, venue_id, date, expected_income, venue_pays_host_directly"
+    ],
+    "frontend_verification": [
+      "Monthly tab accessible from Admin Panel",
+      "Incoming Revenue card shows total with per-event-type breakdown",
+      "Venue-specific section shows 'Expected Income (Auto-calculated)' with breakdown",
+      "Breakdown shows count, per-event price, and subtotal for each event type",
+      "Total matches sum of all event type subtotals",
+      "Calendar displays events correctly"
+    ]
+  },
+  "bug_fix_verification": {
+    "original_issue": "User added 2 Karaoke ($160 each), 1 Trivia ($100), 1 Music Bingo ($120) at The Whining Pig Downtown and expected $540 but app showed $700",
+    "fix_verification": "Created same event combination and verified total is exactly $540 (2×$160 + $100 + $120)",
+    "calculation_breakdown": {
+      "2x_Karaoke": "$320.00",
+      "1x_Trivia": "$100.00",
+      "1x_Music_Bingo": "$120.00",
+      "total": "$540.00"
+    },
+    "status": "FIXED - Income calculation now correctly uses venue_pricing amounts"
+  }
+}

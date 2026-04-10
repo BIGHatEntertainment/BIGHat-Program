@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Shield, ShieldCheck, MapPin, Plus, Trash2, AlertTriangle, CheckCircle } from 'lucide-react';
-import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Badge } from '../../components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -154,7 +154,7 @@ export default function ProfilePage() {
   const categoryLabel = (cat) => cat === 'trivia' ? 'Trivia' : 'Bingo/Karaoke';
 
   return (
-    <div className="min-h-screen bg-background force-light">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="bg-white border-b border-border shadow-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -164,7 +164,7 @@ export default function ProfilePage() {
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="p-1">
-                <img src="/hat-logo.png" alt="BIG Hat Entertainment" className="h-10 w-10 object-contain" />
+                <img src="/assets/hat-logo.png" alt="BIG Hat Entertainment" className="h-10 w-10 object-contain" />
               </div>
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold text-foreground">My Profile</h1>
