@@ -303,6 +303,30 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
         </style>
       </head>
       <body>
+        <!-- Fullscreen overlay - click to enter fullscreen -->
+        <div id="fullscreen-overlay" onclick="enterFullscreen()" style="position:fixed;inset:0;z-index:9999;background:#0a0a0f;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-direction:column;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#FFC107" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          <h2 style="color:white;font-size:2rem;margin-top:1rem;">Click to Enter Fullscreen</h2>
+          <p style="color:#888;font-size:0.9rem;margin-top:0.5rem;">Optimized for TV display</p>
+          <p style="color:#666;font-size:0.75rem;margin-top:1rem;">Press ESC at any time to exit</p>
+        </div>
+        <script>
+          function enterFullscreen() {
+            var el = document.documentElement;
+            if (el.requestFullscreen) el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+            else if (el.msRequestFullscreen) el.msRequestFullscreen();
+            document.getElementById('fullscreen-overlay').style.display = 'none';
+          }
+          document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+              document.getElementById('fullscreen-overlay').style.display = 'none';
+            }
+            if (e.key === 'f' || e.key === 'F') {
+              enterFullscreen();
+            }
+          });
+        </script>
         <div id="content"></div>
         <script>
           let currentState = { phase: 'input', selectedOptions: {}, spinning: [false, false, false], selectedRounds: {}, wheelPositions: [0, 0, 0], availableRounds: {}, currentCategory: 'REG' };
