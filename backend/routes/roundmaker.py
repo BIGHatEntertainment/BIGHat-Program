@@ -531,6 +531,15 @@ async def _list_sp_folder(folder_id):
         r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{folder_id}/children?$top=200", headers={"Authorization": f"Bearer {token}"})
         return r.json().get("value", []) if r.status_code == 200 else []
 
+# SharePoint upload folder IDs (decoded from share links)
+SP_UPLOAD_FOLDERS = {
+    "MC": "01Z4PLCYU3VFUIDS3DAVB27USCQGZEBUEC",
+    "REG": "01Z4PLCYRMUDIURR775REKO7GCUNWMZIYP",
+    "MISC": "01Z4PLCYR2TFRMMMDOKFFYTHDHZZRI32LI",
+    "MYS": "01Z4PLCYXRA3JEXVZ6ZNCK7NIUN3Q2GU4Z",
+    "BIG": "01Z4PLCYQITZ6WDOCOTZC3YCDYUCY4DEJ5",
+}
+
 async def _download_sp_file(item_id):
     import httpx
     token = await _get_graph_token()
@@ -538,6 +547,44 @@ async def _download_sp_file(item_id):
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{item_id}/content", headers={"Authorization": f"Bearer {token}"})
         return r.content if r.status_code == 200 else None
+
+async def _upload_to_sharepoint_direct(file_path, filename, round_type):
+    """Upload a PPTX file directly to the correct SharePoint folder via Graph API"""
+    import httpx
+    
+    folder_id = SP_UPLOAD_FOLDERS.get(round_type.upper())
+    if not folder_id:
+        raise Exception(f"No SharePoint folder configured for round type: {round_type}")
+    
+    token = await _get_graph_token()
+    if not token:
+        raise Exception("Failed to get SharePoint access token")
+    
+    # Read file
+    with open(file_path, 'rb') as f:
+        file_content = f.read()
+    
+    file_size = len(file_content)
+    logger.info(f"Uploading {filename} ({file_size} bytes) to SharePoint folder {round_type}...")
+    
+    # For files under 4MB, use simple upload
+    if file_size < 4 * 1024 * 1024:
+        upload_url = f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{folder_id}:/{filename}:/content"
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.put(upload_url, content=file_content, headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            })
+            if r.status_code in (200, 201):
+                data = r.json()
+                logger.info(f"Uploaded {filename} to SharePoint: {data.get('webUrl', '')}")
+                return {"success": True, "web_url": data.get("webUrl", ""), "file_id": data.get("id", "")}
+            else:
+                error_detail = r.text[:200]
+                logger.error(f"SharePoint upload failed: {r.status_code} {error_detail}")
+                raise Exception(f"SharePoint upload failed: {r.status_code}")
+    else:
+        raise Exception(f"File too large ({file_size} bytes). Max 4MB for simple upload.")
 
 
 
@@ -812,7 +859,7 @@ async def upload_to_sharepoint(round_id: str, request: Request):
     try:
         pptx_path = generate_pptx(doc)
         filename = f"{doc['name']}.pptx"
-        result = await upload_round_to_sharepoint(round_type=doc["round_type"], filename=filename, file_path=pptx_path)
+        result = await _upload_to_sharepoint_direct(pptx_path, filename, doc["round_type"])
         await db.rounds.update_one({"id": round_id}, {"$set": {
             "status": "uploaded", "approval_status": "approved",
             "pptx_path": pptx_path, "sharepoint_url": result.get("web_url"),
@@ -849,7 +896,7 @@ async def approve_round(round_id: str, request: Request):
     try:
         pptx_path = generate_pptx(doc)
         filename = f"{doc['name']}.pptx"
-        result = await upload_round_to_sharepoint(round_type=doc["round_type"], filename=filename, file_path=pptx_path)
+        result = await _upload_to_sharepoint_direct(pptx_path, filename, doc["round_type"])
         await db.rounds.update_one({"id": round_id}, {"$set": {
             "status": "uploaded", "approval_status": "approved",
             "pptx_path": pptx_path, "sharepoint_url": result.get("web_url"),
