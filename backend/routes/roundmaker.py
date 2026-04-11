@@ -1,6 +1,6 @@
 """Round Generator Routes - PPTX generation for trivia rounds"""
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
+from fastapi.responses import FileResponse, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
@@ -510,34 +510,67 @@ except ImportError:
 # Cache for title images list (avoid hitting SharePoint on every request)
 _reg_images_cache = {"data": None, "expires": 0}
 _reg_files_cache = {"data": None, "expires": 0}
+_mc_files_cache = {"data": None, "expires": 0}
+
+# SharePoint folder IDs (decoded from share links)
+SP_DRIVE_ID = "b!vFnSKrOPL02dj2-MZU_EHmAti4Py2yROjNNkPjQrBjDvfYp5Cu28QIG93vJSp4xs"
+SP_REG_TITLE_CARDS_ID = "01Z4PLCYSVAVZYHXL6RNHZTSAYK76ZDIS7"
+SP_REG_OUTPUT_ID = "01Z4PLCYRMUDIURR775REKO7GCUNWMZIYP"
+
+async def _get_graph_token():
+    import httpx
+    tenant = os.environ.get("ROUNDMAKER_TENANT_ID", os.environ.get("AZURE_TENANT_ID", ""))
+    cid = os.environ.get("ROUNDMAKER_CLIENT_ID", os.environ.get("AZURE_CLIENT_ID", ""))
+    csec = os.environ.get("ROUNDMAKER_CLIENT_SECRET", os.environ.get("AZURE_CLIENT_SECRET", ""))
+    if not all([tenant, cid, csec]): return None
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={"grant_type": "client_credentials", "client_id": cid, "client_secret": csec, "scope": "https://graph.microsoft.com/.default"})
+        return r.json()["access_token"] if r.status_code == 200 else None
+
+async def _list_sp_folder(folder_id):
+    import httpx
+    token = await _get_graph_token()
+    if not token: return []
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{folder_id}/children?$top=200", headers={"Authorization": f"Bearer {token}"})
+        return r.json().get("value", []) if r.status_code == 200 else []
+
+async def _download_sp_file(item_id):
+    import httpx
+    token = await _get_graph_token()
+    if not token: return None
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{item_id}/content", headers={"Authorization": f"Bearer {token}"})
+        return r.content if r.status_code == 200 else None
+
+
 
 @router.get("/reg-title-images")
 async def get_reg_title_images():
-    """List available title images/categories for REG rounds from database + SharePoint."""
+    """List available REG title card images from SharePoint folder."""
     import time
     now = time.time()
     if _reg_images_cache["data"] and now < _reg_images_cache["expires"]:
         return {"images": _reg_images_cache["data"]}
 
     images = []
-    # Get categories from trivia_rounds REG type
-    pipeline = [
-        {"$match": {"roundType": "REG"}},
-        {"$group": {"_id": "$name"}},
-        {"$sort": {"_id": 1}}
-    ]
-    categories = await db.trivia_rounds.aggregate(pipeline).to_list(200)
-    images = [c["_id"] for c in categories if c["_id"]]
+    try:
+        items = await _list_sp_folder(SP_REG_TITLE_CARDS_ID)
+        for item in items:
+            name = item.get("name", "")
+            if name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                category = name.rsplit('.', 1)[0]
+                images.append({"name": category, "filename": name, "itemId": item["id"]})
+        images.sort(key=lambda x: x["name"])
+        logger.info(f"Fetched {len(images)} REG title card images from SharePoint")
+    except Exception as e:
+        logger.error(f"Failed to list REG title images: {e}")
     
-    # Also try SharePoint if available
-    if HAS_SHAREPOINT:
-        try:
-            sp_images = await list_reg_title_images()
-            if sp_images:
-                images = list(set(images + sp_images))
-                images.sort()
-        except:
-            pass
+    # Fallback to database categories if SharePoint fails
+    if not images:
+        pipeline = [{"$match": {"roundType": "REG"}}, {"$group": {"_id": "$name"}}, {"$sort": {"_id": 1}}]
+        categories = await db.trivia_rounds.aggregate(pipeline).to_list(200)
+        images = [{"name": c["_id"], "filename": "", "itemId": ""} for c in categories if c["_id"]]
     
     _reg_images_cache["data"] = images
     _reg_images_cache["expires"] = now + 300
@@ -545,67 +578,87 @@ async def get_reg_title_images():
 
 @router.get("/reg-next-number/{category}")
 async def get_reg_next_number(category: str):
-    """Get the next available number for a REG round category from database + SharePoint."""
-    import re
+    """Get the next available number for a REG round category by checking SharePoint output folder."""
+    import re, time
 
-    # Check local rounds collection
     max_num = 0
     escaped_cat = re.escape(category)
-    pattern = re.compile(rf'^{escaped_cat}_(\d+)$', re.IGNORECASE)
-    
+    pattern = re.compile(rf'^{escaped_cat}_(\d+)\.pptx$', re.IGNORECASE)
+
+    # Check SharePoint REG output folder
+    now = time.time()
+    if not _reg_files_cache["data"] or now >= _reg_files_cache["expires"]:
+        try:
+            items = await _list_sp_folder(SP_REG_OUTPUT_ID)
+            _reg_files_cache["data"] = [item["name"] for item in items if item.get("name", "").endswith(".pptx")]
+            _reg_files_cache["expires"] = now + 120
+        except Exception as e:
+            logger.warning(f"SharePoint REG list failed: {e}")
+            _reg_files_cache["data"] = []
+
+    for filename in (_reg_files_cache["data"] or []):
+        match = pattern.match(filename)
+        if match:
+            num = int(match.group(1))
+            if num > max_num:
+                max_num = num
+
+    # Also check local database
+    local_pattern = re.compile(rf'^{escaped_cat}_(\d+)$', re.IGNORECASE)
     rounds = await db.rounds.find({"round_type": "REG"}, {"_id": 0, "name": 1}).to_list(500)
     for r in rounds:
-        match = pattern.match(r.get("name", ""))
+        match = local_pattern.match(r.get("name", ""))
         if match:
             num = int(match.group(1))
             if num > max_num:
                 max_num = num
-    
-    # Also check trivia_rounds 
-    trivia_rounds = await db.trivia_rounds.find({"roundType": "REG"}, {"_id": 0, "name": 1}).to_list(500)
-    for r in trivia_rounds:
-        match = pattern.match(r.get("name", ""))
-        if match:
-            num = int(match.group(1))
-            if num > max_num:
-                max_num = num
-    
-    # Try SharePoint
-    if HAS_SHAREPOINT and SHAREPOINT_SHARE_LINKS.get("REG"):
-        try:
-            import time
-            now = time.time()
-            if not _reg_files_cache["data"] or now >= _reg_files_cache["expires"]:
-                files = await list_sharepoint_folder_files(SHAREPOINT_SHARE_LINKS["REG"])
-                _reg_files_cache["data"] = files
-                _reg_files_cache["expires"] = now + 120
-            sp_pattern = re.compile(rf'^{escaped_cat}_(\d+)\.pptx$', re.IGNORECASE)
-            for filename in (_reg_files_cache["data"] or []):
-                match = sp_pattern.match(filename)
-                if match:
-                    num = int(match.group(1))
-                    if num > max_num:
-                        max_num = num
-        except:
-            pass
 
     next_num = max_num + 1
     round_name = f"{category}_{next_num}"
-    logger.info(f"REG next number for '{category}': {next_num}")
+    logger.info(f"REG next number for '{category}': {next_num} (max found: {max_num})")
     return {"category": category, "next_number": next_num, "round_name": round_name, "existing_count": max_num}
 
 @router.post("/reg-download-title-image")
-async def download_title_image_endpoint(item_id: str, drive_id: str, filename: str):
-    """Download a title image from SharePoint and save it locally for PPTX generation."""
+async def download_title_image_endpoint(request: Request):
+    """Download a REG title image from SharePoint by itemId and save locally."""
     try:
-        save_dir = str(UPLOAD_DIR)
-        local_path = await download_reg_title_image(item_id, drive_id, filename, save_dir)
-        # Return a file_id that can be used as cover_image_id
-        file_id = Path(local_path).stem
-        return {"file_id": file_id, "path": local_path, "filename": filename}
+        body = await request.json()
+        item_id = body.get("item_id") or body.get("itemId", "")
+        filename = body.get("filename", "title.jpg")
+        
+        if not item_id:
+            raise HTTPException(status_code=400, detail="item_id required")
+        
+        content = await _download_sp_file(item_id)
+        if not content:
+            raise HTTPException(status_code=404, detail="Could not download image from SharePoint")
+        
+        # Save locally
+        save_path = UPLOAD_DIR / filename
+        save_path.write_bytes(content)
+        file_id = save_path.stem
+        logger.info(f"Downloaded REG title image: {filename} ({len(content)} bytes)")
+        return {"file_id": file_id, "path": str(save_path), "filename": filename}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to download title image: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/reg-title-image-preview/{item_id}")
+async def preview_reg_title_image(item_id: str):
+    """Serve a REG title card image preview directly from SharePoint."""
+    from fastapi.responses import Response
+    content = await _download_sp_file(item_id)
+    if not content:
+        raise HTTPException(status_code=404, detail="Image not found")
+    # Detect content type
+    ct = "image/jpeg"
+    if content[:3] == b'GIF':
+        ct = "image/gif"
+    elif content[:4] == b'\x89PNG':
+        ct = "image/png"
+    return Response(content=content, media_type=ct)
 
 # ── MC Naming Convention ──
 # MC follows: MC_01_A, MC_02_A, ... MC_20_A, MC_01_B, MC_02_B, ... MC_20_B, etc.
