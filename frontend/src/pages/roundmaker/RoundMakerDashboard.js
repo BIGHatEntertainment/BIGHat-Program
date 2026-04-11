@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Grid2X2, HelpCircle, Target, Search, Crown, Trash2, Download, FileText, Upload, CheckCircle, Loader2, Copy } from "lucide-react";
+import { Grid2X2, HelpCircle, Target, Search, Crown, Trash2, Download, FileText, Upload, CheckCircle, Loader2, Copy, Shield, Check, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -59,7 +60,10 @@ const getRoundConfig = (id) => ROUND_TYPES.find((r) => r.id === id);
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
   const [rounds, setRounds] = useState([]);
+  const [activeTab, setActiveTab] = useState('create');
   const [loading, setLoading] = useState(true);
   const [uploadingId, setUploadingId] = useState(null);
   const [sharepointReady, setSharepointReady] = useState(false);
@@ -165,6 +169,25 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        {/* Tabs */}
+        {isAdmin && (
+          <div className="flex gap-2 mb-8">
+            <button onClick={() => setActiveTab('create')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: activeTab === 'create' ? 'rgba(251, 221, 104, 0.15)' : 'rgba(20, 27, 80, 0.4)', color: activeTab === 'create' ? '#fbdd68' : '#8892b0', border: `1px solid ${activeTab === 'create' ? 'rgba(251, 221, 104, 0.3)' : 'rgba(251, 221, 104, 0.08)'}` }}>
+              <FileText size={16} /> Create Rounds
+            </button>
+            <button onClick={() => setActiveTab('admin')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all relative" style={{ backgroundColor: activeTab === 'admin' ? 'rgba(251, 221, 104, 0.15)' : 'rgba(20, 27, 80, 0.4)', color: activeTab === 'admin' ? '#fbdd68' : '#8892b0', border: `1px solid ${activeTab === 'admin' ? 'rgba(251, 221, 104, 0.3)' : 'rgba(251, 221, 104, 0.08)'}` }}>
+              <Shield size={16} /> Admin
+              {rounds.filter(r => r.approval_status === 'pending' || r.status === 'pending_approval').length > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: '#ef4444', color: 'white' }}>
+                  {rounds.filter(r => r.approval_status === 'pending' || r.status === 'pending_approval').length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'create' && (
+        <>
         {/* Round Type Selection */}
         <section className="mb-16">
           <h2 className="text-2xl font-medium text-teal-400 mb-8" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -325,7 +348,178 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+        </>
+        )}
+
+        {/* Admin Tab */}
+        {activeTab === 'admin' && isAdmin && (
+          <AdminPanel rounds={rounds} onRefresh={fetchRounds} />
+        )}
       </main>
+    </div>
+  );
+}
+
+
+function AdminPanel({ rounds, onRefresh }) {
+  const [approving, setApproving] = useState(null);
+
+  const pendingRounds = rounds.filter(r => r.approval_status === 'pending' || r.status === 'pending_approval');
+  const approvedRounds = rounds.filter(r => r.approval_status === 'approved' || r.status === 'uploaded');
+  const allRounds = rounds;
+
+  const handleApprove = async (roundId) => {
+    setApproving(roundId);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API}/roundmaker/rounds/${roundId}/approve`, null, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success("Round approved! It can now be uploaded to SharePoint.");
+      onRefresh();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Approval failed");
+    } finally {
+      setApproving(null);
+    }
+  };
+
+  const handleReject = async (roundId) => {
+    if (!window.confirm("Reject this round?")) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API}/roundmaker/rounds/${roundId}/reject`, null, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success("Round rejected.");
+      onRefresh();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Rejection failed");
+    }
+  };
+
+  const handleUploadApproved = async (round) => {
+    setApproving(round.id);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API}/roundmaker/rounds/${round.id}/upload-sharepoint`, null, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success("Uploaded to SharePoint!");
+      onRefresh();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Upload failed");
+    } finally {
+      setApproving(null);
+    }
+  };
+
+  const getRoundConfig = (type) => {
+    const colors = { MC: '#22c55e', REG: '#ef4444', MISC: '#3b82f6', MYS: '#a855f7', BIG: '#eab308' };
+    return { color: colors[type] || '#8892b0' };
+  };
+
+  return (
+    <div>
+      <h2 className="text-2xl font-medium mb-6" style={{ color: '#fbdd68', fontFamily: "'Space Grotesk', sans-serif" }}>
+        Admin Panel
+      </h2>
+
+      {/* Pending Approval */}
+      <section className="mb-10">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-yellow-400" />
+          Pending Approval ({pendingRounds.length})
+        </h3>
+        {pendingRounds.length === 0 ? (
+          <div className="rounded-xl p-8 text-center" style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.08)' }}>
+            <p style={{ color: '#8892b0' }}>No rounds pending approval</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pendingRounds.map(round => {
+              const config = getRoundConfig(round.round_type);
+              return (
+                <div key={round.id} className="rounded-xl p-5 flex items-center justify-between" style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs font-bold uppercase px-3 py-1 rounded-full" style={{ backgroundColor: `${config.color}20`, color: config.color }}>{round.round_type}</span>
+                    <div>
+                      <p className="text-white font-medium">{round.name}</p>
+                      <p className="text-xs mt-0.5" style={{ color: '#8892b0' }}>{round.questions?.length || 0} questions &middot; {new Date(round.created_at).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => handleApprove(round.id)} disabled={approving === round.id} className="bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2" size="sm">
+                      {approving === round.id ? <Loader2 size={14} className="animate-spin mr-1" /> : <Check size={14} className="mr-1" />}
+                      Approve
+                    </Button>
+                    <Button onClick={() => handleReject(round.id)} variant="ghost" size="sm" className="text-red-400 hover:bg-red-400/10">
+                      <X size={14} className="mr-1" /> Reject
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Approved - Ready to Upload */}
+      <section className="mb-10">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-green-400" />
+          Approved — Ready to Upload ({approvedRounds.filter(r => r.status !== 'uploaded').length})
+        </h3>
+        <div className="space-y-3">
+          {approvedRounds.filter(r => r.status !== 'uploaded').map(round => {
+            const config = getRoundConfig(round.round_type);
+            return (
+              <div key={round.id} className="rounded-xl p-5 flex items-center justify-between" style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+                <div className="flex items-center gap-4">
+                  <span className="text-xs font-bold uppercase px-3 py-1 rounded-full" style={{ backgroundColor: `${config.color}20`, color: config.color }}>{round.round_type}</span>
+                  <div>
+                    <p className="text-white font-medium">{round.name}</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#8892b0' }}>{round.questions?.length || 0} questions</p>
+                  </div>
+                </div>
+                <Button onClick={() => handleUploadApproved(round)} disabled={approving === round.id} className="bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm" size="sm">
+                  {approving === round.id ? <Loader2 size={14} className="animate-spin mr-1" /> : <Upload size={14} className="mr-1" />}
+                  Upload to SharePoint
+                </Button>
+              </div>
+            );
+          })}
+          {approvedRounds.filter(r => r.status !== 'uploaded').length === 0 && (
+            <div className="rounded-xl p-6 text-center" style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.08)' }}>
+              <p style={{ color: '#8892b0' }}>No approved rounds waiting for upload</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* All Rounds */}
+      <section>
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#5973F7' }} />
+          All Rounds ({allRounds.length})
+        </h3>
+        <div className="space-y-2">
+          {allRounds.map(round => {
+            const config = getRoundConfig(round.round_type);
+            const statusColor = round.status === 'uploaded' ? '#22c55e' : round.approval_status === 'pending' ? '#eab308' : round.approval_status === 'rejected' ? '#ef4444' : '#8892b0';
+            const statusLabel = round.status === 'uploaded' ? 'On SharePoint' : round.approval_status === 'pending' ? 'Pending' : round.approval_status === 'rejected' ? 'Rejected' : round.approval_status === 'approved' ? 'Approved' : 'Draft';
+            return (
+              <div key={round.id} className="rounded-lg px-4 py-3 flex items-center justify-between" style={{ backgroundColor: 'rgba(20, 27, 80, 0.3)', border: '1px solid rgba(251, 221, 104, 0.05)' }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-bold uppercase w-10" style={{ color: config.color }}>{round.round_type}</span>
+                  <span className="text-sm text-white">{round.name}</span>
+                </div>
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ backgroundColor: `${statusColor}15`, color: statusColor }}>{statusLabel}</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
