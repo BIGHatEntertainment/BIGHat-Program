@@ -473,19 +473,36 @@ async def get_round_files_by_type(round_type: str, location: Optional[str] = Non
         
         logger.info(f"Found {len(all_files)} {round_type} round files")
         
-        # Filter out recently used files for this location
+        # Filter out recently used files for this location (180-day lockout)
         if location and db is not None:
-            # Get recently used files for this location
-            cutoff_date = datetime.utcnow()
-            used_files = await db.round_usage.find({
-                'location': location,
-                'expiresDate': {'$gt': cutoff_date}
-            }).to_list(1000)
+            from datetime import timedelta
+            now_iso = datetime.utcnow().isoformat()
+            cutoff_iso = (datetime.utcnow() - timedelta(days=180)).isoformat()
             
-            used_paths = {usage['roundFile'] for usage in used_files}
+            # Find rounds used at this location in the last 180 days
+            used_records = await db.round_usage.find({
+                'location': {'$regex': location.replace('/', '\\/'), '$options': 'i'},
+                'usedDate': {'$gte': cutoff_iso}
+            }).to_list(5000)
             
-            # Filter out used files (check both path and itemId)
-            all_files = [f for f in all_files if f['path'] not in used_paths and f.get('itemId') not in used_paths]
+            # Build set of used round names and paths
+            used_names = set()
+            used_paths_set = set()
+            for usage in used_records:
+                if usage.get('roundFileName'):
+                    used_names.add(usage['roundFileName'].lower())
+                if usage.get('roundFile'):
+                    used_paths_set.add(usage['roundFile'])
+            
+            before_count = len(all_files)
+            all_files = [f for f in all_files if 
+                f['name'].lower() not in used_names and 
+                f.get('displayName', '').lower() not in used_names and
+                f['path'] not in used_paths_set]
+            
+            filtered_count = before_count - len(all_files)
+            if filtered_count > 0:
+                logger.info(f"Filtered out {filtered_count} used rounds for {location} (180-day lockout)")
         
         return sorted(all_files, key=lambda x: x['displayName'])
         
