@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 
@@ -12,10 +13,11 @@ function formatApiError(detail) {
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(location.state?.error || '');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {

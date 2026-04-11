@@ -333,6 +333,45 @@ async def reconstruct_round_files():
 
 async def seed_trivia_data():
     """Seed trivia data from the deployed Trivia Presenter API if collections are empty"""
+
+async def sync_users_from_employees():
+    """Sync hub users from schedule employees. Employees table is the source of truth for emails/names."""
+    employees = await db.employees.find({}, {"_id": 0}).to_list(100)
+    synced = 0
+    for emp in employees:
+        emp_email = emp.get("email", "").lower().strip()
+        if not emp_email:
+            continue
+        # Find hub user by case-insensitive email match
+        user = await db.users.find_one({"email": {"$regex": f"^{emp_email}$", "$options": "i"}})
+        if user:
+            # Update email to match employee record (don't change master admin name)
+            updates = {}
+            if user.get("role") != "master_admin" and user.get("name") != emp.get("name"):
+                updates["name"] = emp["name"]
+            if user.get("email") != emp_email:
+                updates["email"] = emp_email
+            if updates:
+                await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
+                synced += 1
+        else:
+            # Create hub user from employee
+            role = "admin" if emp.get("is_admin") else "host"
+            if emp_email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+                role = "master_admin"
+            await db.users.insert_one({
+                "email": emp_email,
+                "password_hash": hash_password("B1GHat"),
+                "name": emp["name"],
+                "role": role,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "schedule_employee_id": emp.get("id")
+            })
+            synced += 1
+    if synced:
+        logger.info(f"Synced {synced} hub users from schedule employees")
+
+
     import httpx
     
     TRIVIA_API = "https://quiz-presenter.emergent.host/api"
@@ -550,6 +589,10 @@ async def lifespan(app: FastAPI):
     # Seed trivia data from deployed Trivia Presenter API
     await seed_trivia_data()
     
+    # Sync hub users from schedule employees (employees are source of truth)
+    await sync_users_from_employees()
+    
+    
     
     # Initialize GridFS
     try:
@@ -599,6 +642,15 @@ class CustomCORSMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CustomCORSMiddleware)
 
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 api_router = APIRouter(prefix="/api")
 
 # =============================================
@@ -606,6 +658,7 @@ api_router = APIRouter(prefix="/api")
 # =============================================
 
 @api_router.post("/auth/login")
+@limiter.limit("10/minute")
 async def login(request: Request, response: Response, body: LoginRequest):
     email = body.email.lower().strip()
     ip = request.client.host if request.client else "unknown"
@@ -647,8 +700,10 @@ async def logout(response: Response):
     return {"message": "Logged out"}
 
 @api_router.post("/auth/google-callback")
+@limiter.limit("10/minute")
 async def google_callback(request: Request, response: Response):
-    """Exchange session_id from Emergent Google Auth for a user session"""
+    """Exchange session_id from Emergent Google Auth for a user session.
+    SECURITY: Only allows emails that exist in the schedule employees collection."""
     import httpx
     body = await request.json()
     session_id = body.get("session_id")
@@ -673,32 +728,55 @@ async def google_callback(request: Request, response: Response):
     name = google_data.get("name", "")
     picture = google_data.get("picture", "")
     
-    # Find or create user
-    user = await db.users.find_one({"email": email})
+    # SECURITY: Check if email is in the schedule employees whitelist (case-insensitive)
+    employee = await db.employees.find_one(
+        {"email": {"$regex": f"^{email}$", "$options": "i"}},
+        {"_id": 0}
+    )
+    if not employee:
+        logger.warning(f"Google auth BLOCKED: {email} is not in the employee whitelist")
+        raise HTTPException(status_code=403, detail="Access denied. Your email is not authorized to use this app. Contact your admin.")
+    
+    # Determine role from employee data
+    is_admin = employee.get("is_admin", False)
+    
+    # Find or create hub user - sync from employee data
+    user = await db.users.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
     if user:
-        # Update name/picture if changed
-        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture}})
+        # Update from employee data (employees table is source of truth)
+        update_data = {"picture": picture}
+        if employee.get("name"):
+            update_data["name"] = employee["name"]
+        await db.users.update_one({"_id": user["_id"]}, {"$set": update_data})
         user_id = str(user["_id"])
-        role = user.get("role", "host")
+        role = user.get("role", "admin" if is_admin else "host")
     else:
-        # Create new user as host
+        # Create new user from employee data
+        role = "admin" if is_admin else "host"
+        # Check if master admin
+        if email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+            role = "master_admin"
         result = await db.users.insert_one({
-            "email": email, "password_hash": hash_password(secrets.token_hex(16)),
-            "name": name, "picture": picture, "role": "host",
-            "created_at": datetime.now(timezone.utc).isoformat(), "auth_method": "google"
+            "email": employee.get("email", email).lower(),
+            "password_hash": hash_password(secrets.token_hex(16)),
+            "name": employee.get("name", name),
+            "picture": picture,
+            "role": role,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auth_method": "google",
+            "schedule_employee_id": employee.get("id")
         })
         user_id = str(result.inserted_id)
-        role = "host"
     
     # Create JWT tokens
-    access_token = create_access_token(user_id, email, role)
+    access_token = create_access_token(user_id, email.lower(), role)
     refresh_token_val = create_refresh_token(user_id)
     
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token_val, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     
-    logger.info(f"Google auth: {email} logged in as {role}")
-    return {"id": user_id, "email": email, "name": name, "role": role, "token": access_token}
+    logger.info(f"Google auth: {email} logged in as {role} (employee: {employee.get('name')})")
+    return {"id": user_id, "email": email, "name": employee.get("name", name), "role": role, "token": access_token}
 
 
 

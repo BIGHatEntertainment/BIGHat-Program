@@ -29,7 +29,8 @@ export default function AuthCallback() {
         navigate('/', { replace: true });
       } catch (err) {
         console.error('Google auth failed:', err);
-        navigate('/login', { replace: true });
+        const errorMsg = err.response?.data?.detail || 'Authentication failed';
+        navigate('/login', { replace: true, state: { error: errorMsg } });
       }
     };
 
