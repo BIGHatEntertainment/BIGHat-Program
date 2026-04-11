@@ -30,6 +30,7 @@ export default function StoryGeneratorPage() {
   const [generating, setGenerating] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [genProgress, setGenProgress] = useState({ step: '', progress: 0 });
 
   useEffect(() => { loadPresentations(); }, []);
 
@@ -62,55 +63,62 @@ export default function StoryGeneratorPage() {
     if (!selectedPres) return;
     try {
       setGenerating(true);
-      toast({ title: 'Generating...', description: 'Creating your Instagram Story video. This may take ~20 seconds.' });
+      setGenProgress({ step: 'Starting generation...', progress: 5 });
+      setGeneratedVideo(null);
       
       // Start the generation job
       const startRes = await axios.post(`${API}/story-generator/generate/${selectedPres.id}`, {}, { timeout: 30000 });
       const jobId = startRes.data.jobId;
       
       if (!jobId) {
-        // Direct response with filename
         if (startRes.data.filename) {
           setGeneratedVideo({ filename: startRes.data.filename, downloadUrl: `${API}/story-generator/download/${startRes.data.filename}` });
-          toast({ title: 'Video Ready!' });
           setGenerating(false);
           return;
         }
         throw new Error('No job ID returned');
       }
 
+      setGenProgress({ step: 'Processing...', progress: 10 });
+
       // Poll for job completion
-      let attempts = 0;
-      const maxAttempts = 60; // 60 * 2s = 2 minutes max
-      const pollInterval = setInterval(async () => {
-        attempts++;
-        try {
-          const statusRes = await axios.get(`${API}/story-generator/job-status/${jobId}`, { timeout: 10000 });
-          const status = statusRes.data;
-          
-          if (status.status === 'completed' && status.result) {
-            clearInterval(pollInterval);
-            const filename = status.result.filename || status.filename;
-            setGeneratedVideo({ filename, downloadUrl: `${API}/story-generator/download/${filename}` });
-            toast({ title: 'Video Ready!', description: `Generated in ${status.result.duration || '~20'}s` });
-            setGenerating(false);
-          } else if (status.status === 'failed') {
-            clearInterval(pollInterval);
-            toast({ title: 'Error', description: status.error || 'Generation failed', variant: 'destructive' });
-            setGenerating(false);
-          } else if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
-            toast({ title: 'Timeout', description: 'Video generation is taking longer than expected. Try again.', variant: 'destructive' });
-            setGenerating(false);
-          }
-        } catch {
-          // Continue polling on transient errors
-          if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
-            setGenerating(false);
+      const poll = async () => {
+        let attempts = 0;
+        const maxAttempts = 60;
+        while (attempts < maxAttempts) {
+          attempts++;
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const statusRes = await axios.get(`${API}/story-generator/job-status/${jobId}`, { timeout: 10000 });
+            const status = statusRes.data;
+            
+            // Update progress bar
+            setGenProgress({ step: status.step || 'Processing...', progress: status.progress || 10 });
+            
+            if (status.status === 'completed') {
+              const filename = status.result?.filename || status.filename;
+              if (filename) {
+                setGeneratedVideo({ filename, downloadUrl: `${API}/story-generator/download/${filename}` });
+                toast({ title: 'Video Ready!', description: `Generated in ${status.result?.duration || '~20'}s` });
+              } else {
+                toast({ title: 'Error', description: 'Video completed but no file was produced', variant: 'destructive' });
+              }
+              setGenerating(false);
+              return;
+            } else if (status.status === 'failed') {
+              toast({ title: 'Error', description: status.error || 'Generation failed', variant: 'destructive' });
+              setGenerating(false);
+              return;
+            }
+          } catch (e) {
+            // Continue polling on transient network errors
           }
         }
-      }, 2000);
+        toast({ title: 'Timeout', description: 'Video generation timed out. Try again.', variant: 'destructive' });
+        setGenerating(false);
+      };
+      
+      poll();
       
     } catch (err) {
       toast({ title: 'Error', description: err.response?.data?.detail || 'Failed to start generation', variant: 'destructive' });
@@ -367,9 +375,21 @@ export default function StoryGeneratorPage() {
                   <Download size={20} /> Download Story Video
                 </button>
               ) : (
-                <button onClick={handleGenerate} disabled={generating} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50" style={{ backgroundColor: '#fbdd68', color: '#000', boxShadow: '0 0 30px rgba(251, 221, 104,0.2)' }}>
-                  {generating ? <><Loader2 size={20} className="animate-spin" /> Generating...</> : <><Video size={20} /> Generate Video</>}
-                </button>
+                <>
+                  <button onClick={handleGenerate} disabled={generating} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50" style={{ backgroundColor: '#fbdd68', color: '#000', boxShadow: '0 0 30px rgba(251, 221, 104,0.2)' }}>
+                    {generating ? <><Loader2 size={20} className="animate-spin" /> Generating...</> : <><Video size={20} /> Generate Video</>}
+                  </button>
+                  {/* Progress Indicator */}
+                  {generating && (
+                    <div className="mt-4 space-y-2">
+                      <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: '#0a1940' }}>
+                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${genProgress.progress}%`, backgroundColor: '#fbdd68' }} />
+                      </div>
+                      <p className="text-center text-xs" style={{ color: '#fbdd68' }}>{genProgress.step}</p>
+                      <p className="text-center text-[10px]" style={{ color: '#8892b0' }}>{genProgress.progress}% complete</p>
+                    </div>
+                  )}
+                </>
               )}
               <p className="text-center text-[10px] mt-2" style={{ color: '#8892b0' }}>MP4 format for Instagram Stories. ~25s video.</p>
             </div>

@@ -46,6 +46,8 @@ export default function RoundCreator() {
   const [searchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
   const config = ROUND_CONFIG[roundType];
   const fileInputRef = useRef(null);
 
@@ -320,9 +322,6 @@ export default function RoundCreator() {
       setGenerating(false);
     }
   };
-
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
 
   const handleSaveAndUpload = async () => {
     if (!roundName.trim()) {
