@@ -78,15 +78,23 @@ export default function Dashboard() {
     }
   };
 
-  const handleUploadSharepoint = async (round) => {
+  const handleUploadSharepoint = async (round, e) => {
+    if (e) e.stopPropagation();
     setUploadingId(round.id);
     try {
-      const res = await axios.post(`${API}/roundmaker/rounds/${round.id}/upload-sharepoint`);
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.post(`${API}/roundmaker/rounds/${round.id}/upload-sharepoint`, null, { headers });
       toast.success(res.data.message || "Uploaded to SharePoint!");
       fetchRounds();
     } catch (e) {
       const msg = e.response?.data?.detail || "SharePoint upload failed";
-      toast.error(msg);
+      if (e.response?.status === 403) {
+        toast.success("Round submitted for admin approval!");
+      } else {
+        toast.error(msg);
+      }
+      fetchRounds();
     } finally {
       setUploadingId(null);
     }
@@ -228,7 +236,8 @@ export default function Dashboard() {
                     key={round.id}
                     data-testid={`round-item-${round.id}`}
                     className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-5 flex items-center justify-between
-                      hover:border-slate-600 transition-colors duration-200"
+                      hover:border-slate-600 transition-colors duration-200 cursor-pointer"
+                    onClick={() => navigate(`/roundmaker/create/${round.round_type}?edit=${round.id}`)}
                   >
                     <div className="flex items-center gap-4">
                       <span
@@ -254,12 +263,20 @@ export default function Dashboard() {
                           <CheckCircle size={12} />
                           On SharePoint
                         </span>
+                      ) : round.status === "pending_approval" || round.approval_status === "pending" ? (
+                        <span className="flex items-center gap-1 text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-full">
+                          Pending Approval
+                        </span>
+                      ) : round.approval_status === "rejected" ? (
+                        <span className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded-full">
+                          Rejected
+                        </span>
                       ) : (
                         <Button
                           data-testid={`upload-sp-btn-${round.id}`}
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleUploadSharepoint(round)}
+                          onClick={(e) => handleUploadSharepoint(round, e)}
                           disabled={uploadingId === round.id || !sharepointReady}
                           className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 disabled:opacity-40"
                         >
@@ -296,7 +313,7 @@ export default function Dashboard() {
                         data-testid={`delete-btn-${round.id}`}
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(round.id)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(round.id); }}
                         className="text-slate-500 hover:text-red-400 hover:bg-red-400/10"
                       >
                         <Trash2 size={16} />

@@ -218,25 +218,23 @@ def _add_question_slide(prs, number, question, options=None, round_type=None):
                 pOpt.font.color.rgb = RGBColor(0x2D, 0xD4, 0xBF)
                 pOpt.alignment = PP_ALIGN.LEFT
     else:
-        # Non-MC: Keep question number title
-        txBox = slide.shapes.add_textbox(Emu(int(width * 0.05)), Emu(int(height * 0.08)), Emu(int(width * 0.9)), Emu(int(height * 0.12)))
-        tf = txBox.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.text = f"Question {number}"
-        p.font.size = Pt(24)
-        p.font.bold = True
-        p.font.color.rgb = RGBColor(0xFA, 0xCC, 0x15)
-        p.alignment = PP_ALIGN.CENTER
-
-        txBox2 = slide.shapes.add_textbox(Emu(int(width * 0.05)), Emu(int(height * 0.25)), Emu(int(width * 0.9)), Emu(int(height * 0.3)))
+        # Non-MC: Single text box with number in yellow + question in white
+        txBox2 = slide.shapes.add_textbox(Emu(int(width * 0.05)), Emu(int(height * 0.3)), Emu(int(width * 0.9)), Emu(int(height * 0.4)))
         tf2 = txBox2.text_frame
         tf2.word_wrap = True
         p2 = tf2.paragraphs[0]
-        p2.text = question
-        p2.font.size = Pt(28)
-        p2.font.bold = True
-        p2.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        # Add number run in yellow
+        run_num = p2.add_run()
+        run_num.text = f"{number}. "
+        run_num.font.size = Pt(28)
+        run_num.font.bold = True
+        run_num.font.color.rgb = RGBColor(0xFA, 0xCC, 0x15)  # Yellow
+        # Add question run in white
+        run_q = p2.add_run()
+        run_q.text = question
+        run_q.font.size = Pt(28)
+        run_q.font.bold = True
+        run_q.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)  # White
         p2.alignment = PP_ALIGN.CENTER
 
     return slide
@@ -309,25 +307,16 @@ def _add_answers_slide(prs, questions, round_type):
     height = prs.slide_height
 
     if round_type != "MC":
-        # Non-MC: Show "Answers" title
-        txBox = slide.shapes.add_textbox(Emu(int(width * 0.05)), Emu(int(height * 0.03)), Emu(int(width * 0.9)), Emu(int(height * 0.1)))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = "Answers"
-        p.font.size = Pt(28)
-        p.font.bold = True
-        p.font.color.rgb = RGBColor(0xFA, 0xCC, 0x15)
-        p.alignment = PP_ALIGN.CENTER
+        # Non-MC: No "Answers" title - just numbered answers
+        pass
 
     num_q = len(questions)
     font_size = 14 if num_q > 8 else 18
-    y_start = int(height * 0.05) if round_type == "MC" else int(height * 0.14)
-    available = int(height * 0.90) if round_type == "MC" else int(height * 0.82)
+    y_start = int(height * 0.05)
+    available = int(height * 0.90)
     line_h = available // max(num_q, 1)
 
     for i, q in enumerate(questions):
-        answer_text = f"{i+1}. {q.get('answer', '')}"
-
         txA = slide.shapes.add_textbox(
             Emu(int(width * 0.08)),
             Emu(y_start + i * line_h),
@@ -337,9 +326,16 @@ def _add_answers_slide(prs, questions, round_type):
         tfA = txA.text_frame
         tfA.word_wrap = True
         pA = tfA.paragraphs[0]
-        pA.text = answer_text
-        pA.font.size = Pt(font_size)
-        pA.font.color.rgb = RGBColor(0x2D, 0xD4, 0xBF)
+        # Number in yellow, answer in teal
+        run_num = pA.add_run()
+        run_num.text = f"{i+1}. "
+        run_num.font.size = Pt(font_size)
+        run_num.font.bold = True
+        run_num.font.color.rgb = RGBColor(0xFA, 0xCC, 0x15)  # Yellow
+        run_ans = pA.add_run()
+        run_ans.text = q.get('answer', '')
+        run_ans.font.size = Pt(font_size)
+        run_ans.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)  # White
         pA.alignment = PP_ALIGN.LEFT if round_type == "MC" else PP_ALIGN.CENTER
 
     return slide
@@ -788,44 +784,87 @@ async def sharepoint_status():
 
 
 @router.post("/rounds/{round_id}/upload-sharepoint")
-async def upload_to_sharepoint(round_id: str):
-    """Generate PPTX and upload to the correct SharePoint folder based on round type."""
+async def upload_to_sharepoint(round_id: str, request: Request):
+    """Generate PPTX and upload to SharePoint. Admin users can upload directly. Non-admin users need approval."""
     doc = await db.rounds.find_one({"id": round_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Round not found")
 
+    # Check if user is admin (via JWT token or header)
+    is_admin = False
     try:
-        # Generate the PPTX first
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            import jwt as pyjwt
+            token = auth_header[7:]
+            payload = pyjwt.decode(token, os.environ.get("JWT_SECRET", ""), algorithms=["HS256"])
+            role = payload.get("role", "host")
+            is_admin = role in ["admin", "master_admin"]
+    except:
+        pass
+    
+    # Check approval status
+    if not is_admin and doc.get("approval_status") != "approved":
+        # Non-admin: mark as pending approval
+        await db.rounds.update_one({"id": round_id}, {"$set": {"approval_status": "pending", "status": "pending_approval"}})
+        raise HTTPException(status_code=403, detail="Round submitted for admin approval. An admin must approve before uploading to SharePoint.")
+
+    try:
         pptx_path = generate_pptx(doc)
         filename = f"{doc['name']}.pptx"
-        
-        # Upload to SharePoint
-        result = await upload_round_to_sharepoint(
-            round_type=doc["round_type"],
-            filename=filename,
-            file_path=pptx_path,
-        )
-        
-        # Update round status in DB
-        await db.rounds.update_one(
-            {"id": round_id},
-            {"$set": {
-                "status": "uploaded",
-                "pptx_path": pptx_path,
-                "sharepoint_url": result.get("web_url"),
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            }}
-        )
-        
-        return {
-            "status": "success",
-            "message": f"Uploaded to SharePoint ({result.get('folder', doc['round_type'])} folder)",
-            "web_url": result.get("web_url"),
-            "file_id": result.get("file_id"),
-        }
+        result = await upload_round_to_sharepoint(round_type=doc["round_type"], filename=filename, file_path=pptx_path)
+        await db.rounds.update_one({"id": round_id}, {"$set": {
+            "status": "uploaded", "approval_status": "approved",
+            "pptx_path": pptx_path, "sharepoint_url": result.get("web_url"),
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        }})
+        return {"status": "success", "message": f"Uploaded to SharePoint ({result.get('folder', doc['round_type'])} folder)", "web_url": result.get("web_url")}
     except Exception as e:
         logger.error(f"SharePoint upload error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/rounds/{round_id}/approve")
+async def approve_round(round_id: str, request: Request):
+    """Admin approves a round for SharePoint upload."""
+    # Verify admin
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            import jwt as pyjwt
+            payload = pyjwt.decode(auth_header[7:], os.environ.get("JWT_SECRET", ""), algorithms=["HS256"])
+            if payload.get("role") not in ["admin", "master_admin"]:
+                raise HTTPException(status_code=403, detail="Admin access required")
+        else:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+    except HTTPException:
+        raise
+    except:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    doc = await db.rounds.find_one({"id": round_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Round not found")
+    
+    await db.rounds.update_one({"id": round_id}, {"$set": {"approval_status": "approved", "status": "approved"}})
+    return {"message": "Round approved", "id": round_id}
+
+@router.post("/rounds/{round_id}/reject")
+async def reject_round(round_id: str, request: Request):
+    """Admin rejects a round."""
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            import jwt as pyjwt
+            payload = pyjwt.decode(auth_header[7:], os.environ.get("JWT_SECRET", ""), algorithms=["HS256"])
+            if payload.get("role") not in ["admin", "master_admin"]:
+                raise HTTPException(status_code=403, detail="Admin access required")
+    except HTTPException:
+        raise
+    except:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    await db.rounds.update_one({"id": round_id}, {"$set": {"approval_status": "rejected", "status": "rejected"}})
+    return {"message": "Round rejected", "id": round_id}
 
 
 # ── Health ──
