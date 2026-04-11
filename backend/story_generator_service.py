@@ -1248,14 +1248,14 @@ class StoryGeneratorService:
                     '-loop', '1',
                     '-i', str(temp_path),
                     '-t', str(duration),
-                    '-r', '15',  # 15fps (lower = faster encode for still images)
+                    '-r', '1',  # 1fps — still images don't need more
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
                     '-tune', 'stillimage',
-                    '-crf', '28',  # Slightly lower quality = much faster + smaller
-                    '-threads', '2',
+                    '-crf', '35',  # Lower quality = much faster
+                    '-threads', '1',
                     '-pix_fmt', 'yuv420p',
-                    '-vf', 'scale=720:1280',  # Scale down to 720x1280 (sufficient for Stories)
+                    '-vf', 'scale=540:960',  # 540x960 — small enough for fast encode
                     '-movflags', '+faststart',
                     str(segment_path)
                 ]
@@ -1264,7 +1264,7 @@ class StoryGeneratorService:
                     ffmpeg_cmd, 
                     capture_output=True, 
                     text=True,
-                    timeout=120  # 2 minute timeout per segment
+                    timeout=180
                 )
                 
                 if result.returncode != 0:

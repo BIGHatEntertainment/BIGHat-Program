@@ -371,9 +371,25 @@ export default function StoryGeneratorPage() {
             {/* Generate Button */}
             <div className="w-full max-w-md mt-6">
               {generatedVideo ? (
-                <button onClick={() => window.open(generatedVideo.downloadUrl, '_blank')} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold" style={{ backgroundColor: '#22c55e', color: '#000' }}>
-                  <Download size={20} /> Download Story Video
-                </button>
+                <>
+                  <button onClick={async () => {
+                    try {
+                      const res = await axios.get(generatedVideo.downloadUrl, { responseType: 'blob', timeout: 60000 });
+                      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'video/mp4' }));
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = generatedVideo.filename || 'story.mp4';
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      a.remove();
+                    } catch (e) {
+                      toast({ title: 'Download failed', description: 'Try generating again', variant: 'destructive' });
+                    }
+                  }} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold" style={{ backgroundColor: '#22c55e', color: '#000' }}>
+                    <Download size={20} /> Download Story Video
+                  </button>
+                </>
               ) : (
                 <>
                   <button onClick={handleGenerate} disabled={generating} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50" style={{ backgroundColor: '#fbdd68', color: '#000', boxShadow: '0 0 30px rgba(251, 221, 104,0.2)' }}>
