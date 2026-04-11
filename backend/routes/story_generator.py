@@ -573,11 +573,15 @@ async def generate_story_video(presentation_id: str, background_tasks: Backgroun
         
         logger.info(f"[JOB {job_id}] Created for presentation: {presentation['name']}")
         
-        # Prepare story data
+        # Prepare story data - include roundNames for proper display
         story_data = {
             'location': presentation.get('location', ''),
             'hostFile': presentation.get('hostFile', ''),
-            'roundFiles': presentation.get('roundFiles', [])
+            'roundFiles': presentation.get('roundFiles', []),
+            'roundNames': presentation.get('roundNames', []),
+            'roundTypes': presentation.get('roundTypes', []),
+            'numRounds': presentation.get('numRounds', 5),
+            'host': presentation.get('host', ''),
         }
         
         # Start background task

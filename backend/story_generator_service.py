@@ -781,7 +781,7 @@ class StoryGeneratorService:
             return overlay
         
         spacing = available_height // (num_rounds + 1)
-        box_height = min(85, spacing - 20)
+        box_height = min(95, int((spacing - 20) * 1.1))  # 10% taller boxes
         
         def draw_text_with_outline(text, x, y, font, fill_color='white', outline_color='black', outline_width=3):
             for dx in range(-outline_width, outline_width + 1):
@@ -797,8 +797,8 @@ class StoryGeneratorService:
             y_center = top_start + spacing * (i + 1)
             color = COLOR_MAP.get(round_type, (128, 128, 128, 230))
             
-            # Draw the colored box
-            margin = 80
+            # Draw the colored box — 5% narrower on each side (margin 80 -> 134)
+            margin = 134  # ~12.4% margin each side (was ~7.4%), effectively 5% narrower total
             x1, x2 = margin, STORY_WIDTH - margin
             y1 = y_center - box_height // 2
             y2 = y_center + box_height // 2
@@ -887,22 +887,36 @@ class StoryGeneratorService:
         
         bg_img = self._resize_to_story(bg_img.convert('RGB')).convert('RGBA')
         
-        # Resolve actual round names from SharePoint before creating overlay
+        # Resolve actual round names - use roundNames from presentation data first
         resolved_rounds = []
-        for rf in rounds_info:
+        round_names_list = presentation_data.get('roundNames', [])
+        
+        for i, rf in enumerate(rounds_info):
             round_type = rf.get('type', 'REG')
-            round_file = rf.get('file', '')
             
-            # For MC and MYS, use fixed names
+            # For MC and MYS, use fixed display names
             if round_type == 'MC':
                 round_name = 'Multiple Choice'
             elif round_type == 'MYS':
                 round_name = 'Mystery'
             else:
-                # For REG, MISC, and BIG - resolve the actual round name from SharePoint
-                round_name = self.resolve_round_name(round_file)
-                if round_name == 'Unknown' or not round_name:
-                    round_name = rf.get('name', f'{round_type} Round')
+                # Get the actual name from roundNames array
+                raw_name = round_names_list[i] if i < len(round_names_list) else rf.get('name', '')
+                
+                if raw_name:
+                    # Clean up the name for display
+                    import re as name_re
+                    # Remove .pptx extension
+                    clean = raw_name.replace('.pptx', '')
+                    # Remove "BIG_" prefix
+                    clean = name_re.sub(r'^BIG_', '', clean, flags=name_re.IGNORECASE)
+                    # Remove trailing "_N" number suffixes (e.g., "1970s_1" -> "1970s")
+                    clean = name_re.sub(r'_\d+$', '', clean)
+                    # Replace underscores with spaces
+                    clean = clean.replace('_', ' ')
+                    round_name = clean.strip()
+                else:
+                    round_name = f'{round_type} Round'
             
             resolved_rounds.append({
                 'order': rf.get('order', 0),
@@ -1148,20 +1162,28 @@ class StoryGeneratorService:
         logger.info("[STEP 5/6] Generating overlay frames with round names")
         
         try:
-            # Resolve round names
+            # Resolve round names from presentation data
             resolved_rounds = []
+            round_names_list = presentation_data.get('roundNames', [])
+            
             for i, rf in enumerate(rounds_info):
                 round_type = rf.get('type', 'REG')
-                round_file = rf.get('file', '')
                 
                 if round_type == 'MC':
                     round_name = 'Multiple Choice'
                 elif round_type == 'MYS':
                     round_name = 'Mystery'
                 else:
-                    round_name = self.resolve_round_name(round_file)
-                    if round_name == 'Unknown' or not round_name:
-                        round_name = rf.get('name', f'{round_type} Round')
+                    raw_name = round_names_list[i] if i < len(round_names_list) else rf.get('name', '')
+                    if raw_name:
+                        import re as name_re
+                        clean = raw_name.replace('.pptx', '')
+                        clean = name_re.sub(r'^BIG_', '', clean, flags=name_re.IGNORECASE)
+                        clean = name_re.sub(r'_\d+$', '', clean)
+                        clean = clean.replace('_', ' ')
+                        round_name = clean.strip()
+                    else:
+                        round_name = f'{round_type} Round'
                 
                 resolved_rounds.append({
                     'order': rf.get('order', 0),
