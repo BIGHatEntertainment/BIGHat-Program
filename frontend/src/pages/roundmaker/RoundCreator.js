@@ -85,9 +85,10 @@ export default function RoundCreator() {
       (async () => {
         try {
           const res = await axios.get(`${API}/roundmaker/mc-next-name`);
-          setRoundName(res.data.round_name);
+          setRoundName(res.data.name || res.data.round_name);
         } catch (e) {
           console.error("Failed to get MC next name", e);
+          setRoundName("MC_01_A");
         }
       })();
     }
@@ -95,28 +96,34 @@ export default function RoundCreator() {
 
   // When a REG category is selected, fetch the next number and download the image
   const handleSelectCategory = async (categoryName) => {
-    const img = regImages.find((i) => i.name_no_ext === categoryName);
+    const img = regImages.find((i) => (i.name || i.name_no_ext) === categoryName);
     if (!img) return;
     setSelectedCategory(img);
+    const catName = img.name || img.name_no_ext;
     try {
       // Get next available number (checks SharePoint for existing files)
-      const numRes = await axios.get(`${API}/roundmaker/reg-next-number/${encodeURIComponent(img.name_no_ext)}`);
+      const numRes = await axios.get(`${API}/roundmaker/reg-next-number/${encodeURIComponent(catName)}`);
       const num = numRes.data.next_number;
-      const autoName = numRes.data.round_name || `${img.name_no_ext}_${num}`;
+      const autoName = numRes.data.round_name || `${catName}_${num}`;
       setNextNumber(num);
       setRoundName(autoName);
 
       // Download the image from SharePoint for PPTX generation
-      const dlRes = await axios.post(`${API}/roundmaker/reg-download-title-image`, null, {
-        params: { item_id: img.item_id, drive_id: img.drive_id, filename: img.name },
-      });
-      setCoverFileId(dlRes.data.file_id);
-      // Use the backend serve endpoint for preview
-      setCoverPreview(`${API}/roundmaker/uploads/${encodeURIComponent(img.name)}`);
+      if (img.itemId) {
+        const dlRes = await axios.post(`${API}/roundmaker/reg-download-title-image`, {
+          item_id: img.itemId,
+          filename: img.filename || img.name,
+        });
+        setCoverFileId(dlRes.data.file_id);
+      }
+      // Use the preview endpoint for showing the image
+      if (img.itemId) {
+        setCoverPreview(`${API}/roundmaker/reg-title-image-preview/${img.itemId}`);
+      }
       toast.success(`Selected: ${autoName}`);
     } catch (e) {
       console.error("Failed to setup REG category", e);
-      setRoundName(`${img.name_no_ext}_1`);
+      setRoundName(`${catName}_1`);
     }
   };
 
@@ -434,7 +441,7 @@ export default function RoundCreator() {
                   Round Category
                 </Label>
                 <Select
-                  value={selectedCategory?.name_no_ext || ""}
+                  value={selectedCategory?.name || selectedCategory?.name_no_ext || ""}
                   onValueChange={handleSelectCategory}
                   disabled={regImagesLoading}
                 >
@@ -451,12 +458,12 @@ export default function RoundCreator() {
                   >
                     {regImages.map((img) => (
                       <SelectItem
-                        key={img.item_id}
-                        value={img.name_no_ext}
-                        data-testid={`reg-category-option-${img.name_no_ext}`}
+                        key={img.itemId || img.item_id || img.name}
+                        value={img.name || img.name_no_ext}
+                        data-testid={`reg-category-option-${img.name || img.name_no_ext}`}
                         className="text-slate-300 focus:bg-slate-700/50 focus:text-red-400 cursor-pointer"
                       >
-                        {img.name_no_ext}
+                        {img.name || img.name_no_ext}
                       </SelectItem>
                     ))}
                   </SelectContent>
