@@ -673,7 +673,7 @@ export default function HostDashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{backgroundColor:"#0A0A0A",color:"white"}}>
         <div className="loading-balls">
           {[...Array(5)].map((_, i) => <div key={i} className="loading-ball" />)}
         </div>
@@ -686,7 +686,7 @@ export default function HostDashboard() {
   // =====================================================
   if (isMusicBingo) {
     return (
-      <div className="min-h-screen bg-background p-4" data-testid="host-dashboard">
+      <div className="min-h-screen p-4" style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
         {/* Header */}
         <header className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
@@ -976,7 +976,7 @@ export default function HostDashboard() {
   // TRADITIONAL BINGO LAYOUT
   // =====================================================
   return (
-    <div className="min-h-screen bg-background p-4" data-testid="host-dashboard">
+    <div className="min-h-screen p-4" style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
       <header className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/bingo")} className="text-zinc-400 hover:text-white hover:bg-zinc-800" data-testid="back-to-lobby-btn">

@@ -477,7 +477,11 @@ body {
 
 @layer components {
     .card-dark {
-        @apply bg-zinc-900/80 border border-zinc-800 rounded-xl backdrop-blur-md;
+        background-color: rgba(18, 18, 18, 0.95) !important;
+        border: 1px solid rgba(39, 39, 42, 1) !important;
+        border-radius: 0.75rem;
+        backdrop-filter: blur(12px);
+        color: white !important;
     }
     
     .btn-primary {
@@ -868,3 +872,60 @@ body {
 
 
 
+
+/* Bingo dark theme overrides - ensure all bingo UI stays dark */
+.bg-gradient-radial [data-slot="card"],
+.bg-gradient-radial .card-dark,
+.bg-gradient-radial [role="group"],
+.bg-gradient-radial .settings-card {
+  background-color: rgba(18, 18, 18, 0.95) !important;
+  border-color: rgba(217, 70, 239, 0.3) !important;
+  color: white !important;
+}
+
+/* Bingo host dashboard - force dark backgrounds */
+.host-grid,
+.host-grid > div,
+[class*="host-grid"] {
+  background-color: #0A0A0A !important;
+}
+
+.host-grid [data-slot="card"],
+.host-grid .border {
+  background-color: #121212 !important;
+  border-color: rgba(217, 70, 239, 0.3) !important;
+  color: white !important;
+}
+
+/* Bingo labels, descriptions, text */
+.bg-gradient-radial label,
+.bg-gradient-radial p,
+.bg-gradient-radial h3,
+.bg-gradient-radial h4,
+.bg-gradient-radial span,
+.bg-gradient-radial [class*="CardTitle"],
+.bg-gradient-radial [class*="CardDescription"] {
+  color: inherit;
+}
+
+/* Quick Play / Game Setup cards */
+.bg-gradient-radial .rounded-xl,
+.bg-gradient-radial .rounded-2xl,
+.bg-gradient-radial .rounded-lg {
+  --card: 0 0% 7%;
+  --card-foreground: 0 0% 100%;
+}
+
+/* Bingo wizard step cards */
+.round-type-card {
+  background: #121212 !important;
+  border: 2px solid transparent !important;
+  color: white !important;
+}
+.round-type-card:hover {
+  background: #1a1a1a !important;
+}
+.round-type-card.selected {
+  border-color: #D946EF !important;
+  background: rgba(217, 70, 239, 0.1) !important;
+}
