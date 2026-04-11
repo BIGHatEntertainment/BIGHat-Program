@@ -84,7 +84,7 @@ export default function StoryGeneratorPage() {
       // Poll for job completion
       const poll = async () => {
         let attempts = 0;
-        const maxAttempts = 60;
+        const maxAttempts = 90; // 90 * 2s = 3 minutes max
         while (attempts < maxAttempts) {
           attempts++;
           await new Promise(r => setTimeout(r, 2000));

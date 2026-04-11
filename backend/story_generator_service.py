@@ -1222,18 +1222,19 @@ class StoryGeneratorService:
                 """Encode a single segment - runs in thread pool"""
                 idx, temp_path, duration, segment_path = args
                 ffmpeg_cmd = [
-                    'ffmpeg', '-y',  # Overwrite output
+                    'ffmpeg', '-y',
                     '-loop', '1',
                     '-i', str(temp_path),
                     '-t', str(duration),
-                    '-framerate', '24',
+                    '-r', '15',  # 15fps (lower = faster encode for still images)
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
-                    '-tune', 'stillimage',  # Optimize for still images
-                    '-crf', '23',  # Good quality/size balance
-                    '-threads', '0',  # Auto-detect optimal thread count
+                    '-tune', 'stillimage',
+                    '-crf', '28',  # Slightly lower quality = much faster + smaller
+                    '-threads', '2',
                     '-pix_fmt', 'yuv420p',
-                    '-movflags', '+faststart',  # Web streaming optimization
+                    '-vf', 'scale=720:1280',  # Scale down to 720x1280 (sufficient for Stories)
+                    '-movflags', '+faststart',
                     str(segment_path)
                 ]
                 
@@ -1241,7 +1242,7 @@ class StoryGeneratorService:
                     ffmpeg_cmd, 
                     capture_output=True, 
                     text=True,
-                    timeout=60  # Increased timeout for safety
+                    timeout=120  # 2 minute timeout per segment
                 )
                 
                 if result.returncode != 0:
@@ -1256,9 +1257,9 @@ class StoryGeneratorService:
                 segment_files.append(segment_path)
                 segment_tasks.append((i, temp_path, duration, segment_path))
             
-            # Run all segment encodings in parallel
-            logger.info(f"[STEP 6/6] Encoding {len(segment_tasks)} segments in parallel...")
-            with ThreadPoolExecutor(max_workers=3) as executor:
+            # Run segment encodings sequentially to avoid overwhelming production container
+            logger.info(f"[STEP 6/6] Encoding {len(segment_tasks)} segments (720x1280, 15fps)...")
+            with ThreadPoolExecutor(max_workers=1) as executor:
                 futures = {executor.submit(encode_segment, task): task for task in segment_tasks}
                 for future in as_completed(futures):
                     idx, seg_path = future.result()
@@ -1292,7 +1293,7 @@ class StoryGeneratorService:
                 concat_cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=60
             )
             
             if result.returncode != 0:
