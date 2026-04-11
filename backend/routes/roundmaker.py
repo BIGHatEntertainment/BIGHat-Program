@@ -825,7 +825,7 @@ async def upload_to_sharepoint(round_id: str, request: Request):
 
 @router.post("/rounds/{round_id}/approve")
 async def approve_round(round_id: str, request: Request):
-    """Admin approves a round for SharePoint upload."""
+    """Admin approves a round AND uploads it to SharePoint in one step."""
     # Verify admin
     try:
         auth_header = request.headers.get("Authorization", "")
@@ -845,12 +845,27 @@ async def approve_round(round_id: str, request: Request):
     if not doc:
         raise HTTPException(status_code=404, detail="Round not found")
     
-    await db.rounds.update_one({"id": round_id}, {"$set": {"approval_status": "approved", "status": "approved"}})
-    return {"message": "Round approved", "id": round_id}
+    # Approve AND upload to SharePoint
+    try:
+        pptx_path = generate_pptx(doc)
+        filename = f"{doc['name']}.pptx"
+        result = await upload_round_to_sharepoint(round_type=doc["round_type"], filename=filename, file_path=pptx_path)
+        await db.rounds.update_one({"id": round_id}, {"$set": {
+            "status": "uploaded", "approval_status": "approved",
+            "pptx_path": pptx_path, "sharepoint_url": result.get("web_url"),
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        }})
+        logger.info(f"Round {round_id} approved and uploaded to SharePoint")
+        return {"message": f"Round approved and uploaded to SharePoint!", "web_url": result.get("web_url")}
+    except Exception as e:
+        # If SharePoint upload fails, still mark as approved
+        await db.rounds.update_one({"id": round_id}, {"$set": {"approval_status": "approved", "status": "approved"}})
+        logger.error(f"Round approved but SharePoint upload failed: {e}")
+        return {"message": "Round approved. SharePoint upload failed — try uploading manually.", "error": str(e)}
 
 @router.post("/rounds/{round_id}/reject")
 async def reject_round(round_id: str, request: Request):
-    """Admin rejects a round."""
+    """Admin rejects a round with optional notes."""
     try:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -863,7 +878,17 @@ async def reject_round(round_id: str, request: Request):
     except:
         raise HTTPException(status_code=401, detail="Invalid token")
     
-    await db.rounds.update_one({"id": round_id}, {"$set": {"approval_status": "rejected", "status": "rejected"}})
+    body = {}
+    try:
+        body = await request.json()
+    except:
+        pass
+    
+    notes = body.get("notes", "")
+    await db.rounds.update_one({"id": round_id}, {"$set": {
+        "approval_status": "rejected", "status": "rejected",
+        "rejection_notes": notes, "rejected_at": datetime.now(timezone.utc).isoformat()
+    }})
     return {"message": "Round rejected", "id": round_id}
 
 

@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
-import { ArrowLeft, Upload, Plus, Minus, Save, Download, Image as ImageIcon, Loader2, Lock, ExternalLink } from "lucide-react";
+import { ArrowLeft, Upload, Plus, Minus, Save, Download, Image as ImageIcon, Loader2, Lock, ExternalLink, Send } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -320,6 +321,9 @@ export default function RoundCreator() {
     }
   };
 
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
+
   const handleSaveAndUpload = async () => {
     if (!roundName.trim()) {
       toast.error("Please enter a round name");
@@ -330,12 +334,27 @@ export default function RoundCreator() {
       const payload = buildPayload();
       const saveRes = await axios.post(`${API}/roundmaker/rounds`, payload);
       const roundId = saveRes.data.id;
-      const uploadRes = await axios.post(`${API}/roundmaker/rounds/${roundId}/upload-sharepoint`);
-      toast.success(uploadRes.data.message || "Uploaded to SharePoint!");
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      
+      if (isAdmin) {
+        // Admin: approve and upload directly
+        const uploadRes = await axios.post(`${API}/roundmaker/rounds/${roundId}/approve`, null, { headers });
+        toast.success(uploadRes.data.message || "Approved and uploaded to SharePoint!");
+      } else {
+        // Non-admin: submit for approval
+        await axios.post(`${API}/roundmaker/rounds/${roundId}/upload-sharepoint`, null, { headers });
+        toast.success("Round submitted for admin approval!");
+      }
       navigate("/roundmaker");
     } catch (err) {
-      const msg = err.response?.data?.detail || "SharePoint upload failed";
-      toast.error(msg);
+      const msg = err.response?.data?.detail || "Failed";
+      if (err.response?.status === 403) {
+        toast.success("Round submitted for admin approval!");
+        navigate("/roundmaker");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setUploading(false);
     }
@@ -414,10 +433,12 @@ export default function RoundCreator() {
             >
               {uploading ? (
                 <Loader2 size={16} className="mr-2 animate-spin" />
-              ) : (
+              ) : isAdmin ? (
                 <Upload size={16} className="mr-2" />
+              ) : (
+                <Send size={16} className="mr-2" />
               )}
-              {uploading ? "Uploading..." : "Save to SharePoint"}
+              {uploading ? "Processing..." : isAdmin ? "APPROVE & UPLOAD" : "SUBMIT FOR APPROVAL"}
             </Button>
           </div>
         </div>
