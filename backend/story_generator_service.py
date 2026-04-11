@@ -22,6 +22,7 @@ SharePoint folder structure (01_Socials):
 """
 
 import uuid
+import os
 import logging
 import re
 import io
@@ -123,6 +124,102 @@ class StoryGeneratorService:
         # Ensure local directories exist (for fallback and generated files)
         for directory in [self.locations_dir, self.hosts_dir, self.backgrounds_dir, self.generated_dir]:
             directory.mkdir(parents=True, exist_ok=True)
+        
+        # Direct Graph API config for SharePoint asset folders
+        self._graph_drive_id = "b!vFnSKrOPL02dj2-MZU_EHmAti4Py2yROjNNkPjQrBjDvfYp5Cu28QIG93vJSp4xs"
+        self._graph_folders = {
+            "locations": "01Z4PLCYUCPKMVK5JXCZC2PRXULQ5FNUTH",
+            "hosts": "01Z4PLCYSUGLYAMDEBLFDZR3BRN6EPPJI7",
+            "backgrounds": "01Z4PLCYWP7NFIQ4Q4HBA3R6HF2OQGIEI7"
+        }
+        self._graph_token_cache = {"token": None, "expires": 0}
+    
+    def _get_graph_token(self):
+        """Get Microsoft Graph API token"""
+        import time, requests as sync_requests
+        now = time.time()
+        if self._graph_token_cache["token"] and now < self._graph_token_cache["expires"]:
+            return self._graph_token_cache["token"]
+        tenant = os.environ.get("ROUNDMAKER_TENANT_ID", os.environ.get("AZURE_TENANT_ID", ""))
+        cid = os.environ.get("ROUNDMAKER_CLIENT_ID", os.environ.get("AZURE_CLIENT_ID", ""))
+        csec = os.environ.get("ROUNDMAKER_CLIENT_SECRET", os.environ.get("AZURE_CLIENT_SECRET", ""))
+        if not all([tenant, cid, csec]):
+            return None
+        r = sync_requests.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
+            "grant_type": "client_credentials", "client_id": cid, "client_secret": csec,
+            "scope": "https://graph.microsoft.com/.default"
+        }, timeout=10)
+        if r.status_code == 200:
+            self._graph_token_cache["token"] = r.json()["access_token"]
+            self._graph_token_cache["expires"] = now + 3500
+            return self._graph_token_cache["token"]
+        return None
+    
+    def _graph_list_folder(self, folder_id):
+        """List items in a SharePoint folder via Graph API"""
+        import requests as sync_requests
+        token = self._get_graph_token()
+        if not token: return []
+        r = sync_requests.get(f"https://graph.microsoft.com/v1.0/drives/{self._graph_drive_id}/items/{folder_id}/children?$top=200",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        return r.json().get("value", []) if r.status_code == 200 else []
+    
+    def _graph_download_file(self, item_id):
+        """Download a file from SharePoint via Graph API"""
+        import requests as sync_requests
+        token = self._get_graph_token()
+        if not token: return None
+        r = sync_requests.get(f"https://graph.microsoft.com/v1.0/drives/{self._graph_drive_id}/items/{item_id}/content",
+            headers={"Authorization": f"Bearer {token}"}, timeout=30, allow_redirects=True)
+        return r.content if r.status_code == 200 else None
+    
+    def _graph_find_and_download(self, folder_type, name_match, extensions=None):
+        """Find and download a file from a SharePoint folder.
+        Searches in the folder and its subfolders for a matching file.
+        """
+        folder_id = self._graph_folders.get(folder_type)
+        if not folder_id: return None
+        
+        items = self._graph_list_folder(folder_id)
+        clean_name = name_match.lower().replace('_', ' ').strip()
+        
+        # Check if any items are subfolders matching the name
+        for item in items:
+            item_name = item.get("name", "").lower()
+            if item.get("folder") and (clean_name in item_name or item_name in clean_name):
+                # It's a matching subfolder - list its contents
+                sub_items = self._graph_list_folder(item["id"])
+                for sub in sub_items:
+                    sub_name = sub.get("name", "").lower()
+                    if extensions:
+                        if any(sub_name.endswith(ext.lower()) for ext in extensions):
+                            content = self._graph_download_file(sub["id"])
+                            if content:
+                                logger.info(f"Graph: Downloaded {sub['name']} from {item['name']}/")
+                                return content
+                    else:
+                        content = self._graph_download_file(sub["id"])
+                        if content:
+                            return content
+        
+        # Check direct files in the folder
+        for item in items:
+            if item.get("folder"): continue
+            item_name = item.get("name", "").lower()
+            name_no_ext = item_name.rsplit('.', 1)[0] if '.' in item_name else item_name
+            if clean_name in name_no_ext or name_no_ext in clean_name:
+                if extensions:
+                    if any(item_name.endswith(ext.lower()) for ext in extensions):
+                        content = self._graph_download_file(item["id"])
+                        if content:
+                            logger.info(f"Graph: Downloaded {item['name']}")
+                            return content
+                else:
+                    content = self._graph_download_file(item["id"])
+                    if content:
+                        return content
+        
+        return None
     
     @property
     def sharepoint_service(self):
@@ -524,94 +621,79 @@ class StoryGeneratorService:
         return None
     
     def _get_location_image(self, location_name: str) -> Optional[Image.Image]:
-        """Get location image from SharePoint or local storage
-        
-        SharePoint structure: 01_Socials/01_Locations/{location_folder}/{name}.jpg
-        """
+        """Get location image from SharePoint via Graph API"""
         extensions = ['.jpg', '.jpeg', '.png', '.webp']
         
-        # Try SharePoint first
-        sp_path = self._find_sharepoint_asset('locations', location_name, extensions)
-        if sp_path:
-            logger.info(f"Found location image in SharePoint: {sp_path}")
-            img = self._load_image_from_sharepoint(sp_path)
-            if img:
+        # Try Graph API direct download first
+        content = self._graph_find_and_download('locations', location_name, extensions)
+        if content:
+            try:
+                img = Image.open(io.BytesIO(content))
+                logger.info(f"Loaded location image from SharePoint: {location_name}")
                 return img
+            except Exception as e:
+                logger.error(f"Failed to open location image: {e}")
         
         # Fall back to local
         local_path = self._find_asset_local(self.locations_dir, location_name, extensions)
         if local_path:
-            logger.info(f"Found location image locally: {local_path}")
             return Image.open(local_path)
         
         logger.warning(f"No location image found for: {location_name}")
         return None
     
     def _get_host_image(self, host_name: str) -> Tuple[Optional[Image.Image], bool]:
-        """
-        Get host image from SharePoint or local storage.
-        Returns (image, is_animated) tuple.
-        Tries .gif first (animated), then .png/.jpg (static).
-        """
-        # Try GIF first (animated host images)
-        gif_extensions = ['.gif']
-        sp_path = self._find_sharepoint_asset('hosts', host_name, gif_extensions)
-        if sp_path:
-            logger.info(f"Found host GIF in SharePoint: {sp_path}")
-            content = self._download_sharepoint_file(sp_path)
-            if content:
-                try:
-                    img = Image.open(io.BytesIO(content))
-                    return img, True  # Animated GIF
-                except Exception as e:
-                    logger.error(f"Error opening SharePoint host GIF: {e}")
+        """Get host image from SharePoint via Graph API. Tries .gif first (animated), then static."""
         
-        # Fall back to static images
-        static_extensions = ['.png', '.jpg', '.jpeg', '.webp']
-        sp_path = self._find_sharepoint_asset('hosts', host_name, static_extensions)
-        if sp_path:
-            logger.info(f"Found host image in SharePoint: {sp_path}")
-            content = self._download_sharepoint_file(sp_path)
-            if content:
-                try:
-                    img = Image.open(io.BytesIO(content))
-                    return img, False
-                except Exception as e:
-                    logger.error(f"Error opening SharePoint host image: {e}")
+        # Try GIF first from Graph API
+        content = self._graph_find_and_download('hosts', host_name, ['.gif'])
+        if content:
+            try:
+                img = Image.open(io.BytesIO(content))
+                logger.info(f"Loaded host GIF from SharePoint: {host_name}")
+                return img, True
+            except Exception as e:
+                logger.error(f"Failed to open host GIF: {e}")
+        
+        # Try static images
+        content = self._graph_find_and_download('hosts', host_name, ['.png', '.jpg', '.jpeg'])
+        if content:
+            try:
+                img = Image.open(io.BytesIO(content))
+                logger.info(f"Loaded host image from SharePoint: {host_name}")
+                return img, False
+            except Exception as e:
+                logger.error(f"Failed to open host image: {e}")
         
         # Fall back to local
         all_extensions = ['.gif', '.png', '.jpg', '.jpeg', '.webp']
         local_path = self._find_asset_local(self.hosts_dir, host_name, all_extensions)
         if local_path:
-            logger.info(f"Found host image locally: {local_path}")
             is_gif = local_path.lower().endswith('.gif')
             return Image.open(local_path), is_gif
         
         return None, False
     
     def _get_background_image(self, location_name: str, num_rounds: int = 5) -> Optional[Image.Image]:
-        """Get background image from SharePoint or local storage
-        
-        SharePoint structure: 01_Socials/03_Backgrounds/{location_folder}/{N} Rounds.png
-        The background is selected based on location AND number of rounds.
-        """
+        """Get background image from SharePoint via Graph API"""
         extensions = ['.png', '.jpg', '.jpeg', '.webp']
         
-        # Try SharePoint first - pass num_rounds for matching
-        sp_path = self._find_sharepoint_asset('backgrounds', location_name, extensions, num_rounds=num_rounds)
-        if sp_path:
-            logger.info(f"Found background image in SharePoint: {sp_path}")
-            img = self._load_image_from_sharepoint(sp_path)
-            if img:
+        # Try Graph API - look in backgrounds folder for matching location subfolder
+        content = self._graph_find_and_download('backgrounds', location_name, extensions)
+        if content:
+            try:
+                img = Image.open(io.BytesIO(content))
+                logger.info(f"Loaded background from SharePoint: {location_name}")
                 return img
+            except Exception as e:
+                logger.error(f"Failed to open background: {e}")
         
         # Fall back to local
         local_path = self._find_asset_local(self.backgrounds_dir, location_name, extensions)
         if local_path:
-            logger.info(f"Found background image locally: {local_path}")
             return Image.open(local_path)
         
-        logger.warning(f"No background image found for: {location_name} with {num_rounds} rounds")
+        logger.warning(f"No background image found for: {location_name}")
         return None
     
     def _create_placeholder_image(self, width: int, height: int, text: str, bg_color: str = '#333333') -> Image.Image:
