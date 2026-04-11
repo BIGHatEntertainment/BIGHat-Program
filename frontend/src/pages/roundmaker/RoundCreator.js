@@ -575,12 +575,15 @@ export default function RoundCreator() {
                   Title Image
                 </Label>
                 <div
-                  data-testid="cover-fixed-note"
-                  className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-6 flex flex-col items-center justify-center aspect-[9/16] max-h-48"
+                  data-testid="cover-fixed-preview"
+                  className="w-full rounded-xl overflow-hidden border border-slate-700"
                 >
-                  <Lock size={24} className="text-slate-600 mb-2" />
-                  <p className="text-slate-400 text-sm text-center">Default {roundType} title card</p>
-                  <p className="text-slate-600 text-xs mt-1 text-center">Standard image will be applied</p>
+                  <img 
+                    src={`${API}/roundmaker/title-cards/${roundType}`} 
+                    alt={`${roundType} Title Card`} 
+                    className="w-full h-48 object-cover rounded-xl"
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
                 </div>
               </div>
             ) : null}

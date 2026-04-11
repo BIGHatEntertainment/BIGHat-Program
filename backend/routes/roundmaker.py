@@ -513,59 +513,85 @@ _reg_files_cache = {"data": None, "expires": 0}
 
 @router.get("/reg-title-images")
 async def get_reg_title_images():
-    """List available title images from the REG SharePoint folder.
-    Returns image names to use as round category dropdown options."""
+    """List available title images/categories for REG rounds from database + SharePoint."""
     import time
     now = time.time()
     if _reg_images_cache["data"] and now < _reg_images_cache["expires"]:
         return {"images": _reg_images_cache["data"]}
 
-    try:
-        images = await list_reg_title_images()
-        _reg_images_cache["data"] = images
-        _reg_images_cache["expires"] = now + 300  # Cache for 5 minutes
-        return {"images": images}
-    except Exception as e:
-        logger.error(f"Failed to list REG title images: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    images = []
+    # Get categories from trivia_rounds REG type
+    pipeline = [
+        {"$match": {"roundType": "REG"}},
+        {"$group": {"_id": "$name"}},
+        {"$sort": {"_id": 1}}
+    ]
+    categories = await db.trivia_rounds.aggregate(pipeline).to_list(200)
+    images = [c["_id"] for c in categories if c["_id"]]
+    
+    # Also try SharePoint if available
+    if HAS_SHAREPOINT:
+        try:
+            sp_images = await list_reg_title_images()
+            if sp_images:
+                images = list(set(images + sp_images))
+                images.sort()
+        except:
+            pass
+    
+    _reg_images_cache["data"] = images
+    _reg_images_cache["expires"] = now + 300
+    return {"images": images}
 
 @router.get("/reg-next-number/{category}")
 async def get_reg_next_number(category: str):
-    """Get the next available number for a REG round category.
-    Checks the actual SharePoint REG output folder for existing .pptx files
-    with the naming convention {Category}_{N}.pptx to find the highest number.
-    """
+    """Get the next available number for a REG round category from database + SharePoint."""
     import re
-    import time
 
-    now = time.time()
-    # Cache the SharePoint file list for 2 minutes
-    if not _reg_files_cache["data"] or now >= _reg_files_cache["expires"]:
-        try:
-            files = await list_sharepoint_folder_files(SHAREPOINT_SHARE_LINKS["REG"])
-            _reg_files_cache["data"] = files
-            _reg_files_cache["expires"] = now + 120
-        except Exception as e:
-            logger.error(f"Failed to list REG folder: {e}")
-            _reg_files_cache["data"] = []
-
-    sp_files = _reg_files_cache["data"] or []
-
-    # Parse filenames: "1980s_3.pptx" -> category="1980s", number=3
+    # Check local rounds collection
     max_num = 0
     escaped_cat = re.escape(category)
-    pattern = re.compile(rf'^{escaped_cat}_(\d+)\.pptx$', re.IGNORECASE)
-
-    for filename in sp_files:
-        match = pattern.match(filename)
+    pattern = re.compile(rf'^{escaped_cat}_(\d+)$', re.IGNORECASE)
+    
+    rounds = await db.rounds.find({"round_type": "REG"}, {"_id": 0, "name": 1}).to_list(500)
+    for r in rounds:
+        match = pattern.match(r.get("name", ""))
         if match:
             num = int(match.group(1))
             if num > max_num:
                 max_num = num
+    
+    # Also check trivia_rounds 
+    trivia_rounds = await db.trivia_rounds.find({"roundType": "REG"}, {"_id": 0, "name": 1}).to_list(500)
+    for r in trivia_rounds:
+        match = pattern.match(r.get("name", ""))
+        if match:
+            num = int(match.group(1))
+            if num > max_num:
+                max_num = num
+    
+    # Try SharePoint
+    if HAS_SHAREPOINT and SHAREPOINT_SHARE_LINKS.get("REG"):
+        try:
+            import time
+            now = time.time()
+            if not _reg_files_cache["data"] or now >= _reg_files_cache["expires"]:
+                files = await list_sharepoint_folder_files(SHAREPOINT_SHARE_LINKS["REG"])
+                _reg_files_cache["data"] = files
+                _reg_files_cache["expires"] = now + 120
+            sp_pattern = re.compile(rf'^{escaped_cat}_(\d+)\.pptx$', re.IGNORECASE)
+            for filename in (_reg_files_cache["data"] or []):
+                match = sp_pattern.match(filename)
+                if match:
+                    num = int(match.group(1))
+                    if num > max_num:
+                        max_num = num
+        except:
+            pass
 
     next_num = max_num + 1
     round_name = f"{category}_{next_num}"
-    logger.info(f"REG next number for '{category}': {next_num} (found max {max_num} on SharePoint)")
+    logger.info(f"REG next number for '{category}': {next_num}")
     return {"category": category, "next_number": next_num, "round_name": round_name, "existing_count": max_num}
 
 @router.post("/reg-download-title-image")
@@ -589,95 +615,98 @@ _mc_files_cache = {"data": None, "expires": 0}
 
 @router.get("/mc-next-name")
 async def get_mc_next_name():
-    """Get the next available MC round name.
-    Scans SharePoint MC folder for files matching MC_NN_X.pptx pattern.
+    """Get the next available MC round name using database + SharePoint.
     Returns the next name in sequence: MC_01_A -> MC_20_A -> MC_01_B -> etc.
     """
     import re
-    import time
 
-    now = time.time()
-    if not _mc_files_cache["data"] or now >= _mc_files_cache["expires"]:
-        try:
-            files = await list_sharepoint_folder_files(SHAREPOINT_SHARE_LINKS["MC"])
-            _mc_files_cache["data"] = files
-            _mc_files_cache["expires"] = now + 120
-        except Exception as e:
-            logger.error(f"Failed to list MC folder: {e}")
-            _mc_files_cache["data"] = []
-
-    sp_files = _mc_files_cache["data"] or []
-
-    # Parse MC_NN_X.pptx -> track which (number, letter) pairs exist
-    pattern = re.compile(r'^MC_(\d+)_([A-Z])\.pptx$', re.IGNORECASE)
+    # Get existing MC rounds from local database
     existing = set()
-    for filename in sp_files:
-        match = pattern.match(filename)
+    pattern = re.compile(r'^MC_(\d+)_([A-Z])$', re.IGNORECASE)
+    
+    # Check local rounds collection
+    rounds = await db.rounds.find({"round_type": "MC"}, {"_id": 0, "name": 1}).to_list(500)
+    for r in rounds:
+        match = pattern.match(r.get("name", ""))
         if match:
-            num = int(match.group(1))
-            letter = match.group(2).upper()
-            existing.add((num, letter))
-
-    # Find the next available slot
-    # Walk through letters A, B, C... and for each letter check numbers 1-20
+            existing.add((int(match.group(1)), match.group(2).upper()))
+    
+    # Also check trivia_rounds for rounds that exist on SharePoint
+    trivia_rounds = await db.trivia_rounds.find({"roundType": "MC"}, {"_id": 0, "name": 1}).to_list(500)
+    for r in trivia_rounds:
+        name = r.get("name", "")
+        match = pattern.match(name)
+        if match:
+            existing.add((int(match.group(1)), match.group(2).upper()))
+    
+    # Also try SharePoint if available
+    if HAS_SHAREPOINT and SHAREPOINT_SHARE_LINKS.get("MC"):
+        try:
+            import time
+            now = time.time()
+            if not _mc_files_cache["data"] or now >= _mc_files_cache["expires"]:
+                files = await list_sharepoint_folder_files(SHAREPOINT_SHARE_LINKS["MC"])
+                _mc_files_cache["data"] = files
+                _mc_files_cache["expires"] = now + 120
+            sp_pattern = re.compile(r'^MC_(\d+)_([A-Z])\.pptx$', re.IGNORECASE)
+            for filename in (_mc_files_cache["data"] or []):
+                match = sp_pattern.match(filename)
+                if match:
+                    existing.add((int(match.group(1)), match.group(2).upper()))
+        except Exception as e:
+            logger.warning(f"SharePoint MC scan failed (using DB only): {e}")
+    
+    # Find next available slot: walk letters A-Z, for each check numbers 1-20
     letters = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
-
-    # Find the highest letter that has any entries
     next_num = 1
     next_letter = 'A'
-    found = False
-
+    
     for letter in letters:
-        nums_for_letter = [n for (n, lt) in existing if lt == letter]
-        if nums_for_letter:
+        nums_for_letter = sorted([n for (n, lt) in existing if lt == letter])
+        if not nums_for_letter:
+            # This letter has no entries yet
+            if letter == 'A':
+                next_num = 1
+                next_letter = 'A'
+            else:
+                # Check if previous letter is full
+                prev_letter = letters[letters.index(letter) - 1]
+                prev_nums = [n for (n, lt) in existing if lt == prev_letter]
+                if prev_nums and max(prev_nums) >= 20:
+                    next_num = 1
+                    next_letter = letter
+            break
+        else:
             max_num = max(nums_for_letter)
             if max_num < 20:
-                # This letter still has room
                 next_num = max_num + 1
                 next_letter = letter
-                found = True
                 break
-            # This letter is full (20), continue to next letter
-        else:
-            if found is False:
-                # Check if previous letters exist
-                prev_idx = letters.index(letter) - 1
-                if prev_idx >= 0:
-                    prev_letter = letters[prev_idx]
-                    prev_nums = [n for (n, lt) in existing if lt == prev_letter]
-                    if prev_nums and max(prev_nums) == 20:
-                        # Previous letter is full, start this letter
-                        next_num = 1
-                        next_letter = letter
-                        found = True
-                        break
-                    elif not prev_nums and letter == 'A':
-                        # No entries at all, start fresh
-                        next_num = 1
-                        next_letter = 'A'
-                        found = True
-                        break
-                else:
-                    # Letter A with no entries
-                    next_num = 1
-                    next_letter = 'A'
-                    found = True
-                    break
+            # Letter is full, continue to next
+            continue
+    
+    name = f"MC_{next_num:02d}_{next_letter}"
+    logger.info(f"MC next name: {name} (found {len(existing)} existing)")
+    return {"name": name, "number": next_num, "letter": next_letter, "existing_count": len(existing)}
 
-    if not found:
-        # Fallback: start from A_1
-        next_num = 1
-        next_letter = 'A'
 
-    round_name = f"MC_{next_num:02d}_{next_letter}"
-    existing_count = len(existing)
-    logger.info(f"MC next name: {round_name} (found {existing_count} existing MC files)")
-    return {
-        "round_name": round_name,
-        "next_number": next_num,
-        "next_letter": next_letter,
-        "existing_count": existing_count,
+@router.get("/title-cards/{round_type}")
+async def get_title_card(round_type: str):
+    """Serve the title card image for a round type (MC, MYS, BIG)."""
+    title_cards_dir = BACKEND_DIR / "roundmaker_assets" / "title_cards"
+    card_map = {
+        "MC": "MC_Title_Card.jpg",
+        "MYS": "MYS_Title_Card.jpg",
+        "BIG": "BIG_Title_Card.jpg",
     }
+    filename = card_map.get(round_type.upper())
+    if not filename:
+        raise HTTPException(status_code=404, detail=f"No title card for {round_type}")
+    filepath = title_cards_dir / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Title card file not found")
+    return FileResponse(str(filepath), media_type="image/jpeg")
+
 
 @router.get("/sharepoint-status")
 async def sharepoint_status():
