@@ -83,15 +83,13 @@ const VenueRoleManager = () => {
     }
   };
 
-  // Get available categories based on selected venue
+  // Get available categories based on selected venue - always show both
   const getCategories = () => {
     if (!assignVenue) return [];
-    const vs = venueServices[assignVenue];
-    if (!vs) return [];
-    const cats = [];
-    if (vs.offers_trivia) cats.push({ value: 'trivia', label: 'Trivia' });
-    if (vs.offers_bingo_karaoke) cats.push({ value: 'bingo_karaoke', label: 'Bingo/Karaoke' });
-    return cats;
+    return [
+      { value: 'trivia', label: 'Trivia' },
+      { value: 'bingo_karaoke', label: 'Bingo/Karaoke' }
+    ];
   };
 
   // Check if primary is already taken
@@ -176,8 +174,8 @@ const VenueRoleManager = () => {
                 <SelectValue placeholder="Venue" />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(venueServices).map(vs => (
-                  <SelectItem key={vs.venue_id} value={vs.venue_id}>{vs.venue_name}</SelectItem>
+                {venues.map(v => (
+                  <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -222,57 +220,55 @@ const VenueRoleManager = () => {
         </CardContent>
       </Card>
 
-      {/* Venue Roles List */}
-      {Object.values(venueServices).map(vs => {
-        const triviaRoles = allRoles.filter(r => r.venue_id === vs.venue_id && r.role_category === 'trivia');
-        const bkRoles = allRoles.filter(r => r.venue_id === vs.venue_id && r.role_category === 'bingo_karaoke');
-
-        if (!vs.offers_trivia && !vs.offers_bingo_karaoke) return null;
+      {/* Venue Roles List - Show ALL venues */}
+      {venues.map(venue => {
+        const vs = venueServices[venue.id] || {};
+        const triviaRoles = allRoles.filter(r => r.venue_id === venue.id && r.role_category === 'trivia');
+        const bkRoles = allRoles.filter(r => r.venue_id === venue.id && r.role_category === 'bingo_karaoke');
+        const hasTrivia = vs.offers_trivia || triviaRoles.length > 0;
+        const hasBK = vs.offers_bingo_karaoke || bkRoles.length > 0;
 
         return (
-          <Card key={vs.venue_id} data-testid={`venue-roles-card-${vs.venue_id}`}>
+          <Card key={venue.id} data-testid={`venue-roles-card-${venue.id}`}>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center space-x-2 text-lg">
                 <MapPin className="h-5 w-5 text-purple-600" />
-                <span>{vs.venue_name}</span>
+                <span>{venue.name}</span>
+                {!vs.venue_id && <span className="text-xs text-gray-400 ml-2">(no pricing set)</span>}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {vs.offers_trivia && (
-                  <RoleCategorySection
-                    title="Trivia"
-                    roles={triviaRoles}
-                    getEmployeeName={getEmployeeName}
-                    onRemove={handleRemoveRole}
-                    colorBg="bg-green-50"
-                    colorBorder="border-green-200"
-                    colorText="text-green-800"
-                    badgeColor="bg-green-600"
-                  />
-                )}
-                {vs.offers_bingo_karaoke && (
-                  <RoleCategorySection
-                    title="Bingo/Karaoke"
-                    roles={bkRoles}
-                    getEmployeeName={getEmployeeName}
-                    onRemove={handleRemoveRole}
-                    colorBg="bg-pink-50"
-                    colorBorder="border-pink-200"
-                    colorText="text-pink-800"
-                    badgeColor="bg-pink-600"
-                  />
-                )}
+                <RoleCategorySection
+                  title="Trivia"
+                  roles={triviaRoles}
+                  getEmployeeName={getEmployeeName}
+                  onRemove={handleRemoveRole}
+                  colorBg="bg-green-50"
+                  colorBorder="border-green-200"
+                  colorText="text-green-800"
+                  badgeColor="bg-green-600"
+                />
+                <RoleCategorySection
+                  title="Bingo/Karaoke"
+                  roles={bkRoles}
+                  getEmployeeName={getEmployeeName}
+                  onRemove={handleRemoveRole}
+                  colorBg="bg-pink-50"
+                  colorBorder="border-pink-200"
+                  colorText="text-pink-800"
+                  badgeColor="bg-pink-600"
+                />
               </div>
             </CardContent>
           </Card>
         );
       })}
 
-      {Object.keys(venueServices).length === 0 && (
+      {venues.length === 0 && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            No venues have pricing configured. Set up venue pricing first to manage roles.
+            No venues found. Add venues in the Venues tab first.
           </CardContent>
         </Card>
       )}

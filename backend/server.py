@@ -1389,6 +1389,34 @@ async def get_venue_services():
 
 
 # =============================================
+
+# =============================================
+# MANUAL REPORT TRIGGERS
+# =============================================
+
+@api_router.post("/reports/send-friday")
+async def trigger_friday_report(admin: dict = Depends(require_admin)):
+    """Manually trigger Friday primary host reports"""
+    try:
+        from notifications import send_primary_friday_reports
+        await send_primary_friday_reports()
+        return {"message": "Friday reports sent successfully"}
+    except Exception as e:
+        logger.error(f"Failed to send Friday reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/reports/send-monday")
+async def trigger_monday_report(admin: dict = Depends(require_admin)):
+    """Manually trigger Monday secondary availability reports"""
+    try:
+        from notifications import send_secondary_monday_availability
+        await send_secondary_monday_availability()
+        return {"message": "Monday reports sent successfully"}
+    except Exception as e:
+        logger.error(f"Failed to send Monday reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # HEALTH & MISC
 # =============================================
 
