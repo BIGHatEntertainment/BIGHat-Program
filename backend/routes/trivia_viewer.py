@@ -23,15 +23,10 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -
     """List all trivia presentations from BOTH trivia_presentations and presentations collections"""
     try:
         from datetime import datetime as dt
-        now = dt.utcnow().isoformat()
+        now = dt.utcnow()
         
-        # Base filter: exclude hidden and auto-hidden
-        base_filter = {
-            '$and': [
-                {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]},
-                {'$or': [{'autoHideAt': {'$exists': False}}, {'autoHideAt': {'$gt': now}}]}
-            ]
-        }
+        # Simple filter: just exclude hidden
+        base_filter = {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]}
         
         if not viewAll and userName:
             base_filter['createdBy'] = {'$regex': f'^{userName}$', '$options': 'i'}
@@ -52,24 +47,47 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -
             pid = p.get('id', '')
             if pid and pid not in seen_ids:
                 seen_ids.add(pid)
+                
+                # Check autoHideAt in Python (handles both datetime and string)
+                auto_hide = p.get('autoHideAt')
+                if auto_hide:
+                    if isinstance(auto_hide, str):
+                        try:
+                            auto_hide = dt.fromisoformat(auto_hide.replace('Z', '+00:00').replace('+00:00', ''))
+                        except:
+                            auto_hide = None
+                    if auto_hide and auto_hide < now:
+                        continue  # Skip auto-hidden presentations
+                
                 all_pres.append(p)
         
-        # Sort by createdAt descending
-        all_pres.sort(key=lambda x: x.get('createdAt', ''), reverse=True)
+        # Sort by createdAt descending (handle mixed types)
+        def sort_key(x):
+            ca = x.get('createdAt', '')
+            if isinstance(ca, dt):
+                return ca.isoformat()
+            return str(ca)
+        all_pres.sort(key=sort_key, reverse=True)
         
         logger.info(f"Found {len(all_pres)} trivia presentations ({len(trivia_pres)} trivia + {len(imported_pres)} imported)")
         
-        return [{
-            'id': p['id'],
-            'name': p.get('name', ''),
-            'createdBy': p.get('createdBy', ''),
-            'createdAt': p.get('createdAt', ''),
-            'totalSlides': p.get('totalSlides', 0),
-            'location': p.get('location', '').split('/')[-1] if '/' in p.get('location', '') else p.get('location', ''),
-            'roundTypes': p.get('roundTypes', []),
-            'roundNames': p.get('roundNames', []),
-            'numRounds': p.get('numRounds', 0),
-        } for p in all_pres]
+        result = []
+        for p in all_pres:
+            loc = p.get('location', '')
+            if '/' in loc:
+                loc = loc.split('/')[-1]
+            result.append({
+                'id': p.get('id', ''),
+                'name': p.get('name', ''),
+                'createdBy': p.get('createdBy', ''),
+                'createdAt': p.get('createdAt', '').isoformat() if isinstance(p.get('createdAt'), dt) else str(p.get('createdAt', '')),
+                'totalSlides': p.get('totalSlides', 0),
+                'location': loc,
+                'roundTypes': p.get('roundTypes', []),
+                'roundNames': p.get('roundNames', []),
+                'numRounds': p.get('numRounds', 0),
+            })
+        return result
     
     except Exception as e:
         logger.error(f"Error listing presentations: {str(e)}")
@@ -83,24 +101,31 @@ async def get_trivia_presentation(presentation_id: str) -> Dict:
     Used by the editor to fetch location for overlay functionality and score tracker configuration.
     """
     try:
+        from datetime import datetime as dt
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
+        if not presentation:
+            presentation = await db.presentations.find_one({'id': presentation_id})
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
-        # Return presentation with location info AND round configuration
+        created_at = presentation.get('createdAt', '')
+        if isinstance(created_at, dt):
+            created_at = created_at.isoformat()
+        
         return {
-            "id": presentation['id'],
-            "name": presentation['name'],
-            "createdBy": presentation['createdBy'],
-            "createdAt": presentation['createdAt'],
+            "id": presentation.get('id', ''),
+            "name": presentation.get('name', ''),
+            "createdBy": presentation.get('createdBy', ''),
+            "createdAt": str(created_at),
             "location": presentation.get('location', ''),
             "locationFile": presentation.get('locationFile', ''),
             "locationFolder": presentation.get('locationFolder', ''),
             "totalSlides": presentation.get('totalSlides', 0),
-            # Round configuration for Score Tracker
             "numRounds": presentation.get('numRounds'),
             "roundTypes": presentation.get('roundTypes', []),
             "roundNames": presentation.get('roundNames', []),
+            "roundFiles": presentation.get('roundFiles', []),
+            "hostFile": presentation.get('hostFile', ''),
             "host": presentation.get('host', '')
         }
     
