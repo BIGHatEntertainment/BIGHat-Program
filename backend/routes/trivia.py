@@ -479,30 +479,43 @@ async def get_round_files_by_type(round_type: str, location: Optional[str] = Non
             now_iso = datetime.utcnow().isoformat()
             cutoff_iso = (datetime.utcnow() - timedelta(days=180)).isoformat()
             
-            # Find rounds used at this location in the last 180 days
+            # Extract the location name from the path for flexible matching
+            # e.g. "01_Trivia/Web App/00_Builder/02_Locations/04_WP Gilbert" -> "WP Gilbert"
+            import re as re_mod
+            loc_name = location.split('/')[-1] if '/' in location else location
+            loc_name_clean = re_mod.sub(r'^\d+_', '', loc_name)  # Remove leading numbers like "04_"
+            
+            # Match any round_usage where the location contains this venue name
+            location_regex = f'({re_mod.escape(loc_name)}|{re_mod.escape(loc_name_clean)})'
+            
             used_records = await db.round_usage.find({
-                'location': {'$regex': location.replace('/', '\\/'), '$options': 'i'},
+                'location': {'$regex': location_regex, '$options': 'i'},
                 'usedDate': {'$gte': cutoff_iso}
             }).to_list(5000)
             
-            # Build set of used round names and paths
+            # Build set of used round names (normalized) and paths
             used_names = set()
             used_paths_set = set()
             for usage in used_records:
                 if usage.get('roundFileName'):
-                    used_names.add(usage['roundFileName'].lower())
+                    used_names.add(usage['roundFileName'].lower().strip())
                 if usage.get('roundFile'):
                     used_paths_set.add(usage['roundFile'])
+                # Also match by the display name from the round
+                name = usage.get('roundFileName', '')
+                if name:
+                    # Normalize: "BIG_Cactus League (Hard)" matches "BIG_Cactus League (Hard)"
+                    used_names.add(name.lower().strip())
             
             before_count = len(all_files)
             all_files = [f for f in all_files if 
-                f['name'].lower() not in used_names and 
-                f.get('displayName', '').lower() not in used_names and
+                f['name'].lower().strip() not in used_names and 
+                f.get('displayName', '').lower().strip() not in used_names and
                 f['path'] not in used_paths_set]
             
             filtered_count = before_count - len(all_files)
             if filtered_count > 0:
-                logger.info(f"Filtered out {filtered_count} used rounds for {location} (180-day lockout)")
+                logger.info(f"Filtered out {filtered_count} used rounds for '{loc_name_clean}' (180-day lockout, {len(used_names)} unique names blocked)")
         
         return sorted(all_files, key=lambda x: x['displayName'])
         
