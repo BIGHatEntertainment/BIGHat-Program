@@ -20,12 +20,12 @@ def set_database(database):
 
 @router.get("/list")
 async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -> List[Dict]:
-    """List all trivia presentations for a user (case-insensitive) or all users"""
+    """List all trivia presentations from BOTH trivia_presentations and presentations collections"""
     try:
         from datetime import datetime as dt
         now = dt.utcnow().isoformat()
         
-        # Base filter: exclude hidden presentations and auto-hidden (completed > 3 days ago)
+        # Base filter: exclude hidden and auto-hidden
         base_filter = {
             '$and': [
                 {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]},
@@ -33,22 +33,43 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -
             ]
         }
         
-        if viewAll:
-            presentations = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
-            logger.info(f"Found {len(presentations)} total trivia presentations (view all)")
-        else:
+        if not viewAll and userName:
             base_filter['createdBy'] = {'$regex': f'^{userName}$', '$options': 'i'}
-            presentations = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
-            logger.info(f"Found {len(presentations)} trivia presentations for {userName}")
+        
+        # Get from trivia_presentations
+        trivia_pres = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
+        
+        # Also get trivia-imported from presentations collection
+        pres_filter = {'type': 'trivia-imported'}
+        if not viewAll and userName:
+            pres_filter['createdBy'] = {'$regex': f'^{userName}$', '$options': 'i'}
+        imported_pres = await db.presentations.find(pres_filter).sort('createdAt', -1).to_list(100)
+        
+        # Merge, deduplicating by id
+        seen_ids = set()
+        all_pres = []
+        for p in trivia_pres + imported_pres:
+            pid = p.get('id', '')
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                all_pres.append(p)
+        
+        # Sort by createdAt descending
+        all_pres.sort(key=lambda x: x.get('createdAt', ''), reverse=True)
+        
+        logger.info(f"Found {len(all_pres)} trivia presentations ({len(trivia_pres)} trivia + {len(imported_pres)} imported)")
         
         return [{
             'id': p['id'],
-            'name': p['name'],
-            'createdBy': p['createdBy'],
-            'createdAt': p['createdAt'],
+            'name': p.get('name', ''),
+            'createdBy': p.get('createdBy', ''),
+            'createdAt': p.get('createdAt', ''),
             'totalSlides': p.get('totalSlides', 0),
-            'location': p.get('location', '').split('/')[-1]  # Just the location name
-        } for p in presentations]
+            'location': p.get('location', '').split('/')[-1] if '/' in p.get('location', '') else p.get('location', ''),
+            'roundTypes': p.get('roundTypes', []),
+            'roundNames': p.get('roundNames', []),
+            'numRounds': p.get('numRounds', 0),
+        } for p in all_pres]
     
     except Exception as e:
         logger.error(f"Error listing presentations: {str(e)}")

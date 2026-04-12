@@ -61,69 +61,74 @@ export default function StoryGeneratorPage() {
 
   const handleGenerate = async () => {
     if (!selectedPres) return;
-    try {
-      setGenerating(true);
-      setGenProgress({ step: 'Starting generation...', progress: 5 });
-      setGeneratedVideo(null);
-      
-      // Start the generation job
-      const startRes = await axios.post(`${API}/story-generator/generate/${selectedPres.id}`, {}, { timeout: 30000 });
-      const jobId = startRes.data.jobId;
-      
-      if (!jobId) {
+    setGenerating(true);
+    setGenProgress({ step: 'Starting generation...', progress: 5 });
+    setGeneratedVideo(null);
+    
+    let jobId = null;
+    
+    // Retry the initial POST up to 3 times
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const startRes = await axios.post(`${API}/story-generator/generate/${selectedPres.id}`, {}, { timeout: 30000 });
+        jobId = startRes.data.jobId;
+        if (jobId) break;
         if (startRes.data.filename) {
           setGeneratedVideo({ filename: startRes.data.filename, downloadUrl: `${API}/story-generator/download/${startRes.data.filename}` });
           setGenerating(false);
           return;
         }
-        throw new Error('No job ID returned');
-      }
-
-      setGenProgress({ step: 'Processing...', progress: 10 });
-
-      // Poll for job completion
-      const poll = async () => {
-        let attempts = 0;
-        const maxAttempts = 90; // 90 * 2s = 3 minutes max
-        while (attempts < maxAttempts) {
-          attempts++;
-          await new Promise(r => setTimeout(r, 2000));
-          try {
-            const statusRes = await axios.get(`${API}/story-generator/job-status/${jobId}`, { timeout: 10000 });
-            const status = statusRes.data;
-            
-            // Update progress bar
-            setGenProgress({ step: status.step || 'Processing...', progress: status.progress || 10 });
-            
-            if (status.status === 'completed') {
-              const filename = status.result?.filename || status.filename;
-              if (filename) {
-                setGeneratedVideo({ filename, downloadUrl: `${API}/story-generator/download/${filename}` });
-                toast({ title: 'Video Ready!', description: `Generated in ${status.result?.duration || '~20'}s` });
-              } else {
-                toast({ title: 'Error', description: 'Video completed but no file was produced', variant: 'destructive' });
-              }
-              setGenerating(false);
-              return;
-            } else if (status.status === 'failed') {
-              toast({ title: 'Error', description: status.error || 'Generation failed', variant: 'destructive' });
-              setGenerating(false);
-              return;
-            }
-          } catch (e) {
-            // Continue polling on transient network errors
-          }
+      } catch (err) {
+        if (attempt === 3) {
+          toast({ title: 'Error', description: err.response?.data?.detail || `Failed after ${attempt} attempts. Please try again.`, variant: 'destructive' });
+          setGenerating(false);
+          return;
         }
-        toast({ title: 'Timeout', description: 'Video generation timed out. Try again.', variant: 'destructive' });
-        setGenerating(false);
-      };
-      
-      poll();
-      
-    } catch (err) {
-      toast({ title: 'Error', description: err.response?.data?.detail || 'Failed to start generation', variant: 'destructive' });
-      setGenerating(false);
+        await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+      }
     }
+
+    if (!jobId) {
+      toast({ title: 'Error', description: 'Could not start video generation', variant: 'destructive' });
+      setGenerating(false);
+      return;
+    }
+
+    setGenProgress({ step: 'Processing...', progress: 10 });
+
+    // Poll for job completion
+    let attempts = 0;
+    const maxAttempts = 90;
+    while (attempts < maxAttempts) {
+      attempts++;
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const statusRes = await axios.get(`${API}/story-generator/job-status/${jobId}`, { timeout: 10000 });
+        const status = statusRes.data;
+        
+        setGenProgress({ step: status.step || 'Processing...', progress: status.progress || 10 });
+        
+        if (status.status === 'completed') {
+          const filename = status.result?.filename || status.filename;
+          if (filename) {
+            setGeneratedVideo({ filename, downloadUrl: `${API}/story-generator/download/${filename}` });
+            toast({ title: 'Video Ready!', description: `Generated in ${status.result?.duration || '~20'}s` });
+          } else {
+            toast({ title: 'Error', description: 'Video completed but no file was produced', variant: 'destructive' });
+          }
+          setGenerating(false);
+          return;
+        } else if (status.status === 'failed') {
+          toast({ title: 'Error', description: status.error || 'Generation failed', variant: 'destructive' });
+          setGenerating(false);
+          return;
+        }
+      } catch (e) {
+        // Continue polling on transient network errors
+      }
+    }
+    toast({ title: 'Timeout', description: 'Video generation timed out. Try again.', variant: 'destructive' });
+    setGenerating(false);
   };
 
   const cleanLocation = (loc) => {

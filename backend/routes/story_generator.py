@@ -61,7 +61,6 @@ def _cleanup_old_jobs():
         
         gc.collect()
 
-
 @router.get("/presentations")
 async def list_presentations_for_story(userName: Optional[str] = None) -> List[Dict]:
     """
@@ -167,7 +166,6 @@ async def list_presentations_for_story(userName: Optional[str] = None) -> List[D
         logger.error(f"Error listing presentations: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/presentation/{presentation_id}")
 async def get_presentation_details(presentation_id: str) -> Dict:
     """
@@ -175,6 +173,8 @@ async def get_presentation_details(presentation_id: str) -> Dict:
     """
     try:
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
+        if not presentation:
+            presentation = await db.presentations.find_one({'id': presentation_id})
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -242,7 +242,6 @@ async def get_presentation_details(presentation_id: str) -> Dict:
         logger.error(f"Error getting presentation: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/assets")
 async def get_available_assets(refresh: bool = False) -> Dict:
     """
@@ -264,7 +263,6 @@ async def get_available_assets(refresh: bool = False) -> Dict:
     except Exception as e:
         logger.error(f"Error getting assets: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/refresh-assets")
 async def refresh_assets_cache() -> Dict:
@@ -290,7 +288,6 @@ async def refresh_assets_cache() -> Dict:
         logger.error(f"Error refreshing assets: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/asset-urls/{presentation_id}")
 async def get_asset_urls_for_client(presentation_id: str) -> Dict:
     """
@@ -301,6 +298,8 @@ async def get_asset_urls_for_client(presentation_id: str) -> Dict:
     
     try:
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
+        if not presentation:
+            presentation = await db.presentations.find_one({'id': presentation_id})
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -405,14 +404,12 @@ async def get_asset_urls_for_client(presentation_id: str) -> Dict:
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-
 class BuildAssetRequest(BaseModel):
     """Request schema for getting assets from build data"""
     location: str
     locationFolder: str
     host: str
     numRounds: int
-
 
 @router.post("/build-asset-urls")
 async def get_build_asset_urls(request: BuildAssetRequest) -> Dict:
@@ -534,7 +531,6 @@ async def get_build_asset_urls(request: BuildAssetRequest) -> Dict:
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.post("/generate/{presentation_id}")
 async def generate_story_video(presentation_id: str, background_tasks: BackgroundTasks) -> Dict:
     """
@@ -550,8 +546,10 @@ async def generate_story_video(presentation_id: str, background_tasks: Backgroun
     import time
     
     try:
-        # Validate presentation exists first
+        # Validate presentation exists (check both collections)
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
+        if not presentation:
+            presentation = await db.presentations.find_one({'id': presentation_id})
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -606,7 +604,6 @@ async def generate_story_video(presentation_id: str, background_tasks: Backgroun
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to start video generation: {str(e)}")
-
 
 def process_video_generation(job_id: str, story_data: Dict, presentation_name: str):
     """
@@ -690,7 +687,6 @@ def process_video_generation(job_id: str, story_data: Dict, presentation_name: s
             error=str(e)
         )
 
-
 @router.get("/job-status/{job_id}")
 async def get_job_status(job_id: str) -> Dict:
     """
@@ -727,7 +723,6 @@ async def get_job_status(job_id: str) -> Dict:
     
     return response
 
-
 @router.delete("/job/{job_id}")
 async def cancel_job(job_id: str) -> Dict:
     """Cancel/clean up a job (removes from memory)."""
@@ -735,7 +730,6 @@ async def cancel_job(job_id: str) -> Dict:
         del video_jobs[job_id]
         return {'success': True, 'message': 'Job removed'}
     raise HTTPException(status_code=404, detail="Job not found")
-
 
 @router.get("/download/{filename}")
 async def download_video(filename: str):
@@ -760,7 +754,6 @@ async def download_video(filename: str):
     except Exception as e:
         logger.error(f"Error downloading video: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/upload-asset")
 async def upload_asset(
@@ -817,7 +810,6 @@ async def upload_asset(
         logger.error(f"Error uploading asset: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.delete("/asset/{asset_type}/{asset_id}")
 async def delete_asset(asset_type: str, asset_id: str) -> Dict:
     """
@@ -848,7 +840,6 @@ async def delete_asset(asset_type: str, asset_id: str) -> Dict:
         logger.error(f"Error deleting asset: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.post("/preview/{presentation_id}")
 async def generate_preview(presentation_id: str) -> Dict:
     """
@@ -858,6 +849,8 @@ async def generate_preview(presentation_id: str) -> Dict:
     try:
         # Get presentation data
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
+        if not presentation:
+            presentation = await db.presentations.find_one({'id': presentation_id})
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -966,11 +959,6 @@ async def generate_preview(presentation_id: str) -> Dict:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-
-
-
 class AssembleVideoRequest(BaseModel):
     locationName: str
     locationFolder: str
@@ -981,11 +969,9 @@ class AssembleVideoRequest(BaseModel):
     height: int = 1920
     numRounds: int = 5
 
-
 # Background job store for video assembly
 import threading
 _video_jobs = {}
-
 
 def _run_video_assembly(job_id: str, request_data: dict):
     """Background worker: fetches assets, renders frames, assembles with FFmpeg"""
@@ -1176,7 +1162,6 @@ def _run_video_assembly(job_id: str, request_data: dict):
         if temp_dir and os.path.exists(temp_dir):
             import shutil; shutil.rmtree(temp_dir, ignore_errors=True)
 
-
 @router.post("/assemble-video")
 async def assemble_video(request: AssembleVideoRequest):
     """Start video assembly as background job — returns immediately to avoid proxy timeout."""
@@ -1185,7 +1170,6 @@ async def assemble_video(request: AssembleVideoRequest):
     thread = threading.Thread(target=_run_video_assembly, args=(job_id, request.model_dump()), daemon=True)
     thread.start()
     return {"success": True, "job_id": job_id}
-
 
 @router.get("/assemble-video/status/{job_id}")
 async def get_assembly_status(job_id: str):
@@ -1201,14 +1185,12 @@ async def get_assembly_status(job_id: str):
         _video_jobs.pop(job_id, None)
     return resp
 
-
 # ========== LIGHTWEIGHT WEBM → MP4 CONVERSION ==========
 # Client records WebM on user's hardware, server just transcodes to MP4
 
 class WebmConvertRequest(BaseModel):
     video_data: str
     filename: Optional[str] = "story_video"
-
 
 @router.post("/convert-webm")
 async def convert_webm_to_mp4(request: WebmConvertRequest):
@@ -1270,8 +1252,6 @@ async def convert_webm_to_mp4(request: WebmConvertRequest):
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-
-
 # ========== TEMPORARY VIDEO FILE STORAGE FOR QR DOWNLOAD ==========
 # Stores MP4 files temporarily so mobile devices can download via QR code scan
 import time
@@ -1293,11 +1273,9 @@ def _cleanup_expired_videos():
         except Exception as e:
             logger.warning(f"[TempVideo] Cleanup error for {fid}: {e}")
 
-
 class StoreVideoRequest(BaseModel):
     video_data: str  # base64 data URL
     filename: Optional[str] = "story_video"
-
 
 @router.post("/store-temp")
 async def store_temp_video(request: StoreVideoRequest):
@@ -1343,7 +1321,6 @@ async def store_temp_video(request: StoreVideoRequest):
     except Exception as e:
         logger.error(f"[TempVideo] Store error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/qr-download/{file_id}")
 async def download_temp_video(file_id: str):
