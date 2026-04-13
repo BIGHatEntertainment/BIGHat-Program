@@ -19,25 +19,51 @@ def set_database(database):
 
 
 @router.get("/list")
-async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -> List[Dict]:
-    """List all trivia presentations from BOTH trivia_presentations and presentations collections"""
+async def list_trivia_presentations(userName: str = "", viewAll: bool = False, hostName: str = "") -> List[Dict]:
+    """List trivia presentations. 
+    - viewAll=true (admin only): shows ALL presentations
+    - hostName set: shows only presentations where the HOST matches (not the creator)
+    - userName fallback: matches host OR createdBy
+    """
     try:
         from datetime import datetime as dt
         now = dt.utcnow()
         
-        # Simple filter: just exclude hidden
+        # Base filter: exclude hidden
         base_filter = {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]}
         
-        if not viewAll and userName:
-            base_filter['createdBy'] = {'$regex': f'^{userName}$', '$options': 'i'}
+        # If NOT viewAll, filter by host assignment
+        if not viewAll:
+            name_to_match = hostName or userName
+            if name_to_match:
+                # Match by host field (the person presenting) OR createdBy (fallback)
+                base_filter = {
+                    '$and': [
+                        {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]},
+                        {'$or': [
+                            {'host': {'$regex': name_to_match, '$options': 'i'}},
+                            {'createdBy': {'$regex': f'^{name_to_match}$', '$options': 'i'}}
+                        ]}
+                    ]
+                }
         
         # Get from trivia_presentations
         trivia_pres = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
         
         # Also get trivia-imported from presentations collection
         pres_filter = {'type': 'trivia-imported'}
-        if not viewAll and userName:
-            pres_filter['createdBy'] = {'$regex': f'^{userName}$', '$options': 'i'}
+        if not viewAll:
+            name_to_match = hostName or userName
+            if name_to_match:
+                pres_filter = {
+                    '$and': [
+                        {'type': 'trivia-imported'},
+                        {'$or': [
+                            {'host': {'$regex': name_to_match, '$options': 'i'}},
+                            {'createdBy': {'$regex': f'^{name_to_match}$', '$options': 'i'}}
+                        ]}
+                    ]
+                }
         imported_pres = await db.presentations.find(pres_filter).sort('createdAt', -1).to_list(100)
         
         # Merge, deduplicating by id
@@ -80,6 +106,7 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False) -
                 'id': p.get('id', ''),
                 'name': p.get('name', ''),
                 'createdBy': p.get('createdBy', ''),
+                'host': p.get('host', ''),
                 'createdAt': p.get('createdAt', '').isoformat() if isinstance(p.get('createdAt'), dt) else str(p.get('createdAt', '')),
                 'totalSlides': p.get('totalSlides', 0),
                 'location': loc,

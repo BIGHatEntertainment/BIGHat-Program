@@ -26,18 +26,23 @@ export default function TriviaDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('presentations');
-  const [viewAll, setViewAll] = useState(true);
   const [locationFilter, setLocationFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedLocation, setExpandedLocation] = useState(null);
 
   const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
   const userName = user?.name?.split(' ')[0]?.toLowerCase() || '';
+  const fullName = user?.name || '';
+
+  // Non-admins can't view all — only see their own hosted presentations
+  const [viewAll, setViewAll] = useState(false);
 
   // Store userName for compatibility
   useEffect(() => {
     if (userName) localStorage.setItem('userName', userName);
-  }, [userName]);
+    // Admins default to viewAll
+    if (isAdmin) setViewAll(true);
+  }, [userName, isAdmin]);
 
   useEffect(() => {
     if (user) loadData();
@@ -47,7 +52,7 @@ export default function TriviaDashboard() {
     setLoading(true);
     try {
       const [presRes, statsRes] = await Promise.all([
-        axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll } }),
+        axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll: isAdmin ? viewAll : false, hostName: fullName } }),
         axios.get(`${API}/admin/stats`, { params: { userName } }),
       ]);
       setPresentations(presRes.data);
@@ -150,10 +155,12 @@ export default function TriviaDashboard() {
                   data-testid="trivia-search"
                 />
               </div>
+              {isAdmin && (
               <label className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs cursor-pointer" style={{ backgroundColor: 'rgba(20, 27, 80, 0.6)', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
                 <input type="checkbox" checked={viewAll} onChange={(e) => setViewAll(e.target.checked)} className="accent-yellow-400" />
                 <span style={{ color: '#8892b0' }}>View All</span>
               </label>
+              )}
             </div>
 
             {loading ? (
@@ -279,10 +286,15 @@ function PresentationCard({ pres, onDelete, onPresent, isAdmin }) {
           <MapPin size={12} />
           <span>{pres.location || 'Unknown'}</span>
         </div>
-        <div className="flex items-center gap-2 text-xs" style={{ color: '#8892b0' }}>
+        <div className="flex items-center gap-2 text-xs" style={{ color: '#fbdd68' }}>
           <User size={12} />
-          <span>{pres.host || pres.createdBy}</span>
+          <span>Host: {pres.host || pres.createdBy}</span>
         </div>
+        {isAdmin && pres.createdBy && pres.host && pres.createdBy !== pres.host && (
+          <div className="flex items-center gap-2 text-xs" style={{ color: '#8892b0' }}>
+            <span className="ml-4">Built by: {pres.createdBy}</span>
+          </div>
+        )}
         <div className="flex items-center gap-2 text-xs" style={{ color: '#8892b0' }}>
           <Calendar size={12} />
           <span>{createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
