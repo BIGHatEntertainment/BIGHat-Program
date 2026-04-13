@@ -20,50 +20,72 @@ def set_database(database):
 
 @router.get("/list")
 async def list_trivia_presentations(userName: str = "", viewAll: bool = False, hostName: str = "") -> List[Dict]:
-    """List trivia presentations. 
-    - viewAll=true (admin only): shows ALL presentations
-    - hostName set: shows only presentations where the HOST matches (not the creator)
-    - userName fallback: matches host OR createdBy
+    """List trivia presentations filtered by host assignment.
+    Hidden presentations are ALWAYS excluded (even for admins with viewAll).
     """
     try:
         from datetime import datetime as dt
         now = dt.utcnow()
         
-        # Base filter: exclude hidden
-        base_filter = {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]}
+        # ALWAYS exclude hidden - deleted means deleted
+        hidden_filter = {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]}
         
-        # If NOT viewAll, filter by host assignment
-        if not viewAll:
-            name_to_match = hostName or userName
-            if name_to_match:
-                # Match by host field (the person presenting) OR createdBy (fallback)
-                base_filter = {
-                    '$and': [
-                        {'$or': [{'hidden': {'$ne': True}}, {'hidden': {'$exists': False}}]},
-                        {'$or': [
-                            {'host': {'$regex': name_to_match, '$options': 'i'}},
-                            {'createdBy': {'$regex': f'^{name_to_match}$', '$options': 'i'}}
-                        ]}
-                    ]
-                }
+        # Build the name match - try multiple variants of the user's name
+        name_to_match = hostName or userName
+        name_variants = []
+        if name_to_match:
+            # Full name: "Nicholas Sellards"
+            name_variants.append(name_to_match)
+            # First name: "Nicholas"
+            parts = name_to_match.split()
+            if parts:
+                name_variants.append(parts[0])
+            # Look up employee record by email for the short name (e.g., "Nick S.")
+            try:
+                # First try to find by the hub user's email
+                hub_user = await db.users.find_one(
+                    {'name': {'$regex': f'^{name_to_match}', '$options': 'i'}},
+                    {'_id': 0, 'email': 1}
+                )
+                if hub_user and hub_user.get('email'):
+                    emp = await db.employees.find_one(
+                        {'email': {'$regex': f'^{hub_user["email"]}$', '$options': 'i'}},
+                        {'_id': 0, 'name': 1}
+                    )
+                    if emp and emp.get('name') and emp['name'] not in name_variants:
+                        name_variants.append(emp['name'])
+                        # Also add first part of employee name
+                        emp_first = emp['name'].split()[0]
+                        if emp_first not in name_variants:
+                            name_variants.append(emp_first)
+            except:
+                pass
+            # Also match userName (short lowercase)
+            if userName and userName not in name_variants:
+                name_variants.append(userName)
         
-        # Get from trivia_presentations
+        logger.info(f"Trivia list: viewAll={viewAll} hostName='{hostName}' variants={name_variants}")
+        
+        if viewAll:
+            # Admin viewAll: show all non-hidden presentations
+            base_filter = hidden_filter
+            pres_filter = {'$and': [{'type': 'trivia-imported'}, hidden_filter]}
+        else:
+            if name_variants:
+                # Build OR conditions for all name variants
+                host_conditions = []
+                for nv in name_variants:
+                    host_conditions.append({'host': {'$regex': nv, '$options': 'i'}})
+                    host_conditions.append({'createdBy': {'$regex': nv, '$options': 'i'}})
+                
+                base_filter = {'$and': [hidden_filter, {'$or': host_conditions}]}
+                pres_filter = {'$and': [{'type': 'trivia-imported'}, hidden_filter, {'$or': host_conditions}]}
+            else:
+                base_filter = {'$and': [hidden_filter, {'host': {'$exists': False}}]}  # Match nothing
+                pres_filter = {'$and': [{'type': 'trivia-imported'}, hidden_filter, {'host': {'$exists': False}}]}
+        
+        # Get from both collections
         trivia_pres = await db.trivia_presentations.find(base_filter).sort('createdAt', -1).to_list(100)
-        
-        # Also get trivia-imported from presentations collection
-        pres_filter = {'type': 'trivia-imported'}
-        if not viewAll:
-            name_to_match = hostName or userName
-            if name_to_match:
-                pres_filter = {
-                    '$and': [
-                        {'type': 'trivia-imported'},
-                        {'$or': [
-                            {'host': {'$regex': name_to_match, '$options': 'i'}},
-                            {'createdBy': {'$regex': f'^{name_to_match}$', '$options': 'i'}}
-                        ]}
-                    ]
-                }
         imported_pres = await db.presentations.find(pres_filter).sort('createdAt', -1).to_list(100)
         
         # Merge, deduplicating by id
@@ -290,13 +312,18 @@ async def delete_trivia_presentation(presentation_id: str) -> Dict:
 async def hide_trivia_presentation(presentation_id: str) -> Dict:
     """Hide a presentation from the trivia lobby. Does NOT delete round usage data."""
     try:
-        result = await db.trivia_presentations.update_one(
+        # Hide in BOTH collections
+        r1 = await db.trivia_presentations.update_one(
             {'id': presentation_id},
             {'$set': {'hidden': True}}
         )
-        if result.matched_count == 0:
+        r2 = await db.presentations.update_one(
+            {'id': presentation_id},
+            {'$set': {'hidden': True}}
+        )
+        if r1.matched_count == 0 and r2.matched_count == 0:
             raise HTTPException(status_code=404, detail="Presentation not found")
-        return {"message": "Presentation hidden from lobby", "id": presentation_id}
+        return {"message": "Presentation removed from lobby", "id": presentation_id}
     except HTTPException:
         raise
     except Exception as e:
