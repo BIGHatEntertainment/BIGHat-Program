@@ -476,36 +476,34 @@ async def get_round_files_by_type(round_type: str, location: Optional[str] = Non
         # Filter out recently used files for this location (180-day lockout)
         if location and db is not None:
             from datetime import timedelta
-            now_iso = datetime.utcnow().isoformat()
-            cutoff_iso = (datetime.utcnow() - timedelta(days=180)).isoformat()
+            now = datetime.utcnow()
+            cutoff_dt = now - timedelta(days=180)
+            cutoff_iso = cutoff_dt.isoformat()
             
-            # Extract the location name from the path for flexible matching
-            # e.g. "01_Trivia/Web App/00_Builder/02_Locations/04_WP Gilbert" -> "WP Gilbert"
             import re as re_mod
             loc_name = location.split('/')[-1] if '/' in location else location
-            loc_name_clean = re_mod.sub(r'^\d+_', '', loc_name)  # Remove leading numbers like "04_"
-            
-            # Match any round_usage where the location contains this venue name
+            loc_name_clean = re_mod.sub(r'^\d+_', '', loc_name)
             location_regex = f'({re_mod.escape(loc_name)}|{re_mod.escape(loc_name_clean)})'
             
+            # Query with both datetime and string comparison for usedDate
             used_records = await db.round_usage.find({
                 'location': {'$regex': location_regex, '$options': 'i'},
-                'usedDate': {'$gte': cutoff_iso}
+                '$or': [
+                    {'usedDate': {'$gte': cutoff_dt}},      # datetime objects
+                    {'usedDate': {'$gte': cutoff_iso}},      # ISO strings
+                ]
             }).to_list(5000)
             
-            # Build set of used round names (normalized) and paths
+            # Build set of used round names and paths
             used_names = set()
             used_paths_set = set()
             for usage in used_records:
-                if usage.get('roundFileName'):
-                    used_names.add(usage['roundFileName'].lower().strip())
-                if usage.get('roundFile'):
-                    used_paths_set.add(usage['roundFile'])
-                # Also match by the display name from the round
-                name = usage.get('roundFileName', '')
-                if name:
-                    # Normalize: "BIG_Cactus League (Hard)" matches "BIG_Cactus League (Hard)"
-                    used_names.add(name.lower().strip())
+                rn = usage.get('roundFileName', '')
+                if rn:
+                    used_names.add(rn.lower().strip())
+                rf = usage.get('roundFile', '')
+                if rf:
+                    used_paths_set.add(rf)
             
             before_count = len(all_files)
             all_files = [f for f in all_files if 
