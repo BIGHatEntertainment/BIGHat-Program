@@ -22,6 +22,8 @@ export default function StoryGeneratorPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const userName = user?.name?.split(' ')[0]?.toLowerCase() || '';
+  const fullName = user?.name || '';
+  const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
 
   const [presentations, setPresentations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,13 +33,20 @@ export default function StoryGeneratorPage() {
   const [generatedVideo, setGeneratedVideo] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [genProgress, setGenProgress] = useState({ step: '', progress: 0 });
+  const [viewAll, setViewAll] = useState(false);
 
-  useEffect(() => { loadPresentations(); }, []);
+  useEffect(() => {
+    if (isAdmin) setViewAll(true);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (user) loadPresentations();
+  }, [user, viewAll]);
 
   const loadPresentations = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll: true } });
+      const res = await axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll: isAdmin ? viewAll : false, hostName: fullName } });
       setPresentations(res.data);
     } catch { } finally { setLoading(false); }
   };
@@ -162,9 +171,17 @@ export default function StoryGeneratorPage() {
                 </div>
               </div>
             </div>
-            <button onClick={loadPresentations} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }}>
-              <RefreshCw size={14} /> Refresh
-            </button>
+            <div className="flex items-center gap-3">
+              {isAdmin && (
+                <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#8892b0' }}>
+                  <input type="checkbox" checked={viewAll} onChange={(e) => setViewAll(e.target.checked)} className="accent-yellow-400" />
+                  View All
+                </label>
+              )}
+              <button onClick={loadPresentations} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }}>
+                <RefreshCw size={14} /> Refresh
+              </button>
+            </div>
           </div>
         </header>
 
@@ -228,8 +245,11 @@ export default function StoryGeneratorPage() {
                     {/* Card Bottom - Details */}
                     <div className="p-4" style={{ backgroundColor: '#141b50' }}>
                       <h4 className="text-sm font-bold text-white mb-1 truncate">{pres.name}</h4>
-                      <div className="flex items-center gap-1.5 text-xs mb-3" style={{ color: '#8892b0' }}>
+                      <div className="flex items-center gap-1.5 text-xs mb-1" style={{ color: '#8892b0' }}>
                         <MapPin size={11} /> {location}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs mb-3" style={{ color: '#fbdd68' }}>
+                        <User size={11} /> Host: {pres.host || pres.createdBy || 'Unknown'}
                       </div>
                       {/* Round dots */}
                       <div className="flex items-center gap-1.5 mb-3">
