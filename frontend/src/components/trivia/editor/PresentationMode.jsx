@@ -1499,23 +1499,24 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         </Button>
       </div>
 
-      {/* End Presentation button — fixed at very bottom, outside all overlays, only on final scores slide */}
-      {currentSlide?.metadata?.roundType === 'WINNERS' && currentSlide?.metadata?.slideIndexInRound === 4 && (
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50">
+      {/* End Presentation / Save & Exit button — PROMINENT, shown on final scores/winners slides */}
+      {currentSlide?.metadata?.roundType === 'WINNERS' && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[200]">
           <Button
             onClick={handleEndPresentation}
             disabled={isSavingScores || scoresSaved}
             size="lg"
-            className={`font-bold px-10 py-5 text-lg shadow-2xl ${scoresSaved 
+            className={`font-black px-14 py-7 text-xl shadow-2xl rounded-2xl transition-all ${scoresSaved 
               ? 'bg-emerald-600 hover:bg-emerald-600 text-white' 
-              : 'bg-red-600 hover:bg-red-700 text-white'}`}
+              : 'bg-gradient-to-r from-yellow-500 to-yellow-400 hover:from-yellow-400 hover:to-yellow-300 text-black animate-pulse'}`}
+            style={!scoresSaved ? { boxShadow: '0 0 30px rgba(251, 221, 104, 0.6), 0 0 60px rgba(251, 221, 104, 0.3)' } : {}}
           >
             {isSavingScores ? (
-              <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Saving Scores...</>
+              <><Loader2 className="w-6 h-6 mr-3 animate-spin" /> Saving Scores...</>
             ) : scoresSaved ? (
-              <><CheckCircle className="w-5 h-5 mr-2" /> Scores Saved!</>
+              <><CheckCircle className="w-6 h-6 mr-3" /> Saved! Click to Exit</>
             ) : (
-              <><Flag className="w-5 h-5 mr-2" /> End Presentation</>
+              <><Flag className="w-6 h-6 mr-3" /> SAVE & EXIT</>
             )}
           </Button>
         </div>

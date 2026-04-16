@@ -421,6 +421,8 @@ function TriviaAdminPanel({ userName, onRefresh }) {
   const [adminStats, setAdminStats] = useState(null);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminFilter, setAdminFilter] = useState('');
+  const [scoreFiles, setScoreFiles] = useState([]);
+  const [adminSubTab, setAdminSubTab] = useState('rounds');
 
   useEffect(() => {
     loadAdminData();
@@ -429,12 +431,14 @@ function TriviaAdminPanel({ userName, onRefresh }) {
   const loadAdminData = async () => {
     setAdminLoading(true);
     try {
-      const [usageRes, statsRes] = await Promise.all([
+      const [usageRes, statsRes, scoresRes] = await Promise.all([
         axios.get(`${API}/admin/round-usage`, { params: { userName } }),
         axios.get(`${API}/admin/stats`, { params: { userName } }),
+        axios.get(`${API}/scores/files`).catch(() => ({ data: [] })),
       ]);
       setAdminUsage(usageRes.data);
       setAdminStats(statsRes.data);
+      setScoreFiles(scoresRes.data || []);
     } catch (err) {
       console.error('Admin data load failed:', err);
     } finally {
@@ -495,6 +499,16 @@ function TriviaAdminPanel({ userName, onRefresh }) {
     );
   }
 
+  const handleDeleteScoreFile = async (fileId, fileName) => {
+    if (!window.confirm(`Delete score file "${fileName}"?`)) return;
+    try {
+      await axios.delete(`${API}/scores/files/${fileId}`);
+      loadAdminData();
+    } catch (e) {
+      console.error('Delete failed:', e);
+    }
+  };
+
   return (
     <div data-testid="trivia-admin-panel">
       {/* Admin Stats */}
@@ -503,10 +517,22 @@ function TriviaAdminPanel({ userName, onRefresh }) {
           <AdminStatCard label="Total Records" value={adminStats.totalUsageRecords} color="#fbdd68" />
           <AdminStatCard label="Active" value={adminStats.activeRecords} color="#22c55e" />
           <AdminStatCard label="Expired" value={adminStats.expiredRecords} color="#ef4444" />
-          <AdminStatCard label="Presentations" value={adminStats.totalPresentations} color="#5973F7" />
+          <AdminStatCard label="Score Files" value={scoreFiles.reduce((sum, f) => sum + f.fileCount, 0)} color="#5973F7" />
         </div>
       )}
 
+      {/* Sub-tabs */}
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setAdminSubTab('rounds')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: adminSubTab === 'rounds' ? 'rgba(251, 221, 104, 0.15)' : 'rgba(20, 27, 80, 0.4)', color: adminSubTab === 'rounds' ? '#fbdd68' : '#8892b0', border: `1px solid ${adminSubTab === 'rounds' ? 'rgba(251, 221, 104, 0.3)' : 'rgba(251, 221, 104, 0.08)'}` }}>
+          Round Usage
+        </button>
+        <button onClick={() => setAdminSubTab('scores')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: adminSubTab === 'scores' ? 'rgba(251, 221, 104, 0.15)' : 'rgba(20, 27, 80, 0.4)', color: adminSubTab === 'scores' ? '#fbdd68' : '#8892b0', border: `1px solid ${adminSubTab === 'scores' ? 'rgba(251, 221, 104, 0.3)' : 'rgba(251, 221, 104, 0.08)'}` }}>
+          Score Files ({scoreFiles.reduce((sum, f) => sum + f.fileCount, 0)})
+        </button>
+      </div>
+
+      {adminSubTab === 'rounds' && (
+      <>
       {/* Action Buttons */}
       <div className="flex gap-3 mb-6">
         <button onClick={handleCleanupExpired} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
@@ -556,6 +582,44 @@ function TriviaAdminPanel({ userName, onRefresh }) {
           </div>
         ))}
       </div>
+      </>
+      )}
+
+      {/* Score Files Tab */}
+      {adminSubTab === 'scores' && (
+        <div className="space-y-4">
+          {scoreFiles.length === 0 ? (
+            <div className="rounded-xl p-8 text-center" style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.08)' }}>
+              <p style={{ color: '#8892b0' }}>No score files found on SharePoint</p>
+            </div>
+          ) : (
+            scoreFiles.map(loc => (
+              <div key={loc.location} className="glass-card rounded-xl overflow-hidden">
+                <div className="px-5 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(251, 221, 104, 0.1)' }}>
+                  <div className="flex items-center gap-2">
+                    <MapPin size={16} style={{ color: '#fbdd68' }} />
+                    <h4 className="text-sm font-semibold text-white">{loc.location}</h4>
+                    <span className="text-xs" style={{ color: '#8892b0' }}>{loc.fileCount} files</span>
+                  </div>
+                </div>
+                <div className="px-5 py-2 space-y-1">
+                  {loc.files.map(f => (
+                    <div key={f.id} className="flex items-center justify-between py-1.5 text-xs" style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                      <span className="text-white">{f.name}</span>
+                      <div className="flex items-center gap-3">
+                        <span style={{ color: '#8892b0' }}>{f.modified ? new Date(f.modified).toLocaleDateString() : ''}</span>
+                        <button onClick={() => handleDeleteScoreFile(f.id, f.name)} className="p-1 rounded hover:bg-red-500/20">
+                          <Trash2 size={12} style={{ color: '#ef4444' }} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
