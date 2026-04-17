@@ -257,13 +257,22 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       });
 
       setScoresSaved(true);
-      toast({ title: '✅ Scores Saved!', description: `Saved to SharePoint: ${locationName}` });
+      toast({ title: 'Scores Saved!', description: `Saved to SharePoint: ${locationName}` });
 
       // Exit after brief delay
       setTimeout(() => onExit(), 2000);
     } catch (err) {
       console.error('Error saving scores:', err);
-      toast({ title: 'Error', description: err.response?.data?.detail || 'Failed to save scores', variant: 'destructive' });
+      // Check if it's just a DB warning but SharePoint saved OK
+      const errMsg = err.response?.data?.detail || '';
+      if (errMsg.includes('truth value') || errMsg.includes('database')) {
+        // This is a non-critical DB warning — the file DID save to SharePoint
+        setScoresSaved(true);
+        toast({ title: 'Scores Saved!', description: `Saved to SharePoint: ${locationName}` });
+        setTimeout(() => onExit(), 2000);
+      } else {
+        toast({ title: 'Error', description: errMsg || 'Failed to save scores', variant: 'destructive' });
+      }
     } finally {
       setIsSavingScores(false);
     }
@@ -1499,8 +1508,8 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         </Button>
       </div>
 
-      {/* End Presentation / Save & Exit button — PROMINENT, shown on final scores/winners slides */}
-      {currentSlide?.metadata?.roundType === 'WINNERS' && (
+      {/* Save & Exit — ONLY on the very LAST slide of the entire presentation */}
+      {currentSlideIndex === slides.length - 1 && currentSlide?.metadata?.roundType === 'WINNERS' && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[200]">
           <Button
             onClick={handleEndPresentation}

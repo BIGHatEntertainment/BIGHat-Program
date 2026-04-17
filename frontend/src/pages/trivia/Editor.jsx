@@ -698,7 +698,7 @@ const Editor = () => {
       for (const index of scoreSlideIndices) {
         const slide = presentation.slides[index];
         const hasScoreContent = slide.elements?.some(el => 
-          el.type === 'text' && el.id?.startsWith('score-') || el.id?.startsWith('rank-')
+          el.type === 'text' && (el.id?.startsWith('score-') || el.id?.startsWith('rank-'))
         );
         
         if (!hasScoreContent) {
@@ -951,8 +951,15 @@ const Editor = () => {
         slides: updatedSlides
       });
 
-      // Navigate to the updated score slide so host can see it
-      setCurrentSlideIndex(scoreSlideIndex);
+      // Force navigate to the score slide and re-render
+      setCurrentSlideIndex(prev => {
+        // If already on the score slide, toggle away and back to force re-render
+        if (prev === scoreSlideIndex) {
+          setTimeout(() => setCurrentSlideIndex(scoreSlideIndex), 50);
+          return Math.max(0, scoreSlideIndex - 1);
+        }
+        return scoreSlideIndex;
+      });
 
       // Get round info for better feedback
       const roundNumber = scoreSlideIndices.indexOf(scoreSlideIndex) + 1;

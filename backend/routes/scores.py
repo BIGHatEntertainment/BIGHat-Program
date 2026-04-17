@@ -155,7 +155,7 @@ async def save_scores(request: SaveScoresRequest):
             await db.trivia_scores.insert_one(scores_data)
 
         # Mark presentation as completed for auto-hide
-        if request.presentationId and db:
+        if request.presentationId and db is not None:
             from datetime import timedelta
             auto_hide = datetime.now(timezone.utc) + timedelta(days=3)
             await db.trivia_presentations.update_one(
