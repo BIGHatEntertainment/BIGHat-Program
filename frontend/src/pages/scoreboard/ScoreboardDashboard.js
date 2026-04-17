@@ -401,38 +401,38 @@ const Dashboard = () => {
 
   // Card and section styling for dark theme
   const cardClass = "bg-[#111118]/80 backdrop-blur-sm border-[rgba(225,48,108,0.15)] hover:border-[rgba(225,48,108,0.3)] transition-colors";
-  const labelClass = "font-mono text-xs ig-gradient-text uppercase tracking-[0.15em] flex items-center gap-2";
+  const labelClass = "font-mono text-xs bg-gradient-to-r from-yellow-500 to-yellow-600-text uppercase tracking-[0.15em] flex items-center gap-2";
 
   return (
-    <div className="min-h-screen cyber-grid" style={{ background: '#0A0A12' }}>
+    <div className="min-h-screen cyber-grid" style={{ background: '#000e2a' }}>
       {/* Ambient glow blobs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-80 h-80 bg-gradient-to-br from-yellow-500/10 via-pink-500/10 to-purple-500/10 rounded-full blur-[100px] animate-pulse" />
-        <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-gradient-to-br from-orange-500/10 via-red-500/10 to-purple-500/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }} />
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-gradient-to-br from-yellow-500/10 via-yellow-500/10 to-yellow-600/10 rounded-full blur-[100px] animate-pulse" />
+        <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-gradient-to-br from-orange-500/10 via-red-500/10 to-yellow-600/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
       {/* Header */}
-      <header className="border-b border-pink-500/20 bg-[#0A0A12]/80 backdrop-blur-xl sticky top-0 z-50">
+      <header className="border-b border-yellow-500/20 bg-[#000e2a]/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button onClick={() => { window.location.href = '/'; }} className="p-2 rounded-lg hover:bg-white/5" data-testid="back-to-dashboard">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbdd68" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </button>
-            <div className="h-10 w-10 rounded-xl ig-gradient flex items-center justify-center neon-glow pulse-ring">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-r from-yellow-500 to-yellow-600 flex items-center justify-center shadow-yellow-500/20 pulse-ring">
               <Zap className="h-5 w-5 text-white" />
             </div>
             <div>
               <h1 className="font-cyber text-lg tracking-widest text-white glow-text">
                 BIG HAT GRAPHICS
               </h1>
-              <p className="text-[10px] text-pink-400/60 font-mono tracking-wider">
+              <p className="text-[10px] text-yellow-400/60 font-mono tracking-wider">
                 // TRIVIA_SCOREBOARD_v2.0
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             {lastSync && (
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(225,48,108,0.1)] border border-pink-500/20">
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(225,48,108,0.1)] border border-yellow-500/20">
                 <div className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
                 <span className="text-[10px] text-green-400 font-mono">SYNCED {lastSync}</span>
               </div>
@@ -454,8 +454,8 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <Tabs value={mode} onValueChange={setMode} data-testid="mode-tabs">
-                <TabsList className="w-full bg-[#1a1a24]">
-                  <TabsTrigger value="leaderboard" className="flex-1 data-[state=active]:bg-gradient-to-r data-[state=active]:from-pink-500/20 data-[state=active]:to-purple-500/20 data-[state=active]:text-pink-300" data-testid="mode-leaderboard">
+                <TabsList className="w-full bg-[#0a1940]">
+                  <TabsTrigger value="leaderboard" className="flex-1 data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500/20 data-[state=active]:to-yellow-600/20 data-[state=active]:text-yellow-300" data-testid="mode-leaderboard">
                     Leaderboard
                   </TabsTrigger>
                   <TabsTrigger value="tournament" className="flex-1 data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500/20 data-[state=active]:to-orange-500/20 data-[state=active]:text-yellow-300" data-testid="mode-tournament">
@@ -480,7 +480,7 @@ const Dashboard = () => {
                   disabled={syncing}
                   variant="outline"
                   size="sm"
-                  className="flex-1 border-pink-500/20 hover:border-pink-500/50 hover:bg-pink-500/10 text-pink-300 transition-colors"
+                  className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300 transition-colors"
                   data-testid="sharepoint-sync-button"
                 >
                   <FolderSync className="w-4 h-4 mr-1" />
@@ -499,7 +499,7 @@ const Dashboard = () => {
               </div>
               
               {syncing && (
-                <div className="flex items-center gap-2 text-xs text-pink-400/60">
+                <div className="flex items-center gap-2 text-xs text-yellow-400/60">
                   <RefreshCw className="w-3 h-3 animate-spin" />
                   <span className="font-mono">Fetching from SharePoint...</span>
                 </div>
@@ -508,7 +508,7 @@ const Dashboard = () => {
               {scoreFiles.length > 0 && (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-pink-400/50" data-testid="file-count">
+                    <span className="text-xs font-mono text-yellow-400/50" data-testid="file-count">
                       {scoreFiles.length} files available
                     </span>
                   </div>
@@ -518,10 +518,10 @@ const Dashboard = () => {
                       setSelectedFile(file);
                     }}
                   >
-                    <SelectTrigger className="bg-[#1a1a24] border-pink-500/20 hover:border-pink-500/40 text-white" data-testid="sharepoint-file-picker">
+                    <SelectTrigger className="bg-[#0a1940] border-yellow-500/20 hover:border-yellow-500/40 text-white" data-testid="sharepoint-file-picker">
                       <SelectValue placeholder="Select a score file" />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#15151f] border-pink-500/20">
+                    <SelectContent className="bg-[#15151f] border-yellow-500/20">
                       {scoreFiles.map((f) => (
                         <SelectItem key={f.file_name} value={f.file_name} data-testid={`file-option-${f.file_name}`}>
                           {f.data?.presentationName || f.file_name}
@@ -533,10 +533,10 @@ const Dashboard = () => {
               )}
 
               {selectedFile && (
-                <div className="text-xs space-y-1 p-3 rounded-lg holographic border border-pink-500/10">
-                  <p className="text-pink-300"><strong>Venue:</strong> <span className="text-white/70">{selectedFile.data?.location || selectedFile.venue}</span></p>
-                  <p className="text-pink-300"><strong>Date:</strong> <span className="text-white/70">{selectedFile.data?.date}</span></p>
-                  <p className="text-pink-300"><strong>Teams:</strong> <span className="text-white/70">{selectedFile.data?.teams?.length}</span></p>
+                <div className="text-xs space-y-1 p-3 rounded-lg holographic border border-yellow-500/10">
+                  <p className="text-yellow-300"><strong>Venue:</strong> <span className="text-white/70">{selectedFile.data?.location || selectedFile.venue}</span></p>
+                  <p className="text-yellow-300"><strong>Date:</strong> <span className="text-white/70">{selectedFile.data?.date}</span></p>
+                  <p className="text-yellow-300"><strong>Teams:</strong> <span className="text-white/70">{selectedFile.data?.teams?.length}</span></p>
                 </div>
               )}
             </CardContent>
@@ -552,12 +552,12 @@ const Dashboard = () => {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div>
-                  <label className="text-[10px] font-mono text-pink-400/50 mb-1 block">SELECT VENUE TO ACCUMULATE SCORES</label>
+                  <label className="text-[10px] font-mono text-yellow-400/50 mb-1 block">SELECT VENUE TO ACCUMULATE SCORES</label>
                   <Select value={selectedVenue} onValueChange={setSelectedVenue}>
-                    <SelectTrigger className="bg-[#1a1a24] border-pink-500/20 hover:border-pink-500/40 text-white" data-testid="venue-selector">
+                    <SelectTrigger className="bg-[#0a1940] border-yellow-500/20 hover:border-yellow-500/40 text-white" data-testid="venue-selector">
                       <SelectValue placeholder="Choose a venue..." />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#15151f] border-pink-500/20">
+                    <SelectContent className="bg-[#15151f] border-yellow-500/20">
                       {Object.entries(venues).map(([venue, files]) => (
                         <SelectItem key={venue} value={venue}>
                           {venue} ({files.length} week{files.length > 1 ? 's' : ''})
@@ -568,8 +568,8 @@ const Dashboard = () => {
                 </div>
 
                 {selectedVenue && venues[selectedVenue] && (
-                  <div className="text-[10px] font-mono text-pink-400/40 p-2 rounded-lg" style={{ background: 'rgba(225,48,108,0.05)' }}>
-                    <p className="text-pink-300 mb-1 font-semibold">Weeks included:</p>
+                  <div className="text-[10px] font-mono text-yellow-400/40 p-2 rounded-lg" style={{ background: 'rgba(225,48,108,0.05)' }}>
+                    <p className="text-yellow-300 mb-1 font-semibold">Weeks included:</p>
                     {venues[selectedVenue].map((f, i) => (
                       <p key={i}>{f.data?.date || f.file_name}</p>
                     ))}
@@ -588,10 +588,10 @@ const Dashboard = () => {
                       <p className="text-[10px] font-mono text-purple-400/60">Merge teams that changed names between weeks:</p>
                       <div className="flex gap-2">
                         <Input value={renameFrom} onChange={(e) => setRenameFrom(e.target.value)} placeholder="Old name..." 
-                          className="bg-[#1a1a24] border-purple-500/20 text-white text-xs flex-1" />
+                          className="bg-[#0a1940] border-purple-500/20 text-white text-xs flex-1" />
                         <span className="text-purple-400/40 text-xs self-center">&rarr;</span>
                         <Input value={renameTo} onChange={(e) => setRenameTo(e.target.value)} placeholder="New name..."
-                          className="bg-[#1a1a24] border-purple-500/20 text-white text-xs flex-1" />
+                          className="bg-[#0a1940] border-purple-500/20 text-white text-xs flex-1" />
                       </div>
                       <Button size="sm" className="w-full btn-futuristic text-xs" onClick={handleAddRename} disabled={!renameFrom.trim() || !renameTo.trim()}>
                         Merge
@@ -615,7 +615,7 @@ const Dashboard = () => {
                 {/* Accumulated Standings */}
                 {accumulatedTeams.length > 0 && (
                   <>
-                    <Separator className="bg-pink-500/10" />
+                    <Separator className="bg-yellow-500/10" />
                     <p className={labelClass}>Accumulated Standings ({accumulatedTeams.length} teams)</p>
                     <ScrollArea className="max-h-52">
                       <div className="space-y-1">
@@ -653,37 +653,37 @@ const Dashboard = () => {
                   value={tournamentName}
                   onChange={(e) => setTournamentName(e.target.value)}
                   placeholder="Tournament Name"
-                  className="bg-[#1a1a24] border-pink-500/20 text-white font-cyber tracking-wider"
+                  className="bg-[#0a1940] border-yellow-500/20 text-white font-cyber tracking-wider"
                   data-testid="tournament-name-input"
                 />
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="text-[10px] font-mono text-pink-400/50 mb-1 block">YEAR</label>
+                    <label className="text-[10px] font-mono text-yellow-400/50 mb-1 block">YEAR</label>
                     <Input
                       value={tournamentYear}
                       onChange={(e) => setTournamentYear(e.target.value)}
                       placeholder="2026"
-                      className="bg-[#1a1a24] border-yellow-500/20 text-yellow-300 font-cyber tracking-wider text-center"
+                      className="bg-[#0a1940] border-yellow-500/20 text-yellow-300 font-cyber tracking-wider text-center"
                       data-testid="tournament-year-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-mono text-pink-400/50 mb-1 block">TEAMS</label>
+                    <label className="text-[10px] font-mono text-yellow-400/50 mb-1 block">TEAMS</label>
                     <Input
                       type="number" value={totalTeams}
                       onChange={(e) => setTotalTeams(parseInt(e.target.value) || 2)}
                       min={2} max={32}
-                      className="bg-[#1a1a24] border-pink-500/20 text-white"
+                      className="bg-[#0a1940] border-yellow-500/20 text-white"
                       data-testid="tournament-teams-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-mono text-pink-400/50 mb-1 block">BYES</label>
+                    <label className="text-[10px] font-mono text-yellow-400/50 mb-1 block">BYES</label>
                     <Input
                       type="number" value={byeCount}
                       onChange={(e) => setByeCount(parseInt(e.target.value) || 0)}
                       min={0} max={totalTeams - 2}
-                      className="bg-[#1a1a24] border-pink-500/20 text-white"
+                      className="bg-[#0a1940] border-yellow-500/20 text-white"
                       data-testid="tournament-byes-input"
                     />
                   </div>
@@ -691,18 +691,18 @@ const Dashboard = () => {
 
                 <Dialog open={editingTeams} onOpenChange={setEditingTeams}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="w-full border-pink-500/20 hover:border-pink-500/50 hover:bg-pink-500/10 text-pink-300" data-testid="edit-teams-button">
+                    <Button variant="outline" size="sm" className="w-full border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300" data-testid="edit-teams-button">
                       <Settings2 className="w-4 h-4 mr-1" />
                       Edit Teams ({tournamentTeams.length})
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-[#111118] border-pink-500/20 text-white">
+                  <DialogContent className="bg-[#111118] border-yellow-500/20 text-white">
                     <DialogHeader>
                       <DialogTitle className="font-cyber tracking-wider glow-text">Enter Team Names</DialogTitle>
                     </DialogHeader>
-                    <p className="text-sm text-pink-300/60 font-mono">One team per line, in seed order (1st line = #1 seed).</p>
+                    <p className="text-sm text-yellow-300/60 font-mono">One team per line, in seed order (1st line = #1 seed).</p>
                     <textarea
-                      className="w-full h-64 p-3 rounded-lg text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pink-500/50 bg-[#1a1a24] border border-pink-500/20 text-white"
+                      className="w-full h-64 p-3 rounded-lg text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-yellow-500/50 bg-[#0a1940] border border-yellow-500/20 text-white"
                       value={teamInputs}
                       onChange={(e) => setTeamInputs(e.target.value)}
                       placeholder={"Team Alpha\nTeam Beta\nTeam Gamma\n..."}
@@ -726,7 +726,7 @@ const Dashboard = () => {
 
                 {bracket && (
                   <div className="space-y-2">
-                    <Separator className="bg-pink-500/10" />
+                    <Separator className="bg-yellow-500/10" />
                     <p className={labelClass}>Record Results</p>
                     <ScrollArea className="max-h-48">
                       {bracket.rounds.map((round) =>
@@ -734,17 +734,17 @@ const Dashboard = () => {
                           const match = bracket.matches[matchId];
                           if (!match || !match.teamA || !match.teamB || match.completed) return null;
                           return (
-                            <div key={matchId} className="p-2 rounded-lg mb-2 border border-pink-500/10 bg-[rgba(225,48,108,0.05)]">
-                              <p className="text-[10px] font-mono text-pink-400/50 mb-1">{round.label}</p>
+                            <div key={matchId} className="p-2 rounded-lg mb-2 border border-yellow-500/10 bg-[rgba(225,48,108,0.05)]">
+                              <p className="text-[10px] font-mono text-yellow-400/50 mb-1">{round.label}</p>
                               <div className="flex items-center gap-2">
                                 <Button 
-                                  size="sm" variant="outline" className="flex-1 text-xs truncate border-pink-500/20 hover:bg-pink-500/10 text-pink-200"
+                                  size="sm" variant="outline" className="flex-1 text-xs truncate border-yellow-500/20 hover:bg-yellow-500/10 text-yellow-200"
                                   onClick={() => handleRecordResult(matchId, match.teamA.seed, 1, 0)}
                                   data-testid={`win-${matchId}-a`}
                                 >
                                   {match.teamA.name}
                                 </Button>
-                                <span className="text-[10px] font-mono text-pink-500/30">vs</span>
+                                <span className="text-[10px] font-mono text-yellow-400/30">vs</span>
                                 <Button 
                                   size="sm" variant="outline" className="flex-1 text-xs truncate border-purple-500/20 hover:bg-purple-500/10 text-purple-200"
                                   onClick={() => handleRecordResult(matchId, match.teamB.seed, 0, 1)}
@@ -773,13 +773,13 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <label className="text-[10px] font-mono text-pink-400/50 mb-1.5 block">ASPECT RATIO</label>
+                <label className="text-[10px] font-mono text-yellow-400/50 mb-1.5 block">ASPECT RATIO</label>
                 <Tabs value={aspectRatio} onValueChange={setAspectRatio} data-testid="aspect-ratio-select">
-                  <TabsList className="w-full bg-[#1a1a24]">
+                  <TabsList className="w-full bg-[#0a1940]">
                     <TabsTrigger value="landscape" className="flex-1 text-xs data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500/20 data-[state=active]:to-yellow-500/20 data-[state=active]:text-yellow-300" data-testid="aspect-landscape-option">
                       16:9 Live
                     </TabsTrigger>
-                    <TabsTrigger value="portrait" className="flex-1 text-xs data-[state=active]:bg-gradient-to-r data-[state=active]:from-pink-500/20 data-[state=active]:to-purple-500/20 data-[state=active]:text-pink-300" data-testid="aspect-portrait-option">
+                    <TabsTrigger value="portrait" className="flex-1 text-xs data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500/20 data-[state=active]:to-yellow-600/20 data-[state=active]:text-yellow-300" data-testid="aspect-portrait-option">
                       9:16 Story
                     </TabsTrigger>
                   </TabsList>
@@ -787,7 +787,7 @@ const Dashboard = () => {
               </div>
 
               <div>
-                <label className="text-[10px] font-mono text-pink-400/50 mb-1.5 block">
+                <label className="text-[10px] font-mono text-yellow-400/50 mb-1.5 block">
                   ANIMATION SPEED: <span className="text-yellow-300">{animationSpeed}x</span>
                 </label>
                 <Slider
@@ -801,7 +801,7 @@ const Dashboard = () => {
               <div className="flex gap-2">
                 <Button 
                   onClick={() => { setIsAnimating(false); setTimeout(() => setIsAnimating(true), 50); }}
-                  variant="outline" size="sm" className="flex-1 border-pink-500/20 hover:border-pink-500/50 hover:bg-pink-500/10 text-pink-300"
+                  variant="outline" size="sm" className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300"
                   data-testid="replay-animation-button"
                 >
                   <Play className="w-4 h-4 mr-1" /> Replay
@@ -858,13 +858,13 @@ const Dashboard = () => {
 
               <Button 
                 onClick={handleOpenLiveView}
-                variant="outline" size="sm" className="w-full border-pink-500/20 hover:border-pink-500/50 hover:bg-pink-500/10 text-pink-300"
+                variant="outline" size="sm" className="w-full border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300"
                 data-testid="open-live-view-button"
               >
                 <Maximize2 className="w-4 h-4 mr-1" /> Open Live View
               </Button>
 
-              <Separator className="bg-pink-500/10" />
+              <Separator className="bg-yellow-500/10" />
 
               <div className="flex gap-2">
                 <Dialog open={showSavePreset} onOpenChange={setShowSavePreset}>
@@ -873,7 +873,7 @@ const Dashboard = () => {
                       <Save className="w-4 h-4 mr-1" /> Save Preset
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-[#111118] border-pink-500/20 text-white">
+                  <DialogContent className="bg-[#111118] border-yellow-500/20 text-white">
                     <DialogHeader>
                       <DialogTitle className="font-cyber tracking-wider glow-text">Save Animation Preset</DialogTitle>
                     </DialogHeader>
@@ -881,10 +881,10 @@ const Dashboard = () => {
                       value={presetName}
                       onChange={(e) => setPresetName(e.target.value)}
                       placeholder="Preset name..."
-                      className="bg-[#1a1a24] border-pink-500/20 text-white"
+                      className="bg-[#0a1940] border-yellow-500/20 text-white"
                       data-testid="preset-name-input"
                     />
-                    <div className="text-xs space-y-1 font-mono text-pink-300/50">
+                    <div className="text-xs space-y-1 font-mono text-yellow-300/50">
                       <p>Mode: <span className="text-white/70">{mode}</span></p>
                       <p>Aspect: <span className="text-white/70">{aspectRatio}</span></p>
                       <p>Speed: <span className="text-white/70">{animationSpeed}x</span></p>
@@ -908,14 +908,14 @@ const Dashboard = () => {
                 <ScrollArea className="max-h-32">
                   <div className="space-y-1">
                     {presets.map((p) => (
-                      <div key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-pink-500/5 transition-colors">
+                      <div key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-yellow-500/5 transition-colors">
                         <button 
                           onClick={() => handleLoadPreset(p)}
                           className="flex-1 text-left text-xs font-medium truncate text-white/70 hover:text-white"
                         >
                           {p.name}
                         </button>
-                        <Badge className="text-[10px] bg-pink-500/10 text-pink-300 border-pink-500/20">{p.mode}</Badge>
+                        <Badge className="text-[10px] bg-yellow-500/10 text-yellow-300 border-yellow-500/20">{p.mode}</Badge>
                         <button 
                           onClick={() => handleDeletePreset(p.id)}
                           className="text-xs px-1 text-white/30 hover:text-red-400 transition-colors"
@@ -929,7 +929,7 @@ const Dashboard = () => {
               )}
 
               {exportStatus && (
-                <p className="text-xs text-center font-mono text-pink-400/50" data-testid="export-status">
+                <p className="text-xs text-center font-mono text-yellow-400/50" data-testid="export-status">
                   {exportStatus}
                 </p>
               )}
@@ -942,12 +942,12 @@ const Dashboard = () => {
           <div className="sticky top-16">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className="h-px w-4 ig-gradient" />
-                <h2 className="font-mono text-xs uppercase tracking-[0.2em] ig-gradient-text">
+                <div className="h-px w-4 bg-gradient-to-r from-yellow-500 to-yellow-600" />
+                <h2 className="font-mono text-xs uppercase tracking-[0.2em] bg-gradient-to-r from-yellow-500 to-yellow-600-text">
                   Preview — {mode === 'leaderboard' ? 'Leaderboard' : 'Tournament'} — {aspectRatio === 'landscape' ? '16:9' : '9:16'}
                 </h2>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(225,48,108,0.1)] border border-pink-500/20">
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(225,48,108,0.1)] border border-yellow-500/20">
                 <div className={`h-1.5 w-1.5 rounded-full ${isAnimating ? 'bg-green-400 animate-pulse' : 'bg-yellow-500'}`} />
                 <span className={`text-[10px] font-mono ${isAnimating ? 'text-green-400' : 'text-yellow-500'}`}>
                   {isAnimating ? 'ANIMATING' : 'STATIC'}
@@ -957,7 +957,7 @@ const Dashboard = () => {
             
             {/* Preview with glow */}
             <div className="relative">
-              <div className="absolute -inset-4 bg-gradient-to-br from-pink-500/5 via-purple-500/5 to-orange-500/5 rounded-3xl blur-xl" />
+              <div className="absolute -inset-4 bg-gradient-to-br from-yellow-500/5 via-purple-500/5 to-orange-500/5 rounded-3xl blur-xl" />
               <div className="relative video-preview-glow rounded-xl overflow-hidden">
                 <RenderStage aspectRatio={aspectRatio} ref={stageRef}>
                   {mode === 'leaderboard' ? (
@@ -983,12 +983,12 @@ const Dashboard = () => {
             </div>
 
             {!currentData && mode === 'leaderboard' && (
-              <div className="mt-6 p-8 rounded-xl text-center border border-dashed border-pink-500/20 bg-[rgba(225,48,108,0.03)]">
-                <div className="h-16 w-16 rounded-2xl bg-[rgba(225,48,108,0.1)] flex items-center justify-center mx-auto mb-4 neon-glow float">
-                  <FolderSync className="w-8 h-8 text-pink-500/40" />
+              <div className="mt-6 p-8 rounded-xl text-center border border-dashed border-yellow-500/20 bg-[rgba(225,48,108,0.03)]">
+                <div className="h-16 w-16 rounded-2xl bg-[rgba(225,48,108,0.1)] flex items-center justify-center mx-auto mb-4 shadow-yellow-500/20 float">
+                  <FolderSync className="w-8 h-8 text-yellow-400/40" />
                 </div>
                 <p className="font-cyber tracking-wider text-white/80">No Data Loaded</p>
-                <p className="text-sm mt-2 font-mono text-pink-400/40">
+                <p className="text-sm mt-2 font-mono text-yellow-400/40">
                   // CLICK_FETCH_TO_PULL_SCORES
                 </p>
               </div>
@@ -996,7 +996,7 @@ const Dashboard = () => {
 
             {mode === 'tournament' && !bracket && (
               <div className="mt-6 p-8 rounded-xl text-center border border-dashed border-purple-500/20 bg-[rgba(131,58,180,0.03)]">
-                <div className="h-16 w-16 rounded-2xl bg-[rgba(131,58,180,0.1)] flex items-center justify-center mx-auto mb-4 neon-glow float">
+                <div className="h-16 w-16 rounded-2xl bg-[rgba(131,58,180,0.1)] flex items-center justify-center mx-auto mb-4 shadow-yellow-500/20 float">
                   <Settings2 className="w-8 h-8 text-purple-500/40" />
                 </div>
                 <p className="font-cyber tracking-wider text-white/80">No Bracket Generated</p>
@@ -1010,7 +1010,7 @@ const Dashboard = () => {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-pink-500/10 relative z-10">
+      <footer className="border-t border-yellow-500/10 relative z-10">
         <div className="px-6 py-4 flex items-center justify-between">
           <p className="text-[10px] text-white/20 font-mono">// BIG_HAT_ENTERTAINMENT • PHOENIX_AZ</p>
           <div className="flex items-center gap-2">
@@ -1023,7 +1023,7 @@ const Dashboard = () => {
       {/* QR Code Modal */}
       {showQr && qrUrl && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(10, 10, 18, 0.92)' }}>
-          <div className="relative glass-panel rounded-2xl p-8 max-w-sm w-full mx-4 text-center neon-glow">
+          <div className="relative glass-panel rounded-2xl p-8 max-w-sm w-full mx-4 text-center shadow-yellow-500/20">
             <button 
               onClick={() => setShowQr(false)}
               className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors"
@@ -1043,7 +1043,7 @@ const Dashboard = () => {
                 value={qrUrl || ''}
                 size={220}
                 bgColor="#FFFFFF"
-                fgColor="#0A0A12"
+                fgColor="#000e2a"
                 level="M"
               />
             </div>

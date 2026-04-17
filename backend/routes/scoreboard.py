@@ -85,50 +85,110 @@ async def root():
     return {"message": "BIG Hat Trivia Scoreboard API", "status": "active"}
 
 
+SP_DRIVE_ID = "b!vFnSKrOPL02dj2-MZU_EHmAti4Py2yROjNNkPjQrBjDvfYp5Cu28QIG93vJSp4xs"
+SP_SCORES_FOLDER_ID = "01Z4PLCYTDUSDUZ2ONIZFYVB54TIOLWSRQ"
+
+async def _get_sp_token():
+    import httpx
+    tenant = os.environ.get("ROUNDMAKER_TENANT_ID", os.environ.get("AZURE_TENANT_ID", ""))
+    cid = os.environ.get("ROUNDMAKER_CLIENT_ID", os.environ.get("AZURE_CLIENT_ID", ""))
+    csec = os.environ.get("ROUNDMAKER_CLIENT_SECRET", os.environ.get("AZURE_CLIENT_SECRET", ""))
+    if not all([tenant, cid, csec]): return None
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
+            "grant_type": "client_credentials", "client_id": cid, "client_secret": csec,
+            "scope": "https://graph.microsoft.com/.default"
+        })
+        return r.json()["access_token"] if r.status_code == 200 else None
+
 @router.get("/sharepoint/files")
 async def get_sharepoint_files():
-    """Fetch all score files from SharePoint"""
-    from sharepoint_service import get_all_score_files
-    sharing_url = os.environ.get("SHAREPOINT_SHARING_URL")
-    if not sharing_url:
-        raise HTTPException(status_code=500, detail="SharePoint URL not configured")
+    """Fetch all score files from SharePoint scores folder via Graph API"""
+    import httpx
+    token = await _get_sp_token()
+    if not token:
+        raise HTTPException(status_code=500, detail="SharePoint authentication failed")
     try:
-        files = await get_all_score_files(sharing_url)
+        headers = {"Authorization": f"Bearer {token}"}
+        files = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            # List location subfolders
+            r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{SP_SCORES_FOLDER_ID}/children", headers=headers)
+            if r.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to list scores folder")
+            
+            for folder in r.json().get("value", []):
+                if not folder.get("folder"):
+                    continue
+                venue = folder["name"]
+                # List JSON files in each venue subfolder
+                r2 = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{folder['id']}/children", headers=headers)
+                if r2.status_code == 200:
+                    for f in r2.json().get("value", []):
+                        if f.get("name", "").endswith(".json"):
+                            files.append({
+                                "file_name": f["name"],
+                                "venue": venue,
+                                "file_id": f["id"],
+                                "last_modified": f.get("lastModifiedDateTime", ""),
+                                "size": f.get("size", 0)
+                            })
         return {"files": files, "count": len(files)}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"SharePoint sync error: {e}")
+        logger.error(f"SharePoint files error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/sharepoint/sync")
 async def sync_sharepoint_data():
-    """Sync SharePoint data into MongoDB"""
-    from sharepoint_service import get_all_score_files
-    sharing_url = os.environ.get("SHAREPOINT_SHARING_URL")
-    if not sharing_url:
-        raise HTTPException(status_code=500, detail="SharePoint URL not configured")
+    """Sync all SharePoint score JSON files into MongoDB"""
+    import httpx
+    token = await _get_sp_token()
+    if not token:
+        raise HTTPException(status_code=500, detail="SharePoint auth failed")
     try:
-        files = await get_all_score_files(sharing_url)
-
-        # Store each file's data in MongoDB
+        headers = {"Authorization": f"Bearer {token}"}
         synced = []
-        for f in files:
-            doc = {
-                "file_name": f["file_name"],
-                "venue": f["venue"],
-                "last_modified": f["last_modified"],
-                "synced_at": datetime.now(timezone.utc).isoformat(),
-                "data": f["data"]
-            }
-            # Upsert by file_name
-            await db.score_files.update_one(
-                {"file_name": f["file_name"]},
-                {"$set": doc},
-                upsert=True
-            )
-            synced.append(f["file_name"])
-
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{SP_SCORES_FOLDER_ID}/children", headers=headers)
+            if r.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to list scores folder")
+            
+            for folder in r.json().get("value", []):
+                if not folder.get("folder"):
+                    continue
+                venue = folder["name"]
+                r2 = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{folder['id']}/children", headers=headers)
+                if r2.status_code != 200:
+                    continue
+                
+                for f in r2.json().get("value", []):
+                    if not f.get("name", "").endswith(".json"):
+                        continue
+                    # Download the JSON file
+                    r3 = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{f['id']}/content", headers=headers)
+                    if r3.status_code == 200:
+                        try:
+                            data = r3.json()
+                            doc = {
+                                "file_name": f["name"],
+                                "venue": venue,
+                                "last_modified": f.get("lastModifiedDateTime", ""),
+                                "synced_at": datetime.now(timezone.utc).isoformat(),
+                                "data": data
+                            }
+                            await db.score_files.update_one(
+                                {"file_name": f["name"]},
+                                {"$set": doc},
+                                upsert=True
+                            )
+                            synced.append(f["name"])
+                        except:
+                            pass
         return {"synced": synced, "count": len(synced)}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"SharePoint sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
