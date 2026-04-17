@@ -415,7 +415,7 @@ const Dashboard = () => {
       <header className="border-b border-yellow-500/20 bg-[#000e2a]/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => { window.location.href = '/'; }} className="p-2 rounded-lg hover:bg-white/5" data-testid="back-to-dashboard">
+            <button onClick={() => { window.location.href = '/'; }} className="p-2 rounded-lg hover:bg-yellow-400/5" data-testid="back-to-dashboard">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbdd68" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </button>
             <div className="h-10 w-10 rounded-xl bg-gradient-to-r from-yellow-500 to-yellow-600 flex items-center justify-center shadow-yellow-500/20 pulse-ring">
@@ -454,7 +454,7 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <Tabs value={mode} onValueChange={setMode} data-testid="mode-tabs">
-                <TabsList className="w-full bg-[#0a1940]">
+                <TabsList className="w-full bg-transparent">
                   <TabsTrigger value="leaderboard" className="flex-1 data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500/20 data-[state=active]:to-yellow-600/20 data-[state=active]:text-yellow-300" data-testid="mode-leaderboard">
                     Leaderboard
                   </TabsTrigger>
@@ -480,7 +480,7 @@ const Dashboard = () => {
                   disabled={syncing}
                   variant="outline"
                   size="sm"
-                  className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300 transition-colors"
+                  className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-transparent text-yellow-300 transition-colors"
                   data-testid="sharepoint-sync-button"
                 >
                   <FolderSync className="w-4 h-4 mr-1" />
@@ -518,7 +518,7 @@ const Dashboard = () => {
                       setSelectedFile(file);
                     }}
                   >
-                    <SelectTrigger className="bg-[#0a1940] border-yellow-500/20 hover:border-yellow-500/40 text-white" data-testid="sharepoint-file-picker">
+                    <SelectTrigger className="bg-transparent border-yellow-500/20 hover:border-yellow-500/40 text-white" data-testid="sharepoint-file-picker">
                       <SelectValue placeholder="Select a score file" />
                     </SelectTrigger>
                     <SelectContent className="bg-[#15151f] border-yellow-500/20">
@@ -554,7 +554,7 @@ const Dashboard = () => {
                 <div>
                   <label className="text-[10px] font-mono text-yellow-400/50 mb-1 block">SELECT VENUE TO ACCUMULATE SCORES</label>
                   <Select value={selectedVenue} onValueChange={setSelectedVenue}>
-                    <SelectTrigger className="bg-[#0a1940] border-yellow-500/20 hover:border-yellow-500/40 text-white" data-testid="venue-selector">
+                    <SelectTrigger className="bg-transparent border-yellow-500/20 hover:border-yellow-500/40 text-white" data-testid="venue-selector">
                       <SelectValue placeholder="Choose a venue..." />
                     </SelectTrigger>
                     <SelectContent className="bg-[#15151f] border-yellow-500/20">
@@ -588,10 +588,10 @@ const Dashboard = () => {
                       <p className="text-[10px] font-mono text-purple-400/60">Merge teams that changed names between weeks:</p>
                       <div className="flex gap-2">
                         <Input value={renameFrom} onChange={(e) => setRenameFrom(e.target.value)} placeholder="Old name..." 
-                          className="bg-[#0a1940] border-purple-500/20 text-white text-xs flex-1" />
+                          className="bg-transparent border-purple-500/20 text-white text-xs flex-1" />
                         <span className="text-purple-400/40 text-xs self-center">&rarr;</span>
                         <Input value={renameTo} onChange={(e) => setRenameTo(e.target.value)} placeholder="New name..."
-                          className="bg-[#0a1940] border-purple-500/20 text-white text-xs flex-1" />
+                          className="bg-transparent border-purple-500/20 text-white text-xs flex-1" />
                       </div>
                       <Button size="sm" className="w-full btn-futuristic text-xs" onClick={handleAddRename} disabled={!renameFrom.trim() || !renameTo.trim()}>
                         Merge
@@ -615,7 +615,7 @@ const Dashboard = () => {
                 {/* Accumulated Standings */}
                 {accumulatedTeams.length > 0 && (
                   <>
-                    <Separator className="bg-yellow-500/10" />
+                    <Separator className="bg-transparent" />
                     <p className={labelClass}>Accumulated Standings ({accumulatedTeams.length} teams)</p>
                     <ScrollArea className="max-h-52">
                       <div className="space-y-1">
@@ -653,7 +653,7 @@ const Dashboard = () => {
                   value={tournamentName}
                   onChange={(e) => setTournamentName(e.target.value)}
                   placeholder="Tournament Name"
-                  className="bg-[#0a1940] border-yellow-500/20 text-white font-cyber tracking-wider"
+                  className="bg-transparent border-yellow-500/20 text-white font-cyber tracking-wider"
                   data-testid="tournament-name-input"
                 />
                 <div className="grid grid-cols-3 gap-2">
@@ -663,7 +663,7 @@ const Dashboard = () => {
                       value={tournamentYear}
                       onChange={(e) => setTournamentYear(e.target.value)}
                       placeholder="2026"
-                      className="bg-[#0a1940] border-yellow-500/20 text-yellow-300 font-cyber tracking-wider text-center"
+                      className="bg-transparent border-yellow-500/20 text-yellow-300 font-cyber tracking-wider text-center"
                       data-testid="tournament-year-input"
                     />
                   </div>
@@ -673,7 +673,7 @@ const Dashboard = () => {
                       type="number" value={totalTeams}
                       onChange={(e) => setTotalTeams(parseInt(e.target.value) || 2)}
                       min={2} max={32}
-                      className="bg-[#0a1940] border-yellow-500/20 text-white"
+                      className="bg-transparent border-yellow-500/20 text-white"
                       data-testid="tournament-teams-input"
                     />
                   </div>
@@ -683,7 +683,7 @@ const Dashboard = () => {
                       type="number" value={byeCount}
                       onChange={(e) => setByeCount(parseInt(e.target.value) || 0)}
                       min={0} max={totalTeams - 2}
-                      className="bg-[#0a1940] border-yellow-500/20 text-white"
+                      className="bg-transparent border-yellow-500/20 text-white"
                       data-testid="tournament-byes-input"
                     />
                   </div>
@@ -691,7 +691,7 @@ const Dashboard = () => {
 
                 <Dialog open={editingTeams} onOpenChange={setEditingTeams}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="w-full border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300" data-testid="edit-teams-button">
+                    <Button variant="outline" size="sm" className="w-full border-yellow-500/20 hover:border-yellow-500/50 hover:bg-transparent text-yellow-300" data-testid="edit-teams-button">
                       <Settings2 className="w-4 h-4 mr-1" />
                       Edit Teams ({tournamentTeams.length})
                     </Button>
@@ -702,7 +702,7 @@ const Dashboard = () => {
                     </DialogHeader>
                     <p className="text-sm text-yellow-300/60 font-mono">One team per line, in seed order (1st line = #1 seed).</p>
                     <textarea
-                      className="w-full h-64 p-3 rounded-lg text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-yellow-500/50 bg-[#0a1940] border border-yellow-500/20 text-white"
+                      className="w-full h-64 p-3 rounded-lg text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-yellow-500/50 bg-transparent border border-yellow-500/20 text-white"
                       value={teamInputs}
                       onChange={(e) => setTeamInputs(e.target.value)}
                       placeholder={"Team Alpha\nTeam Beta\nTeam Gamma\n..."}
@@ -726,7 +726,7 @@ const Dashboard = () => {
 
                 {bracket && (
                   <div className="space-y-2">
-                    <Separator className="bg-yellow-500/10" />
+                    <Separator className="bg-transparent" />
                     <p className={labelClass}>Record Results</p>
                     <ScrollArea className="max-h-48">
                       {bracket.rounds.map((round) =>
@@ -738,7 +738,7 @@ const Dashboard = () => {
                               <p className="text-[10px] font-mono text-yellow-400/50 mb-1">{round.label}</p>
                               <div className="flex items-center gap-2">
                                 <Button 
-                                  size="sm" variant="outline" className="flex-1 text-xs truncate border-yellow-500/20 hover:bg-yellow-500/10 text-yellow-200"
+                                  size="sm" variant="outline" className="flex-1 text-xs truncate border-yellow-500/20 hover:bg-transparent text-yellow-200"
                                   onClick={() => handleRecordResult(matchId, match.teamA.seed, 1, 0)}
                                   data-testid={`win-${matchId}-a`}
                                 >
@@ -775,7 +775,7 @@ const Dashboard = () => {
               <div>
                 <label className="text-[10px] font-mono text-yellow-400/50 mb-1.5 block">ASPECT RATIO</label>
                 <Tabs value={aspectRatio} onValueChange={setAspectRatio} data-testid="aspect-ratio-select">
-                  <TabsList className="w-full bg-[#0a1940]">
+                  <TabsList className="w-full bg-transparent">
                     <TabsTrigger value="landscape" className="flex-1 text-xs data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500/20 data-[state=active]:to-yellow-500/20 data-[state=active]:text-yellow-300" data-testid="aspect-landscape-option">
                       16:9 Live
                     </TabsTrigger>
@@ -801,7 +801,7 @@ const Dashboard = () => {
               <div className="flex gap-2">
                 <Button 
                   onClick={() => { setIsAnimating(false); setTimeout(() => setIsAnimating(true), 50); }}
-                  variant="outline" size="sm" className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300"
+                  variant="outline" size="sm" className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-transparent text-yellow-300"
                   data-testid="replay-animation-button"
                 >
                   <Play className="w-4 h-4 mr-1" /> Replay
@@ -829,7 +829,7 @@ const Dashboard = () => {
               <div className="flex gap-2">
                 <Button 
                   onClick={handleExportPng}
-                  variant="outline" size="sm" className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300"
+                  variant="outline" size="sm" className="flex-1 border-yellow-500/20 hover:border-yellow-500/50 hover:bg-transparent text-yellow-300"
                   disabled={exporting}
                   data-testid="export-png-button"
                 >
@@ -858,13 +858,13 @@ const Dashboard = () => {
 
               <Button 
                 onClick={handleOpenLiveView}
-                variant="outline" size="sm" className="w-full border-yellow-500/20 hover:border-yellow-500/50 hover:bg-yellow-500/10 text-yellow-300"
+                variant="outline" size="sm" className="w-full border-yellow-500/20 hover:border-yellow-500/50 hover:bg-transparent text-yellow-300"
                 data-testid="open-live-view-button"
               >
                 <Maximize2 className="w-4 h-4 mr-1" /> Open Live View
               </Button>
 
-              <Separator className="bg-yellow-500/10" />
+              <Separator className="bg-transparent" />
 
               <div className="flex gap-2">
                 <Dialog open={showSavePreset} onOpenChange={setShowSavePreset}>
@@ -881,7 +881,7 @@ const Dashboard = () => {
                       value={presetName}
                       onChange={(e) => setPresetName(e.target.value)}
                       placeholder="Preset name..."
-                      className="bg-[#0a1940] border-yellow-500/20 text-white"
+                      className="bg-transparent border-yellow-500/20 text-white"
                       data-testid="preset-name-input"
                     />
                     <div className="text-xs space-y-1 font-mono text-yellow-300/50">
@@ -915,7 +915,7 @@ const Dashboard = () => {
                         >
                           {p.name}
                         </button>
-                        <Badge className="text-[10px] bg-yellow-500/10 text-yellow-300 border-yellow-500/20">{p.mode}</Badge>
+                        <Badge className="text-[10px] bg-transparent text-yellow-300 border-yellow-500/20">{p.mode}</Badge>
                         <button 
                           onClick={() => handleDeletePreset(p.id)}
                           className="text-xs px-1 text-white/30 hover:text-red-400 transition-colors"
@@ -1038,7 +1038,7 @@ const Dashboard = () => {
             <p className="text-xs font-mono mb-6" style={{ color: 'rgba(225, 48, 108, 0.6)' }}>
               // OPEN_ON_PHONE_TO_SAVE
             </p>
-            <div className="bg-white rounded-xl p-4 inline-block mx-auto">
+            <div className="bg-yellow-400 rounded-xl p-4 inline-block mx-auto">
               <QRCodeSVG 
                 value={qrUrl || ''}
                 size={220}

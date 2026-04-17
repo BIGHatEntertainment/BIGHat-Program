@@ -2,22 +2,21 @@ import React from 'react';
 
 /**
  * Synthwave/Retrowave backdrop for leaderboard mode.
- * Neon grid receding into perspective, cosmic sky, luminous horizon.
- * Inspired by 80s retro-futuristic aesthetic.
+ * Navy blue sky, thin gold horizon line, grid that scrolls up and fades out.
  */
 const SynthwaveBackdrop = ({ className = '' }) => {
   return (
     <div className={`absolute inset-0 overflow-hidden ${className}`} data-testid="synthwave-backdrop">
-      {/* Deep cosmic sky */}
+      {/* Deep navy sky — matches hub theme */}
       <div 
         className="absolute inset-0"
         style={{ 
-          background: 'linear-gradient(180deg, #050012 0%, #0a0025 20%, #120035 40%, #1a0040 55%, #2d0060 70%, #1a0a3a 85%, #FFD700 98%, #FFD700 100%)',
+          background: 'linear-gradient(180deg, #050012 0%, #0a0025 20%, #120035 40%, #1a0040 55%, #2d0060 70%, #1a0a3a 100%)',
         }}
       />
 
       {/* Star particles */}
-      <div className="absolute inset-0" style={{ top: 0, height: '65%' }}>
+      <div className="absolute inset-0" style={{ top: 0, height: '70%' }}>
         {Array.from({ length: 40 }).map((_, i) => (
           <div
             key={i}
@@ -36,68 +35,84 @@ const SynthwaveBackdrop = ({ className = '' }) => {
         ))}
       </div>
 
-      {/* Horizon glow band */}
+      {/* Subtle horizon glow — no large yellow gradient */}
       <div 
         className="absolute left-0 right-0"
         style={{ 
           bottom: '30%',
-          height: '120px',
-          background: 'linear-gradient(180deg, transparent 0%, rgba(255,215,0,0.08) 30%, rgba(255,215,0,0.25) 50%, rgba(255,150,0,0.15) 70%, transparent 100%)',
-          filter: 'blur(20px)',
+          height: '60px',
+          background: 'linear-gradient(180deg, transparent 0%, rgba(255,215,0,0.06) 40%, rgba(255,215,0,0.12) 60%, transparent 100%)',
+          filter: 'blur(15px)',
         }}
       />
 
-      {/* Bright horizon line */}
+      {/* Thin gold horizon line */}
       <div 
         className="absolute left-0 right-0"
         style={{ 
           bottom: '30%',
-          height: '3px',
-          background: 'linear-gradient(90deg, transparent 5%, rgba(255,215,0,0.6) 20%, #FFD700 40%, #ffffff 50%, #FFD700 60%, rgba(255,215,0,0.6) 80%, transparent 95%)',
-          boxShadow: '0 0 30px rgba(255,215,0,0.5), 0 0 60px rgba(255,215,0,0.3)',
+          height: '2px',
+          background: 'linear-gradient(90deg, transparent 5%, rgba(255,215,0,0.5) 20%, #FFD700 40%, #ffffff 50%, #FFD700 60%, rgba(255,215,0,0.5) 80%, transparent 95%)',
+          boxShadow: '0 0 20px rgba(255,215,0,0.3), 0 0 40px rgba(255,215,0,0.15)',
         }}
       />
 
-      {/* Perspective grid - bottom section */}
-      <svg
+      {/* Perspective grid — scrolls upward and fades out near horizon */}
+      <div 
         className="absolute bottom-0 left-0 w-full"
-        viewBox="0 0 1080 600"
-        preserveAspectRatio="xMidYMax slice"
-        style={{ height: '30%' }}
+        style={{ 
+          height: '30%',
+          maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.3) 20%, rgba(0,0,0,0.8) 60%, rgba(0,0,0,1) 100%)',
+          WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.3) 20%, rgba(0,0,0,0.8) 60%, rgba(0,0,0,1) 100%)',
+        }}
       >
-        {/* Horizontal grid lines - perspective receding */}
-        {Array.from({ length: 20 }).map((_, i) => {
-          const y = 10 + (i / 20) * 580;
-          const opacity = 0.1 + (i / 20) * 0.5;
-          return (
-            <line
-              key={`h-${i}`}
-              x1="0" y1={y} x2="1080" y2={y}
-              stroke="#8b00ff"
-              strokeWidth={i < 5 ? "0.5" : "1"}
-              opacity={opacity}
-            />
-          );
-        })}
-        
-        {/* Vertical grid lines - converging to vanishing point */}
-        {Array.from({ length: 25 }).map((_, i) => {
-          const xBottom = (i / 24) * 1080;
-          const xTop = 540 + (xBottom - 540) * 0.15; // converge toward center
-          return (
-            <line
-              key={`v-${i}`}
-              x1={xBottom} y1="600" x2={xTop} y2="0"
-              stroke="#00d4ff"
-              strokeWidth="1"
-              opacity={0.2 + Math.abs(i - 12) * 0.015}
-            />
-          );
-        })}
+        <svg
+          className="absolute bottom-0 left-0 w-full h-full"
+          viewBox="0 0 1080 600"
+          preserveAspectRatio="xMidYMax slice"
+          style={{
+            animation: 'gridScrollUp 8s linear infinite',
+          }}
+        >
+          {/* Horizontal grid lines */}
+          {Array.from({ length: 20 }).map((_, i) => {
+            const y = 10 + (i / 20) * 580;
+            const opacity = 0.15 + (i / 20) * 0.4;
+            return (
+              <line
+                key={`h-${i}`}
+                x1="0" y1={y} x2="1080" y2={y}
+                stroke="#8b00ff"
+                strokeWidth={i < 5 ? "0.5" : "1"}
+                opacity={opacity}
+              />
+            );
+          })}
+          
+          {/* Vertical grid lines — converging */}
+          {Array.from({ length: 25 }).map((_, i) => {
+            const xBottom = (i / 24) * 1080;
+            const xTop = 540 + (xBottom - 540) * 0.15;
+            return (
+              <line
+                key={`v-${i}`}
+                x1={xBottom} y1="600" x2={xTop} y2="0"
+                stroke="#00d4ff"
+                strokeWidth="1"
+                opacity={0.15 + Math.abs(i - 12) * 0.01}
+              />
+            );
+          })}
+        </svg>
+      </div>
 
-        {/* Center glow on grid */}
-        <ellipse cx="540" cy="20" rx="300" ry="80" fill="rgba(255,215,0,0.06)" />
-      </svg>
+      {/* Grid scroll animation */}
+      <style>{`
+        @keyframes gridScrollUp {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(-30px); }
+        }
+      `}</style>
 
       {/* Noise overlay */}
       <div 
