@@ -929,3 +929,23 @@ body {
   border-color: #D946EF !important;
   background: rgba(217, 70, 239, 0.1) !important;
 }
+
+/* Scoreboard Leaderboard — match hub lobby styling */
+.scoreboard-panel {
+  background: linear-gradient(135deg, #141b50, #0a1940);
+  border: 1px solid rgba(251, 221, 104, 0.15);
+  border-radius: 1rem;
+  padding: 1.25rem;
+}
+.scoreboard-panel:hover {
+  border-color: rgba(251, 221, 104, 0.3);
+}
+.scoreboard-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #fbdd68;
+  margin-bottom: 0.75rem;
+  background: none !important;
+}

@@ -407,8 +407,8 @@ const Dashboard = () => {
     <div className="min-h-screen cyber-grid" style={{ background: '#000e2a' }}>
       {/* Ambient glow blobs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-80 h-80 bg-gradient-to-br from-yellow-500/10 via-yellow-500/10 to-yellow-600/10 rounded-full blur-[100px] animate-pulse" />
-        <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-gradient-to-br from-orange-500/10 via-red-500/10 to-yellow-600/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }} />
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-gradient-to-br from-blue-900/20 via-blue-800/10 to-transparent rounded-full blur-[100px] animate-pulse" />
+        <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-900/20 via-indigo-900/10 to-transparent rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
       {/* Header */}
@@ -422,11 +422,11 @@ const Dashboard = () => {
               <Zap className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="font-cyber text-lg tracking-widest text-white glow-text">
-                BIG HAT GRAPHICS
+              <h1 className="font-['Lemonada'] text-xl font-bold text-[#fbdd68]">
+                BIG HAT LEADERBOARDS
               </h1>
               <p className="text-[10px] text-yellow-400/60 font-mono tracking-wider">
-                // TRIVIA_SCOREBOARD_v2.0
+                // TRIVIA_LEADERBOARD
               </p>
             </div>
           </div>
@@ -630,7 +630,7 @@ const Dashboard = () => {
                         ))}
                       </div>
                     </ScrollArea>
-                    <Button onClick={populateFromAccumulated} className="w-full btn-futuristic font-cyber tracking-wider text-sm" data-testid="use-accumulated-button">
+                    <Button onClick={populateFromAccumulated} className="w-full btn-futuristic font-['Lemonada'] tracking-wider text-sm" data-testid="use-accumulated-button">
                       <Zap className="w-4 h-4 mr-1" />
                       Build Bracket from Standings
                     </Button>
@@ -653,7 +653,7 @@ const Dashboard = () => {
                   value={tournamentName}
                   onChange={(e) => setTournamentName(e.target.value)}
                   placeholder="Tournament Name"
-                  className="bg-transparent border-yellow-500/20 text-white font-cyber tracking-wider"
+                  className="bg-transparent border-yellow-500/20 text-white font-['Lemonada'] tracking-wider"
                   data-testid="tournament-name-input"
                 />
                 <div className="grid grid-cols-3 gap-2">
@@ -663,7 +663,7 @@ const Dashboard = () => {
                       value={tournamentYear}
                       onChange={(e) => setTournamentYear(e.target.value)}
                       placeholder="2026"
-                      className="bg-transparent border-yellow-500/20 text-yellow-300 font-cyber tracking-wider text-center"
+                      className="bg-transparent border-yellow-500/20 text-yellow-300 font-['Lemonada'] tracking-wider text-center"
                       data-testid="tournament-year-input"
                     />
                   </div>
@@ -698,7 +698,7 @@ const Dashboard = () => {
                   </DialogTrigger>
                   <DialogContent className="bg-[#111118] border-yellow-500/20 text-white">
                     <DialogHeader>
-                      <DialogTitle className="font-cyber tracking-wider glow-text">Enter Team Names</DialogTitle>
+                      <DialogTitle className="font-['Lemonada'] tracking-wider">Enter Team Names</DialogTitle>
                     </DialogHeader>
                     <p className="text-sm text-yellow-300/60 font-mono">One team per line, in seed order (1st line = #1 seed).</p>
                     <textarea
@@ -708,7 +708,7 @@ const Dashboard = () => {
                       placeholder={"Team Alpha\nTeam Beta\nTeam Gamma\n..."}
                       data-testid="team-names-textarea"
                     />
-                    <Button onClick={handleSetTeams} className="w-full btn-futuristic font-cyber tracking-wider" data-testid="save-teams-button">
+                    <Button onClick={handleSetTeams} className="w-full btn-futuristic font-['Lemonada'] tracking-wider" data-testid="save-teams-button">
                       Set {teamInputs.split('\n').filter(l => l.trim()).length} Teams
                     </Button>
                   </DialogContent>
@@ -716,7 +716,7 @@ const Dashboard = () => {
 
                 <Button 
                   onClick={handleGenerateBracket}
-                  className="w-full btn-futuristic font-cyber tracking-wider"
+                  className="w-full btn-futuristic font-['Lemonada'] tracking-wider"
                   disabled={tournamentTeams.length < 2}
                   data-testid="generate-bracket-button"
                 >
@@ -875,7 +875,7 @@ const Dashboard = () => {
                   </DialogTrigger>
                   <DialogContent className="bg-[#111118] border-yellow-500/20 text-white">
                     <DialogHeader>
-                      <DialogTitle className="font-cyber tracking-wider glow-text">Save Animation Preset</DialogTitle>
+                      <DialogTitle className="font-['Lemonada'] tracking-wider">Save Animation Preset</DialogTitle>
                     </DialogHeader>
                     <Input
                       value={presetName}
@@ -889,7 +889,7 @@ const Dashboard = () => {
                       <p>Aspect: <span className="text-white/70">{aspectRatio}</span></p>
                       <p>Speed: <span className="text-white/70">{animationSpeed}x</span></p>
                     </div>
-                    <Button onClick={handleSavePreset} className="btn-futuristic font-cyber tracking-wider" data-testid="confirm-save-preset">
+                    <Button onClick={handleSavePreset} className="btn-futuristic font-['Lemonada'] tracking-wider" data-testid="confirm-save-preset">
                       Save
                     </Button>
                   </DialogContent>
@@ -908,7 +908,7 @@ const Dashboard = () => {
                 <ScrollArea className="max-h-32">
                   <div className="space-y-1">
                     {presets.map((p) => (
-                      <div key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-yellow-500/5 transition-colors">
+                      <div key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-transparent transition-colors">
                         <button 
                           onClick={() => handleLoadPreset(p)}
                           className="flex-1 text-left text-xs font-medium truncate text-white/70 hover:text-white"
@@ -987,7 +987,7 @@ const Dashboard = () => {
                 <div className="h-16 w-16 rounded-2xl bg-[rgba(225,48,108,0.1)] flex items-center justify-center mx-auto mb-4 shadow-yellow-500/20 float">
                   <FolderSync className="w-8 h-8 text-yellow-400/40" />
                 </div>
-                <p className="font-cyber tracking-wider text-white/80">No Data Loaded</p>
+                <p className="font-['Lemonada'] tracking-wider text-white/80">No Data Loaded</p>
                 <p className="text-sm mt-2 font-mono text-yellow-400/40">
                   // CLICK_FETCH_TO_PULL_SCORES
                 </p>
@@ -999,7 +999,7 @@ const Dashboard = () => {
                 <div className="h-16 w-16 rounded-2xl bg-[rgba(131,58,180,0.1)] flex items-center justify-center mx-auto mb-4 shadow-yellow-500/20 float">
                   <Settings2 className="w-8 h-8 text-purple-500/40" />
                 </div>
-                <p className="font-cyber tracking-wider text-white/80">No Bracket Generated</p>
+                <p className="font-['Lemonada'] tracking-wider text-white/80">No Bracket Generated</p>
                 <p className="text-sm mt-2 font-mono text-purple-400/40">
                   // ENTER_TEAMS_AND_GENERATE
                 </p>
@@ -1032,7 +1032,7 @@ const Dashboard = () => {
               <X className="w-5 h-5" />
             </button>
             <QrCode className="w-8 h-8 mx-auto mb-3" style={{ color: '#FCAF45' }} />
-            <h3 className="font-cyber tracking-wider text-lg mb-1" style={{ color: '#F4F2FF' }}>
+            <h3 className="font-['Lemonada'] tracking-wider text-lg mb-1" style={{ color: '#F4F2FF' }}>
               SCAN TO DOWNLOAD
             </h3>
             <p className="text-xs font-mono mb-6" style={{ color: 'rgba(225, 48, 108, 0.6)' }}>
@@ -1055,7 +1055,7 @@ const Dashboard = () => {
             </p>
             <Button 
               onClick={() => setShowQr(false)}
-              className="mt-4 btn-futuristic font-cyber tracking-wider"
+              className="mt-4 btn-futuristic font-['Lemonada'] tracking-wider"
             >
               Done
             </Button>

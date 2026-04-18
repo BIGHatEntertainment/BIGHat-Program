@@ -11,7 +11,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
       <div 
         className="absolute inset-0"
         style={{ 
-          background: 'linear-gradient(180deg, #050012 0%, #0a0025 20%, #120035 40%, #1a0040 55%, #2d0060 70%, #1a0a3a 100%)',
+          background: 'linear-gradient(180deg, #000e2a 0%, #0a1940 30%, #141b50 55%, #0a1940 75%, #000e2a 100%)',
         }}
       />
 
@@ -26,7 +26,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
               height: `${1 + Math.random() * 2}px`,
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
-              background: ['#00d4ff', '#ff00ff', '#FFD700', '#ffffff', '#8b00ff'][Math.floor(Math.random() * 5)],
+              background: ['#5973F7', '#fbdd68', '#8892b0', '#ffffff', '#5973F7'][Math.floor(Math.random() * 5)],
               opacity: 0.3 + Math.random() * 0.5,
               animation: `pulse ${2 + Math.random() * 3}s ease-in-out infinite`,
               animationDelay: `${Math.random() * 3}s`,
@@ -82,7 +82,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
               <line
                 key={`h-${i}`}
                 x1="0" y1={y} x2="1080" y2={y}
-                stroke="#8b00ff"
+                stroke="#fbdd68"
                 strokeWidth={i < 5 ? "0.5" : "1"}
                 opacity={opacity}
               />
@@ -97,7 +97,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
               <line
                 key={`v-${i}`}
                 x1={xBottom} y1="600" x2={xTop} y2="0"
-                stroke="#00d4ff"
+                stroke="#5973F7"
                 strokeWidth="1"
                 opacity={0.15 + Math.abs(i - 12) * 0.01}
               />
@@ -127,7 +127,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
       {/* Subtle vignette */}
       <div 
         className="absolute inset-0"
-        style={{ background: 'radial-gradient(ellipse at 50% 40%, transparent 30%, rgba(5,0,18,0.6) 100%)' }}
+        style={{ background: 'radial-gradient(ellipse at 50% 40%, transparent 30%, rgba(0,14,42,0.6) 100%)' }}
       />
     </div>
   );
