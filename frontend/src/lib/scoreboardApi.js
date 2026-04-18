@@ -5,6 +5,7 @@ const api = {
   createPreset: (data) => axios.post(`${API}/presets`, data).then(r => r.data),
   deletePreset: (id) => axios.delete(`${API}/presets/${id}`).then(r => r.data),
   syncScores: () => axios.post(`${API}/sharepoint/sync`, {}, { timeout: 60000 }).then(r => r.data),
+  getSharePointFiles: () => axios.get(`${API}/sharepoint/files`, { timeout: 30000 }).then(r => r.data),
   getScoreFiles: () => axios.get(`${API}/sharepoint/files`, { timeout: 30000 }).then(r => r.data),
   getScores: () => axios.get(`${API}/scores`).then(r => r.data),
   getVenueScores: (venue) => axios.get(`${API}/scores/${encodeURIComponent(venue)}`).then(r => r.data),
