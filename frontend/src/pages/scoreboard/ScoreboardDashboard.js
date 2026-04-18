@@ -122,7 +122,7 @@ const Dashboard = () => {
     try {
       toast.info('Fetching from SharePoint...');
       const res = await api.getSharePointFiles();
-      const files = res.data.files || [];
+      const files = res.files || [];
       setScoreFiles(files);
       setLastSync(new Date().toLocaleTimeString());
       toast.success(`Found ${files.length} score files`);
@@ -401,7 +401,7 @@ const Dashboard = () => {
 
   // Card and section styling for dark theme
   const cardClass = "bg-[#111118]/80 backdrop-blur-sm border-[rgba(225,48,108,0.15)] hover:border-[rgba(225,48,108,0.3)] transition-colors";
-  const labelClass = "font-mono text-xs text-[#fbdd68] uppercase tracking-[0.15em] flex items-center gap-2";
+  const labelClass = "text-xs font-semibold text-[#fbdd68] uppercase tracking-[0.15em] flex items-center gap-2";
 
   return (
     <div className="min-h-screen cyber-grid" style={{ background: '#000e2a' }}>
@@ -422,10 +422,10 @@ const Dashboard = () => {
               <Zap className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="font-['Lemonada'] text-xl font-bold bg-[#fbdd68] text-[#000e2a] font-bold">
+              <h1 className="font-['Inter'] text-xl font-bold text-white">
                 BIG HAT LEADERBOARDS
               </h1>
-              <p className="text-[10px] bg-[#fbdd68] text-[#000e2a] font-bold/60 font-mono tracking-wider">
+              <p className="text-[10px] text-[#fbdd68] font-mono tracking-wider">
                 // TRIVIA_LEADERBOARD
               </p>
             </div>
@@ -455,10 +455,10 @@ const Dashboard = () => {
             <CardContent>
               <Tabs value={mode} onValueChange={setMode} data-testid="mode-tabs">
                 <TabsList className="w-full bg-[#141b50]">
-                  <TabsTrigger value="leaderboard" className="flex-1 data-[state=active]:bg-[rgba(251,221,104,0.15)] data-[state=active]:bg-[#fbdd68] text-[#000e2a] font-bold" data-testid="mode-leaderboard">
+                  <TabsTrigger value="leaderboard" className="flex-1 text-[#8892b0] data-[state=active]:bg-[rgba(251,221,104,0.15)] data-[state=active]:text-[#fbdd68]" data-testid="mode-leaderboard">
                     Leaderboard
                   </TabsTrigger>
-                  <TabsTrigger value="tournament" className="flex-1 data-[state=active]:bg-[rgba(251,221,104,0.15)] data-[state=active]:bg-[#fbdd68] text-[#000e2a] font-bold" data-testid="mode-tournament">
+                  <TabsTrigger value="tournament" className="flex-1 text-[#8892b0] data-[state=active]:bg-[rgba(251,221,104,0.15)] data-[state=active]:text-[#fbdd68]" data-testid="mode-tournament">
                     Tournament
                   </TabsTrigger>
                 </TabsList>
@@ -479,7 +479,7 @@ const Dashboard = () => {
                   onClick={handleFetchDirect}
                   disabled={syncing}
                   size="sm"
-                  className="flex-1 bg-[#fbdd68] text-[#000e2a] font-bold hover:bg-[#f5d050] border-[#fbdd68]"
+                  className="flex-1 text-white hover:bg-[#f5d050] border-[#fbdd68]"
                   data-testid="sharepoint-sync-button"
                 >
                   <FolderSync className="w-4 h-4 mr-1" />
@@ -498,7 +498,7 @@ const Dashboard = () => {
               </div>
               
               {syncing && (
-                <div className="flex items-center gap-2 text-xs bg-[#fbdd68] text-[#000e2a] font-bold/60">
+                <div className="flex items-center gap-2 text-xs text-[#8892b0]">
                   <RefreshCw className="w-3 h-3 animate-spin" />
                   <span className="font-mono">Fetching from SharePoint...</span>
                 </div>
@@ -507,7 +507,7 @@ const Dashboard = () => {
               {scoreFiles.length > 0 && (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50" data-testid="file-count">
+                    <span className="text-xs font-mono text-[#8892b0]" data-testid="file-count">
                       {scoreFiles.length} files available
                     </span>
                   </div>
@@ -533,9 +533,9 @@ const Dashboard = () => {
 
               {selectedFile && (
                 <div className="text-xs space-y-1 p-3 rounded-lg holographic border border-[#fbdd68]/10">
-                  <p className="bg-[#fbdd68] text-[#000e2a] font-bold"><strong>Venue:</strong> <span className="text-white/70">{selectedFile.data?.location || selectedFile.venue}</span></p>
-                  <p className="bg-[#fbdd68] text-[#000e2a] font-bold"><strong>Date:</strong> <span className="text-white/70">{selectedFile.data?.date}</span></p>
-                  <p className="bg-[#fbdd68] text-[#000e2a] font-bold"><strong>Teams:</strong> <span className="text-white/70">{selectedFile.data?.teams?.length}</span></p>
+                  <p className="text-white"><strong>Venue:</strong> <span className="text-white/70">{selectedFile.data?.location || selectedFile.venue}</span></p>
+                  <p className="text-white"><strong>Date:</strong> <span className="text-white/70">{selectedFile.data?.date}</span></p>
+                  <p className="text-white"><strong>Teams:</strong> <span className="text-white/70">{selectedFile.data?.teams?.length}</span></p>
                 </div>
               )}
             </CardContent>
@@ -551,7 +551,7 @@ const Dashboard = () => {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div>
-                  <label className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1 block">SELECT VENUE TO ACCUMULATE SCORES</label>
+                  <label className="text-[10px] font-mono text-white/50 mb-1 block">SELECT VENUE TO ACCUMULATE SCORES</label>
                   <Select value={selectedVenue} onValueChange={setSelectedVenue}>
                     <SelectTrigger className="bg-[#141b50] border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/40 text-white" data-testid="venue-selector">
                       <SelectValue placeholder="Choose a venue..." />
@@ -567,8 +567,8 @@ const Dashboard = () => {
                 </div>
 
                 {selectedVenue && venues[selectedVenue] && (
-                  <div className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/40 p-2 rounded-lg" style={{ background: 'rgba(225,48,108,0.05)' }}>
-                    <p className="bg-[#fbdd68] text-[#000e2a] font-bold mb-1 font-semibold">Weeks included:</p>
+                  <div className="text-[10px] font-mono text-white/40 p-2 rounded-lg" style={{ background: 'rgba(225,48,108,0.05)' }}>
+                    <p className="text-white mb-1 font-semibold">Weeks included:</p>
                     {venues[selectedVenue].map((f, i) => (
                       <p key={i}>{f.data?.date || f.file_name}</p>
                     ))}
@@ -577,20 +577,20 @@ const Dashboard = () => {
 
                 {/* Team Rename / Merge */}
                 <div>
-                  <Button  size="sm" className="w-full border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10 text-purple-300"
+                  <Button  size="sm" className="w-full border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-purple-500/10 text-purple-300"
                     onClick={() => setShowRenameEditor(!showRenameEditor)} data-testid="rename-teams-button">
                     <Settings2 className="w-4 h-4 mr-1" />
                     Rename / Merge Teams ({Object.keys(teamRenames).length})
                   </Button>
                   {showRenameEditor && (
-                    <div className="mt-2 space-y-2 p-3 rounded-lg border border-purple-500/10 bg-[rgba(131,58,180,0.05)]">
+                    <div className="mt-2 space-y-2 p-3 rounded-lg border border-[rgba(251,221,104,0.15)] bg-[#141b50]">
                       <p className="text-[10px] font-mono text-purple-400/60">Merge teams that changed names between weeks:</p>
                       <div className="flex gap-2">
                         <Input value={renameFrom} onChange={(e) => setRenameFrom(e.target.value)} placeholder="Old name..." 
-                          className="bg-[#141b50] border-purple-500/20 text-white text-xs flex-1" />
+                          className="bg-[#141b50] border-[rgba(251,221,104,0.15)] text-white text-xs flex-1" />
                         <span className="text-purple-400/40 text-xs self-center">&rarr;</span>
                         <Input value={renameTo} onChange={(e) => setRenameTo(e.target.value)} placeholder="New name..."
-                          className="bg-[#141b50] border-purple-500/20 text-white text-xs flex-1" />
+                          className="bg-[#141b50] border-[rgba(251,221,104,0.15)] text-white text-xs flex-1" />
                       </div>
                       <Button size="sm" className="w-full btn-futuristic text-xs" onClick={handleAddRename} disabled={!renameFrom.trim() || !renameTo.trim()}>
                         Merge
@@ -629,7 +629,7 @@ const Dashboard = () => {
                         ))}
                       </div>
                     </ScrollArea>
-                    <Button onClick={populateFromAccumulated} className="w-full btn-futuristic font-['Lemonada'] tracking-wider text-sm" data-testid="use-accumulated-button">
+                    <Button onClick={populateFromAccumulated} className="w-full btn-futuristic font-['Inter'] tracking-wider text-sm" data-testid="use-accumulated-button">
                       <Zap className="w-4 h-4 mr-1" />
                       Build Bracket from Standings
                     </Button>
@@ -652,22 +652,22 @@ const Dashboard = () => {
                   value={tournamentName}
                   onChange={(e) => setTournamentName(e.target.value)}
                   placeholder="Tournament Name"
-                  className="bg-[#141b50] border-[rgba(251,221,104,0.15)] text-white font-['Lemonada'] tracking-wider"
+                  className="bg-[#141b50] border-[rgba(251,221,104,0.15)] text-white font-['Inter'] tracking-wider"
                   data-testid="tournament-name-input"
                 />
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1 block">YEAR</label>
+                    <label className="text-[10px] font-mono text-white/50 mb-1 block">YEAR</label>
                     <Input
                       value={tournamentYear}
                       onChange={(e) => setTournamentYear(e.target.value)}
                       placeholder="2026"
-                      className="bg-[#141b50] border-[rgba(251,221,104,0.15)] bg-[#fbdd68] text-[#000e2a] font-bold font-['Lemonada'] tracking-wider text-center"
+                      className="bg-[#141b50] border-[rgba(251,221,104,0.15)] text-white font-['Inter'] tracking-wider text-center"
                       data-testid="tournament-year-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1 block">TEAMS</label>
+                    <label className="text-[10px] font-mono text-white/50 mb-1 block">TEAMS</label>
                     <Input
                       type="number" value={totalTeams}
                       onChange={(e) => setTotalTeams(parseInt(e.target.value) || 2)}
@@ -677,7 +677,7 @@ const Dashboard = () => {
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1 block">BYES</label>
+                    <label className="text-[10px] font-mono text-white/50 mb-1 block">BYES</label>
                     <Input
                       type="number" value={byeCount}
                       onChange={(e) => setByeCount(parseInt(e.target.value) || 0)}
@@ -697,9 +697,9 @@ const Dashboard = () => {
                   </DialogTrigger>
                   <DialogContent className="bg-[#111118] border-[rgba(251,221,104,0.15)] text-white">
                     <DialogHeader>
-                      <DialogTitle className="font-['Lemonada'] tracking-wider">Enter Team Names</DialogTitle>
+                      <DialogTitle className="font-['Inter'] tracking-wider">Enter Team Names</DialogTitle>
                     </DialogHeader>
-                    <p className="text-sm bg-[#fbdd68] text-[#000e2a] font-bold/60 font-mono">One team per line, in seed order (1st line = #1 seed).</p>
+                    <p className="text-sm text-white/60 font-mono">One team per line, in seed order (1st line = #1 seed).</p>
                     <textarea
                       className="w-full h-64 p-3 rounded-lg text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-yellow-500/50 bg-[#141b50] border border-[rgba(251,221,104,0.15)] text-white"
                       value={teamInputs}
@@ -707,7 +707,7 @@ const Dashboard = () => {
                       placeholder={"Team Alpha\nTeam Beta\nTeam Gamma\n..."}
                       data-testid="team-names-textarea"
                     />
-                    <Button onClick={handleSetTeams} className="w-full btn-futuristic font-['Lemonada'] tracking-wider" data-testid="save-teams-button">
+                    <Button onClick={handleSetTeams} className="w-full btn-futuristic font-['Inter'] tracking-wider" data-testid="save-teams-button">
                       Set {teamInputs.split('\n').filter(l => l.trim()).length} Teams
                     </Button>
                   </DialogContent>
@@ -715,7 +715,7 @@ const Dashboard = () => {
 
                 <Button 
                   onClick={handleGenerateBracket}
-                  className="w-full btn-futuristic font-['Lemonada'] tracking-wider"
+                  className="w-full btn-futuristic font-['Inter'] tracking-wider"
                   disabled={tournamentTeams.length < 2}
                   data-testid="generate-bracket-button"
                 >
@@ -734,18 +734,18 @@ const Dashboard = () => {
                           if (!match || !match.teamA || !match.teamB || match.completed) return null;
                           return (
                             <div key={matchId} className="p-2 rounded-lg mb-2 border border-[#fbdd68]/10 bg-[rgba(225,48,108,0.05)]">
-                              <p className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1">{round.label}</p>
+                              <p className="text-[10px] font-mono text-white/50 mb-1">{round.label}</p>
                               <div className="flex items-center gap-2">
                                 <Button 
-                                  size="sm"  className="flex-1 text-xs truncate border-[rgba(251,221,104,0.15)] hover:bg-[#f5d050] bg-[#fbdd68] text-[#000e2a] font-bold"
+                                  size="sm"  className="flex-1 text-xs truncate border-[rgba(251,221,104,0.15)] hover:bg-[#f5d050] text-white"
                                   onClick={() => handleRecordResult(matchId, match.teamA.seed, 1, 0)}
                                   data-testid={`win-${matchId}-a`}
                                 >
                                   {match.teamA.name}
                                 </Button>
-                                <span className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/30">vs</span>
+                                <span className="text-[10px] font-mono text-white/30">vs</span>
                                 <Button 
-                                  size="sm"  className="flex-1 text-xs truncate border-purple-500/20 hover:bg-purple-500/10 text-purple-200"
+                                  size="sm"  className="flex-1 text-xs truncate border-[rgba(251,221,104,0.15)] hover:bg-purple-500/10 text-purple-200"
                                   onClick={() => handleRecordResult(matchId, match.teamB.seed, 0, 1)}
                                   data-testid={`win-${matchId}-b`}
                                 >
@@ -772,13 +772,13 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <label className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1.5 block">ASPECT RATIO</label>
+                <label className="text-[10px] font-mono text-white/50 mb-1.5 block">ASPECT RATIO</label>
                 <Tabs value={aspectRatio} onValueChange={setAspectRatio} data-testid="aspect-ratio-select">
                   <TabsList className="w-full bg-[#141b50]">
-                    <TabsTrigger value="landscape" className="flex-1 text-xs data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500/20 data-[state=active]:to-yellow-500/20 data-[state=active]:bg-[#fbdd68] text-[#000e2a] font-bold" data-testid="aspect-landscape-option">
+                    <TabsTrigger value="landscape" className="flex-1 text-xs data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500/20 data-[state=active]:to-yellow-500/20 data-[state=active]:text-white" data-testid="aspect-landscape-option">
                       16:9 Live
                     </TabsTrigger>
-                    <TabsTrigger value="portrait" className="flex-1 text-xs data-[state=active]:bg-[rgba(251,221,104,0.15)] data-[state=active]:bg-[#fbdd68] text-[#000e2a] font-bold" data-testid="aspect-portrait-option">
+                    <TabsTrigger value="portrait" className="flex-1 text-xs data-[state=active]:bg-[rgba(251,221,104,0.15)] data-[state=active]:text-white" data-testid="aspect-portrait-option">
                       9:16 Story
                     </TabsTrigger>
                   </TabsList>
@@ -786,8 +786,8 @@ const Dashboard = () => {
               </div>
 
               <div>
-                <label className="text-[10px] font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50 mb-1.5 block">
-                  ANIMATION SPEED: <span className="bg-[#fbdd68] text-[#000e2a] font-bold">{animationSpeed}x</span>
+                <label className="text-[10px] font-mono text-white/50 mb-1.5 block">
+                  ANIMATION SPEED: <span className="text-white">{animationSpeed}x</span>
                 </label>
                 <Slider
                   value={[animationSpeed]}
@@ -800,14 +800,14 @@ const Dashboard = () => {
               <div className="flex gap-2">
                 <Button 
                   onClick={() => { setIsAnimating(false); setTimeout(() => setIsAnimating(true), 50); }}
-                   size="sm" className="flex-1 border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-[#f5d050] bg-[#fbdd68] text-[#000e2a] font-bold"
+                   size="sm" className="flex-1 border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-[#f5d050] text-white"
                   data-testid="replay-animation-button"
                 >
                   <Play className="w-4 h-4 mr-1" /> Replay
                 </Button>
                 <Button 
                   onClick={() => setIsAnimating(!isAnimating)}
-                   size="sm" className="flex-1 border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10 text-purple-300"
+                   size="sm" className="flex-1 border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-purple-500/10 text-purple-300"
                   data-testid="pause-animation-button"
                 >
                   {isAnimating ? <Pause className="w-4 h-4 mr-1" /> : <Play className="w-4 h-4 mr-1" />}
@@ -828,7 +828,7 @@ const Dashboard = () => {
               <div className="flex gap-2">
                 <Button 
                   onClick={handleExportPng}
-                   size="sm" className="flex-1 border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-[#f5d050] bg-[#fbdd68] text-[#000e2a] font-bold"
+                   size="sm" className="flex-1 border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-[#f5d050] text-white"
                   disabled={exporting}
                   data-testid="export-png-button"
                 >
@@ -857,7 +857,7 @@ const Dashboard = () => {
 
               <Button 
                 onClick={handleOpenLiveView}
-                 size="sm" className="w-full border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-[#f5d050] bg-[#fbdd68] text-[#000e2a] font-bold"
+                 size="sm" className="w-full border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-[#f5d050] text-white"
                 data-testid="open-live-view-button"
               >
                 <Maximize2 className="w-4 h-4 mr-1" /> Open Live View
@@ -868,13 +868,13 @@ const Dashboard = () => {
               <div className="flex gap-2">
                 <Dialog open={showSavePreset} onOpenChange={setShowSavePreset}>
                   <DialogTrigger asChild>
-                    <Button  size="sm" className="flex-1 border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10 text-purple-300" data-testid="preset-save-button">
+                    <Button  size="sm" className="flex-1 border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/50 hover:bg-purple-500/10 text-purple-300" data-testid="preset-save-button">
                       <Save className="w-4 h-4 mr-1" /> Save Preset
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="bg-[#111118] border-[rgba(251,221,104,0.15)] text-white">
                     <DialogHeader>
-                      <DialogTitle className="font-['Lemonada'] tracking-wider">Save Animation Preset</DialogTitle>
+                      <DialogTitle className="font-['Inter'] tracking-wider">Save Animation Preset</DialogTitle>
                     </DialogHeader>
                     <Input
                       value={presetName}
@@ -883,12 +883,12 @@ const Dashboard = () => {
                       className="bg-[#141b50] border-[rgba(251,221,104,0.15)] text-white"
                       data-testid="preset-name-input"
                     />
-                    <div className="text-xs space-y-1 font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50">
+                    <div className="text-xs space-y-1 font-mono text-white/50">
                       <p>Mode: <span className="text-white/70">{mode}</span></p>
                       <p>Aspect: <span className="text-white/70">{aspectRatio}</span></p>
                       <p>Speed: <span className="text-white/70">{animationSpeed}x</span></p>
                     </div>
-                    <Button onClick={handleSavePreset} className="btn-futuristic font-['Lemonada'] tracking-wider" data-testid="confirm-save-preset">
+                    <Button onClick={handleSavePreset} className="btn-futuristic font-['Inter'] tracking-wider" data-testid="confirm-save-preset">
                       Save
                     </Button>
                   </DialogContent>
@@ -914,7 +914,7 @@ const Dashboard = () => {
                         >
                           {p.name}
                         </button>
-                        <Badge className="text-[10px] bg-[#141b50] bg-[#fbdd68] text-[#000e2a] font-bold border-[rgba(251,221,104,0.15)]">{p.mode}</Badge>
+                        <Badge className="text-[10px] bg-[#141b50] text-white border-[rgba(251,221,104,0.15)]">{p.mode}</Badge>
                         <button 
                           onClick={() => handleDeletePreset(p.id)}
                           className="text-xs px-1 text-white/30 hover:text-red-400 transition-colors"
@@ -928,7 +928,7 @@ const Dashboard = () => {
               )}
 
               {exportStatus && (
-                <p className="text-xs text-center font-mono bg-[#fbdd68] text-[#000e2a] font-bold/50" data-testid="export-status">
+                <p className="text-xs text-center font-mono text-white/50" data-testid="export-status">
                   {exportStatus}
                 </p>
               )}
@@ -942,13 +942,13 @@ const Dashboard = () => {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="h-px w-4 bg-[#fbdd68]" />
-                <h2 className="font-mono text-xs uppercase tracking-[0.2em] bg-[#fbdd68] text-[#000e2a] font-bold">
+                <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-white">
                   Preview — {mode === 'leaderboard' ? 'Leaderboard' : 'Tournament'} — {aspectRatio === 'landscape' ? '16:9' : '9:16'}
                 </h2>
               </div>
               <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(225,48,108,0.1)] border border-[rgba(251,221,104,0.15)]">
                 <div className={`h-1.5 w-1.5 rounded-full ${isAnimating ? 'bg-green-400 animate-pulse' : 'bg-[#fbdd68]'}`} />
-                <span className={`text-[10px] font-mono ${isAnimating ? 'text-green-400' : 'bg-[#fbdd68] text-[#000e2a] font-bold'}`}>
+                <span className={`text-[10px] font-mono ${isAnimating ? 'text-green-400' : 'text-white'}`}>
                   {isAnimating ? 'ANIMATING' : 'STATIC'}
                 </span>
               </div>
@@ -984,21 +984,21 @@ const Dashboard = () => {
             {!currentData && mode === 'leaderboard' && (
               <div className="mt-6 p-8 rounded-xl text-center border border-dashed border-[rgba(251,221,104,0.15)] bg-[rgba(225,48,108,0.03)]">
                 <div className="h-16 w-16 rounded-2xl bg-[rgba(225,48,108,0.1)] flex items-center justify-center mx-auto mb-4 shadow-yellow-500/20 float">
-                  <FolderSync className="w-8 h-8 bg-[#fbdd68] text-[#000e2a] font-bold/40" />
+                  <FolderSync className="w-8 h-8 text-white/40" />
                 </div>
-                <p className="font-['Lemonada'] tracking-wider text-white/80">No Data Loaded</p>
-                <p className="text-sm mt-2 font-mono bg-[#fbdd68] text-[#000e2a] font-bold/40">
+                <p className="font-['Inter'] tracking-wider text-white/80">No Data Loaded</p>
+                <p className="text-sm mt-2 font-mono text-white/40">
                   // CLICK_FETCH_TO_PULL_SCORES
                 </p>
               </div>
             )}
 
             {mode === 'tournament' && !bracket && (
-              <div className="mt-6 p-8 rounded-xl text-center border border-dashed border-purple-500/20 bg-[rgba(131,58,180,0.03)]">
+              <div className="mt-6 p-8 rounded-xl text-center border border-dashed border-[rgba(251,221,104,0.15)] bg-[rgba(131,58,180,0.03)]">
                 <div className="h-16 w-16 rounded-2xl bg-[rgba(131,58,180,0.1)] flex items-center justify-center mx-auto mb-4 shadow-yellow-500/20 float">
                   <Settings2 className="w-8 h-8 text-purple-500/40" />
                 </div>
-                <p className="font-['Lemonada'] tracking-wider text-white/80">No Bracket Generated</p>
+                <p className="font-['Inter'] tracking-wider text-white/80">No Bracket Generated</p>
                 <p className="text-sm mt-2 font-mono text-purple-400/40">
                   // ENTER_TEAMS_AND_GENERATE
                 </p>
@@ -1031,7 +1031,7 @@ const Dashboard = () => {
               <X className="w-5 h-5" />
             </button>
             <QrCode className="w-8 h-8 mx-auto mb-3" style={{ color: '#FCAF45' }} />
-            <h3 className="font-['Lemonada'] tracking-wider text-lg mb-1" style={{ color: '#F4F2FF' }}>
+            <h3 className="font-['Inter'] tracking-wider text-lg mb-1" style={{ color: '#F4F2FF' }}>
               SCAN TO DOWNLOAD
             </h3>
             <p className="text-xs font-mono mb-6" style={{ color: 'rgba(225, 48, 108, 0.6)' }}>
@@ -1054,7 +1054,7 @@ const Dashboard = () => {
             </p>
             <Button 
               onClick={() => setShowQr(false)}
-              className="mt-4 btn-futuristic font-['Lemonada'] tracking-wider"
+              className="mt-4 btn-futuristic font-['Inter'] tracking-wider"
             >
               Done
             </Button>
