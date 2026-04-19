@@ -949,3 +949,45 @@ body {
   margin-bottom: 0.75rem;
   background: none !important;
 }
+
+/* Scoreboard dropdown/select overrides */
+.scoreboard-select [role="listbox"],
+.scoreboard-select [data-radix-popper-content-wrapper] > div {
+  background-color: #141b50 !important;
+  border: 1px solid rgba(251, 221, 104, 0.3) !important;
+  color: white !important;
+}
+.scoreboard-select [role="option"] {
+  color: white !important;
+  background: transparent !important;
+}
+.scoreboard-select [role="option"]:hover,
+.scoreboard-select [role="option"][data-highlighted] {
+  background-color: rgba(251, 221, 104, 0.15) !important;
+  outline: 1px solid rgba(251, 221, 104, 0.5) !important;
+  color: #fbdd68 !important;
+}
+.scoreboard-select [role="option"][data-state="checked"] {
+  background-color: rgba(251, 221, 104, 0.2) !important;
+  color: #fbdd68 !important;
+}
+
+/* Global fix for ALL select/dropdown popover content on scoreboard pages */
+[data-radix-popper-content-wrapper] [role="listbox"] {
+  background-color: #141b50 !important;
+  border: 1px solid rgba(251, 221, 104, 0.3) !important;
+}
+[data-radix-popper-content-wrapper] [role="option"] {
+  color: white !important;
+}
+[data-radix-popper-content-wrapper] [role="option"]:hover,
+[data-radix-popper-content-wrapper] [role="option"][data-highlighted] {
+  background-color: rgba(251, 221, 104, 0.15) !important;
+  color: #fbdd68 !important;
+  outline: 1px solid rgba(251, 221, 104, 0.4);
+  border-radius: 0.375rem;
+}
+[data-radix-popper-content-wrapper] [role="option"][data-state="checked"] {
+  background-color: rgba(251, 221, 104, 0.2) !important;
+  color: #fbdd68 !important;
+}
