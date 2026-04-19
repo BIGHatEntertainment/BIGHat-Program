@@ -3,9 +3,9 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api/scoreboard`;
 
 const api = {
   // SharePoint
-  getSharePointFiles: () => axios.get(`${API}/sharepoint/files`).then(r => r.data),
+  getSharePointFiles: () => axios.get(`${API}/sharepoint/files`, { timeout: 30000 }).then(r => r.data),
+  getSharePointFileContent: (fileId) => axios.get(`${API}/sharepoint/file/${fileId}`, { timeout: 30000 }).then(r => r.data),
   syncScores: () => axios.post(`${API}/sharepoint/sync`, {}, { timeout: 60000 }).then(r => r.data),
-  getScoreFiles: () => axios.get(`${API}/sharepoint/files`, { timeout: 30000 }).then(r => r.data),
   
   // Scores
   getScores: () => axios.get(`${API}/scores`).then(r => r.data),
@@ -17,7 +17,7 @@ const api = {
   createPreset: (data) => axios.post(`${API}/presets`, data).then(r => r.data),
   deletePreset: (id) => axios.delete(`${API}/presets/${id}`).then(r => r.data),
   
-  // Exports - these return the full axios response (not .data) because the dashboard uses .data
+  // Exports
   uploadExport: (formData) => axios.post(`${API}/exports/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000,
   }),

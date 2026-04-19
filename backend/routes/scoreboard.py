@@ -522,3 +522,24 @@ async def advance_tournament(tournament_id: str, body: Dict[str, Any] = Body(...
     updated = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     return updated
 
+
+@router.get("/sharepoint/file/{file_id}")
+async def get_score_file_content(file_id: str):
+    """Download and return the JSON content of a specific score file from SharePoint."""
+    import httpx
+    token = await _get_sp_token()
+    if not token:
+        raise HTTPException(status_code=500, detail="SharePoint auth failed")
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.get(
+                f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{file_id}/content",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                return r.json()
+            raise HTTPException(status_code=r.status_code, detail="Failed to download file")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -512,9 +512,21 @@ const Dashboard = () => {
                     </span>
                   </div>
                   <Select 
-                    onValueChange={(val) => {
+                    onValueChange={async (val) => {
                       const file = scoreFiles.find(f => f.file_name === val);
-                      setSelectedFile(file);
+                      if (file && file.file_id) {
+                        try {
+                          toast.info('Loading score data...');
+                          const content = await api.getSharePointFileContent(file.file_id);
+                          setSelectedFile({ ...file, data: content });
+                          toast.success(`Loaded: ${content.teams?.length || 0} teams`);
+                        } catch (err) {
+                          toast.error('Failed to load file content');
+                          setSelectedFile(file);
+                        }
+                      } else {
+                        setSelectedFile(file);
+                      }
                     }}
                   >
                     <SelectTrigger className="bg-[#141b50] border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/40 text-white" data-testid="sharepoint-file-picker">
