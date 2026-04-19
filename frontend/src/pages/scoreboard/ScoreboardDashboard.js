@@ -338,39 +338,49 @@ const Dashboard = () => {
   const handleExportVideo = async () => {
     setExporting(true);
     setExportStatus('Capturing high-res frame...');
-    toast.info('Creating smooth 15s video at 30fps...');
+    toast.info('Creating video...');
     try {
-      // Disable animations so we capture the final complete state
       const wasAnimating = isAnimating;
       setIsAnimating(false);
       await new Promise(r => setTimeout(r, 300));
 
-      // Capture a single high-quality PNG frame
       if (window.__renderStage?.exportAsPng) {
         const dataUrl = await window.__renderStage.exportAsPng();
         if (dataUrl) {
-          setExportStatus('Uploading to server for video creation...');
+          setExportStatus('Uploading image...');
           
-          // Convert to blob
           const res = await fetch(dataUrl);
           const blob = await res.blob();
           
-          // Upload PNG to server and convert to smooth 30fps MP4
-          setExportStatus('Creating 15s MP4 at 30fps (450 frames)...');
+          setExportStatus('Creating MP4 video...');
           const formData = new FormData();
           formData.append('file', blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.png`);
+          
           const videoRes = await api.imageToVideo(formData, 15);
           
-          // Download the MP4
-          const mp4Url = `${BACKEND_URL}${videoRes.data.url}`;
-          const link = document.createElement('a');
-          link.download = videoRes.data.file_id || `bighat-${mode}-${aspectRatio}.mp4`;
-          link.href = mp4Url;
-          link.click();
+          if (videoRes.data?.url) {
+            const mp4Url = `${BACKEND_URL}${videoRes.data.url}`;
+            // Download using fetch+blob to avoid new tab auth issues
+            try {
+              const dlRes = await fetch(mp4Url);
+              const dlBlob = await dlRes.blob();
+              const url = window.URL.createObjectURL(dlBlob);
+              const link = document.createElement('a');
+              link.download = videoRes.data.file_id || `bighat-${mode}-${aspectRatio}.mp4`;
+              link.href = url;
+              link.click();
+              window.URL.revokeObjectURL(url);
+            } catch {
+              // Fallback: direct link
+              window.open(mp4Url, '_blank');
+            }
 
-          setQrUrl(mp4Url);
-          setExportStatus(`MP4 exported! ${videoRes.data.total_frames} frames @ ${videoRes.data.fps}fps. QR ready.`);
-          toast.success('Smooth MP4 video exported!');
+            setQrUrl(mp4Url);
+            setExportStatus('MP4 exported! QR ready.');
+            toast.success('Video exported!');
+          } else {
+            throw new Error('No video URL returned');
+          }
         }
       }
       // Restore animation state

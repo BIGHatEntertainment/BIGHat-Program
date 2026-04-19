@@ -303,7 +303,7 @@ async def upload_export(file: UploadFile = File(...)):
                 logger.info(f"Converted {file_id} to {mp4_id}")
                 return {
                     "file_id": mp4_id,
-                    "url": f"/api/exports/{mp4_id}",
+                    "url": f"/api/scoreboard/exports/{mp4_id}",
                     "size": mp4_path.stat().st_size,
                     "format": "mp4",
                 }
@@ -314,7 +314,7 @@ async def upload_export(file: UploadFile = File(...)):
     
     return {
         "file_id": file_id,
-        "url": f"/api/exports/{file_id}",
+        "url": f"/api/scoreboard/exports/{file_id}",
         "size": len(content),
         "format": ext,
     }
@@ -339,11 +339,8 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
     mp4_path = EXPORTS_DIR / mp4_id
     
     try:
-        # Create a smooth 30fps MP4 from the still image
-        # - loop the image for {duration} seconds
-        # - fade in from black over first 2 seconds  
-        # - slight zoom effect for visual interest
-        # - true 30fps = duration * 30 frames
+        # Create a lightweight MP4 optimized for production
+        # Use 1fps (still image), ultrafast preset, and CRF 30 for small/fast output
         result = subprocess.run(
             ['ffmpeg', '-y',
              '-loop', '1',
@@ -351,23 +348,20 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
              '-c:v', 'libx264',
              '-t', str(duration),
              '-pix_fmt', 'yuv420p',
-             '-r', '30',
-             '-preset', 'medium',
-             '-crf', '18',
-             '-vf', (
-                 f'fps=30,'
-                 f'fade=t=in:st=0:d=2,'
-                 f'zoompan=z=\'min(zoom+0.0003,1.08)\':d={duration*30}:s=1080x1920:fps=30,'
-                 f'fade=t=out:st={duration-1}:d=1'
-             ),
+             '-r', '1',
+             '-preset', 'ultrafast',
+             '-tune', 'stillimage',
+             '-crf', '30',
+             '-threads', '1',
+             '-vf', f'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
              '-movflags', '+faststart',
              str(mp4_path)],
-            capture_output=True, text=True, timeout=300
+            capture_output=True, text=True, timeout=180
         )
         
         if result.returncode != 0:
-            # Fallback without zoompan (in case resolution doesn't match)
-            logger.warning(f"Zoompan failed, trying simple approach: {result.stderr[:300]}")
+            # Simplest possible approach
+            logger.warning(f"First attempt failed, trying minimal: {result.stderr[:200]}")
             result = subprocess.run(
                 ['ffmpeg', '-y',
                  '-loop', '1',
@@ -375,13 +369,12 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
                  '-c:v', 'libx264',
                  '-t', str(duration),
                  '-pix_fmt', 'yuv420p',
-                 '-r', '30',
-                 '-preset', 'medium',
-                 '-crf', '18',
-                 '-vf', f'fps=30,fade=t=in:st=0:d=2,fade=t=out:st={duration-1}:d=1',
-                 '-movflags', '+faststart',
+                 '-r', '1',
+                 '-preset', 'ultrafast',
+                 '-crf', '35',
+                 '-threads', '1',
                  str(mp4_path)],
-                capture_output=True, text=True, timeout=300
+                capture_output=True, text=True, timeout=120
             )
         
         if result.returncode == 0 and mp4_path.exists():
@@ -389,7 +382,7 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
             logger.info(f"Created video {mp4_id}: {size} bytes, {duration}s @ 30fps")
             return {
                 "file_id": mp4_id,
-                "url": f"/api/exports/{mp4_id}",
+                "url": f"/api/scoreboard/exports/{mp4_id}",
                 "size": size,
                 "format": "mp4",
                 "duration": duration,

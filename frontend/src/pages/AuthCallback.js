@@ -22,15 +22,21 @@ export default function AuthCallback() {
     const sessionId = sessionIdMatch[1];
 
     const processAuth = async () => {
-      try {
-        await loginWithGoogle(sessionId);
-        // Clear the hash and redirect to dashboard
-        window.history.replaceState({}, document.title, '/');
-        navigate('/', { replace: true });
-      } catch (err) {
-        console.error('Google auth failed:', err);
-        const errorMsg = err.response?.data?.detail || 'Authentication failed';
-        navigate('/login', { replace: true, state: { error: errorMsg } });
+      // Retry up to 3 times with delays
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await loginWithGoogle(sessionId);
+          window.history.replaceState({}, document.title, '/');
+          navigate('/', { replace: true });
+          return;
+        } catch (err) {
+          console.warn(`Google auth attempt ${attempt} failed:`, err.message);
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 1500)); // Wait 1.5s before retry
+          } else {
+            navigate('/login', { replace: true, state: { error: 'Authentication failed. Please try again.' } });
+          }
+        }
       }
     };
 
