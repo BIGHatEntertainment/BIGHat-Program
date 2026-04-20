@@ -10,6 +10,7 @@ import ChyronBar from '../components/ChyronBar';
 import ResourcesSection from '../components/ResourcesSection';
 import SlotMachineRandomizer from '../components/trivia/SlotMachineRandomizer';
 import TriviaBuilderWizard from '../components/trivia/TriviaBuilderWizard';
+import AnswerSheetsPopup from '../components/trivia/AnswerSheetsPopup';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const [employeeId, setEmployeeId] = useState(null);
   const [showRoulette, setShowRoulette] = useState(false);
   const [showBuildWizard, setShowBuildWizard] = useState(false);
+  const [showAnswerSheets, setShowAnswerSheets] = useState(false);
   const [locations, setLocations] = useState([]);
 
   // Find the schedule employee ID matching the hub user's email
@@ -94,6 +96,9 @@ export default function Dashboard() {
         break;
       case 'build-wizard':
         setShowBuildWizard(true);
+        break;
+      case 'answer-sheets':
+        setShowAnswerSheets(true);
         break;
       case 'round-generator':
         navigate('/roundmaker');
@@ -175,6 +180,9 @@ export default function Dashboard() {
         }}
         userName={user?.name?.split(' ')[0]?.toLowerCase() || ''}
       />
+
+      {/* Answer Sheets Popup */}
+      <AnswerSheetsPopup open={showAnswerSheets} onClose={() => setShowAnswerSheets(false)} />
     </div>
   );
 }

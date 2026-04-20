@@ -9,6 +9,7 @@ const resourceCategories = [
       { id: 'round-generator', name: 'Round Generator', description: 'Auto-generate trivia rounds by category', icon: Zap },
       { id: 'round-roulette', name: 'Round Roulette', description: 'Randomize round types for variety', icon: Shuffle },
       { id: 'build-wizard', name: 'Build Wizard', description: 'Step-by-step trivia show builder', icon: Wand2 },
+      { id: 'answer-sheets', name: 'Answer Sheets', description: 'Download printable trivia answer sheets', icon: Grid3X3 },
     ]
   },
   {
