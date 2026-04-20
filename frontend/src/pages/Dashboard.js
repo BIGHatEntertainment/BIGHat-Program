@@ -11,6 +11,7 @@ import ResourcesSection from '../components/ResourcesSection';
 import SlotMachineRandomizer from '../components/trivia/SlotMachineRandomizer';
 import TriviaBuilderWizard from '../components/trivia/TriviaBuilderWizard';
 import AnswerSheetsPopup from '../components/trivia/AnswerSheetsPopup';
+import BingoCardsPopup from '../components/bingo/BingoCardsPopup';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [showRoulette, setShowRoulette] = useState(false);
   const [showBuildWizard, setShowBuildWizard] = useState(false);
   const [showAnswerSheets, setShowAnswerSheets] = useState(false);
+  const [showBingoCards, setShowBingoCards] = useState(false);
   const [locations, setLocations] = useState([]);
 
   // Find the schedule employee ID matching the hub user's email
@@ -106,6 +108,9 @@ export default function Dashboard() {
       case 'scoreboard-tool':
         navigate('/scoreboard');
         break;
+      case 'bingo-card-generator':
+        setShowBingoCards(true);
+        break;
       case 'story-generator':
         navigate('/story-generator');
         break;
@@ -183,6 +188,9 @@ export default function Dashboard() {
 
       {/* Answer Sheets Popup */}
       <AnswerSheetsPopup open={showAnswerSheets} onClose={() => setShowAnswerSheets(false)} />
+
+      {/* Bingo Cards Popup */}
+      <BingoCardsPopup open={showBingoCards} onClose={() => setShowBingoCards(false)} />
     </div>
   );
 }

@@ -891,3 +891,71 @@ async def get_available_decades():
             {"id": "emo", "name": "Emo", "subtitle": "Emo & Pop Punk"},
         ]}
 
+
+# Bingo Card Downloads from SharePoint
+SP_DRIVE_ID_BINGO = "b!vFnSKrOPL02dj2-MZU_EHmAti4Py2yROjNNkPjQrBjDvfYp5Cu28QIG93vJSp4xs"
+BINGO_CARDS = {
+    "1970s": "01Z4PLCYQFK2X2EFJZG5GK7ZSBGKOKZXDZ",
+    "1980s": "01Z4PLCYVUNIXKBBUZmjb2KN6XX5KDQH4B",
+    "1990s": "01Z4PLCYXTLA6NQWDXYZH3ABXUWYXLZ5U7",
+    "Y2K": "01Z4PLCYQX6DNOIBCVJFHYPPMZ5DUH6VRK",
+}
+BINGO_SENIOR_CARDS = {
+    "1970s": "01Z4PLCYVBTDHW3SOCM5C3VN2GTSYHDBWX",
+    "1980s": "01Z4PLCYWFD5JWISBYKNDI74KBKWBTFSMQ",
+    "1990s": "01Z4PLCYWVZG5KA3OYEZDY6AZKRUXHBM5R",
+    "Y2K": "01Z4PLCYUQYLDJOXCCQBBZSMHPW4K3FVDV",
+    "X-Mas": "01Z4PLCYQPHDG4JOCOGNFIBCBPXZJD3IQG",
+}
+BINGO_SPECIAL_CARDS = {
+    "Pop Punk & Emo": "01Z4PLCYX24Y24KVO2EBA3BI3LYHQXV4T5",
+    "X-Mas": "01Z4PLCYX22ODIB5XGFVCZVZ7VLLDCGQAT",
+}
+
+@router.get("/bingo-cards")
+async def list_bingo_cards():
+    """List available bingo card categories."""
+    return {
+        "standard": [{"id": k, "name": f"Bingo ({k})"} for k in ["1970s", "1980s", "1990s", "Y2K"]],
+        "senior": [{"id": k, "name": f"Senior Bingo ({k})"} for k in BINGO_SENIOR_CARDS.keys()],
+        "special": [{"id": k, "name": f"Special: {k}"} for k in BINGO_SPECIAL_CARDS.keys()],
+    }
+
+@router.get("/bingo-cards/download/{category}/{decade}")
+async def download_bingo_card(category: str, decade: str):
+    """Download a bingo card PDF from SharePoint."""
+    import httpx
+    
+    if category == "standard":
+        file_id = BINGO_CARDS.get(decade)
+    elif category == "senior":
+        file_id = BINGO_SENIOR_CARDS.get(decade)
+    elif category == "special":
+        file_id = BINGO_SPECIAL_CARDS.get(decade)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid category")
+    
+    if not file_id:
+        raise HTTPException(status_code=404, detail=f"No card found for {category}/{decade}")
+    
+    tenant = os.environ.get("ROUNDMAKER_TENANT_ID", os.environ.get("AZURE_TENANT_ID", ""))
+    cid = os.environ.get("ROUNDMAKER_CLIENT_ID", os.environ.get("AZURE_CLIENT_ID", ""))
+    csec = os.environ.get("ROUNDMAKER_CLIENT_SECRET", os.environ.get("AZURE_CLIENT_SECRET", ""))
+    
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
+            "grant_type": "client_credentials", "client_id": cid, "client_secret": csec,
+            "scope": "https://graph.microsoft.com/.default"
+        })
+        if r.status_code != 200:
+            raise HTTPException(status_code=500, detail="SharePoint auth failed")
+        token = r.json()["access_token"]
+    
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID_BINGO}/items/{file_id}/content",
+            headers={"Authorization": f"Bearer {token}"})
+        if r.status_code == 200:
+            from fastapi.responses import Response
+            return Response(content=r.content, media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="Bingo ({decade}).pdf"'})
+        raise HTTPException(status_code=500, detail="Failed to download card")
