@@ -48,6 +48,7 @@ export default function HostDashboard() {
   const videoRef = useRef(null);
   const audienceWindowRef = useRef(null);
   const wsRef = useRef(null);
+  const introAudioRef = useRef(null);
 
   // Game State
   const [gameState, setGameState] = useState(null);
@@ -389,10 +390,40 @@ export default function HostDashboard() {
   };
 
   // Game controls
+  const playIntroSound = () => {
+    try {
+      const audio = new Audio('/bingo-intro.mp3');
+      audio.volume = 0.6;
+      introAudioRef.current = audio;
+      audio.play().catch(() => {});
+      
+      // Get the audio duration and fade out over the last 3 seconds
+      audio.addEventListener('loadedmetadata', () => {
+        const duration = audio.duration;
+        const fadeStart = Math.max(0, duration - 3);
+        
+        const fadeInterval = setInterval(() => {
+          if (!introAudioRef.current) { clearInterval(fadeInterval); return; }
+          const timeLeft = duration - audio.currentTime;
+          if (timeLeft <= 3 && timeLeft > 0) {
+            audio.volume = Math.max(0, (timeLeft / 3) * 0.6);
+          } else if (timeLeft <= 0) {
+            clearInterval(fadeInterval);
+          }
+        }, 100);
+      });
+      
+      audio.addEventListener('ended', () => { introAudioRef.current = null; });
+    } catch (e) {
+      console.warn('Intro sound failed:', e);
+    }
+  };
+
   const startGame = async () => {
     try {
       await axios.post(`${API}/bingo/game/start`);
       toast.success("Game started!");
+      playIntroSound();
       playBallsRolling();
     } catch (error) {
       toast.error("Failed to start game");
