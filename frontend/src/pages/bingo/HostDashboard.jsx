@@ -433,6 +433,9 @@ export default function HostDashboard() {
         broadcastVideoState({ videoUrl: url, isPlaying: true, currentSong: song });
         setTimeout(() => {
           if (videoRef.current) {
+            // Reset volume to 50% for each new song
+            videoRef.current.volume = 0.5;
+            setVolume(0.5);
             videoRef.current.play();
             setIsPlaying(true);
             broadcastVideoState({ videoUrl: url, isPlaying: true, currentSong: song });
