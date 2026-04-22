@@ -172,19 +172,10 @@ export default function AudienceView() {
           return prev;
         });
 
-        // Celebration logic — only use old overlay if NO winner video from BroadcastChannel
+        // Winner state managed ONLY via BroadcastChannel — not polling
         if (g.winner_name && g.winner_name !== winnerNameRef.current) {
           winnerNameRef.current = g.winner_name;
           setWinnerName(g.winner_name);
-          // Only show old celebration if winner video is NOT playing
-          if (!winnerVideoUrl) {
-            setShowCelebration(true);
-            showCelebrationRef.current = true;
-            triggerCelebration();
-          }
-        } else if (!g.bingo_claimed && showCelebrationRef.current && !g.winner_name) {
-          showCelebrationRef.current = false;
-          setShowCelebration(false);
         }
       } catch (error) {
         // Silent — don't disrupt the view
@@ -287,7 +278,7 @@ export default function AudienceView() {
           </header>
 
           {/* Song info overlay — above video, only when toggled on */}
-          {showSongInfo && activeSong && !showCelebration && !isPaused && (
+          {showSongInfo && activeSong && !isPaused && (
             <div
               className="absolute left-0 right-0 text-center pointer-events-none"
               style={{ bottom: 120, zIndex: 15 }}
@@ -307,7 +298,7 @@ export default function AudienceView() {
           {!mirrorVideoUrl && (
             <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 5 }}>
               <AnimatePresence mode="wait">
-                {showCelebration ? (
+                {false ? (
                   <motion.div key="celebration" initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} className="text-center">
                     <motion.div animate={{ scale: [1, 1.1, 1], rotate: [0, -5, 5, 0] }} transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}>
                       <Trophy size={200} className="text-yellow-400 mx-auto mb-8 fill-yellow-400" />
@@ -355,7 +346,7 @@ export default function AudienceView() {
           )}
 
           {/* Celebration overlay — shows ON TOP of video too */}
-          {mirrorVideoUrl && showCelebration && (
+          {false && (
             <div className="absolute inset-0 bg-black/80 flex items-center justify-center" style={{ zIndex: 25 }}>
               <div className="text-center">
                 <Trophy size={200} className="text-yellow-400 mx-auto mb-8 fill-yellow-400" />
@@ -426,7 +417,7 @@ export default function AudienceView() {
 
         <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ zIndex: 5 }}>
           <AnimatePresence mode="wait">
-            {showCelebration ? (
+            {false ? (
               <motion.div key="celebration" initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} className="text-center">
                 <motion.div animate={{ scale: [1, 1.1, 1], rotate: [0, -5, 5, 0] }} transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}>
                   <Trophy size={160} className="text-yellow-400 mx-auto mb-8 fill-yellow-400" />
