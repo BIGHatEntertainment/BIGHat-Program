@@ -38,6 +38,9 @@ export default function AudienceView() {
   const [mirrorVideoUrl, setMirrorVideoUrl] = useState(null);
   const [showSongInfo, setShowSongInfo] = useState(true);
   const [broadcastSong, setBroadcastSong] = useState(null);
+  const [bingoVerifying, setBingoVerifying] = useState(false);
+  const [winnerVideoUrl, setWinnerVideoUrl] = useState(null);
+  const winnerVideoRef = useRef(null);
 
   // Fullscreen + viewport scaling state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -87,8 +90,27 @@ export default function AudienceView() {
     const channel = new BroadcastChannel("music-bingo-video");
 
     channel.onmessage = (event) => {
-      const { type, videoUrl, isPlaying, currentTime, volume, showSongInfo: songInfoFlag, currentSong } = event.data;
+      const { type, videoUrl, isPlaying, currentTime, volume, showSongInfo: songInfoFlag, currentSong, bingoVerifying: verifying, bingoWinner, winnerVideo, roundEnded } = event.data;
       if (type !== "video-state") return;
+
+      // Handle bingo verification state
+      if (verifying !== undefined) setBingoVerifying(verifying);
+      
+      // Handle winner video
+      if (bingoWinner !== undefined) {
+        if (bingoWinner && winnerVideo) {
+          setWinnerVideoUrl(winnerVideo);
+          setBingoVerifying(false);
+        } else {
+          setWinnerVideoUrl(null);
+        }
+      }
+      
+      // Handle round ended
+      if (roundEnded) {
+        setWinnerVideoUrl(null);
+        setBingoVerifying(false);
+      }
 
       if (songInfoFlag !== undefined) setShowSongInfo(songInfoFlag);
       if (currentSong !== undefined) setBroadcastSong(currentSong);
@@ -100,7 +122,7 @@ export default function AudienceView() {
 
       // Direct DOM manipulation for video — no state updates, no re-renders
       const vid = videoRef.current;
-      if (vid) {
+      if (vid && !bingoWinner) {
         if (currentTime !== undefined && Math.abs(vid.currentTime - currentTime) > 2) {
           vid.currentTime = currentTime;
         }
@@ -456,6 +478,31 @@ export default function AudienceView() {
           </div>
         </footer>
       </div>
+
+      {/* Bingo Verifying Overlay */}
+      {bingoVerifying && !winnerVideoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.9)' }}>
+          <div className="text-center">
+            <div className="font-display text-6xl text-yellow-400 mb-4 animate-pulse">BINGO!</div>
+            <p className="text-2xl text-white">Host is verifying...</p>
+            <p className="text-lg text-zinc-400 mt-2">Please stand by</p>
+          </div>
+        </div>
+      )}
+
+      {/* Winner Video Loop */}
+      {winnerVideoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+          <video
+            ref={winnerVideoRef}
+            src={winnerVideoUrl}
+            autoPlay
+            loop
+            playsInline
+            className="w-full h-full object-contain"
+          />
+        </div>
+      )}
     </div>
   );
 }

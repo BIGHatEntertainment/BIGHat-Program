@@ -79,6 +79,8 @@ export default function HostDashboard() {
   // Bingo Verification Dialog
   const [showBingoDialog, setShowBingoDialog] = useState(false);
   const [winnerName, setWinnerName] = useState("");
+  const [showWinnerVideo, setShowWinnerVideo] = useState(false);
+  const winnerVideoRef = useRef(null);
 
   // Audience song info toggle
   const [showSongInfoAudience, setShowSongInfoAudience] = useState(true);
@@ -527,14 +529,29 @@ export default function HostDashboard() {
   const claimBingo = async () => {
     try {
       await axios.post(`${API}/bingo/game/bingo`);
+      setShowBingoDialog(true);
       stopTimer();
       if (videoRef.current) {
         videoRef.current.pause();
         setIsPlaying(false);
       }
+      // Tell audience "Host is verifying Bingo"
+      broadcastVideoState({ bingoVerifying: true });
     } catch (error) {
       toast.error("Failed to claim bingo");
     }
+  };
+
+  const getWinnerVideoUrl = () => {
+    const decade = gameState?.settings?.music_decade || '1980s';
+    const map = {
+      '1970s': '/bingo-winner-70s.mp4',
+      '1980s': '/bingo-winner-80s.mp4',
+      '1990s': '/bingo-winner-90s.mp4',
+      '2000s': '/bingo-winner-y2k.mp4',
+      'y2k': '/bingo-winner-y2k.mp4',
+    };
+    return map[decade.toLowerCase()] || map[decade] || '/bingo-winner-80s.mp4';
   };
 
   const verifyBingo = async (confirmed) => {
@@ -544,12 +561,17 @@ export default function HostDashboard() {
         confirmed
       });
       setShowBingoDialog(false);
-      setWinnerName("");
       
       if (confirmed) {
+        // Show winner video looping on both host and audience
+        setShowWinnerVideo(true);
+        broadcastVideoState({ bingoWinner: true, winnerVideo: getWinnerVideoUrl(), winnerName: winnerName || "Winner" });
         toast.success(`BINGO confirmed for ${winnerName || "Winner"}!`);
       } else {
+        // Rejected - resume the current song
+        setWinnerName("");
         toast.info("Bingo rejected - game continues");
+        broadcastVideoState({ bingoVerifying: false });
         if (videoRef.current && videoUrl) {
           videoRef.current.play();
           setIsPlaying(true);
@@ -557,6 +579,32 @@ export default function HostDashboard() {
       }
     } catch (error) {
       toast.error("Failed to verify bingo");
+    }
+  };
+
+  const handleWinnerContinue = () => {
+    // Continue the current round - stop winner video, resume song
+    setShowWinnerVideo(false);
+    setWinnerName("");
+    broadcastVideoState({ bingoWinner: false });
+    if (videoRef.current && videoUrl) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const handleWinnerEndRound = async () => {
+    // End the round and go back to lobby
+    setShowWinnerVideo(false);
+    setWinnerName("");
+    broadcastVideoState({ bingoWinner: false, roundEnded: true });
+    try {
+      await axios.post(`${API}/bingo/game/end-round`);
+      stopTimer();
+      toast.info("Round ended - returning to lobby");
+      navigate('/bingo');
+    } catch {
+      navigate('/bingo');
     }
   };
 
@@ -1194,6 +1242,28 @@ export default function HostDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Winner Video Overlay — shows on top of everything */}
+      {showWinnerVideo && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center" style={{ backgroundColor: '#000' }}>
+          <video
+            ref={winnerVideoRef}
+            src={getWinnerVideoUrl()}
+            autoPlay
+            loop
+            className="w-full h-full object-contain"
+            style={{ maxHeight: '80vh' }}
+          />
+          <div className="absolute bottom-8 flex gap-4">
+            <button onClick={handleWinnerContinue} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#22c55e', color: '#000' }}>
+              Continue Round
+            </button>
+            <button onClick={handleWinnerEndRound} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#ef4444', color: '#fff' }}>
+              End Round
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
