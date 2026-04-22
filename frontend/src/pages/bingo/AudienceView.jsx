@@ -172,13 +172,16 @@ export default function AudienceView() {
           return prev;
         });
 
-        // Celebration logic
+        // Celebration logic — only use old overlay if NO winner video from BroadcastChannel
         if (g.winner_name && g.winner_name !== winnerNameRef.current) {
           winnerNameRef.current = g.winner_name;
           setWinnerName(g.winner_name);
-          setShowCelebration(true);
-          showCelebrationRef.current = true;
-          triggerCelebration();
+          // Only show old celebration if winner video is NOT playing
+          if (!winnerVideoUrl) {
+            setShowCelebration(true);
+            showCelebrationRef.current = true;
+            triggerCelebration();
+          }
         } else if (!g.bingo_claimed && showCelebrationRef.current && !g.winner_name) {
           showCelebrationRef.current = false;
           setShowCelebration(false);

@@ -543,7 +543,7 @@ export default function HostDashboard() {
   };
 
   const getWinnerVideoUrl = () => {
-    const decade = gameState?.settings?.music_decade || '1980s';
+    const decade = (gameState?.settings?.music_decade || '1980s').toLowerCase();
     const map = {
       '1970s': '/bingo-winner-70s.mp4',
       '1980s': '/bingo-winner-80s.mp4',
@@ -551,7 +551,7 @@ export default function HostDashboard() {
       '2000s': '/bingo-winner-y2k.mp4',
       'y2k': '/bingo-winner-y2k.mp4',
     };
-    return map[decade.toLowerCase()] || map[decade] || '/bingo-winner-80s.mp4';
+    return map[decade] || '/bingo-winner-80s.mp4';
   };
 
   const verifyBingo = async (confirmed) => {
@@ -1036,7 +1036,7 @@ export default function HostDashboard() {
             </DialogHeader>
             <div className="py-6 space-y-4">
               <p className="text-center text-zinc-400">Verify the player's card and enter their name</p>
-              <Input placeholder="Winner's name" value={winnerName} onChange={(e) => setWinnerName(e.target.value)} className="bg-zinc-800 border-zinc-700 text-center text-lg" />
+              <Input placeholder="Winner's name" value={winnerName} onChange={(e) => setWinnerName(e.target.value)} className="bg-zinc-800 border-zinc-700 text-center text-lg text-white placeholder:text-zinc-500" />
             </div>
             <DialogFooter className="flex gap-4">
               <Button variant="destructive" className="flex-1" onClick={() => verifyBingo(false)}>
@@ -1228,7 +1228,7 @@ export default function HostDashboard() {
           </DialogHeader>
           <div className="py-6 space-y-4">
             <p className="text-center text-zinc-400">Verify the player's card and enter their name</p>
-            <Input placeholder="Winner's name" value={winnerName} onChange={(e) => setWinnerName(e.target.value)} className="bg-zinc-800 border-zinc-700 text-center text-lg" />
+            <Input placeholder="Winner's name" value={winnerName} onChange={(e) => setWinnerName(e.target.value)} className="bg-zinc-800 border-zinc-700 text-center text-lg text-white placeholder:text-zinc-500" />
           </div>
           <DialogFooter className="flex gap-4">
             <Button variant="destructive" className="flex-1" onClick={() => verifyBingo(false)}>
