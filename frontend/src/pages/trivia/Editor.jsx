@@ -1172,7 +1172,7 @@ const Editor = () => {
       
       // For trivia-imported presentations, use GridFS storage
       if (presentation.type === 'trivia-imported') {
-        await presentationAPI.storeAllSlides(presentation.id, presentation.slides);
+        presentationAPI.storeAllSlides(presentation.id, presentation.slides).catch(() => {});
         toast('Presentation saved to GridFS successfully');
       } else {
         // Regular presentations use direct MongoDB update
@@ -2322,7 +2322,7 @@ const Editor = () => {
       try {
         if (presentation.type === 'trivia-imported') {
           // Use GridFS for trivia presentations to avoid MongoDB 16MB limit
-          await presentationAPI.storeAllSlides(presentation.id, finalSlides);
+          presentationAPI.storeAllSlides(presentation.id, finalSlides).catch(() => {});
           toast({ title: '✅ Formatting Complete & Saved!', description: `${finalSlides.length} slides formatted and saved to GridFS` });
         } else {
           // Regular presentations use direct MongoDB update

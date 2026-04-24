@@ -1509,7 +1509,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       </div>
 
       {/* Save & Exit — ONLY on the very LAST slide of the entire presentation */}
-      {currentSlideIndex === slides.length - 1 && currentSlide?.metadata?.roundType === 'WINNERS' && (
+      {currentIndex === slides.length - 1 && currentSlide?.metadata?.roundType === 'WINNERS' && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[200]">
           <Button
             onClick={handleEndPresentation}
