@@ -163,12 +163,12 @@ const Editor = () => {
               const failedSections = [];
               
               // Helper function to fetch a section with retry logic
-              const fetchSectionWithRetry = async (section, maxRetries = 3) => {
+              const fetchSectionWithRetry = async (section, maxRetries = 5) => {
                 let lastError = null;
                 
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                   try {
-                    console.log(`📦 Fetching section '${section.name}' (attempt ${attempt}/${maxRetries})`);
+                    console.log(`Fetching section '${section.name}' (attempt ${attempt}/${maxRetries})`);
                     
                     const sectionData = await presentationAPI.fetchSection(presentationId, section.name, {
                       roundType: section.roundType,
@@ -178,27 +178,32 @@ const Editor = () => {
                     const sectionSlides = sectionData?.slides || [];
                     
                     if (sectionSlides.length === 0) {
-                      console.warn(`⚠️ Section '${section.name}' returned 0 slides`);
+                      console.warn(`Section '${section.name}' returned 0 slides`);
+                      // If 0 slides, retry — might be a transient issue
+                      if (attempt < maxRetries) {
+                        const delay = Math.pow(2, attempt - 1) * 2000;
+                        console.log(`Retrying empty section in ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                      }
                     } else {
-                      console.log(`✅ Section '${section.name}' loaded: ${sectionSlides.length} slides`);
+                      console.log(`Section '${section.name}' loaded: ${sectionSlides.length} slides`);
                     }
                     
                     return sectionSlides;
                     
                   } catch (err) {
                     lastError = err;
-                    console.error(`❌ Section '${section.name}' attempt ${attempt} failed:`, err.message || err);
+                    console.error(`Section '${section.name}' attempt ${attempt} failed:`, err.message || err);
                     
                     if (attempt < maxRetries) {
-                      // Exponential backoff: 1s, 2s, 4s
-                      const delay = Math.pow(2, attempt - 1) * 1000;
-                      console.log(`⏳ Retrying in ${delay}ms...`);
+                      const delay = Math.pow(2, attempt - 1) * 2000;
+                      console.log(`Retrying in ${delay}ms...`);
                       await new Promise(resolve => setTimeout(resolve, delay));
                     }
                   }
                 }
                 
-                // All retries failed
                 throw lastError || new Error(`Failed to load section '${section.name}' after ${maxRetries} attempts`);
               };
               

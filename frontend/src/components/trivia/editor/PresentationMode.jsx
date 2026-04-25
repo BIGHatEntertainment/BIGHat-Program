@@ -1508,8 +1508,14 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         </Button>
       </div>
 
-      {/* Save & Exit — ONLY on the very LAST slide of the entire presentation */}
-      {currentIndex === slides.length - 1 && currentSlide?.metadata?.roundType === 'WINNERS' && (
+      {/* Save & Exit — shows on the last few slides with WINNERS/SCORES type, or the very last slide regardless */}
+      {(
+        (currentSlide?.metadata?.roundType === 'WINNERS') ||
+        (currentSlide?.metadata?.roundType === 'SCORES') ||
+        (currentSlide?.metadata?.roundType === 'TOTAL') ||
+        (currentIndex >= slides.length - 3 && currentSlide?.metadata?.roundType !== 'MC' && currentSlide?.metadata?.roundType !== 'REG' && currentSlide?.metadata?.roundType !== 'MISC' && currentSlide?.metadata?.roundType !== 'MYS' && currentSlide?.metadata?.roundType !== 'BIG') ||
+        (currentIndex === slides.length - 1)
+      ) && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[200]">
           <Button
             onClick={handleEndPresentation}

@@ -66,7 +66,7 @@ export const presentationAPI = {
     const response = await axios.post(`${API}/slide-fetcher/fetch-section/${presentationId}/${sectionName}`, {
       roundType: sectionData.roundType,
       roundOrder: sectionData.roundOrder
-    }, { timeout: 60000 });
+    }, { timeout: 120000 });
     return response.data;
   },
   storeAllSlides: async (presentationId, slides) => {
