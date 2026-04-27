@@ -54,13 +54,23 @@ def _map_event_type_to_category(event_type: str) -> str:
 
 def _send_email(to: str, subject: str, html: str):
     """Send email via Resend (sync call, use in thread)."""
+    # Ensure API key is set (may not be available at import time)
+    api_key = os.environ.get('RESEND_API_KEY', '')
+    if not api_key:
+        raise ValueError("RESEND_API_KEY not configured")
+    resend.api_key = api_key
+    
+    sender = os.environ.get('SENDER_EMAIL', 'info@bighat.live')
     params = {
-        "from": SENDER_EMAIL,
+        "from": sender,
         "to": [to],
         "subject": subject,
         "html": html,
     }
-    return resend.Emails.send(params)
+    logger.info(f"Sending email to {to}: {subject}")
+    result = resend.Emails.send(params)
+    logger.info(f"Email sent to {to}: {result}")
+    return result
 
 
 # ===================== PRIMARY FRIDAY REPORT =====================
@@ -84,7 +94,11 @@ async def send_primary_friday_reports():
     all_employees = {e['id']: e for e in await _db.employees.find({}, {"_id": 0}).to_list(500)}
     all_venues = {v['id']: v for v in await _db.venues.find({}, {"_id": 0}).to_list(200)}
     all_events = await _db.events.find({
-        "date": {"$gte": next_mon_iso, "$lte": next_sun_end}
+        "$or": [
+            {"date": {"$gte": next_mon_iso, "$lte": next_sun_end}},
+            {"date": {"$gte": datetime(next_mon.year, next_mon.month, next_mon.day, tzinfo=timezone.utc),
+                      "$lte": datetime(next_sun.year, next_sun.month, next_sun.day, 23, 59, 59, tzinfo=timezone.utc)}}
+        ]
     }, {"_id": 0}).to_list(2000)
     all_blackouts = await _db.blackout_dates.find({}, {"_id": 0}).to_list(1000)
 
@@ -258,7 +272,11 @@ async def send_secondary_monday_availability():
     all_employees = {e['id']: e for e in await _db.employees.find({}, {"_id": 0}).to_list(500)}
     all_venues = {v['id']: v for v in await _db.venues.find({}, {"_id": 0}).to_list(200)}
     all_events = await _db.events.find({
-        "date": {"$gte": mon_iso, "$lte": sun_end},
+        "$or": [
+            {"date": {"$gte": mon_iso, "$lte": sun_end}},
+            {"date": {"$gte": datetime(mon.year, mon.month, mon.day, tzinfo=timezone.utc),
+                      "$lte": datetime(sun.year, sun.month, sun.day, 23, 59, 59, tzinfo=timezone.utc)}}
+        ],
         "claimed_by": None,
     }, {"_id": 0}).to_list(2000)
 
