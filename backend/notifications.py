@@ -147,9 +147,12 @@ async def send_primary_friday_reports():
             event_rows = []
             for ev in sorted(venue_events, key=lambda x: x['date']):
                 ev_date = datetime.fromisoformat(ev['date']) if isinstance(ev['date'], str) else ev['date']
-                ev_date_str = ev_date.strftime('%Y-%m-%d')
-                day_str = ev_date.strftime('%A, %b %d')
-                time_str = ev_date.strftime('%I:%M %p')
+                # Convert UTC to MST (UTC-7) for display
+                MST_OFFSET = timedelta(hours=-7)
+                ev_date_mst = ev_date + MST_OFFSET if ev_date.tzinfo is None else ev_date + MST_OFFSET
+                ev_date_str = ev_date_mst.strftime('%Y-%m-%d')
+                day_str = ev_date_mst.strftime('%A, %b %d')
+                time_str = ev_date_mst.strftime('%I:%M %p').lstrip('0')
 
                 # Determine status
                 if ev.get('claimed_by') == emp_id:
@@ -308,10 +311,12 @@ async def send_secondary_monday_availability():
                 if ev_cat != category:
                     continue
                 ev_date = datetime.fromisoformat(ev['date']) if isinstance(ev['date'], str) else ev['date']
+                MST_OFF = timedelta(hours=-7)
+                ev_date_mst = ev_date + MST_OFF if ev_date.tzinfo is None else ev_date + MST_OFF
                 available_events.append({
                     "venue_name": venue['name'],
-                    "day": ev_date.strftime('%A, %b %d'),
-                    "time": ev_date.strftime('%I:%M %p'),
+                    "day": ev_date_mst.strftime('%A, %b %d'),
+                    "time": ev_date_mst.strftime('%I:%M %p').lstrip('0'),
                     "type": ev['event_type'],
                 })
 

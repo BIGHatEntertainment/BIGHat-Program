@@ -109,22 +109,24 @@ const VenueRoleManager = () => {
   const handleSendPrimaryEmails = async () => {
     setSendingPrimary(true);
     try {
-      const res = await axios.post(`${API}/notifications/send-primary-report`);
-      toast.success(`Primary reports sent: ${res.data.sent} email(s)`);
-      if (res.data.errors?.length) toast.warning(`${res.data.errors.length} failed`);
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.post(`${API}/reports/send-friday`, null, { headers, timeout: 60000 });
+      toast.success(res.data.message || `Primary reports sent!`);
     } catch (e) {
-      toast.error('Failed to send primary reports');
+      toast.error(e.response?.data?.detail || 'Failed to send primary reports');
     } finally { setSendingPrimary(false); }
   };
 
   const handleSendSecondaryEmails = async () => {
     setSendingSecondary(true);
     try {
-      const res = await axios.post(`${API}/notifications/send-secondary-availability`);
-      toast.success(`Secondary availability sent: ${res.data.sent} email(s)`);
-      if (res.data.errors?.length) toast.warning(`${res.data.errors.length} failed`);
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.post(`${API}/reports/send-monday`, null, { headers, timeout: 60000 });
+      toast.success(res.data.message || `Secondary availability sent!`);
     } catch (e) {
-      toast.error('Failed to send secondary availability');
+      toast.error(e.response?.data?.detail || 'Failed to send secondary availability');
     } finally { setSendingSecondary(false); }
   };
 

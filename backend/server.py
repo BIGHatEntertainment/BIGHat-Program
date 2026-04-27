@@ -493,6 +493,14 @@ async def lifespan(app: FastAPI):
     
     # Seed data
     await seed_data()
+    
+    # Initialize error tracker
+    try:
+        from error_tracker import set_database as set_error_db
+        set_error_db(db)
+    except Exception as e:
+        logger.warning(f"Error tracker not initialized: {e}")
+    
 
     # Seed trivia data from deployed Trivia Presenter API
     await seed_trivia_data()
@@ -1403,6 +1411,10 @@ async def trigger_friday_report(admin: dict = Depends(require_admin)):
         return {"message": f"Friday reports sent: {result.get('sent', 0)} emails", "details": result}
     except Exception as e:
         logger.error(f"Failed to send Friday reports: {e}")
+        try:
+            from error_tracker import log_error
+            await log_error("schedule_reports", "friday_report_failed", str(e))
+        except: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/reports/send-monday")
@@ -1414,7 +1426,19 @@ async def trigger_monday_report(admin: dict = Depends(require_admin)):
         return {"message": f"Monday reports sent: {result.get('sent', 0)} emails", "details": result}
     except Exception as e:
         logger.error(f"Failed to send Monday reports: {e}")
+        try:
+            from error_tracker import log_error
+            await log_error("schedule_reports", "monday_report_failed", str(e))
+        except: pass
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# Error log
+@api_router.get("/error-log")
+async def get_errors(admin: dict = Depends(require_admin)):
+    from error_tracker import get_error_log
+    return await get_error_log()
 
 
 # HEALTH & MISC
