@@ -37,6 +37,7 @@ export default function StoryGeneratorPage() {
   const [viewAll, setViewAll] = useState(false);
   const [eventMode, setEventMode] = useState(null); // null, 'bingo', or 'karaoke'
   const [assetImages, setAssetImages] = useState(null); // {locationUrl, hostUrl} from asset-urls
+  const [triviaQrUrl, setTriviaQrUrl] = useState(null);
 
   useEffect(() => {
     if (isAdmin) setViewAll(true);
@@ -81,6 +82,7 @@ export default function StoryGeneratorPage() {
     setGenerating(true);
     setGenProgress({ step: 'Starting generation...', progress: 5 });
     setGeneratedVideo(null);
+    setTriviaQrUrl(null);
     
     let jobId = null;
     
@@ -128,8 +130,25 @@ export default function StoryGeneratorPage() {
         if (status.status === 'completed') {
           const filename = status.result?.filename || status.filename;
           if (filename) {
-            setGeneratedVideo({ filename, downloadUrl: `${API}/story-generator/download/${filename}` });
+            const downloadUrl = `${API}/story-generator/download/${filename}`;
+            setGeneratedVideo({ filename, downloadUrl });
             toast({ title: 'Video Ready!', description: `Generated in ${status.result?.duration || '~20'}s` });
+            
+            // Store for QR download (fetch video → store-temp → get QR URL)
+            try {
+              const videoRes = await axios.get(downloadUrl, { responseType: 'arraybuffer', timeout: 60000 });
+              const videoBase64 = btoa(new Uint8Array(videoRes.data).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+              const storeRes = await axios.post(`${API}/story-generator/store-temp`, {
+                video_data: `data:video/mp4;base64,${videoBase64}`,
+                filename: filename.replace('.mp4', ''),
+              }, { timeout: 30000 });
+              if (storeRes.data.success) {
+                setTriviaQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
+              }
+            } catch (qrErr) {
+              // QR is optional — don't fail the flow
+              console.warn('QR store failed:', qrErr);
+            }
           } else {
             toast({ title: 'Error', description: 'Video completed but no file was produced', variant: 'destructive' });
           }
@@ -319,7 +338,7 @@ export default function StoryGeneratorPage() {
       <header style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104,0.15)' }}>
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => { setSelectedPres(null); setPreview(null); setGeneratedVideo(null); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }}>
+            <button onClick={() => { setSelectedPres(null); setPreview(null); setGeneratedVideo(null); setTriviaQrUrl(null); setAssetImages(null); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }}>
               <ArrowLeft size={14} /> Back
             </button>
             <button onClick={() => navigate('/')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
@@ -472,9 +491,19 @@ export default function StoryGeneratorPage() {
                     } catch (e) {
                       toast({ title: 'Download failed', description: 'Try generating again', variant: 'destructive' });
                     }
-                  }} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold" style={{ backgroundColor: '#22c55e', color: '#000' }}>
+                  }} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold" style={{ backgroundColor: '#22c55e', color: '#000' }} data-testid="trivia-download-btn">
                     <Download size={20} /> Download Story Video
                   </button>
+                  {/* QR Code for mobile download */}
+                  {triviaQrUrl && (
+                    <div className="flex flex-col items-center gap-3 p-4 mt-4 rounded-xl" style={{ backgroundColor: '#141b50', border: '1px solid rgba(251, 221, 104, 0.1)' }}>
+                      <p className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: '#8892b0' }}>Scan to Download on Phone</p>
+                      <div className="p-3 bg-white rounded-xl">
+                        <QRCodeSVG value={triviaQrUrl} size={140} />
+                      </div>
+                      <p className="text-[10px]" style={{ color: '#8892b0' }}>Expires in 1 hour</p>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
