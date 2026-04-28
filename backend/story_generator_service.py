@@ -1230,39 +1230,50 @@ class StoryGeneratorService:
         stats['step2Time'] = round(time.time() - step_start, 2)
         logger.info(f"[STEP 2/6] Completed in {stats['step2Time']}s")
         
-        # STEP 3: Fetch host image
-        report_progress(3, 'Fetching host image')
+        # STEP 3: Fetch host GIF (raw file for FFmpeg, not through PIL)
+        report_progress(3, 'Fetching host GIF')
         step_start = time.time()
-        logger.info(f"[STEP 3/6] Fetching host image for: {host_name}")
+        logger.info(f"[STEP 3/6] Fetching host GIF for: {host_name}")
         
+        host_gif_path = None
         try:
-            host_img, is_animated = self._get_host_image(host_name)
-            if host_img:
-                host_img = host_img.convert('RGB')
-                host_img = self._resize_to_story(host_img)
-                logger.info(f"[STEP 3/6] SUCCESS - Host image loaded ({host_img.size})")
-                stats['hostImage'] = 'loaded'
+            # Download raw GIF bytes
+            host_gif_content = self._graph_find_and_download('hosts', host_name, ['.gif'])
+            if host_gif_content:
+                host_gif_path = self.generated_dir / f"temp_host_{uuid.uuid4().hex[:8]}.gif"
+                with open(host_gif_path, 'wb') as f:
+                    f.write(host_gif_content)
+                logger.info(f"[STEP 3/6] SUCCESS - Host GIF saved ({len(host_gif_content)} bytes)")
+                stats['hostImage'] = 'gif_loaded'
             else:
-                logger.warning("[STEP 3/6] WARNING - No host image found, using placeholder")
-                host_img = self._create_placeholder_image(
+                logger.warning("[STEP 3/6] WARNING - No host GIF found, using placeholder")
+                host_placeholder = self._create_placeholder_image(
                     STORY_WIDTH, STORY_HEIGHT,
                     f"Host:\n{host_name.replace('_', ' ').title()}",
                     '#16213e'
                 )
+                host_placeholder = self._resize_to_story(host_placeholder)
+                frames.append(host_placeholder)
+                durations.append(5.0)
                 stats['hostImage'] = 'placeholder'
         except Exception as e:
-            logger.error(f"[STEP 3/6] ERROR fetching host image: {str(e)}")
+            logger.error(f"[STEP 3/6] ERROR fetching host GIF: {str(e)}")
             import traceback
             logger.error(f"[STEP 3/6] Traceback:\n{traceback.format_exc()}")
-            host_img = self._create_placeholder_image(
+            host_placeholder = self._create_placeholder_image(
                 STORY_WIDTH, STORY_HEIGHT,
                 f"Host:\n{host_name.replace('_', ' ').title()}",
                 '#16213e'
             )
+            frames.append(host_placeholder)
+            durations.append(5.0)
             stats['hostImage'] = 'error_placeholder'
         
-        frames.append(host_img)
-        durations.append(5.0)
+        # If we got a GIF, add None placeholder in frames (handled specially in encoding)
+        if host_gif_path:
+            frames.append(None)  # placeholder — host handled via GIF file
+            durations.append(5.0)
+        
         stats['step3Time'] = round(time.time() - step_start, 2)
         logger.info(f"[STEP 3/6] Completed in {stats['step3Time']}s")
         
@@ -1366,35 +1377,60 @@ class StoryGeneratorService:
         segment_files = []
         
         try:
-            # Save frames as temp PNG files
+            # Save frames as temp PNG files (skip None entries — those are handled separately)
             for i, frame in enumerate(frames):
-                temp_path = self.generated_dir / f"temp_frame_{uuid.uuid4().hex[:8]}_{i}.png"
-                frame.save(temp_path, 'PNG')
-                temp_files.append(temp_path)
-                logger.info(f"[STEP 6/6] Saved frame {i+1}: {temp_path.name}")
+                if frame is None:
+                    # Host GIF handled separately
+                    temp_files.append(None)
+                else:
+                    temp_path = self.generated_dir / f"temp_frame_{uuid.uuid4().hex[:8]}_{i}.png"
+                    frame.save(temp_path, 'PNG')
+                    temp_files.append(temp_path)
+                    logger.info(f"[STEP 6/6] Saved frame {i+1}: {temp_path.name}")
             
-            # Create individual video segments using FFmpeg in PARALLEL (3x faster)
+            # Create individual video segments using FFmpeg
             from concurrent.futures import ThreadPoolExecutor, as_completed
             
             def encode_segment(args):
                 """Encode a single segment - runs in thread pool"""
-                idx, temp_path, duration, segment_path = args
-                ffmpeg_cmd = [
-                    'ffmpeg', '-y',
-                    '-loop', '1',
-                    '-i', str(temp_path),
-                    '-t', str(duration),
-                    '-r', '1',  # 1fps — still images don't need more
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
-                    '-tune', 'stillimage',
-                    '-crf', '35',  # Lower quality = much faster
-                    '-threads', '1',
-                    '-pix_fmt', 'yuv420p',
-                    '-vf', 'scale=540:960',  # 540x960 — small enough for fast encode
-                    '-movflags', '+faststart',
-                    str(segment_path)
-                ]
+                idx, temp_path, duration, segment_path, is_gif = args
+                
+                if is_gif and temp_path:
+                    # Host GIF — loop and trim
+                    ffmpeg_cmd = [
+                        'ffmpeg', '-y',
+                        '-stream_loop', '-1',
+                        '-t', str(duration),
+                        '-i', str(temp_path),
+                        '-vf', 'scale=540:960,setsar=1',
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-crf', '23',
+                        '-threads', '1',
+                        '-pix_fmt', 'yuv420p',
+                        '-r', '15',
+                        '-movflags', '+faststart',
+                        '-an',
+                        str(segment_path)
+                    ]
+                else:
+                    # Static image — loop for duration
+                    ffmpeg_cmd = [
+                        'ffmpeg', '-y',
+                        '-loop', '1',
+                        '-i', str(temp_path),
+                        '-t', str(duration),
+                        '-r', '1',
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-tune', 'stillimage',
+                        '-crf', '35',
+                        '-threads', '1',
+                        '-pix_fmt', 'yuv420p',
+                        '-vf', 'scale=540:960',
+                        '-movflags', '+faststart',
+                        str(segment_path)
+                    ]
                 
                 result = subprocess.run(
                     ffmpeg_cmd, 
@@ -1413,7 +1449,10 @@ class StoryGeneratorService:
             for i, (temp_path, duration) in enumerate(zip(temp_files, fast_durations)):
                 segment_path = self.generated_dir / f"segment_{uuid.uuid4().hex[:8]}_{i}.mp4"
                 segment_files.append(segment_path)
-                segment_tasks.append((i, temp_path, duration, segment_path))
+                # Frame index 1 is host — use GIF if available
+                is_gif = (i == 1 and host_gif_path is not None)
+                actual_path = host_gif_path if is_gif else temp_path
+                segment_tasks.append((i, actual_path, duration, segment_path, is_gif))
             
             # Run segment encodings sequentially to avoid overwhelming production container
             logger.info(f"[STEP 6/6] Encoding {len(segment_tasks)} segments (720x1280, 15fps)...")
@@ -1485,9 +1524,11 @@ class StoryGeneratorService:
         finally:
             # Cleanup temp files and segment files
             all_temp_files = temp_files + segment_files
+            if host_gif_path:
+                all_temp_files.append(host_gif_path)
             for temp_file in all_temp_files:
                 try:
-                    if temp_file.exists():
+                    if temp_file and hasattr(temp_file, 'exists') and temp_file.exists():
                         temp_file.unlink()
                         logger.info(f"[CLEANUP] Deleted: {temp_file.name}")
                 except (IOError, OSError) as e:

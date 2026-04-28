@@ -36,6 +36,7 @@ export default function StoryGeneratorPage() {
   const [genProgress, setGenProgress] = useState({ step: '', progress: 0 });
   const [viewAll, setViewAll] = useState(false);
   const [eventMode, setEventMode] = useState(null); // null, 'bingo', or 'karaoke'
+  const [assetImages, setAssetImages] = useState(null); // {locationUrl, hostUrl} from asset-urls
 
   useEffect(() => {
     if (isAdmin) setViewAll(true);
@@ -57,16 +58,21 @@ export default function StoryGeneratorPage() {
     setSelectedPres(pres);
     setGeneratedVideo(null);
     setPreview(null);
+    setAssetImages(null);
     setLoadingPreview(true);
     try {
-      const [detailRes, triviaRes, previewRes] = await Promise.all([
+      const [detailRes, triviaRes, previewRes, assetRes] = await Promise.all([
         axios.get(`${API}/story-generator/presentation/${pres.id}`).catch(() => ({ data: {} })),
         axios.get(`${API}/trivia-viewer/${pres.id}`).catch(() => ({ data: {} })),
-        axios.post(`${API}/story-generator/preview/${pres.id}`, {}, { timeout: 60000 }).catch(() => ({ data: { preview: null } }))
+        axios.post(`${API}/story-generator/preview/${pres.id}`, {}, { timeout: 60000 }).catch(() => ({ data: { preview: null } })),
+        axios.get(`${API}/story-generator/asset-urls/${pres.id}`, { timeout: 60000 }).catch(() => ({ data: { assets: null } }))
       ]);
       const merged = { ...pres, ...detailRes.data, ...triviaRes.data };
       setSelectedPres(merged);
       setPreview(previewRes.data.preview);
+      if (assetRes.data?.assets) {
+        setAssetImages(assetRes.data.assets);
+      }
     } catch { } finally { setLoadingPreview(false); }
   };
 
@@ -375,11 +381,40 @@ export default function StoryGeneratorPage() {
 
           {/* CENTER - Phone Preview & Video Timeline */}
           <div className="col-span-12 lg:col-span-6 flex flex-col items-center">
-            {/* Phone Preview */}
+            {/* Phone Preview — shows actual location + host images */}
             <div className="w-[320px] rounded-3xl overflow-hidden mb-6" style={{ border: '2px solid rgba(251, 221, 104,0.3)', backgroundColor: '#000', aspectRatio: '9/16', maxHeight: '500px' }}>
               {loadingPreview ? (
                 <div className="w-full h-full flex items-center justify-center">
                   <Loader2 size={32} className="animate-spin" style={{ color: '#fbdd68' }} />
+                </div>
+              ) : assetImages?.locationUrl || assetImages?.hostUrl ? (
+                <div className="w-full h-full flex flex-col">
+                  {/* Location image — top half */}
+                  <div className="flex-1 relative overflow-hidden">
+                    {assetImages.locationUrl ? (
+                      <img src={assetImages.locationUrl} alt="Location" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(180deg, #141b50, #0a1940)' }}>
+                        <span className="text-lg font-bold uppercase" style={{ color: 'rgba(251,221,104,0.3)' }}>{location}</span>
+                      </div>
+                    )}
+                    <div className="absolute bottom-2 left-2 px-2 py-1 rounded text-[9px] font-bold uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: '#fbdd68' }}>
+                      Location — {preview?.location?.duration || 3}s
+                    </div>
+                  </div>
+                  {/* Host GIF — bottom half */}
+                  <div className="flex-1 relative overflow-hidden" style={{ borderTop: '2px solid rgba(251,221,104,0.3)' }}>
+                    {assetImages.hostUrl ? (
+                      <img src={assetImages.hostUrl} alt="Host" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(180deg, #0a1940, #000e2a)' }}>
+                        <span className="text-sm" style={{ color: '#8892b0' }}>Host GIF not found</span>
+                      </div>
+                    )}
+                    <div className="absolute bottom-2 left-2 px-2 py-1 rounded text-[9px] font-bold uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: '#ef4444' }}>
+                      Host GIF — {preview?.host?.duration || 3}s
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center p-8 relative" style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #000 100%)' }}>
@@ -389,7 +424,6 @@ export default function StoryGeneratorPage() {
                   <h2 className="text-2xl font-black uppercase tracking-wider text-center" style={{ color: '#fff', fontFamily: "'Space Grotesk', monospace" }}>
                     {location}
                   </h2>
-                  {/* Corner marks */}
                   <div className="absolute top-8 left-8 w-6 h-6 border-t-2 border-l-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />
                   <div className="absolute top-8 right-8 w-6 h-6 border-t-2 border-r-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />
                   <div className="absolute bottom-8 left-8 w-6 h-6 border-b-2 border-l-2" style={{ borderColor: 'rgba(251, 221, 104,0.5)' }} />

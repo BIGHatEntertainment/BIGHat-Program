@@ -28,6 +28,7 @@ users, employees, venues, events, venue_pricing, payment_acknowledgments, blacko
 ## Completed Work (Latest)
 - **2026-04-28:** Scoreboard Synthwave grid rewritten — parallel vertical/horizontal lines with fixed 10-step CSS mask fade to 0% at the gold horizon. Uses SVG grid + `mask-image` gradient for smooth scrolling fade effect.
 - **2026-04-28:** Bingo & Karaoke Story Generator added — SharePoint sharing URL resolution, event asset listing, preview images, 20s video generation (10s location + 10s host GIF), QR code for mobile download. Both event types use separate SharePoint folders with correct accent colors (purple for Bingo, red for Karaoke).
+- **2026-04-28:** Trivia Story preview upgraded — now shows actual location image + host GIF from SharePoint (split view like Bingo/Karaoke), and video generation uses raw GIF loop via FFmpeg instead of static PNG conversion.
 
 ## Pending
 - Karaoke app integration (P1 — currently "Coming Soon" placeholder)

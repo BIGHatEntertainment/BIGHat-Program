@@ -337,20 +337,17 @@ async def get_asset_urls_for_client(presentation_id: str) -> Dict:
             assets['locationMissing'] = True
             logger.warning(f"[AssetURLs] Location image not found: {location_name}")
         
-        # Host image
-        host_img, _ = service._get_host_image(host_name)
-        if host_img:
-            host_img = host_img.convert('RGB')
-            host_img = service._resize_to_story(host_img)
-            import io
-            buffer = io.BytesIO()
-            host_img.save(buffer, format='PNG')
-            assets['hostUrl'] = f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
-            logger.info("[AssetURLs] Host image loaded")
+        # Host image — GIF ONLY (raw bytes, preserves animation)
+        host_gif_content = service._graph_find_and_download('hosts', host_name, ['.gif'])
+        if host_gif_content:
+            assets['hostUrl'] = f"data:image/gif;base64,{base64.b64encode(host_gif_content).decode()}"
+            assets['hostIsGif'] = True
+            logger.info("[AssetURLs] Host GIF loaded (raw)")
         else:
             assets['hostUrl'] = None
             assets['hostMissing'] = True
-            logger.warning(f"[AssetURLs] Host image not found: {host_name}")
+            assets['hostIsGif'] = False
+            logger.warning(f"[AssetURLs] Host GIF not found: {host_name}")
         
         # Background image
         bg_img = service._get_background_image(location_name, num_rounds=num_rounds)
