@@ -1531,14 +1531,14 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         logger.info(f"[EventVideo:{job_id}] Host {host_ext} saved ({len(host_bytes)} bytes)")
         _video_jobs[job_id]["progress"] = 50
         
-        # Step 3: Encode location clip (10s)
-        sf = f"scale={W*2}:{H*2},setsar=1"  # Scale to 1080x1920 for output
-        encode_opts = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-r', str(FPS), '-an']
+        # Step 3: Encode location clip (10s) — use low settings for production CPU
+        sf = "scale=540:960,setsar=1"
+        encode_opts = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', '-an']
         
         loc_clip = os.path.join(temp_dir, "clip_loc.mp4")
         subprocess.run([
             'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_LOCATION), '-i', loc_path,
-            '-vf', sf, *encode_opts, loc_clip
+            '-vf', sf, '-r', '1', *encode_opts, loc_clip
         ], capture_output=True, text=True, timeout=60)
         logger.info(f"[EventVideo:{job_id}] Location clip done")
         _video_jobs[job_id]["progress"] = 65
@@ -1548,12 +1548,12 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         if host_is_gif:
             subprocess.run([
                 'ffmpeg', '-y', '-stream_loop', '-1', '-t', str(DUR_HOST), '-i', host_path,
-                '-vf', sf, *encode_opts, host_clip
-            ], capture_output=True, text=True, timeout=60)
+                '-vf', sf, '-r', '15', *encode_opts, host_clip
+            ], capture_output=True, text=True, timeout=120)
         else:
             subprocess.run([
                 'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_HOST), '-i', host_path,
-                '-vf', sf, *encode_opts, host_clip
+                '-vf', sf, '-r', '1', *encode_opts, host_clip
             ], capture_output=True, text=True, timeout=60)
         logger.info(f"[EventVideo:{job_id}] Host clip done (gif={host_is_gif})")
         _video_jobs[job_id]["progress"] = 80
@@ -1575,21 +1575,35 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         
         _video_jobs[job_id]["progress"] = 90
         
-        # Read final video
+        # Save video to temp store for download (avoids huge inline base64 responses)
         with open(output_path, 'rb') as f:
             mp4_bytes = f.read()
-        mp4_b64 = base64.b64encode(mp4_bytes).decode('utf-8')
         
         event_type = request_data["event_type"]
         filename = f"{event_type}_story_{uuid.uuid4().hex[:8]}.mp4"
         
-        logger.info(f"[EventVideo:{job_id}] Done! {len(mp4_bytes)//1024}KB")
+        # Store in the temp video store (same as QR downloads)
+        file_id = str(uuid.uuid4())[:12]
+        temp_video_dir = os.path.join(tempfile.gettempdir(), "story_videos")
+        os.makedirs(temp_video_dir, exist_ok=True)
+        stored_path = os.path.join(temp_video_dir, f"{file_id}.mp4")
+        with open(stored_path, 'wb') as f:
+            f.write(mp4_bytes)
+        
+        _temp_video_store[file_id] = {
+            "path": stored_path,
+            "created": time.time(),
+            "filename": filename
+        }
+        
+        logger.info(f"[EventVideo:{job_id}] Done! {len(mp4_bytes)//1024}KB → file_id={file_id}")
         _video_jobs[job_id].update({
             "status": "complete",
             "progress": 100,
             "result": {
                 "success": True,
-                "video_data": f"data:video/mp4;base64,{mp4_b64}",
+                "file_id": file_id,
+                "downloadUrl": f"/api/story-generator/qr-download/{file_id}",
                 "size_bytes": len(mp4_bytes),
                 "filename": filename
             }

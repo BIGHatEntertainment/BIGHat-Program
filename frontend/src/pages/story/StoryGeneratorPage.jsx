@@ -648,19 +648,14 @@ function EventStoryBuilder({ eventType, onBack }) {
         setGenProgress(status.progress || 10);
 
         if (status.status === 'complete') {
-          setGeneratedVideo(status.result);
+          const result = status.result;
+          setGeneratedVideo(result);
           toast({ title: 'Video Ready!', description: '20s event story generated successfully.' });
 
-          // Store for QR download
-          try {
-            const storeRes = await axios.post(`${API}/story-generator/store-temp`, {
-              video_data: status.result.video_data,
-              filename: status.result.filename?.replace('.mp4', '') || `${eventType}_story`,
-            }, { timeout: 30000 });
-            if (storeRes.data.success) {
-              setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
-            }
-          } catch {}
+          // QR URL is already available from the stored file
+          if (result.file_id) {
+            setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${result.file_id}`);
+          }
           
           setGenerating(false);
           return;
@@ -676,14 +671,24 @@ function EventStoryBuilder({ eventType, onBack }) {
     }
   };
 
-  const handleDownload = () => {
-    if (!generatedVideo?.video_data) return;
-    const a = document.createElement('a');
-    a.href = generatedVideo.video_data;
-    a.download = generatedVideo.filename || `${eventType}_story.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  const handleDownload = async () => {
+    if (!generatedVideo) return;
+    try {
+      const downloadUrl = generatedVideo.file_id
+        ? `${API}/story-generator/qr-download/${generatedVideo.file_id}`
+        : generatedVideo.downloadUrl;
+      const res = await axios.get(downloadUrl, { responseType: 'blob', timeout: 60000 });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'video/mp4' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = generatedVideo.filename || `${eventType}_story.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (e) {
+      toast({ title: 'Download failed', description: 'Try generating again', variant: 'destructive' });
+    }
   };
 
   return (
