@@ -14,6 +14,7 @@ from typing import List, Dict, Optional
 import logging
 import os
 import re
+import io
 import uuid
 import gc
 import tempfile
@@ -1361,3 +1362,247 @@ async def download_temp_video(file_id: str):
     logger.warning(f"[TempVideo] Not found: {file_id}")
     raise HTTPException(status_code=404, detail="Video not found or expired")
 
+
+
+# ========== EVENT STORY GENERATOR (Bingo & Karaoke) ==========
+
+@router.get("/event-assets/{event_type}")
+async def get_event_assets(event_type: str) -> Dict:
+    """
+    List available locations and hosts for an event type (bingo/karaoke).
+    Returns dropdown options for the Event Story Builder.
+    """
+    if event_type not in ['bingo', 'karaoke']:
+        raise HTTPException(status_code=400, detail="Invalid event type. Use 'bingo' or 'karaoke'.")
+    
+    try:
+        service = get_story_service()
+        assets = service.get_event_assets(event_type)
+        return {
+            "success": True,
+            "event_type": event_type,
+            "locations": assets["locations"],
+            "hosts": assets["hosts"]
+        }
+    except Exception as e:
+        logger.error(f"[EventAssets] Error listing {event_type} assets: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/event-assets/{event_type}/refresh")
+async def refresh_event_assets(event_type: str) -> Dict:
+    """Clear event assets cache and refetch from SharePoint."""
+    if event_type not in ['bingo', 'karaoke']:
+        raise HTTPException(status_code=400, detail="Invalid event type.")
+    try:
+        service = get_story_service()
+        # Clear cache for this event type
+        cache_key = f"{event_type}"
+        if cache_key in service._event_assets_cache:
+            del service._event_assets_cache[cache_key]
+        assets = service.get_event_assets(event_type)
+        return {"success": True, "locations": assets["locations"], "hosts": assets["hosts"]}
+    except Exception as e:
+        logger.error(f"[EventAssets] Refresh error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class EventPreviewRequest(BaseModel):
+    event_type: str  # 'bingo' or 'karaoke'
+    location_id: str
+    location_drive_id: str
+    host_id: str
+    host_drive_id: str
+    host_is_gif: bool = True
+
+
+@router.post("/event-preview")
+async def get_event_preview(request: EventPreviewRequest) -> Dict:
+    """
+    Get base64 preview images for an event story (location + host).
+    Used for the client-side preview before generating video.
+    """
+    try:
+        service = get_story_service()
+        
+        # Download location image
+        loc_bytes = service.download_event_asset(request.location_drive_id, request.location_id)
+        loc_b64 = None
+        if loc_bytes:
+            loc_b64 = f"data:image/png;base64,{base64.b64encode(loc_bytes).decode()}"
+        
+        # Download host image/GIF (just the first frame for preview)
+        host_bytes = service.download_event_asset(request.host_drive_id, request.host_id)
+        host_b64 = None
+        if host_bytes:
+            mime = "image/gif" if request.host_is_gif else "image/png"
+            host_b64 = f"data:{mime};base64,{base64.b64encode(host_bytes).decode()}"
+        
+        return {
+            "success": True,
+            "locationImage": loc_b64,
+            "hostImage": host_b64
+        }
+    except Exception as e:
+        logger.error(f"[EventPreview] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class GenerateEventVideoRequest(BaseModel):
+    event_type: str  # 'bingo' or 'karaoke'
+    location_id: str
+    location_drive_id: str
+    location_name: str
+    host_id: str
+    host_drive_id: str
+    host_name: str
+    host_is_gif: bool = True
+
+
+@router.post("/generate-event-video")
+async def generate_event_video(request: GenerateEventVideoRequest) -> Dict:
+    """
+    Start background job to generate a 20s event story video.
+    10s location image + 10s host GIF = 20s total.
+    Returns job_id for polling.
+    """
+    job_id = str(uuid.uuid4())[:12]
+    _video_jobs[job_id] = {"status": "queued", "progress": 0, "result": None, "error": None}
+    
+    thread = threading.Thread(
+        target=_run_event_video_generation,
+        args=(job_id, request.model_dump()),
+        daemon=True
+    )
+    thread.start()
+    
+    return {"success": True, "job_id": job_id}
+
+
+def _run_event_video_generation(job_id: str, request_data: dict):
+    """
+    Background worker: generates 20s event story video.
+    10s location image (JPG/PNG) + 10s host GIF = 20s total.
+    Output: 9:16 (1080x1920) at half-res (540x960) for speed.
+    """
+    import subprocess
+    
+    temp_dir = None
+    try:
+        _video_jobs[job_id]["status"] = "processing"
+        _video_jobs[job_id]["progress"] = 5
+        
+        temp_dir = tempfile.mkdtemp(prefix="event_story_")
+        W, H = 540, 960
+        FPS = 30
+        DUR_LOCATION = 10
+        DUR_HOST = 10
+        
+        service = get_story_service()
+        
+        # Step 1: Download location image
+        _video_jobs[job_id]["progress"] = 10
+        loc_bytes = service.download_event_asset(
+            request_data["location_drive_id"], request_data["location_id"]
+        )
+        if not loc_bytes:
+            raise Exception(f"Could not download location image: {request_data['location_name']}")
+        
+        loc_path = os.path.join(temp_dir, "location.png")
+        # Resize location image to story dimensions
+        from PIL import Image
+        loc_img = Image.open(io.BytesIO(loc_bytes))
+        loc_img = loc_img.convert('RGB').resize((W, H), Image.LANCZOS)
+        loc_img.save(loc_path, 'PNG')
+        logger.info(f"[EventVideo:{job_id}] Location image saved ({loc_img.size})")
+        _video_jobs[job_id]["progress"] = 30
+        
+        # Step 2: Download host GIF/image
+        host_bytes = service.download_event_asset(
+            request_data["host_drive_id"], request_data["host_id"]
+        )
+        if not host_bytes:
+            raise Exception(f"Could not download host image: {request_data['host_name']}")
+        
+        host_is_gif = request_data.get("host_is_gif", True)
+        host_ext = "gif" if host_is_gif else "png"
+        host_path = os.path.join(temp_dir, f"host.{host_ext}")
+        with open(host_path, 'wb') as f:
+            f.write(host_bytes)
+        logger.info(f"[EventVideo:{job_id}] Host {host_ext} saved ({len(host_bytes)} bytes)")
+        _video_jobs[job_id]["progress"] = 50
+        
+        # Step 3: Encode location clip (10s)
+        sf = f"scale={W*2}:{H*2},setsar=1"  # Scale to 1080x1920 for output
+        encode_opts = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-r', str(FPS), '-an']
+        
+        loc_clip = os.path.join(temp_dir, "clip_loc.mp4")
+        subprocess.run([
+            'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_LOCATION), '-i', loc_path,
+            '-vf', sf, *encode_opts, loc_clip
+        ], capture_output=True, text=True, timeout=60)
+        logger.info(f"[EventVideo:{job_id}] Location clip done")
+        _video_jobs[job_id]["progress"] = 65
+        
+        # Step 4: Encode host clip (10s)
+        host_clip = os.path.join(temp_dir, "clip_host.mp4")
+        if host_is_gif:
+            subprocess.run([
+                'ffmpeg', '-y', '-stream_loop', '-1', '-t', str(DUR_HOST), '-i', host_path,
+                '-vf', sf, *encode_opts, host_clip
+            ], capture_output=True, text=True, timeout=60)
+        else:
+            subprocess.run([
+                'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_HOST), '-i', host_path,
+                '-vf', sf, *encode_opts, host_clip
+            ], capture_output=True, text=True, timeout=60)
+        logger.info(f"[EventVideo:{job_id}] Host clip done (gif={host_is_gif})")
+        _video_jobs[job_id]["progress"] = 80
+        
+        # Step 5: Concat clips
+        output_path = os.path.join(temp_dir, "output.mp4")
+        concat_file = os.path.join(temp_dir, "concat.txt")
+        with open(concat_file, 'w') as f:
+            f.write(f"file '{loc_clip}'\nfile '{host_clip}'\n")
+        
+        concat_result = subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_file,
+            '-c', 'copy', '-movflags', '+faststart', output_path
+        ], capture_output=True, text=True, timeout=30)
+        
+        if concat_result.returncode != 0:
+            err_msg = concat_result.stderr[-300:] if concat_result.stderr else "Unknown"
+            raise Exception(f"Video concat failed: {err_msg}")
+        
+        _video_jobs[job_id]["progress"] = 90
+        
+        # Read final video
+        with open(output_path, 'rb') as f:
+            mp4_bytes = f.read()
+        mp4_b64 = base64.b64encode(mp4_bytes).decode('utf-8')
+        
+        event_type = request_data["event_type"]
+        filename = f"{event_type}_story_{uuid.uuid4().hex[:8]}.mp4"
+        
+        logger.info(f"[EventVideo:{job_id}] Done! {len(mp4_bytes)//1024}KB")
+        _video_jobs[job_id].update({
+            "status": "complete",
+            "progress": 100,
+            "result": {
+                "success": True,
+                "video_data": f"data:video/mp4;base64,{mp4_b64}",
+                "size_bytes": len(mp4_bytes),
+                "filename": filename
+            }
+        })
+    except Exception as e:
+        logger.error(f"[EventVideo:{job_id}] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        _video_jobs[job_id].update({"status": "error", "error": str(e)})
+    finally:
+        if temp_dir and os.path.exists(temp_dir):
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)

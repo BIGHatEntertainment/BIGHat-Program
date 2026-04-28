@@ -5,9 +5,10 @@ import axios from 'axios';
 import {
   Video, ArrowLeft, Home, RefreshCw, MapPin, Calendar, User,
   Loader2, Download, Play, ChevronRight, Sparkles, Clock,
-  CheckCircle2, AlertCircle, Settings
+  CheckCircle2, AlertCircle, Settings, Music, Mic
 } from 'lucide-react';
 import { toast } from '../../utils/toastCompat';
+import { QRCodeSVG } from 'qrcode.react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -34,6 +35,7 @@ export default function StoryGeneratorPage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [genProgress, setGenProgress] = useState({ step: '', progress: 0 });
   const [viewAll, setViewAll] = useState(false);
+  const [eventMode, setEventMode] = useState(null); // null, 'bingo', or 'karaoke'
 
   useEffect(() => {
     if (isAdmin) setViewAll(true);
@@ -151,6 +153,11 @@ export default function StoryGeneratorPage() {
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
+  // ====== EVENT STORY BUILDER (Bingo/Karaoke) ======
+  if (eventMode && !selectedPres) {
+    return <EventStoryBuilder eventType={eventMode} onBack={() => setEventMode(null)} />;
+  }
+
   // ====== LOBBY VIEW ======
   if (!selectedPres) {
     return (
@@ -186,6 +193,26 @@ export default function StoryGeneratorPage() {
         </header>
 
         <main className="max-w-6xl mx-auto px-6 py-10">
+          {/* Event Type Buttons */}
+          <div className="flex items-center gap-4 mb-8">
+            <button
+              onClick={() => setEventMode('bingo')}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.03] hover:shadow-lg"
+              style={{ backgroundColor: '#a855f7', color: '#fff', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}
+              data-testid="story-bingo-btn"
+            >
+              <Music size={16} /> Bingo Story
+            </button>
+            <button
+              onClick={() => setEventMode('karaoke')}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.03] hover:shadow-lg"
+              style={{ backgroundColor: '#ef4444', color: '#fff', boxShadow: '0 0 20px rgba(239,68,68,0.3)' }}
+              data-testid="story-karaoke-btn"
+            >
+              <Mic size={16} /> Karaoke Story
+            </button>
+          </div>
+
           {/* Section Header */}
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-2">
@@ -450,6 +477,362 @@ function TimelineChip({ label, duration, color, icon: Icon }) {
       <Icon size={12} style={{ color }} />
       <span className="text-xs text-white">{label}</span>
       <span className="text-[10px] font-bold" style={{ color }}>{duration}s</span>
+    </div>
+  );
+}
+
+// ====== EVENT STORY BUILDER (Bingo & Karaoke) ======
+function EventStoryBuilder({ eventType, onBack }) {
+  const navigate = useNavigate();
+  const [locations, setLocations] = useState([]);
+  const [hosts, setHosts] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [selectedHost, setSelectedHost] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [previewImages, setPreviewImages] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState(0);
+  const [generatedVideo, setGeneratedVideo] = useState(null);
+  const [qrUrl, setQrUrl] = useState(null);
+
+  const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+  const eventLabel = eventType === 'bingo' ? 'Music Bingo' : 'Karaoke';
+  const accentColor = eventType === 'bingo' ? '#a855f7' : '#ef4444';
+
+  // Load available assets from SharePoint
+  useEffect(() => {
+    loadAssets();
+  }, [eventType]);
+
+  const loadAssets = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API}/story-generator/event-assets/${eventType}`, { timeout: 30000 });
+      if (res.data.success) {
+        setLocations(res.data.locations || []);
+        setHosts(res.data.hosts || []);
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to load assets from SharePoint', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch preview when both selections are made
+  useEffect(() => {
+    if (selectedLocation && selectedHost) {
+      fetchPreview();
+    } else {
+      setPreviewImages(null);
+    }
+  }, [selectedLocation, selectedHost]);
+
+  const fetchPreview = async () => {
+    if (!selectedLocation || !selectedHost) return;
+    setLoadingPreview(true);
+    try {
+      const res = await axios.post(`${API}/story-generator/event-preview`, {
+        event_type: eventType,
+        location_id: selectedLocation.id,
+        location_drive_id: selectedLocation.drive_id,
+        host_id: selectedHost.id,
+        host_drive_id: selectedHost.drive_id,
+        host_is_gif: selectedHost.is_gif !== false,
+      }, { timeout: 60000 });
+      if (res.data.success) {
+        setPreviewImages(res.data);
+      }
+    } catch (err) {
+      toast({ title: 'Preview Error', description: 'Could not load preview images', variant: 'destructive' });
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!selectedLocation || !selectedHost) return;
+    setGenerating(true);
+    setGenProgress(5);
+    setGeneratedVideo(null);
+    setQrUrl(null);
+
+    try {
+      // Start generation job
+      const startRes = await axios.post(`${API}/story-generator/generate-event-video`, {
+        event_type: eventType,
+        location_id: selectedLocation.id,
+        location_drive_id: selectedLocation.drive_id,
+        location_name: selectedLocation.name,
+        host_id: selectedHost.id,
+        host_drive_id: selectedHost.drive_id,
+        host_name: selectedHost.name,
+        host_is_gif: selectedHost.is_gif !== false,
+      }, { timeout: 30000 });
+
+      const jobId = startRes.data.job_id;
+      if (!jobId) throw new Error('No job ID returned');
+
+      // Poll for completion
+      let attempts = 0;
+      while (attempts < 60) {
+        attempts++;
+        await new Promise(r => setTimeout(r, 2000));
+        const statusRes = await axios.get(`${API}/story-generator/assemble-video/status/${jobId}`, { timeout: 10000 });
+        const status = statusRes.data;
+
+        setGenProgress(status.progress || 10);
+
+        if (status.status === 'complete') {
+          setGeneratedVideo(status.result);
+          toast({ title: 'Video Ready!', description: '20s event story generated successfully.' });
+
+          // Store for QR download
+          try {
+            const storeRes = await axios.post(`${API}/story-generator/store-temp`, {
+              video_data: status.result.video_data,
+              filename: status.result.filename?.replace('.mp4', '') || `${eventType}_story`,
+            }, { timeout: 30000 });
+            if (storeRes.data.success) {
+              setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
+            }
+          } catch {}
+          
+          setGenerating(false);
+          return;
+        } else if (status.status === 'error') {
+          throw new Error(status.error || 'Generation failed');
+        }
+      }
+      throw new Error('Generation timed out');
+    } catch (err) {
+      toast({ title: 'Error', description: err.message || 'Video generation failed', variant: 'destructive' });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (!generatedVideo?.video_data) return;
+    const a = document.createElement('a');
+    a.href = generatedVideo.video_data;
+    a.download = generatedVideo.filename || `${eventType}_story.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: '#000e2a' }}>
+      {/* Header */}
+      <header style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104,0.15)' }}>
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }} data-testid="event-story-back">
+              <ArrowLeft size={14} /> Back
+            </button>
+            <button onClick={() => navigate('/')} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
+              <Home size={14} /> Exit
+            </button>
+            <span style={{ color: '#8892b0' }}>—</span>
+            <div className="flex items-center gap-2">
+              {eventType === 'bingo' ? <Music size={22} style={{ color: accentColor }} /> : <Mic size={22} style={{ color: accentColor }} />}
+              <div>
+                <h1 className="text-lg font-bold tracking-wider uppercase text-white" style={{ fontFamily: "'Space Grotesk', monospace" }}>{eventLabel} Story</h1>
+                <p className="text-[10px] uppercase tracking-[0.2em]" style={{ color: accentColor }}>// Select Location & Host</p>
+              </div>
+            </div>
+          </div>
+          <button onClick={loadAssets} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" style={{ border: '1px solid rgba(251, 221, 104, 0.15)', color: '#fff' }} data-testid="event-refresh-btn">
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 py-10">
+        {loading ? (
+          <div className="text-center py-20">
+            <Loader2 size={32} className="animate-spin mx-auto" style={{ color: accentColor }} />
+            <p className="mt-4 text-sm" style={{ color: '#8892b0' }}>Loading {eventLabel} assets from SharePoint...</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-12 gap-8">
+            {/* LEFT — Dropdowns */}
+            <div className="col-span-12 lg:col-span-4 space-y-6">
+              {/* Location Dropdown */}
+              <div className="rounded-xl p-5" style={{ border: '1px solid rgba(251, 221, 104, 0.1)', backgroundColor: '#141b50' }}>
+                <label className="text-[10px] uppercase tracking-[0.2em] font-bold flex items-center gap-2 mb-3" style={{ color: accentColor }}>
+                  <MapPin size={12} /> Location
+                </label>
+                <select
+                  value={selectedLocation?.id || ''}
+                  onChange={(e) => {
+                    const loc = locations.find(l => l.id === e.target.value);
+                    setSelectedLocation(loc || null);
+                  }}
+                  className="w-full px-4 py-3 rounded-lg text-sm font-medium focus:outline-none"
+                  style={{ backgroundColor: '#0a1940', color: '#fff', border: '1px solid rgba(251, 221, 104, 0.15)' }}
+                  data-testid="event-location-select"
+                >
+                  <option value="">Select a location...</option>
+                  {locations.map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[10px]" style={{ color: '#8892b0' }}>{locations.length} locations available</p>
+              </div>
+
+              {/* Host Dropdown */}
+              <div className="rounded-xl p-5" style={{ border: '1px solid rgba(251, 221, 104, 0.1)', backgroundColor: '#141b50' }}>
+                <label className="text-[10px] uppercase tracking-[0.2em] font-bold flex items-center gap-2 mb-3" style={{ color: accentColor }}>
+                  <User size={12} /> Host
+                </label>
+                <select
+                  value={selectedHost?.id || ''}
+                  onChange={(e) => {
+                    const host = hosts.find(h => h.id === e.target.value);
+                    setSelectedHost(host || null);
+                  }}
+                  className="w-full px-4 py-3 rounded-lg text-sm font-medium focus:outline-none"
+                  style={{ backgroundColor: '#0a1940', color: '#fff', border: '1px solid rgba(251, 221, 104, 0.15)' }}
+                  data-testid="event-host-select"
+                >
+                  <option value="">Select a host...</option>
+                  {hosts.map(h => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[10px]" style={{ color: '#8892b0' }}>{hosts.length} hosts available</p>
+              </div>
+
+              {/* Timeline Info */}
+              <div className="rounded-xl p-5" style={{ border: '1px solid rgba(251, 221, 104, 0.1)', backgroundColor: '#141b50' }}>
+                <h4 className="text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2 text-white">
+                  <Video size={14} style={{ color: '#fbdd68' }} /> Video Timeline
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-2" style={{ color: '#8892b0' }}>
+                      <MapPin size={11} style={{ color: '#fbdd68' }} /> Location
+                    </span>
+                    <span style={{ color: '#fbdd68' }}>10s</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-2" style={{ color: '#8892b0' }}>
+                      <User size={11} style={{ color: accentColor }} /> Host GIF
+                    </span>
+                    <span style={{ color: accentColor }}>10s</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full overflow-hidden flex mt-2" style={{ backgroundColor: '#0a1940' }}>
+                    <div style={{ width: '50%', backgroundColor: '#fbdd68' }} />
+                    <div style={{ width: '50%', backgroundColor: accentColor }} />
+                  </div>
+                  <div className="flex justify-between text-[10px]" style={{ color: '#8892b0' }}>
+                    <span>0:00</span>
+                    <span className="font-bold" style={{ color: '#fbdd68' }}>Total: 20s</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CENTER — Preview + Generate */}
+            <div className="col-span-12 lg:col-span-8 flex flex-col items-center">
+              {/* Phone Preview */}
+              <div className="w-[300px] rounded-3xl overflow-hidden mb-6" style={{ border: `2px solid ${accentColor}40`, backgroundColor: '#000', aspectRatio: '9/16', maxHeight: '480px' }}>
+                {loadingPreview ? (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Loader2 size={32} className="animate-spin" style={{ color: accentColor }} />
+                  </div>
+                ) : previewImages?.locationImage ? (
+                  <div className="w-full h-full flex flex-col">
+                    <div className="flex-1 relative overflow-hidden">
+                      <img src={previewImages.locationImage} alt="Location" className="absolute inset-0 w-full h-full object-cover" />
+                      <div className="absolute bottom-2 left-2 px-2 py-1 rounded text-[9px] font-bold uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: '#fbdd68' }}>
+                        Location — 10s
+                      </div>
+                    </div>
+                    <div className="flex-1 relative overflow-hidden" style={{ borderTop: `2px solid ${accentColor}` }}>
+                      <img src={previewImages.hostImage} alt="Host" className="absolute inset-0 w-full h-full object-cover" />
+                      <div className="absolute bottom-2 left-2 px-2 py-1 rounded text-[9px] font-bold uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: accentColor }}>
+                        Host GIF — 10s
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-6" style={{ background: 'linear-gradient(180deg, #1a1a2e, #000)' }}>
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${accentColor}20` }}>
+                      {eventType === 'bingo' ? <Music size={28} style={{ color: accentColor }} /> : <Mic size={28} style={{ color: accentColor }} />}
+                    </div>
+                    <p className="text-xs text-center" style={{ color: '#8892b0' }}>
+                      {selectedLocation && selectedHost
+                        ? 'Loading preview...'
+                        : 'Select a location and host to see preview'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Generate/Download Area */}
+              <div className="w-full max-w-md">
+                {generatedVideo ? (
+                  <div className="space-y-4">
+                    <button
+                      onClick={handleDownload}
+                      className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold"
+                      style={{ backgroundColor: '#22c55e', color: '#000' }}
+                      data-testid="event-download-btn"
+                    >
+                      <Download size={20} /> Download {eventLabel} Story
+                    </button>
+                    {/* QR Code */}
+                    {qrUrl && (
+                      <div className="flex flex-col items-center gap-3 p-4 rounded-xl" style={{ backgroundColor: '#141b50', border: '1px solid rgba(251, 221, 104, 0.1)' }}>
+                        <p className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: '#8892b0' }}>Scan to Download on Phone</p>
+                        <div className="p-3 bg-white rounded-xl">
+                          <QRCodeSVG value={qrUrl} size={140} />
+                        </div>
+                        <p className="text-[10px]" style={{ color: '#8892b0' }}>Expires in 1 hour</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { setGeneratedVideo(null); setQrUrl(null); }}
+                      className="w-full text-center text-xs py-2 rounded-lg"
+                      style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.1)' }}
+                    >
+                      Generate Another
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <button
+                      onClick={handleGenerate}
+                      disabled={generating || !selectedLocation || !selectedHost}
+                      className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50"
+                      style={{ backgroundColor: accentColor, color: '#fff', boxShadow: `0 0 30px ${accentColor}40` }}
+                      data-testid="event-generate-btn"
+                    >
+                      {generating ? <><Loader2 size={20} className="animate-spin" /> Generating...</> : <><Video size={20} /> Generate {eventLabel} Story</>}
+                    </button>
+                    {generating && (
+                      <div className="mt-4 space-y-2">
+                        <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: '#0a1940' }}>
+                          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${genProgress}%`, backgroundColor: accentColor }} />
+                        </div>
+                        <p className="text-center text-xs" style={{ color: accentColor }}>{genProgress}% complete</p>
+                      </div>
+                    )}
+                    {(!selectedLocation || !selectedHost) && (
+                      <p className="text-center text-[10px] mt-3" style={{ color: '#8892b0' }}>Select both a location and host to generate</p>
+                    )}
+                    <p className="text-center text-[10px] mt-2" style={{ color: '#8892b0' }}>MP4 format for Instagram Stories. 20s video.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

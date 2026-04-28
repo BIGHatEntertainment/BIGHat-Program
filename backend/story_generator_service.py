@@ -133,6 +133,22 @@ class StoryGeneratorService:
             "backgrounds": "01Z4PLCYWP7NFIQ4Q4HBA3R6HF2OQGIEI7"
         }
         self._graph_token_cache = {"token": None, "expires": 0}
+        
+        # Event story SharePoint sharing URLs (Bingo & Karaoke)
+        self._event_sharing_urls = {
+            'bingo': {
+                'locations': 'https://bhentertainment.sharepoint.com/:f:/g/IgA2wHK1vZxNQKNaT9W89dX8AU8uVh0VoHvLzk7XmVFBbBM?e=aY5tfm',
+                'hosts': 'https://bhentertainment.sharepoint.com/:f:/g/IgAVO16gi-VJS5kxcKIYKg6rAY7XsRxJCFYYXAEHMjjwxY8?e=zV2Zhe',
+            },
+            'karaoke': {
+                'locations': 'https://bhentertainment.sharepoint.com/:f:/g/IgCNzRVqSjgLT6lSdBhDe_-_AdO31SsuEN6QIje7B2Xmsq0?e=Jl0zca',
+                'hosts': 'https://bhentertainment.sharepoint.com/:f:/g/IgDoLqzdH5CSQJmjnfW-RjalAV9PdWce-PjExTMclVYlckA?e=Ejr2ZA',
+            }
+        }
+        # Cache for resolved sharing URLs → (drive_id, item_id)
+        self._event_folder_cache = {}
+        # Cache for event folder listings
+        self._event_assets_cache = {}
     
     def _get_graph_token(self):
         """Get Microsoft Graph API token"""
@@ -220,6 +236,126 @@ class StoryGeneratorService:
                         return content
         
         return None
+
+    def _resolve_sharing_url(self, sharing_url):
+        """Resolve a SharePoint sharing URL to (drive_id, item_id) via Graph API."""
+        import base64
+        import requests as sync_requests
+        
+        cache_key = sharing_url.split('?')[0]  # Strip query params for cache key
+        if cache_key in self._event_folder_cache:
+            return self._event_folder_cache[cache_key]
+        
+        token = self._get_graph_token()
+        if not token:
+            logger.error("Cannot resolve sharing URL - no Graph token")
+            return None, None
+        
+        # Encode the sharing URL for the shares API
+        encoded = base64.urlsafe_b64encode(sharing_url.encode()).decode().rstrip('=')
+        share_token = f"u!{encoded}"
+        
+        r = sync_requests.get(
+            f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15
+        )
+        
+        if r.status_code == 200:
+            data = r.json()
+            drive_id = data.get("parentReference", {}).get("driveId")
+            item_id = data.get("id")
+            logger.info(f"Resolved sharing URL → drive={drive_id[:20]}..., item={item_id}")
+            self._event_folder_cache[cache_key] = (drive_id, item_id)
+            return drive_id, item_id
+        else:
+            logger.error(f"Failed to resolve sharing URL: {r.status_code} - {r.text[:200]}")
+            return None, None
+    
+    def _list_event_folder(self, drive_id, item_id):
+        """List children of a folder using drive_id and item_id."""
+        import requests as sync_requests
+        token = self._get_graph_token()
+        if not token:
+            return []
+        r = sync_requests.get(
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/children?$top=200",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15
+        )
+        return r.json().get("value", []) if r.status_code == 200 else []
+    
+    def _download_event_file(self, drive_id, item_id):
+        """Download a file from SharePoint using drive_id and item_id."""
+        import requests as sync_requests
+        token = self._get_graph_token()
+        if not token:
+            return None
+        r = sync_requests.get(
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
+            headers={"Authorization": f"Bearer {token}"}, timeout=60, allow_redirects=True
+        )
+        return r.content if r.status_code == 200 else None
+    
+    def get_event_assets(self, event_type):
+        """Get available locations and hosts for an event type (bingo/karaoke).
+        Returns: { locations: [{name, id}], hosts: [{name, id}] }
+        """
+        cache_key = f"{event_type}"
+        if cache_key in self._event_assets_cache:
+            return self._event_assets_cache[cache_key]
+        
+        urls = self._event_sharing_urls.get(event_type)
+        if not urls:
+            return {"locations": [], "hosts": []}
+        
+        result = {"locations": [], "hosts": []}
+        
+        # Resolve and list locations folder
+        drive_id, item_id = self._resolve_sharing_url(urls['locations'])
+        if drive_id and item_id:
+            items = self._list_event_folder(drive_id, item_id)
+            for item in items:
+                name = item.get("name", "")
+                if item.get("folder"):
+                    continue  # Skip subfolders
+                ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+                if ext in ['jpg', 'jpeg', 'png', 'webp']:
+                    clean_name = name.rsplit('.', 1)[0]
+                    result["locations"].append({
+                        "name": clean_name,
+                        "id": item["id"],
+                        "drive_id": drive_id,
+                        "filename": name
+                    })
+            logger.info(f"[EventAssets] {event_type} locations: {len(result['locations'])}")
+        
+        # Resolve and list hosts folder
+        drive_id, item_id = self._resolve_sharing_url(urls['hosts'])
+        if drive_id and item_id:
+            items = self._list_event_folder(drive_id, item_id)
+            for item in items:
+                name = item.get("name", "")
+                if item.get("folder"):
+                    continue
+                ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+                if ext in ['gif', 'jpg', 'jpeg', 'png', 'webp']:
+                    clean_name = name.rsplit('.', 1)[0]
+                    result["hosts"].append({
+                        "name": clean_name,
+                        "id": item["id"],
+                        "drive_id": drive_id,
+                        "filename": name,
+                        "is_gif": ext == 'gif'
+                    })
+            logger.info(f"[EventAssets] {event_type} hosts: {len(result['hosts'])}")
+        
+        self._event_assets_cache[cache_key] = result
+        return result
+    
+    def download_event_asset(self, drive_id, item_id):
+        """Download an event asset by drive_id and item_id."""
+        return self._download_event_file(drive_id, item_id)
+
+
     
     @property
     def sharepoint_service(self):
