@@ -622,7 +622,7 @@ function EventStoryBuilder({ eventType, onBack }) {
     setQrUrl(null);
 
     try {
-      // Start generation job
+      // Start generation job (same pattern as trivia)
       const startRes = await axios.post(`${API}/story-generator/generate-event-video`, {
         event_type: eventType,
         location_id: selectedLocation.id,
@@ -634,32 +634,41 @@ function EventStoryBuilder({ eventType, onBack }) {
         host_is_gif: selectedHost.is_gif !== false,
       }, { timeout: 30000 });
 
-      const jobId = startRes.data.job_id;
+      const jobId = startRes.data.jobId;
       if (!jobId) throw new Error('No job ID returned');
 
-      // Poll for completion
+      // Poll for completion using /job-status/ (same as trivia)
       let attempts = 0;
-      while (attempts < 60) {
+      while (attempts < 90) {
         attempts++;
         await new Promise(r => setTimeout(r, 2000));
-        const statusRes = await axios.get(`${API}/story-generator/assemble-video/status/${jobId}`, { timeout: 10000 });
+        const statusRes = await axios.get(`${API}/story-generator/job-status/${jobId}`, { timeout: 10000 });
         const status = statusRes.data;
 
         setGenProgress(status.progress || 10);
 
-        if (status.status === 'complete') {
-          const result = status.result;
-          setGeneratedVideo(result);
+        if (status.status === 'completed') {
+          const filename = status.result?.filename;
+          const downloadUrl = `${API}/story-generator/download/${filename}`;
+          setGeneratedVideo({ filename, downloadUrl });
           toast({ title: 'Video Ready!', description: '20s event story generated successfully.' });
 
-          // QR URL is already available from the stored file
-          if (result.file_id) {
-            setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${result.file_id}`);
-          }
+          // Store for QR download
+          try {
+            const videoRes = await axios.get(downloadUrl, { responseType: 'arraybuffer', timeout: 60000 });
+            const videoBase64 = btoa(new Uint8Array(videoRes.data).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+            const storeRes = await axios.post(`${API}/story-generator/store-temp`, {
+              video_data: `data:video/mp4;base64,${videoBase64}`,
+              filename: filename?.replace('.mp4', '') || `${eventType}_story`,
+            }, { timeout: 30000 });
+            if (storeRes.data.success) {
+              setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
+            }
+          } catch {}
           
           setGenerating(false);
           return;
-        } else if (status.status === 'error') {
+        } else if (status.status === 'failed') {
           throw new Error(status.error || 'Generation failed');
         }
       }
@@ -672,12 +681,9 @@ function EventStoryBuilder({ eventType, onBack }) {
   };
 
   const handleDownload = async () => {
-    if (!generatedVideo) return;
+    if (!generatedVideo?.downloadUrl) return;
     try {
-      const downloadUrl = generatedVideo.file_id
-        ? `${API}/story-generator/qr-download/${generatedVideo.file_id}`
-        : generatedVideo.downloadUrl;
-      const res = await axios.get(downloadUrl, { responseType: 'blob', timeout: 60000 });
+      const res = await axios.get(generatedVideo.downloadUrl, { responseType: 'blob', timeout: 60000 });
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'video/mp4' }));
       const a = document.createElement('a');
       a.href = url;

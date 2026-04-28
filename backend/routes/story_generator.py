@@ -1459,48 +1459,67 @@ class GenerateEventVideoRequest(BaseModel):
 
 
 @router.post("/generate-event-video")
-async def generate_event_video(request: GenerateEventVideoRequest) -> Dict:
+async def generate_event_video(request: GenerateEventVideoRequest, background_tasks: BackgroundTasks) -> Dict:
     """
     Start background job to generate a 20s event story video.
     10s location image + 10s host GIF = 20s total.
-    Returns job_id for polling.
+    Uses the same job infrastructure as trivia (video_jobs + /job-status/).
     """
-    job_id = str(uuid.uuid4())[:12]
-    _video_jobs[job_id] = {"status": "queued", "progress": 0, "result": None, "error": None}
+    job_id = str(uuid.uuid4())[:8]
+    now = datetime.now(timezone.utc).isoformat()
     
-    thread = threading.Thread(
-        target=_run_event_video_generation,
-        args=(job_id, request.model_dump()),
-        daemon=True
+    video_jobs[job_id] = {
+        'status': 'queued',
+        'progress': 0,
+        'step': 'Initializing...',
+        'error': None,
+        'result': None,
+        'presentation_name': f"{request.event_type.title()} Story - {request.location_name}",
+        'created_at': now,
+        'updated_at': now
+    }
+    
+    background_tasks.add_task(
+        _run_event_video_generation,
+        job_id,
+        request.model_dump()
     )
-    thread.start()
     
-    return {"success": True, "job_id": job_id}
+    return {"success": True, "jobId": job_id, "statusUrl": f"/api/story-generator/job-status/{job_id}"}
 
 
 def _run_event_video_generation(job_id: str, request_data: dict):
     """
     Background worker: generates 20s event story video.
     10s location image (JPG/PNG) + 10s host GIF = 20s total.
-    Output: 9:16 (1080x1920) at half-res (540x960) for speed.
+    Uses video_jobs dict (same as trivia) and saves to disk.
     """
     import subprocess
+    import time as _time
     
+    start_time = _time.time()
     temp_dir = None
+    
+    def update_job(status=None, progress=None, step=None, error=None, result=None):
+        if job_id in video_jobs:
+            if status: video_jobs[job_id]['status'] = status
+            if progress is not None: video_jobs[job_id]['progress'] = progress
+            if step: video_jobs[job_id]['step'] = step
+            if error: video_jobs[job_id]['error'] = error
+            if result: video_jobs[job_id]['result'] = result
+            video_jobs[job_id]['updated_at'] = datetime.now(timezone.utc).isoformat()
+    
     try:
-        _video_jobs[job_id]["status"] = "processing"
-        _video_jobs[job_id]["progress"] = 5
+        update_job(status='processing', progress=5, step='Downloading location image...')
         
         temp_dir = tempfile.mkdtemp(prefix="event_story_")
         W, H = 540, 960
-        FPS = 30
         DUR_LOCATION = 10
         DUR_HOST = 10
         
         service = get_story_service()
         
         # Step 1: Download location image
-        _video_jobs[job_id]["progress"] = 10
         loc_bytes = service.download_event_asset(
             request_data["location_drive_id"], request_data["location_id"]
         )
@@ -1508,13 +1527,12 @@ def _run_event_video_generation(job_id: str, request_data: dict):
             raise Exception(f"Could not download location image: {request_data['location_name']}")
         
         loc_path = os.path.join(temp_dir, "location.png")
-        # Resize location image to story dimensions
         from PIL import Image
         loc_img = Image.open(io.BytesIO(loc_bytes))
         loc_img = loc_img.convert('RGB').resize((W, H), Image.LANCZOS)
         loc_img.save(loc_path, 'PNG')
         logger.info(f"[EventVideo:{job_id}] Location image saved ({loc_img.size})")
-        _video_jobs[job_id]["progress"] = 30
+        update_job(progress=25, step='Downloading host GIF...')
         
         # Step 2: Download host GIF/image
         host_bytes = service.download_event_asset(
@@ -1529,9 +1547,9 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         with open(host_path, 'wb') as f:
             f.write(host_bytes)
         logger.info(f"[EventVideo:{job_id}] Host {host_ext} saved ({len(host_bytes)} bytes)")
-        _video_jobs[job_id]["progress"] = 50
+        update_job(progress=45, step='Encoding location clip...')
         
-        # Step 3: Encode location clip (10s) — use low settings for production CPU
+        # Step 3: Encode location clip (10s)
         sf = "scale=540:960,setsar=1"
         encode_opts = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', '-an']
         
@@ -1541,7 +1559,7 @@ def _run_event_video_generation(job_id: str, request_data: dict):
             '-vf', sf, '-r', '1', *encode_opts, loc_clip
         ], capture_output=True, text=True, timeout=60)
         logger.info(f"[EventVideo:{job_id}] Location clip done")
-        _video_jobs[job_id]["progress"] = 65
+        update_job(progress=60, step='Encoding host GIF clip...')
         
         # Step 4: Encode host clip (10s)
         host_clip = os.path.join(temp_dir, "clip_host.mp4")
@@ -1556,7 +1574,7 @@ def _run_event_video_generation(job_id: str, request_data: dict):
                 '-vf', sf, '-r', '1', *encode_opts, host_clip
             ], capture_output=True, text=True, timeout=60)
         logger.info(f"[EventVideo:{job_id}] Host clip done (gif={host_is_gif})")
-        _video_jobs[job_id]["progress"] = 80
+        update_job(progress=80, step='Concatenating final video...')
         
         # Step 5: Concat clips
         output_path = os.path.join(temp_dir, "output.mp4")
@@ -1573,46 +1591,37 @@ def _run_event_video_generation(job_id: str, request_data: dict):
             err_msg = concat_result.stderr[-300:] if concat_result.stderr else "Unknown"
             raise Exception(f"Video concat failed: {err_msg}")
         
-        _video_jobs[job_id]["progress"] = 90
+        update_job(progress=90, step='Saving video...')
         
-        # Save video to temp store for download (avoids huge inline base64 responses)
-        with open(output_path, 'rb') as f:
-            mp4_bytes = f.read()
-        
+        # Step 6: Copy to generated dir (persisted for download)
         event_type = request_data["event_type"]
         filename = f"{event_type}_story_{uuid.uuid4().hex[:8]}.mp4"
+        service = get_story_service()
+        final_path = service.generated_dir / filename
         
-        # Store in the temp video store (same as QR downloads)
-        file_id = str(uuid.uuid4())[:12]
-        temp_video_dir = os.path.join(tempfile.gettempdir(), "story_videos")
-        os.makedirs(temp_video_dir, exist_ok=True)
-        stored_path = os.path.join(temp_video_dir, f"{file_id}.mp4")
-        with open(stored_path, 'wb') as f:
-            f.write(mp4_bytes)
+        import shutil
+        shutil.copy2(output_path, str(final_path))
+        file_size = final_path.stat().st_size
         
-        _temp_video_store[file_id] = {
-            "path": stored_path,
-            "created": time.time(),
-            "filename": filename
-        }
+        total_time = _time.time() - start_time
+        logger.info(f"[EventVideo:{job_id}] Done! {file_size//1024}KB in {total_time:.1f}s → {filename}")
         
-        logger.info(f"[EventVideo:{job_id}] Done! {len(mp4_bytes)//1024}KB → file_id={file_id}")
-        _video_jobs[job_id].update({
-            "status": "complete",
-            "progress": 100,
-            "result": {
-                "success": True,
-                "file_id": file_id,
-                "downloadUrl": f"/api/story-generator/qr-download/{file_id}",
-                "size_bytes": len(mp4_bytes),
-                "filename": filename
+        update_job(
+            status='completed',
+            progress=100,
+            step='Video ready!',
+            result={
+                'filename': filename,
+                'downloadUrl': f'/api/story-generator/download/{filename}',
+                'stats': {'totalTime': round(total_time, 2), 'size': f"{file_size//1024}KB"}
             }
-        })
+        )
+        
     except Exception as e:
         logger.error(f"[EventVideo:{job_id}] Error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        _video_jobs[job_id].update({"status": "error", "error": str(e)})
+        update_job(status='failed', step='Generation failed', error=str(e))
     finally:
         if temp_dir and os.path.exists(temp_dir):
             import shutil
