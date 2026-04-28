@@ -52,7 +52,7 @@ export default function StoryGeneratorPage() {
       setLoading(true);
       const res = await axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll: isAdmin ? viewAll : false, hostName: fullName } });
       setPresentations(res.data);
-    } catch { } finally { setLoading(false); }
+    } catch (err) { console.warn('[StoryGen] Failed to load presentations:', err.message); } finally { setLoading(false); }
   };
 
   const handleSelect = async (pres) => {
@@ -74,7 +74,7 @@ export default function StoryGeneratorPage() {
       if (assetRes.data?.assets) {
         setAssetImages(assetRes.data.assets);
       }
-    } catch { } finally { setLoadingPreview(false); }
+    } catch (err) { console.warn('[StoryGen] Failed to load preview:', err.message); } finally { setLoadingPreview(false); }
   };
 
   const handleGenerate = async () => {
@@ -664,7 +664,7 @@ function EventStoryBuilder({ eventType, onBack }) {
             if (storeRes.data.success) {
               setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
             }
-          } catch {}
+          } catch (qrErr) { console.warn('[EventStory] QR store failed:', qrErr.message); }
           
           setGenerating(false);
           return;

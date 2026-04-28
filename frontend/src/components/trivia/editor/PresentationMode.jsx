@@ -711,6 +711,12 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
             function renderSlide(slide, revealedCount = 0, isAnswerSlide = false, finalScoresData = null) {
               if (!slide) return;
               
+              // HTML escape utility to prevent XSS from user-entered content
+              function esc(str) {
+                if (str == null) return '';
+                return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+              }
+              
               const slideEl = document.getElementById('slide');
               slideEl.style.background = slide.background || 'black';
               
@@ -831,20 +837,20 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
                               <div style="display: flex; align-items: center; gap: 1.5rem;">
                                 <span class="team-rank">\${idx + 1}.</span>
                                 <div>
-                                  <h3 class="team-name">\${team.name}</h3>
-                                  \${team.swag ? \`<p style="font-size: 1rem; color: #ccc;">\${team.swag}</p>\` : ''}
+                                  <h3 class="team-name">\${esc(team.name)}</h3>
+                                  \${team.swag ? \`<p style="font-size: 1rem; color: #ccc;">\${esc(team.swag)}</p>\` : ''}
                                 </div>
                               </div>
                               <div style="text-align: right;">
-                                <p class="team-total">\${team.total}</p>
+                                <p class="team-total">\${esc(team.total)}</p>
                                 <p style="font-size: 0.9rem; color: #999;">Total Points</p>
                               </div>
                             </div>
                             <div class="round-scores">
                               \${team.roundScores.map((score, roundIdx) => \`
                                 <div class="round-score">
-                                  <span class="round-label">\${finalScoresData.rounds[roundIdx].label}:</span>
-                                  <span class="round-value">\${score}</span>
+                                  <span class="round-label">\${esc(finalScoresData.rounds[roundIdx].label)}:</span>
+                                  <span class="round-value">\${esc(score)}</span>
                                 </div>
                               \`).join('')}
                             </div>

@@ -55,7 +55,7 @@ const SchedulingPage = () => {
     const autoLogin = async () => {
       const storedHost = sessionStorage.getItem('loggedInHost');
       if (storedHost) {
-        try { const host = JSON.parse(storedHost); setLoggedInHost(host); setSelectedEmployee(host.id); setAuthChecked(true); return; } catch { sessionStorage.removeItem('loggedInHost'); }
+        try { const host = JSON.parse(storedHost); setLoggedInHost(host); setSelectedEmployee(host.id); setAuthChecked(true); return; } catch (e) { console.warn('[Schedule] Invalid stored host:', e.message); sessionStorage.removeItem('loggedInHost'); }
       }
       if (hubUser?.email) {
         try {
@@ -68,7 +68,7 @@ const SchedulingPage = () => {
             const hostData = { id: hubUser.id, name: hubUser.name, email: hubUser.email, is_admin: hubUser.role === 'admin' || hubUser.role === 'master_admin' };
             setLoggedInHost(hostData); setSelectedEmployee(hubUser.id); sessionStorage.setItem('loggedInHost', JSON.stringify(hostData));
           }
-        } catch {}
+        } catch (err) { console.warn('[Schedule] Auto-login failed:', err.message); }
       }
       setAuthChecked(true);
     };

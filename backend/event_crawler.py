@@ -55,7 +55,7 @@ HEADERS = {
 def generate_event_id(event_name: str, venue: str, date: str) -> str:
     """Generate a unique ID for an event based on its key attributes"""
     unique_string = f"{event_name}|{venue}|{date}"
-    return hashlib.md5(unique_string.encode()).hexdigest()
+    return hashlib.sha256(unique_string.encode()).hexdigest()
 
 
 def determine_event_type(event_name: str, venue_type: str) -> str:

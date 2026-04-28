@@ -388,6 +388,12 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
             const container = document.getElementById('content');
             const { phase, selectedOptions, spinning, selectedRounds, wheelPositions, selectedLocation, availableRounds, currentCategory } = currentState;
             
+            // HTML escape utility to prevent XSS
+            function esc(str) {
+              if (str == null) return '';
+              return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
+            
             if (phase === 'input') {
               // Check if all 3 categories have 5 selections - show "Ready to Spin" view
               const regCount = (selectedOptions.REG || []).length;
@@ -405,19 +411,19 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
                         <div class="ready-card">
                           <div class="ready-card-title" style="color: #3b82f6;">🎯 REG Rounds</div>
                           <div class="ready-card-items">
-                            \${(selectedOptions.REG || []).map(r => \`<div class="ready-card-item">\${r}</div>\`).join('')}
+                            \${(selectedOptions.REG || []).map(r => \`<div class="ready-card-item">\${esc(r)}</div>\`).join('')}
                           </div>
                         </div>
                         <div class="ready-card">
                           <div class="ready-card-title" style="color: #FFC107;">✨ MISC Rounds</div>
                           <div class="ready-card-items">
-                            \${(selectedOptions.MISC || []).map(r => \`<div class="ready-card-item">\${r}</div>\`).join('')}
+                            \${(selectedOptions.MISC || []).map(r => \`<div class="ready-card-item">\${esc(r)}</div>\`).join('')}
                           </div>
                         </div>
                         <div class="ready-card">
                           <div class="ready-card-title" style="color: #22c55e;">💎 BIG Rounds</div>
                           <div class="ready-card-items">
-                            \${(selectedOptions.BIG || []).map(r => \`<div class="ready-card-item">\${r}</div>\`).join('')}
+                            \${(selectedOptions.BIG || []).map(r => \`<div class="ready-card-item">\${esc(r)}</div>\`).join('')}
                           </div>
                         </div>
                       </div>
@@ -436,13 +442,13 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
                 // Generate options HTML (will be duplicated for seamless scroll)
                 const optionsHTML = allOptions.map(option => {
                   const isSelected = selectedNames.includes(option);
-                  return \`<div class="option-item \${isSelected ? 'selected' : ''}">\${option}</div>\`;
+                  return \`<div class="option-item \${isSelected ? 'selected' : ''}">\${esc(option)}</div>\`;
                 }).join('');
                 
                 container.innerHTML = \`
                   <div class="container">
                     <div class="title">🎰 Round Roulette 🎰</div>
-                    <div class="subtitle">Location: \${selectedLocation || ''}</div>
+                    <div class="subtitle">Location: \${esc(selectedLocation || '')}</div>
                     
                     <div class="selection-container">
                       <div class="selection-header">
@@ -490,7 +496,7 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
                 const isSpinning = spinning[idx] && !selectedRounds[cat];
                 
                 const blurItems = isSpinning ? options.concat(options).concat(options).map(round => \`
-                  <div class="blur-item">\${round}</div>
+                  <div class="blur-item">\${esc(round)}</div>
                 \`).join('') : '';
                 
                 return \`
@@ -503,10 +509,10 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
                       </div>
                     \` : ''}
                     <div class="flash-display" id="flash-display-\${idx}">
-                      \${selectedRounds[cat] || (options[0]) || 'Loading...'}
+                      \${esc(selectedRounds[cat] || (options[0]) || 'Loading...')}
                     </div>
                     <div class="winner-box">
-                      \${selectedRounds[cat] ? \`🎉 \${selectedRounds[cat]} 🎉\` : 'Spinning...'}
+                      \${selectedRounds[cat] ? \`🎉 \${esc(selectedRounds[cat])} 🎉\` : 'Spinning...'}
                     </div>
                   </div>
                 \`;
@@ -526,15 +532,15 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
                     <div class="result-grid">
                       <div class="result-card result-card-red">
                         <div class="result-category">🎯 REG Round 🎯</div>
-                        <div class="result-round">\${selectedRounds.REG || ''}</div>
+                        <div class="result-round">\${esc(selectedRounds.REG || '')}</div>
                       </div>
                       <div class="result-card result-card-blue">
                         <div class="result-category">✨ MISC Round ✨</div>
-                        <div class="result-round">\${selectedRounds.MISC || ''}</div>
+                        <div class="result-round">\${esc(selectedRounds.MISC || '')}</div>
                       </div>
                       <div class="result-card result-card-yellow">
                         <div class="result-category">💎 BIG Question 💎</div>
-                        <div class="result-round">\${selectedRounds.BIG || ''}</div>
+                        <div class="result-round">\${esc(selectedRounds.BIG || '')}</div>
                       </div>
                     </div>
                   </div>
