@@ -297,12 +297,9 @@ class StoryGeneratorService:
     
     def get_event_assets(self, event_type):
         """Get available locations and hosts for an event type (bingo/karaoke).
+        Always fetches fresh from SharePoint to pick up newly added files.
         Returns: { locations: [{name, id}], hosts: [{name, id}] }
         """
-        cache_key = f"{event_type}"
-        if cache_key in self._event_assets_cache:
-            return self._event_assets_cache[cache_key]
-        
         urls = self._event_sharing_urls.get(event_type)
         if not urls:
             return {"locations": [], "hosts": []}
@@ -348,7 +345,6 @@ class StoryGeneratorService:
                     })
             logger.info(f"[EventAssets] {event_type} hosts: {len(result['hosts'])}")
         
-        self._event_assets_cache[cache_key] = result
         return result
     
     def download_event_asset(self, drive_id, item_id):
