@@ -25,6 +25,13 @@ Unified SSO hub for BIG Hat Entertainment (Phoenix, AZ) — live events company 
 ## Database (23 collections)
 users, employees, venues, events, venue_pricing, payment_acknowledgments, blackout_dates, venue_roles, login_attempts, changelog, trivia_presentations, round_usage, trivia_hosts, trivia_locations, trivia_rounds, presentations, story_builds, story_gen_presentations, rounds, games, section_status, sponsors, sponsor_locations
 
+## Completed Work (Latest)
+- **2026-04-28:** Scoreboard Synthwave grid rewritten — parallel vertical/horizontal lines with fixed 10-step CSS mask fade to 0% at the gold horizon. Uses SVG grid + `mask-image` gradient for smooth scrolling fade effect.
+
+## Pending
+- Karaoke app integration (P1 — currently "Coming Soon" placeholder)
+- Training tool integration (P2 — currently "Coming Soon" placeholder)
+
 ## Credentials
 - Master Admin: Sellards@bighat.live / BigHat2024!
 - All hosts: default password B1GHat
