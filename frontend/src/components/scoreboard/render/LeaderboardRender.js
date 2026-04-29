@@ -33,7 +33,6 @@ const AutoShrinkText = ({ text, maxSize, minSize = 12, className = '', style = {
         display: 'block',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
-        textOverflow: 'ellipsis',
       }}
     >
       {text}
@@ -122,8 +121,8 @@ const LeaderboardRender = ({
     <div className="absolute inset-0" data-testid="leaderboard-render">
       <SynthwaveBackdrop />
       
-      {/* Content layer */}
-      <div className="relative z-10 flex flex-col h-full" style={{ padding: isPortrait ? '50px 44px 50px 36px' : '40px 60px' }}>
+      {/* Content layer — 15% top offset, 5% side buffers */}
+      <div className="relative z-10 flex flex-col h-full" style={{ padding: isPortrait ? '15% 5% 50px 5%' : '15% 5% 40px 5%' }}>
         
         {/* Title bar */}
         <div 

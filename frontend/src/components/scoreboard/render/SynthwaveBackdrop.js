@@ -1,10 +1,28 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 
 /**
  * Synthwave backdrop — uniform parallel grid scrolling upward,
  * with a fixed 10-step opacity mask fading to 0% at the gold horizon line.
+ * Uses requestAnimationFrame + inline transform for html2canvas compatibility.
  */
 const SynthwaveBackdrop = ({ className = '' }) => {
+  // Animate grid scroll via rAF so html2canvas captures current position
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const rafRef = useRef(null);
+  const startTimeRef = useRef(null);
+  const SCROLL_CYCLE = 6000; // 6s full cycle (matches original)
+
+  useEffect(() => {
+    const animate = (timestamp) => {
+      if (!startTimeRef.current) startTimeRef.current = timestamp;
+      const elapsed = timestamp - startTimeRef.current;
+      const progress = (elapsed % SCROLL_CYCLE) / SCROLL_CYCLE; // 0→1
+      setScrollOffset(progress * 50); // translateY 0→50%
+      rafRef.current = requestAnimationFrame(animate);
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
   // Pre-compute star positions so they don't re-randomize on every render
   const stars = useMemo(() =>
     Array.from({ length: 50 }, (_, i) => ({
@@ -75,11 +93,12 @@ const SynthwaveBackdrop = ({ className = '' }) => {
         WebkitMaskImage: `linear-gradient(to bottom, ${maskStops})`,
         maskImage: `linear-gradient(to bottom, ${maskStops})`,
       }}>
-        {/* SVG grid that scrolls upward — two copies for seamless loop */}
+        {/* SVG grid that scrolls upward — uses inline transform for video capture compatibility */}
         <div style={{
           position: 'relative',
           height: `${GRID_HEIGHT}px`,
-          animation: 'gridScrollUp 6s linear infinite',
+          transform: `translateY(-${scrollOffset}%)`,
+          willChange: 'transform',
         }}>
           <svg
             width="100%" height={GRID_HEIGHT}
@@ -112,10 +131,6 @@ const SynthwaveBackdrop = ({ className = '' }) => {
       </div>
 
       <style>{`
-        @keyframes gridScrollUp {
-          0% { transform: translateY(0); }
-          100% { transform: translateY(-50%); }
-        }
         @keyframes twinkle {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 0.8; }

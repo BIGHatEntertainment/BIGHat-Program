@@ -337,30 +337,24 @@ const Dashboard = () => {
 
   const handleExportVideo = async () => {
     setExporting(true);
-    setExportStatus('Capturing high-res frame...');
-    toast.info('Creating video...');
+    setExportStatus('Recording animated scoreboard (15s)...');
+    toast.info('Recording video with animations...');
     try {
-      const wasAnimating = isAnimating;
-      setIsAnimating(false);
-      await new Promise(r => setTimeout(r, 300));
-
-      if (window.__renderStage?.exportAsPng) {
-        const dataUrl = await window.__renderStage.exportAsPng();
-        if (dataUrl) {
-          setExportStatus('Uploading image...');
-          
-          const res = await fetch(dataUrl);
+      if (window.__renderStage?.exportAsVideo) {
+        // Record 15 seconds of the live DOM including CSS animations (grid scroll, etc.)
+        const webmUrl = await window.__renderStage.exportAsVideo(15000);
+        if (webmUrl) {
+          setExportStatus('Converting to MP4...');
+          const res = await fetch(webmUrl);
           const blob = await res.blob();
           
-          setExportStatus('Creating MP4 video...');
           const formData = new FormData();
-          formData.append('file', blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.png`);
+          formData.append('file', blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.webm`);
           
           const videoRes = await api.imageToVideo(formData, 15);
           
           if (videoRes.data?.url) {
             const mp4Url = `${BACKEND_URL}${videoRes.data.url}`;
-            // Download using fetch+blob to avoid new tab auth issues
             try {
               const dlRes = await fetch(mp4Url);
               const dlBlob = await dlRes.blob();
@@ -371,7 +365,6 @@ const Dashboard = () => {
               link.click();
               window.URL.revokeObjectURL(url);
             } catch {
-              // Fallback: direct link
               window.open(mp4Url, '_blank');
             }
 
@@ -381,10 +374,10 @@ const Dashboard = () => {
           } else {
             throw new Error('No video URL returned');
           }
+        } else {
+          throw new Error('Video recording returned empty');
         }
       }
-      // Restore animation state
-      if (wasAnimating) setIsAnimating(true);
     } catch (err) {
       console.error('Video export failed:', err);
       setExportStatus('Video export failed: ' + (err.response?.data?.detail || err.message));

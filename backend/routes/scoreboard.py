@@ -322,76 +322,75 @@ async def upload_export(file: UploadFile = File(...)):
 
 @router.post("/exports/image-to-video")
 async def image_to_video(file: UploadFile = File(...), duration: int = 15):
-    """Convert a PNG image to a smooth 30fps MP4 video with fade-in effect.
-    This creates a true 30fps video (450 frames for 15s) from a single high-res image."""
+    """Convert an uploaded file (PNG still or WebM recording) to a smooth MP4.
+    - PNG: Creates a 20fps video from a still image
+    - WebM: Transcodes to MP4 at original framerate"""
     import subprocess
     
-    # Save the uploaded image
-    img_id = f"{uuid.uuid4().hex[:12]}.png"
-    img_path = EXPORTS_DIR / img_id
+    # Save the uploaded file
     content = await file.read()
-    with open(img_path, "wb") as f:
+    filename = file.filename or "upload.png"
+    is_webm = filename.lower().endswith('.webm') or file.content_type == 'video/webm'
+    
+    ext = '.webm' if is_webm else '.png'
+    input_id = f"{uuid.uuid4().hex[:12]}{ext}"
+    input_path = EXPORTS_DIR / input_id
+    with open(input_path, "wb") as f:
         f.write(content)
     
-    logger.info(f"Image uploaded for video conversion: {img_id} ({len(content)} bytes)")
+    logger.info(f"Upload for video conversion: {input_id} ({len(content)} bytes, webm={is_webm})")
     
-    mp4_id = img_id.replace('.png', '.mp4')
+    mp4_id = input_id.rsplit('.', 1)[0] + '.mp4'
     mp4_path = EXPORTS_DIR / mp4_id
     
     try:
-        # Create a lightweight MP4 optimized for production
-        # Use 1fps (still image), ultrafast preset, and CRF 30 for small/fast output
-        result = subprocess.run(
-            ['ffmpeg', '-y',
-             '-loop', '1',
-             '-i', str(img_path),
-             '-c:v', 'libx264',
-             '-t', str(duration),
-             '-pix_fmt', 'yuv420p',
-             '-r', '1',
-             '-preset', 'ultrafast',
-             '-tune', 'stillimage',
-             '-crf', '30',
-             '-threads', '1',
-             '-vf', f'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
-             '-movflags', '+faststart',
-             str(mp4_path)],
-            capture_output=True, text=True, timeout=180
-        )
-        
-        if result.returncode != 0:
-            # Simplest possible approach
-            logger.warning(f"First attempt failed, trying minimal: {result.stderr[:200]}")
+        if is_webm:
+            # WebM → MP4 transcode (preserves framerate and animation)
+            result = subprocess.run(
+                ['ffmpeg', '-y', '-i', str(input_path),
+                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                 '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                 '-an', str(mp4_path)],
+                capture_output=True, text=True, timeout=180
+            )
+        else:
+            # PNG → 20fps smooth MP4 video
             result = subprocess.run(
                 ['ffmpeg', '-y',
                  '-loop', '1',
-                 '-i', str(img_path),
+                 '-i', str(input_path),
                  '-c:v', 'libx264',
                  '-t', str(duration),
                  '-pix_fmt', 'yuv420p',
-                 '-r', '1',
+                 '-r', '20',
                  '-preset', 'ultrafast',
-                 '-crf', '35',
+                 '-crf', '28',
                  '-threads', '1',
+                 '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                 '-movflags', '+faststart',
                  str(mp4_path)],
-                capture_output=True, text=True, timeout=120
+                capture_output=True, text=True, timeout=180
             )
         
-        if result.returncode == 0 and mp4_path.exists():
+        if result.returncode != 0:
+            logger.error(f"ffmpeg failed: {result.stderr[:500]}")
+            raise HTTPException(status_code=500, detail=f"Video creation failed: {result.stderr[:200]}")
+        
+        if mp4_path.exists():
             size = mp4_path.stat().st_size
-            logger.info(f"Created video {mp4_id}: {size} bytes, {duration}s @ 30fps")
+            logger.info(f"Created video {mp4_id}: {size} bytes, {duration}s")
+            # Cleanup input
+            try: input_path.unlink()
+            except: pass
             return {
                 "file_id": mp4_id,
                 "url": f"/api/scoreboard/exports/{mp4_id}",
                 "size": size,
                 "format": "mp4",
                 "duration": duration,
-                "fps": 30,
-                "total_frames": duration * 30,
             }
         else:
-            logger.error(f"ffmpeg image-to-video failed: {result.stderr[:500]}")
-            raise HTTPException(status_code=500, detail=f"Video creation failed: {result.stderr[:200]}")
+            raise HTTPException(status_code=500, detail="Video file not created")
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Video creation timed out")
     except HTTPException:
