@@ -734,7 +734,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
                 // Dynamic duration: 4 seconds per team, minimum 20s, max 120s
                 const scrollDuration = Math.min(120, Math.max(20, teamCount * 4));
                 // Only enable scrolling if more than 5 teams (won't fit on screen)
-                const needsScrolling = teamCount > 5;
+                const needsScrolling = true;
                 
                 const scoresHTML = \`
                   <style>
@@ -1514,13 +1514,9 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         </Button>
       </div>
 
-      {/* Save & Exit — shows on the last few slides with WINNERS/SCORES type, or the very last slide regardless */}
+      {/* Save & Exit — shows ONLY on the final scores slide (Winners slide index 4) */}
       {(
-        (currentSlide?.metadata?.roundType === 'WINNERS') ||
-        (currentSlide?.metadata?.roundType === 'SCORES') ||
-        (currentSlide?.metadata?.roundType === 'TOTAL') ||
-        (currentIndex >= slides.length - 3 && currentSlide?.metadata?.roundType !== 'MC' && currentSlide?.metadata?.roundType !== 'REG' && currentSlide?.metadata?.roundType !== 'MISC' && currentSlide?.metadata?.roundType !== 'MYS' && currentSlide?.metadata?.roundType !== 'BIG') ||
-        (currentIndex === slides.length - 1)
+        (currentSlide?.metadata?.roundType === 'WINNERS' && currentSlide?.metadata?.slideIndexInRound === 4)
       ) && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[200]">
           <Button
