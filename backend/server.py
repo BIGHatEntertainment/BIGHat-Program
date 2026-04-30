@@ -336,35 +336,45 @@ async def seed_trivia_data():
     await reconstruct_round_files()
 
 async def sync_users_from_employees():
-    """Sync hub users from schedule employees. Employees table is the source of truth for emails/names."""
+    """Sync hub users from schedule employees. Employees table is the source of truth for emails/names/roles."""
+    admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
     employees = await db.employees.find({}, {"_id": 0}).to_list(100)
     synced = 0
     for emp in employees:
         emp_email = emp.get("email", "").lower().strip()
         if not emp_email:
             continue
+        # Determine role from employee's is_admin flag (schedule tool is source of truth)
+        if emp_email == admin_email:
+            target_role = "master_admin"
+        elif emp.get("is_admin"):
+            target_role = "admin"
+        else:
+            target_role = "host"
+        
         # Find hub user by case-insensitive email match
         user = await db.users.find_one({"email": {"$regex": f"^{emp_email}$", "$options": "i"}})
         if user:
-            # Update email to match employee record (don't change master admin name)
             updates = {}
+            # Sync name (don't overwrite master admin name)
             if user.get("role") != "master_admin" and user.get("name") != emp.get("name"):
                 updates["name"] = emp["name"]
             if user.get("email") != emp_email:
                 updates["email"] = emp_email
+            # Sync role from employee is_admin (schedule tool is source of truth)
+            current_role = user.get("role", "host")
+            if current_role != target_role:
+                updates["role"] = target_role
             if updates:
                 await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
                 synced += 1
         else:
             # Create hub user from employee
-            role = "admin" if emp.get("is_admin") else "host"
-            if emp_email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
-                role = "master_admin"
             await db.users.insert_one({
                 "email": emp_email,
                 "password_hash": hash_password("B1GHat"),
                 "name": emp["name"],
-                "role": role,
+                "role": target_role,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "schedule_employee_id": emp.get("id")
             })
@@ -587,16 +597,60 @@ async def login(request: Request, response: Response, body: LoginRequest):
         else:
             await db.login_attempts.delete_one({"identifier": identifier})
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user:
         await db.login_attempts.update_one({"identifier": identifier}, {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}}, upsert=True)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Primary check: bcrypt hash in users collection
+    password_valid = False
+    try:
+        password_valid = verify_password(body.password, user.get("password_hash", ""))
+    except Exception:
+        pass
+    
+    # Fallback: check against employee's schedule password (plaintext in employees collection)
+    if not password_valid:
+        employee = await db.employees.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}}, {"_id": 0})
+        if employee:
+            emp_password = employee.get("password", "B1GHat")
+            if body.password == emp_password:
+                password_valid = True
+                # Fix the hash so bcrypt works next time
+                await db.users.update_one({"_id": user["_id"]}, {"$set": {"password_hash": hash_password(body.password)}})
+                logger.info(f"[Auth] Fixed password hash for {email} (matched employee password)")
+    
+    # Also check master admin env password as ultimate fallback
+    if not password_valid and email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+        admin_pwd = os.environ.get("ADMIN_PASSWORD", "")
+        if body.password == admin_pwd:
+            password_valid = True
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {"password_hash": hash_password(body.password)}})
+            logger.info(f"[Auth] Fixed master admin password hash from env")
+    
+    if not password_valid:
+        await db.login_attempts.update_one({"identifier": identifier}, {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}}, upsert=True)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
     await db.login_attempts.delete_many({"identifier": identifier})
     user_id = str(user["_id"])
-    access_token = create_access_token(user_id, email, user.get("role", "host"))
+    # Sync role from employee on login (schedule tool is source of truth)
+    employee = await db.employees.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}}, {"_id": 0})
+    if employee:
+        if email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+            role = "master_admin"
+        elif employee.get("is_admin"):
+            role = "admin"
+        else:
+            role = "host"
+        if role != user.get("role"):
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": role}})
+    else:
+        role = user.get("role", "host")
+    access_token = create_access_token(user_id, email, role)
     refresh_token = create_refresh_token(user_id)
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
-    return {"id": user_id, "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "host"), "token": access_token}
+    return {"id": user_id, "email": user["email"], "name": user.get("name", ""), "role": role, "token": access_token}
 
 @api_router.post("/auth/register")
 async def register(response: Response, body: RegisterRequest, admin: dict = Depends(require_admin)):
@@ -659,13 +713,22 @@ async def google_callback(request: Request, response: Response):
     # Find or create hub user - sync from employee data
     user = await db.users.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
     if user:
-        # Update from employee data (employees table is source of truth)
+        # Update from employee data (employees table is source of truth for roles)
         update_data = {"picture": picture}
         if employee.get("name"):
             update_data["name"] = employee["name"]
+        # Sync role from employee is_admin (schedule tool is source of truth)
+        if email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+            update_data["role"] = "master_admin"
+        elif is_admin:
+            update_data["role"] = "admin"
+        else:
+            # Only downgrade if not master_admin
+            if user.get("role") != "master_admin":
+                update_data["role"] = "host"
         await db.users.update_one({"_id": user["_id"]}, {"$set": update_data})
         user_id = str(user["_id"])
-        role = user.get("role", "admin" if is_admin else "host")
+        role = update_data.get("role", user.get("role", "host"))
     else:
         # Create new user from employee data
         role = "admin" if is_admin else "host"
