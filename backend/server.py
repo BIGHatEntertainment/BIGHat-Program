@@ -598,11 +598,21 @@ async def login(request: Request, response: Response, body: LoginRequest):
         ip = request.client.host if request.client else "unknown"
         identifier = f"{ip}:{email}"
         
-        # Rate limiting
+        # Rate limiting — clear old lockouts, skip comparison on timezone mismatch
         attempt = await db.login_attempts.find_one({"identifier": identifier})
         if attempt and attempt.get("count", 0) >= 5:
             lockout_until = attempt.get("locked_until")
-            if lockout_until and datetime.now(timezone.utc) < lockout_until:
+            still_locked = False
+            if lockout_until:
+                try:
+                    now = datetime.now(timezone.utc)
+                    # Make both datetimes timezone-aware for safe comparison
+                    if lockout_until.tzinfo is None:
+                        lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+                    still_locked = now < lockout_until
+                except Exception:
+                    still_locked = False
+            if still_locked:
                 raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
             else:
                 await db.login_attempts.delete_one({"identifier": identifier})
