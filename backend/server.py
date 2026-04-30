@@ -12,6 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from contextlib import asynccontextmanager
 import os
+import re
 import logging
 import bcrypt
 import jwt as pyjwt
@@ -586,71 +587,108 @@ api_router = APIRouter(prefix="/api")
 @api_router.post("/auth/login")
 @limiter.limit("10/minute")
 async def login(request: Request, response: Response, body: LoginRequest):
-    email = body.email.lower().strip()
-    ip = request.client.host if request.client else "unknown"
-    identifier = f"{ip}:{email}"
-    attempt = await db.login_attempts.find_one({"identifier": identifier})
-    if attempt and attempt.get("count", 0) >= 5:
-        lockout_until = attempt.get("locked_until")
-        if lockout_until and datetime.now(timezone.utc) < lockout_until:
-            raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
-        else:
-            await db.login_attempts.delete_one({"identifier": identifier})
-    user = await db.users.find_one({"email": email})
-    if not user:
-        await db.login_attempts.update_one({"identifier": identifier}, {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}}, upsert=True)
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    # Primary check: bcrypt hash in users collection
-    password_valid = False
+    """
+    Password login — authenticates against the Personnel Index (employees collection).
+    1. Look up email in employees (the personnel index / source of truth)
+    2. Verify password against the employee's password field
+    3. Find or create the hub user record
+    4. Return JWT with role derived from employee.is_admin
+    """
     try:
-        password_valid = verify_password(body.password, user.get("password_hash", ""))
-    except Exception:
-        pass
-    
-    # Fallback: check against employee's schedule password (plaintext in employees collection)
-    if not password_valid:
-        employee = await db.employees.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}}, {"_id": 0})
-        if employee:
-            emp_password = employee.get("password", "B1GHat")
-            if body.password == emp_password:
-                password_valid = True
-                # Fix the hash so bcrypt works next time
-                await db.users.update_one({"_id": user["_id"]}, {"$set": {"password_hash": hash_password(body.password)}})
-                logger.info(f"[Auth] Fixed password hash for {email} (matched employee password)")
-    
-    # Also check master admin env password as ultimate fallback
-    if not password_valid and email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+        email = body.email.lower().strip()
+        ip = request.client.host if request.client else "unknown"
+        identifier = f"{ip}:{email}"
+        
+        # Rate limiting
+        attempt = await db.login_attempts.find_one({"identifier": identifier})
+        if attempt and attempt.get("count", 0) >= 5:
+            lockout_until = attempt.get("locked_until")
+            if lockout_until and datetime.now(timezone.utc) < lockout_until:
+                raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
+            else:
+                await db.login_attempts.delete_one({"identifier": identifier})
+        
+        # Step 1: Look up employee in the Personnel Index (source of truth)
+        employee = await db.employees.find_one(
+            {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}},
+            {"_id": 0}
+        )
+        if not employee:
+            await db.login_attempts.update_one(
+                {"identifier": identifier},
+                {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}},
+                upsert=True
+            )
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Step 2: Verify password against employee record
+        emp_password = employee.get("password", "B1GHat")
+        admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
         admin_pwd = os.environ.get("ADMIN_PASSWORD", "")
-        if body.password == admin_pwd:
-            password_valid = True
-            await db.users.update_one({"_id": user["_id"]}, {"$set": {"password_hash": hash_password(body.password)}})
-            logger.info(f"[Auth] Fixed master admin password hash from env")
-    
-    if not password_valid:
-        await db.login_attempts.update_one({"identifier": identifier}, {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}}, upsert=True)
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    await db.login_attempts.delete_many({"identifier": identifier})
-    user_id = str(user["_id"])
-    # Sync role from employee on login (schedule tool is source of truth)
-    employee = await db.employees.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}}, {"_id": 0})
-    if employee:
-        if email == os.environ.get("ADMIN_EMAIL", "").lower().strip():
+        
+        password_ok = (body.password == emp_password)
+        # Master admin can also use the env password
+        if not password_ok and email == admin_email and admin_pwd:
+            password_ok = (body.password == admin_pwd)
+        
+        if not password_ok:
+            await db.login_attempts.update_one(
+                {"identifier": identifier},
+                {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}},
+                upsert=True
+            )
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Step 3: Determine role from personnel index
+        if email == admin_email:
             role = "master_admin"
         elif employee.get("is_admin"):
             role = "admin"
         else:
             role = "host"
-        if role != user.get("role"):
-            await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": role}})
-    else:
-        role = user.get("role", "host")
-    access_token = create_access_token(user_id, email, role)
-    refresh_token = create_refresh_token(user_id)
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
-    return {"id": user_id, "email": user["email"], "name": user.get("name", ""), "role": role, "token": access_token}
+        
+        # Step 4: Find or create hub user
+        await db.login_attempts.delete_many({"identifier": identifier})
+        
+        user = await db.users.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+        if user:
+            # Update role and name from personnel index
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {
+                "role": role,
+                "name": employee.get("name", user.get("name", "")),
+                "password_hash": hash_password(body.password),
+            }})
+            user_id = str(user["_id"])
+            user_name = employee.get("name", user.get("name", ""))
+        else:
+            # Create hub user from personnel index
+            result = await db.users.insert_one({
+                "email": email,
+                "password_hash": hash_password(body.password),
+                "name": employee.get("name", ""),
+                "role": role,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "schedule_employee_id": employee.get("id"),
+            })
+            user_id = str(result.inserted_id)
+            user_name = employee.get("name", "")
+        
+        # Step 5: Issue JWT
+        access_token = create_access_token(user_id, email, role)
+        refresh_token = create_refresh_token(user_id)
+        response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
+        response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+        
+        logger.info(f"[Auth] Password login: {email} → {role}")
+        return {"id": user_id, "email": email, "name": user_name, "role": role, "token": access_token}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Auth] Login error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Login failed. Please try again.")
 
 @api_router.post("/auth/register")
 async def register(response: Response, body: RegisterRequest, admin: dict = Depends(require_admin)):
