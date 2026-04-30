@@ -585,7 +585,6 @@ api_router = APIRouter(prefix="/api")
 # =============================================
 
 @api_router.post("/auth/login")
-@limiter.limit("10/minute")
 async def login(request: Request, response: Response, body: LoginRequest):
     """
     Password login — authenticates against the Personnel Index (employees collection).
@@ -685,10 +684,25 @@ async def login(request: Request, response: Response, body: LoginRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[Auth] Login error: {e}")
+        logger.error(f"[Auth] Login error for {body.email}: {type(e).__name__}: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Login failed. Please try again.")
+        raise HTTPException(status_code=500, detail=f"Login failed: {type(e).__name__}: {str(e)[:100]}")
+
+@api_router.get("/auth/check-personnel")
+async def check_personnel(email: str = ""):
+    """Debug: check if an email exists in the personnel index (employees collection)."""
+    if not email:
+        count = await db.employees.count_documents({})
+        return {"personnel_count": count}
+    email = email.lower().strip()
+    emp = await db.employees.find_one(
+        {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}},
+        {"_id": 0, "password": 0}
+    )
+    if emp:
+        return {"found": True, "name": emp.get("name"), "is_admin": emp.get("is_admin", False), "email": emp.get("email")}
+    return {"found": False, "email": email}
 
 @api_router.post("/auth/register")
 async def register(response: Response, body: RegisterRequest, admin: dict = Depends(require_admin)):
