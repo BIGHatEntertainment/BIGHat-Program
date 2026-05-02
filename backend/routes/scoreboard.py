@@ -322,64 +322,70 @@ async def upload_export(file: UploadFile = File(...)):
 
 @router.post("/exports/image-to-video")
 async def image_to_video(file: UploadFile = File(...), duration: int = 15):
-    """Convert an uploaded file (PNG still or WebM recording) to a smooth MP4.
-    - PNG: Creates a 20fps video from a still image
-    - WebM: Transcodes to MP4 at original framerate"""
+    """Convert a PNG screenshot to a smooth 20fps MP4 video."""
     import subprocess
     
-    # Save the uploaded file
     content = await file.read()
-    filename = file.filename or "upload.png"
-    is_webm = filename.lower().endswith('.webm') or file.content_type == 'video/webm'
+    if not content or len(content) < 100:
+        raise HTTPException(status_code=400, detail="Empty or invalid file uploaded")
     
-    ext = '.webm' if is_webm else '.png'
-    input_id = f"{uuid.uuid4().hex[:12]}{ext}"
+    input_id = f"{uuid.uuid4().hex[:12]}.png"
     input_path = EXPORTS_DIR / input_id
     with open(input_path, "wb") as f:
         f.write(content)
     
-    logger.info(f"Upload for video conversion: {input_id} ({len(content)} bytes, webm={is_webm})")
+    logger.info(f"[Scoreboard Video] Input: {input_id} ({len(content)} bytes)")
     
-    mp4_id = input_id.rsplit('.', 1)[0] + '.mp4'
+    mp4_id = input_id.replace('.png', '.mp4')
     mp4_path = EXPORTS_DIR / mp4_id
     
     try:
-        if is_webm:
-            # WebM → MP4 transcode (preserves framerate and animation)
-            result = subprocess.run(
-                ['ffmpeg', '-y', '-i', str(input_path),
-                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-                 '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-                 '-an', str(mp4_path)],
-                capture_output=True, text=True, timeout=180
-            )
-        else:
-            # PNG → 20fps smooth MP4 video
-            result = subprocess.run(
-                ['ffmpeg', '-y',
-                 '-loop', '1',
-                 '-i', str(input_path),
-                 '-c:v', 'libx264',
-                 '-t', str(duration),
-                 '-pix_fmt', 'yuv420p',
-                 '-r', '20',
-                 '-preset', 'ultrafast',
-                 '-crf', '28',
-                 '-threads', '1',
-                 '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
-                 '-movflags', '+faststart',
-                 str(mp4_path)],
-                capture_output=True, text=True, timeout=180
-            )
+        # Detect input dimensions to determine landscape vs portrait
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width,height', '-of', 'csv=p=0',
+             str(input_path)],
+            capture_output=True, text=True, timeout=10
+        )
+        
+        # Default to landscape 1920x1080
+        out_w, out_h = 1920, 1080
+        if probe.returncode == 0 and probe.stdout.strip():
+            parts = probe.stdout.strip().split(',')
+            if len(parts) == 2:
+                in_w, in_h = int(parts[0]), int(parts[1])
+                if in_h > in_w:
+                    # Portrait input → portrait output
+                    out_w, out_h = 1080, 1920
+                logger.info(f"[Scoreboard Video] Input: {in_w}x{in_h} → Output: {out_w}x{out_h}")
+        
+        # Enforce exact output resolution with scale→crop→setsar
+        vf = f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1"
+        
+        result = subprocess.run(
+            ['ffmpeg', '-y',
+             '-loop', '1',
+             '-i', str(input_path),
+             '-c:v', 'libx264',
+             '-t', str(duration),
+             '-pix_fmt', 'yuv420p',
+             '-r', '20',
+             '-preset', 'ultrafast',
+             '-crf', '28',
+             '-threads', '1',
+             '-vf', vf,
+             '-movflags', '+faststart',
+             str(mp4_path)],
+            capture_output=True, text=True, timeout=180
+        )
         
         if result.returncode != 0:
-            logger.error(f"ffmpeg failed: {result.stderr[:500]}")
+            logger.error(f"[Scoreboard Video] ffmpeg failed: {result.stderr[:500]}")
             raise HTTPException(status_code=500, detail=f"Video creation failed: {result.stderr[:200]}")
         
         if mp4_path.exists():
             size = mp4_path.stat().st_size
-            logger.info(f"Created video {mp4_id}: {size} bytes, {duration}s")
-            # Cleanup input
+            logger.info(f"[Scoreboard Video] Created {mp4_id}: {size} bytes, {duration}s @ 20fps, {out_w}x{out_h}")
             try: input_path.unlink()
             except: pass
             return {
@@ -396,7 +402,9 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Image-to-video error: {e}")
+        logger.error(f"[Scoreboard Video] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 

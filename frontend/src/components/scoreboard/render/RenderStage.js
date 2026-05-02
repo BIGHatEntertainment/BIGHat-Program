@@ -42,17 +42,14 @@ const RenderStage = ({
     const el = stageRef.current;
     if (!el) return null;
     
-    // Save current transform and temporarily set to scale(1)
+    // Save current transform — unscale to full size but keep in DOM flow
     const origTransform = el.style.transform;
-    const origPosition = el.style.position;
-    const origLeft = el.style.left;
-    const origTop = el.style.top;
+    const origTransformOrigin = el.style.transformOrigin;
     
-    // Move offscreen at full size to capture
+    // Set to scale(1) so html2canvas captures at full resolution
+    // Keep element in its container (visible) — moving offscreen causes blank captures
     el.style.transform = 'none';
-    el.style.position = 'fixed';
-    el.style.left = '-9999px';
-    el.style.top = '0px';
+    el.style.transformOrigin = 'top left';
     
     // Wait for repaint
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -66,14 +63,14 @@ const RenderStage = ({
         allowTaint: true,
         backgroundColor: '#07070E',
         logging: false,
+        windowWidth: dimensions.width,
+        windowHeight: dimensions.height,
       });
       return canvas;
     } finally {
       // Restore original styles
       el.style.transform = origTransform;
-      el.style.position = origPosition;
-      el.style.left = origLeft;
-      el.style.top = origTop;
+      el.style.transformOrigin = origTransformOrigin;
     }
   };
 

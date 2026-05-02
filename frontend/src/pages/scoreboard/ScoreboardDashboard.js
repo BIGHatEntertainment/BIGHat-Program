@@ -337,19 +337,24 @@ const Dashboard = () => {
 
   const handleExportVideo = async () => {
     setExporting(true);
-    setExportStatus('Recording animated scoreboard (15s)...');
-    toast.info('Recording video with animations...');
+    setExportStatus('Capturing scoreboard...');
+    toast.info('Creating video...');
     try {
-      if (window.__renderStage?.exportAsVideo) {
-        // Record 15 seconds of the live DOM including CSS animations (grid scroll, etc.)
-        const webmUrl = await window.__renderStage.exportAsVideo(15000);
-        if (webmUrl) {
-          setExportStatus('Converting to MP4...');
-          const res = await fetch(webmUrl);
+      // Disable animation temporarily for a clean capture
+      const wasAnimating = isAnimating;
+      setIsAnimating(false);
+      await new Promise(r => setTimeout(r, 500));
+
+      if (window.__renderStage?.exportAsPng) {
+        const dataUrl = await window.__renderStage.exportAsPng();
+        if (dataUrl) {
+          setExportStatus('Generating MP4 video...');
+          
+          const res = await fetch(dataUrl);
           const blob = await res.blob();
           
           const formData = new FormData();
-          formData.append('file', blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.webm`);
+          formData.append('file', blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.png`);
           
           const videoRes = await api.imageToVideo(formData, 15);
           
@@ -375,9 +380,11 @@ const Dashboard = () => {
             throw new Error('No video URL returned');
           }
         } else {
-          throw new Error('Video recording returned empty');
+          throw new Error('Screenshot capture failed');
         }
       }
+      // Restore animation state
+      if (wasAnimating) setIsAnimating(true);
     } catch (err) {
       console.error('Video export failed:', err);
       setExportStatus('Video export failed: ' + (err.response?.data?.detail || err.message));
