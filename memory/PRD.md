@@ -36,6 +36,8 @@ users, employees, venues, events, venue_pricing, payment_acknowledgments, blacko
 - **Browser-based screen recording (MediaRecorder/WebM) for Scoreboard video export** — html2canvas captures at ~5fps (choppy), MediaRecorder WebM codec support varies across browsers, 15s real-time recording freezes the browser, large WebM files hit Cloudflare proxy limits. The PNG→FFmpeg server-side approach is the production-proven method.
 - **Browser-based html2canvas PNG capture → upload → FFmpeg for Scoreboard video** — html2canvas hangs/times out on production (120s timeout exceeded), moves element offscreen causing blank captures, large PNG uploads hit Cloudflare proxy limits. Server-side Pillow rendering from JSON data is the working method.
 
+- **2026-05-03:** Asset management: auto-delete generated files after 24h (hourly job), archive events older than 10 days (daily job), monthly financial JSON archive uploaded to SharePoint.
+
 ## Pending
 - Karaoke app integration (P1 — currently "Coming Soon" placeholder)
 - Training tool integration (P2 — currently "Coming Soon" placeholder)

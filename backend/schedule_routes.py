@@ -615,8 +615,12 @@ async def create_event(event: EventCreate):
 async def get_events(include_past: bool = False):
     query = {}
     if not include_past:
-        # Only get current and future events
-        query['date'] = {'$gte': datetime.now(timezone.utc).isoformat()}
+        # Only show future events + events from the last 10 days (non-archived)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        query['date'] = {'$gte': cutoff}
+    # Always exclude archived events unless explicitly including past
+    if not include_past:
+        query['archived'] = {'$ne': True}
     
     events = await db.events.find(query, {"_id": 0}).sort("date", 1).to_list(1000)
     for event in events:
@@ -1222,10 +1226,63 @@ async def create_monthly_archive(month: str):
     doc['archived_at'] = doc['archived_at'].isoformat()
     await db.monthly_archives.insert_one(doc)
     
+    # Upload to SharePoint Financial Records folder
+    sp_upload_status = "not_attempted"
+    try:
+        from sharepoint_service import SharePointService
+        import json as json_mod
+        import base64
+        import requests as sp_requests
+        
+        sp = SharePointService()
+        token = sp.get_access_token()
+        
+        # Resolve the Financial Records sharing URL to get drive_id and item_id
+        sharing_url = "https://bhentertainment.sharepoint.com/:f:/g/IgCNsqgWmBgXQbSpKnp-IEdWAUqZzHgub7Wwk6GhOTW2oCc?e=s12lta"
+        encoded = base64.urlsafe_b64encode(sharing_url.encode()).decode().rstrip('=')
+        share_token = f"u!{encoded}"
+        
+        resolve_resp = sp_requests.get(
+            f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15
+        )
+        
+        if resolve_resp.status_code == 200:
+            folder_data = resolve_resp.json()
+            drive_id = folder_data.get("parentReference", {}).get("driveId")
+            folder_id = folder_data.get("id")
+            
+            # Prepare JSON — exclude _id, convert datetimes
+            upload_doc = {k: v for k, v in doc.items() if k != '_id'}
+            json_content = json_mod.dumps(upload_doc, indent=2, default=str).encode('utf-8')
+            filename = f"{month}_Financial_Report.json"
+            
+            # Upload to SharePoint
+            upload_url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{folder_id}:/{filename}:/content"
+            upload_resp = sp_requests.put(
+                upload_url,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                data=json_content, timeout=30
+            )
+            
+            if upload_resp.status_code in [200, 201]:
+                sp_upload_status = "uploaded"
+                logger.info(f"[Archive] Uploaded {filename} to SharePoint Financial Records")
+            else:
+                sp_upload_status = f"failed: {upload_resp.status_code}"
+                logger.error(f"[Archive] SharePoint upload failed: {upload_resp.status_code} - {upload_resp.text[:200]}")
+        else:
+            sp_upload_status = f"resolve_failed: {resolve_resp.status_code}"
+            logger.error(f"[Archive] Could not resolve SharePoint folder: {resolve_resp.status_code}")
+    except Exception as e:
+        sp_upload_status = f"error: {str(e)[:80]}"
+        logger.error(f"[Archive] SharePoint upload error: {e}")
+    
     return {
         "success": True,
         "message": f"Monthly archive created for {month}",
-        "archive": archive
+        "archive": archive,
+        "sharepoint_upload": sp_upload_status
     }
 
 @api_router.get("/reports/monthly/archive/{month}")

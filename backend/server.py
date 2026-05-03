@@ -1054,7 +1054,9 @@ async def create_schedule_event(event: ScheduleEventCreate):
 async def get_schedule_events(include_past: bool = False):
     query = {}
     if not include_past:
-        query['date'] = {'$gte': datetime.now(timezone.utc).isoformat()}
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        query['date'] = {'$gte': cutoff}
+        query['archived'] = {'$ne': True}
     events = await db.events.find(query, {"_id": 0}).sort("date", 1).to_list(1000)
     for event in events:
         if isinstance(event.get('date'), str):
@@ -1402,6 +1404,109 @@ async def get_monthly_expected_income(month: str, venue_id: Optional[str] = None
             total += price
             breakdown.append({"event_id": ev['id'], "event_type": ev['event_type'], "venue_id": ev['venue_id'], "date": ev['date'], "expected_income": price, "venue_pays_host_directly": v.get('venue_pays_host_directly', False) if v else False})
     return {"month": month, "venue_id": venue_id, "total_expected_income": total, "event_count": len(breakdown), "events": breakdown}
+
+@api_router.post("/reports/monthly/archive")
+async def create_monthly_financial_archive(month: str):
+    """Create monthly financial archive and upload to SharePoint."""
+    import json as json_mod
+    import base64
+    import requests as sp_requests
+    
+    # Check if archive exists
+    existing = await db.monthly_archives.find_one({"month": month})
+    if existing:
+        raise HTTPException(status_code=400, detail="Archive already exists for this month")
+    
+    # Gather financial data
+    income_data = await get_monthly_expected_income(month, None)
+    
+    payments = await db.payment_acknowledgments.find({"acknowledged_month": month}, {"_id": 0}).to_list(1000)
+    venues_list = await db.venues.find({}, {"_id": 0}).to_list(1000)
+    vm = {v['id']: v for v in venues_list}
+    
+    # Build archive
+    total_outgoing = 0
+    payments_detail = []
+    for p in payments:
+        if not p.get('venue_pays_host_directly', False):
+            total_outgoing += p.get('total_pay', 0)
+        payments_detail.append({
+            "event_id": p.get('event_id'), "event_title": p.get('event_title'),
+            "employee_name": p.get('employee_name'), "venue_name": p.get('venue_name'),
+            "event_date": str(p.get('event_date', '')), "amount": p.get('total_pay', 0),
+            "venue_pays_host_directly": p.get('venue_pays_host_directly', False),
+            "acknowledged_at": str(p.get('acknowledged_at', ''))
+        })
+    
+    income_by_location = {}
+    for ev in income_data.get('events', []):
+        vid = ev['venue_id']
+        vname = vm.get(vid, {}).get('name', 'Unknown')
+        if vid not in income_by_location:
+            income_by_location[vid] = {"venue_name": vname, "amount": 0}
+        income_by_location[vid]["amount"] += ev['expected_income']
+    
+    archive_doc = {
+        "month": month,
+        "total_income": income_data['total_expected_income'],
+        "total_outgoing": total_outgoing,
+        "net_revenue": income_data['total_expected_income'] - total_outgoing,
+        "event_count": income_data['event_count'],
+        "payment_count": len(payments),
+        "income_by_location": income_by_location,
+        "income_by_event": income_data.get('events', []),
+        "payments_by_event": payments_detail,
+        "archived_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.monthly_archives.insert_one({**archive_doc})
+    
+    # Upload to SharePoint Financial Records
+    sp_status = "not_attempted"
+    try:
+        from sharepoint_service import SharePointService
+        sp = SharePointService()
+        token = sp.get_access_token()
+        
+        sharing_url = "https://bhentertainment.sharepoint.com/:f:/g/IgCNsqgWmBgXQbSpKnp-IEdWAUqZzHgub7Wwk6GhOTW2oCc?e=s12lta"
+        encoded = base64.urlsafe_b64encode(sharing_url.encode()).decode().rstrip('=')
+        
+        resolve = sp_requests.get(
+            f"https://graph.microsoft.com/v1.0/shares/u!{encoded}/driveItem",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15
+        )
+        if resolve.status_code == 200:
+            fd = resolve.json()
+            drive_id = fd.get("parentReference", {}).get("driveId")
+            folder_id = fd.get("id")
+            
+            upload_doc = {k: v for k, v in archive_doc.items() if k != '_id'}
+            json_bytes = json_mod.dumps(upload_doc, indent=2, default=str).encode()
+            fname = f"{month}_Financial_Report.json"
+            
+            up = sp_requests.put(
+                f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{folder_id}:/{fname}:/content",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                data=json_bytes, timeout=30
+            )
+            sp_status = "uploaded" if up.status_code in [200, 201] else f"failed:{up.status_code}"
+        else:
+            sp_status = f"resolve_failed:{resolve.status_code}"
+    except Exception as e:
+        sp_status = f"error:{str(e)[:60]}"
+        logger.error(f"[Archive] SP upload error: {e}")
+    
+    return {
+        "success": True,
+        "message": f"Monthly archive created for {month}",
+        "archive": {k: v for k, v in archive_doc.items() if k != '_id'},
+        "sharepoint_upload": sp_status
+    }
+
+@api_router.get("/reports/monthly/archives")
+async def get_all_monthly_archives():
+    archives = await db.monthly_archives.find({}, {"_id": 0}).sort("month", -1).to_list(100)
+    return archives
 
 # =============================================
 # SCHEDULE - BLACKOUTS

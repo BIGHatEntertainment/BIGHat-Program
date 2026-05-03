@@ -1,11 +1,14 @@
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import glob
+import time
 from dotenv import load_dotenv
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import httpx
 
@@ -24,6 +27,52 @@ db = client[os.environ['DB_NAME']]
 
 # API URL for making requests - use internal localhost since scheduler runs in same container
 API_URL = os.environ.get('INTERNAL_API_URL', 'http://localhost:8001/api')
+
+
+async def cleanup_generated_assets():
+    """Delete generated story videos, scoreboard exports, and temp files older than 24 hours."""
+    try:
+        now = time.time()
+        max_age = 24 * 3600  # 24 hours
+        deleted = 0
+        
+        dirs_to_clean = [
+            ROOT_DIR / 'assets' / 'generated',    # Story Generator MP4s
+            ROOT_DIR / 'exports',                   # Scoreboard exports
+        ]
+        # Also clean /tmp/story_videos (QR temp downloads)
+        tmp_story = Path('/tmp/story_videos')
+        if tmp_story.exists():
+            dirs_to_clean.append(tmp_story)
+        
+        for directory in dirs_to_clean:
+            if not directory.exists():
+                continue
+            for f in directory.iterdir():
+                if f.is_file() and f.suffix in ['.mp4', '.png', '.webm', '.jpg']:
+                    age = now - f.stat().st_mtime
+                    if age > max_age:
+                        f.unlink()
+                        deleted += 1
+        
+        if deleted:
+            logger.info(f"[Cleanup] Deleted {deleted} generated assets older than 24h")
+    except Exception as e:
+        logger.error(f"[Cleanup] Error cleaning assets: {e}")
+
+
+async def cleanup_old_events():
+    """Hide events older than 10 days by marking them as archived. Preserves payment data."""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        result = await db.events.update_many(
+            {"date": {"$lt": cutoff}, "archived": {"$ne": True}},
+            {"$set": {"archived": True}}
+        )
+        if result.modified_count:
+            logger.info(f"[Cleanup] Archived {result.modified_count} events older than 10 days")
+    except Exception as e:
+        logger.error(f"[Cleanup] Error archiving events: {e}")
 
 
 async def create_monthly_archive():
@@ -62,9 +111,27 @@ async def create_monthly_archive():
 
 def start_scheduler():
     """
-    Start the scheduler with monthly archive job and email notification jobs
+    Start the scheduler with monthly archive, email notification, and cleanup jobs
     """
     scheduler = AsyncIOScheduler(timezone='America/Phoenix')  # MST/Arizona time
+    
+    # Hourly: clean up generated assets older than 24h
+    scheduler.add_job(
+        cleanup_generated_assets,
+        trigger=IntervalTrigger(hours=1),
+        id='cleanup_assets',
+        name='Cleanup Generated Assets (24h)',
+        replace_existing=True
+    )
+    
+    # Daily at 3 AM: archive events older than 10 days
+    scheduler.add_job(
+        cleanup_old_events,
+        trigger=CronTrigger(hour=3, minute=0, timezone='America/Phoenix'),
+        id='cleanup_events',
+        name='Archive Old Events (10d)',
+        replace_existing=True
+    )
     
     # Run on the last day of every month at 11:00 PM MST
     scheduler.add_job(
@@ -108,11 +175,11 @@ def start_scheduler():
         replace_existing=True
     )
     
-    logger.info("Scheduler started - Monthly archive (last day 11PM), Friday primary reports (9AM), Monday secondary reports (9AM)")
+    logger.info("Scheduler started — Asset cleanup (hourly), Event archive (3AM daily), Monthly archive (last day 11PM), Friday reports (9AM), Monday reports (9AM)")
     
     scheduler.start()
     
-    for job_id in ['monthly_archive', 'primary_friday_report', 'secondary_monday_availability']:
+    for job_id in ['cleanup_assets', 'cleanup_events', 'monthly_archive', 'primary_friday_report', 'secondary_monday_availability']:
         try:
             job = scheduler.get_job(job_id)
             if job:
