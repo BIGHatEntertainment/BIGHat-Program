@@ -423,89 +423,120 @@ class ScoreboardVideoRequest(BaseModel):
 async def generate_scoreboard_video(req: ScoreboardVideoRequest):
     """
     Generate a scoreboard MP4 video entirely server-side.
-    Renders the leaderboard as an image with Pillow, converts to MP4 with FFmpeg.
-    No browser capture required — works reliably on production.
+    Renders animated scrolling synthwave grid + static scoreboard overlay.
+    Outputs 10fps × duration frames compiled by FFmpeg.
     """
-    import subprocess
+    import subprocess, shutil, tempfile
     from PIL import Image, ImageDraw, ImageFont
     
     is_portrait = req.aspectRatio == "portrait"
     W, H = (1080, 1920) if is_portrait else (1920, 1080)
+    FPS = 10  # 10fps is enough for a smooth grid scroll, fast to render
+    TOTAL_FRAMES = FPS * req.duration
+    GRID_CYCLE_S = 6  # seconds for one full grid scroll cycle
     
+    temp_dir = None
     try:
+        temp_dir = tempfile.mkdtemp(prefix="sb_video_")
+        
         # Load fonts
         try:
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-            font_title = ImageFont.truetype(font_path, 64 if is_portrait else 56)
-            font_date = ImageFont.truetype(font_path, 24)
-            font_rank = ImageFont.truetype(font_path, 36 if is_portrait else 32)
-            font_name = ImageFont.truetype(font_path, 30 if is_portrait else 26)
-            font_score = ImageFont.truetype(font_path, 48 if is_portrait else 40)
-            font_small = ImageFont.truetype(font_path, 16)
-            font_round_label = ImageFont.truetype(font_path, 14)
-        except:
-            font_title = font_date = font_rank = font_name = font_score = font_small = font_round_label = ImageFont.load_default()
+            fp = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            font_title = ImageFont.truetype(fp, 64 if is_portrait else 56)
+            font_date = ImageFont.truetype(fp, 24)
+            font_rank = ImageFont.truetype(fp, 36 if is_portrait else 32)
+            font_name = ImageFont.truetype(fp, 30 if is_portrait else 26)
+            font_score = ImageFont.truetype(fp, 48 if is_portrait else 40)
+            font_small = ImageFont.truetype(fp, 16)
+            font_rlabel = ImageFont.truetype(fp, 14)
+        except Exception:
+            font_title = font_date = font_rank = font_name = font_score = font_small = font_rlabel = ImageFont.load_default()
         
-        # Create image
-        img = Image.new('RGB', (W, H), '#07070E')
-        draw = ImageDraw.Draw(img)
-        
-        # Draw synthwave grid in bottom half
         grid_top = H // 2
-        horizon_y = grid_top
+        grid_h = H - grid_top
+        num_v = 24
+        h_spacing = 40  # tighter spacing for more visible scroll
         
-        # Horizon glow
-        for i in range(40):
-            alpha = int(60 * (1 - i / 40))
-            y = horizon_y - 20 + i
-            draw.line([(0, y), (W, y)], fill=(251, 221, 104, alpha), width=1)
+        # ---- Helper: render grid frame at a given scroll offset ----
+        def render_grid(scroll_pct):
+            """Return an RGB image of the background + animated grid at scroll_pct (0→1)."""
+            bg = Image.new('RGB', (W, H), (7, 7, 14))
+            d = ImageDraw.Draw(bg)
+            
+            # Sky gradient (top half)
+            for y in range(grid_top):
+                t = y / grid_top
+                r = int(0 + t * 10)
+                g = int(7 + t * 18)
+                b = int(14 + t * 50)
+                d.line([(0, y), (W, y)], fill=(r, g, b))
+            
+            # Stars
+            import random
+            random.seed(42)
+            for _ in range(50):
+                sx, sy = random.randint(0, W), random.randint(0, grid_top - 10)
+                sr = random.randint(1, 2)
+                sc = random.choice([(89, 115, 247), (251, 221, 104), (200, 200, 220), (255, 255, 255)])
+                d.ellipse([sx-sr, sy-sr, sx+sr, sy+sr], fill=sc)
+            
+            # Horizon glow
+            for i in range(30):
+                alpha_f = 1.0 - (i / 30)
+                c = (int(251 * alpha_f * 0.15), int(221 * alpha_f * 0.15), int(104 * alpha_f * 0.15))
+                d.line([(0, grid_top - 15 + i), (W, grid_top - 15 + i)], fill=c)
+            
+            # Gold horizon line
+            d.line([(0, grid_top), (W, grid_top)], fill=(251, 221, 104), width=3)
+            d.line([(0, grid_top + 1), (W, grid_top + 1)], fill=(200, 176, 80), width=1)
+            
+            # Vertical lines (parallel, static)
+            for i in range(num_v):
+                x = int((i + 0.5) / num_v * W)
+                for y in range(grid_top + 3, H):
+                    fade = 1.0 - ((y - grid_top) / grid_h) * 0.6  # fade toward bottom
+                    if fade < 0.05:
+                        break
+                    # Near horizon: very faint, gets stronger lower
+                    near_horizon = min(1.0, (y - grid_top) / (grid_h * 0.15))
+                    opacity = fade * near_horizon
+                    c = (int(89 * opacity * 0.45), int(115 * opacity * 0.45), int(247 * opacity * 0.45))
+                    if c[2] > 2:
+                        d.point((x, y), fill=c)
+            
+            # Horizontal lines (scroll upward)
+            total_lines = int(grid_h / h_spacing) + 4
+            offset_px = scroll_pct * h_spacing  # scroll within one spacing unit
+            for i in range(total_lines):
+                y = grid_top + int(i * h_spacing - offset_px)
+                if y <= grid_top or y >= H:
+                    continue
+                dist_from_horizon = (y - grid_top) / grid_h
+                # 10-step fade: transparent at horizon → visible at bottom
+                fade = min(1.0, dist_from_horizon * 2.0)
+                if fade < 0.02:
+                    continue
+                c = (int(251 * fade * 0.5), int(221 * fade * 0.5), int(104 * fade * 0.5))
+                d.line([(0, y), (W, y)], fill=c, width=2)
+            
+            return bg
         
-        # Gold horizon line
-        draw.line([(0, horizon_y), (W, horizon_y)], fill='#fbdd68', width=3)
+        # ---- Render scoreboard foreground (once, RGBA with transparency) ----
+        fg = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(fg)
         
-        # Grid lines below horizon
-        line_color_h = (89, 115, 247)  # Blue vertical
-        line_color_v = (251, 221, 104)  # Gold horizontal
-        num_v_lines = 24
-        num_h_lines = 15
-        for i in range(num_v_lines):
-            x = int((i + 0.5) / num_v_lines * W)
-            opacity = max(0, int(100 * (1 - (0.3))))  # Fade effect
-            draw.line([(x, grid_top), (x, H)], fill=(*line_color_h, opacity), width=1)
-        for i in range(num_h_lines):
-            y = grid_top + int((i + 1) / (num_h_lines + 1) * (H - grid_top))
-            fade = 1 - ((y - grid_top) / (H - grid_top)) * 0.7
-            opacity = max(30, int(100 * fade))
-            draw.line([(0, y), (W, y)], fill=(251, 221, 104, opacity), width=1)
-        
-        # Stars in top half
-        import random
-        random.seed(42)  # Consistent stars
-        for _ in range(60):
-            sx = random.randint(0, W)
-            sy = random.randint(0, horizon_y)
-            sr = random.randint(1, 3)
-            sc = random.choice([(89, 115, 247), (251, 221, 104), (136, 146, 176), (255, 255, 255)])
-            draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=sc)
-        
-        # Content area with margins
-        pad_top = int(H * 0.08) if is_portrait else int(H * 0.06)
+        pad_top = int(H * 0.15)
         pad_side = int(W * 0.05)
-        cx = pad_side
-        cy = pad_top
+        cx, cy = pad_side, pad_top
         content_w = W - 2 * pad_side
         
         # Title
-        draw.text((cx, cy), "BIG HAT TRIVIA", fill='#FFD700', font=font_small)
+        d.text((cx, cy), "BIG HAT TRIVIA", fill=(255, 215, 0, 255), font=font_small)
         cy += 24
-        
-        # Location name
-        draw.text((cx, cy), req.location, fill='#FFFFFF', font=font_title)
+        d.text((cx, cy), req.location, fill=(255, 255, 255, 255), font=font_title)
         cy += font_title.size + 12
-        
-        # Date
         if req.date:
-            draw.text((cx, cy), req.date, fill='#00d4ff', font=font_date)
+            d.text((cx, cy), req.date, fill=(0, 212, 255, 255), font=font_date)
             cy += 32
         
         # Round labels
@@ -515,134 +546,95 @@ async def generate_scoreboard_video(req: ScoreboardVideoRequest):
                 label = r.get('label', '')
                 mult = r.get('multiplier', 1)
                 text = f"{label} x{mult}" if mult > 1 else label
-                bbox = font_round_label.getbbox(text)
+                bbox = font_rlabel.getbbox(text)
                 tw = bbox[2] - bbox[0] + 16
-                pill_color = (255, 215, 0, 40) if mult > 1 else (255, 255, 255, 15)
-                text_color = '#FFD700' if mult > 1 else '#666688'
-                draw.rounded_rectangle([rx, cy, rx + tw, cy + 24], radius=4, fill=pill_color)
-                draw.text((rx + 8, cy + 4), text, fill=text_color, font=font_round_label)
+                bg_c = (255, 215, 0, 50) if mult > 1 else (255, 255, 255, 20)
+                txt_c = (255, 215, 0, 255) if mult > 1 else (100, 100, 136, 255)
+                d.rounded_rectangle([rx, cy, rx + tw, cy + 24], radius=4, fill=bg_c)
+                d.text((rx + 8, cy + 4), text, fill=txt_c, font=font_rlabel)
                 rx += tw + 6
             cy += 36
-        
         cy += 10
         
-        # Rank colors
-        rank_colors = [
-            {'border': '#FFD700', 'bg': (255, 215, 0, 40), 'text': '#FFD700'},
-            {'border': '#00d4ff', 'bg': (0, 212, 255, 30), 'text': '#00d4ff'},
-            {'border': '#ff00ff', 'bg': (255, 0, 255, 25), 'text': '#ff00ff'},
+        rank_styles = [
+            {'border': (255, 215, 0), 'bg': (255, 215, 0, 45), 'text': (255, 215, 0, 255)},
+            {'border': (0, 212, 255), 'bg': (0, 212, 255, 35), 'text': (0, 212, 255, 255)},
+            {'border': (255, 0, 255), 'bg': (255, 0, 255, 30), 'text': (255, 0, 255, 255)},
         ]
+        teams = req.teams[:10]
         
-        teams = req.teams[:10]  # Max 10 teams
-        
-        # Top 3 podium cards
         for idx, team in enumerate(teams[:3]):
-            rc = rank_colors[idx]
+            rs = rank_styles[idx]
             card_h = 90 if is_portrait else 80
-            
-            # Card background
-            draw.rounded_rectangle(
-                [cx, cy, cx + content_w, cy + card_h],
-                radius=12, fill=rc['bg'], outline=rc['border'], width=2
-            )
-            
-            # Rank icon area
-            icon_size = 48
-            icon_x = cx + 16
-            icon_y = cy + (card_h - icon_size) // 2
-            draw.rounded_rectangle(
-                [icon_x, icon_y, icon_x + icon_size, icon_y + icon_size],
-                radius=8, fill=rc['bg']
-            )
-            draw.text((icon_x + 8, icon_y + 6), f"#{idx + 1}", fill=rc['text'], font=font_rank)
-            
-            # Team name
-            name_x = icon_x + icon_size + 16
-            name_y = cy + 14
-            name = team.get('name', f'Team {idx + 1}')
-            # Truncate if too long
-            max_name_w = content_w - 200
-            draw.text((name_x, name_y), name, fill='#F4F2FF', font=font_name)
-            
-            # Round scores below name
-            round_scores = team.get('roundScores', [])
-            if round_scores:
-                rs_y = name_y + font_name.size + 4
-                rs_x = name_x
-                for s in round_scores:
-                    draw.text((rs_x, rs_y), str(s), fill='#666688', font=font_round_label)
-                    rs_x += 28
-            
-            # Total score (right side)
+            d.rounded_rectangle([cx, cy, cx + content_w, cy + card_h], radius=12, fill=rs['bg'], outline=rs['border'], width=2)
+            icon_sz = 48
+            ix, iy = cx + 16, cy + (card_h - icon_sz) // 2
+            d.rounded_rectangle([ix, iy, ix + icon_sz, iy + icon_sz], radius=8, fill=rs['bg'])
+            d.text((ix + 6, iy + 6), f"#{idx+1}", fill=rs['text'], font=font_rank)
+            nx = ix + icon_sz + 16
+            d.text((nx, cy + 14), team.get('name', ''), fill=(244, 242, 255, 255), font=font_name)
+            rs_list = team.get('roundScores', [])
+            if rs_list:
+                rsy = cy + 14 + font_name.size + 4
+                rsx = nx
+                for s in rs_list:
+                    d.text((rsx, rsy), str(s), fill=(100, 100, 136, 255), font=font_rlabel)
+                    rsx += 28
             total = str(team.get('total', 0))
-            score_bbox = font_score.getbbox(total)
-            score_w = score_bbox[2] - score_bbox[0]
-            draw.text(
-                (cx + content_w - score_w - 24, cy + (card_h - font_score.size) // 2),
-                total, fill=rc['text'], font=font_score
-            )
-            draw.text(
-                (cx + content_w - 40, cy + card_h - 22),
-                "pts", fill='#666688', font=font_round_label
-            )
-            
+            sb = font_score.getbbox(total)
+            sw = sb[2] - sb[0]
+            d.text((cx + content_w - sw - 24, cy + (card_h - font_score.size) // 2), total, fill=rs['text'], font=font_score)
+            d.text((cx + content_w - 40, cy + card_h - 22), "pts", fill=(100, 100, 136, 255), font=font_rlabel)
             cy += card_h + (12 if is_portrait else 10)
         
-        # Remaining teams (simple rows)
         for idx, team in enumerate(teams[3:]):
             row_h = 44 if is_portrait else 38
-            
-            draw.rounded_rectangle(
-                [cx, cy, cx + content_w, cy + row_h],
-                radius=8, fill=(10, 0, 40, 150), outline=(0, 212, 255, 25), width=1
-            )
-            
-            # Rank number
-            rank_num = str(team.get('rank', idx + 4))
-            draw.text((cx + 16, cy + 8), rank_num, fill='#00d4ff', font=font_small)
-            
-            # Team name
-            draw.text((cx + 50, cy + 8), team.get('name', ''), fill='#F4F2FF', font=font_small)
-            
-            # Total score
+            d.rounded_rectangle([cx, cy, cx + content_w, cy + row_h], radius=8, fill=(10, 0, 40, 180), outline=(0, 212, 255, 30), width=1)
+            d.text((cx + 16, cy + 8), str(team.get('rank', idx + 4)), fill=(0, 212, 255, 200), font=font_small)
+            d.text((cx + 50, cy + 8), team.get('name', ''), fill=(244, 242, 255, 255), font=font_small)
             total = str(team.get('total', 0))
-            total_bbox = font_small.getbbox(total)
-            total_w = total_bbox[2] - total_bbox[0]
-            draw.text((cx + content_w - total_w - 16, cy + 8), total, fill='#FFD700', font=font_small)
-            
+            tb = font_small.getbbox(total)
+            tw = tb[2] - tb[0]
+            d.text((cx + content_w - tw - 16, cy + 8), total, fill=(255, 215, 0, 255), font=font_small)
             cy += row_h + 6
         
-        # Footer branding
-        footer_y = H - 50
-        draw.ellipse([cx, footer_y, cx + 16, footer_y + 16], fill='#FFD700')
-        draw.text((cx + 24, footer_y), "BIG Hat Entertainment", fill='#00d4ff60', font=font_small)
+        # Footer
+        fy = H - 50
+        d.ellipse([cx, fy, cx + 16, fy + 16], fill=(255, 215, 0, 255))
+        d.text((cx + 24, fy), "BIG Hat Entertainment", fill=(0, 212, 255, 100), font=font_small)
         
-        # Save PNG
-        png_id = f"sb_{uuid.uuid4().hex[:8]}.png"
-        png_path = EXPORTS_DIR / png_id
-        img.save(str(png_path), 'PNG')
-        logger.info(f"[Scoreboard Video] Rendered {png_id}: {W}x{H}")
+        logger.info(f"[Scoreboard Video] Foreground rendered, generating {TOTAL_FRAMES} frames...")
         
-        # Convert to MP4 with FFmpeg
-        mp4_id = png_id.replace('.png', '.mp4')
+        # ---- Render frames: grid(scroll) + foreground composite ----
+        for frame_idx in range(TOTAL_FRAMES):
+            t = frame_idx / FPS  # time in seconds
+            scroll_pct = (t % GRID_CYCLE_S) / GRID_CYCLE_S  # 0→1 within cycle
+            
+            bg = render_grid(scroll_pct)
+            bg.paste(fg, (0, 0), fg)  # composite foreground with alpha
+            
+            frame_path = os.path.join(temp_dir, f"frame_{frame_idx:04d}.png")
+            bg.save(frame_path, 'PNG')
+        
+        logger.info(f"[Scoreboard Video] {TOTAL_FRAMES} frames saved, encoding with FFmpeg...")
+        
+        # ---- FFmpeg: frames → MP4 ----
+        mp4_id = f"sb_{uuid.uuid4().hex[:8]}.mp4"
         mp4_path = EXPORTS_DIR / mp4_id
         
-        vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"
         result = subprocess.run(
             ['ffmpeg', '-y',
-             '-loop', '1', '-i', str(png_path),
-             '-c:v', 'libx264', '-t', str(req.duration),
-             '-pix_fmt', 'yuv420p', '-r', '20',
-             '-preset', 'ultrafast', '-crf', '28',
-             '-threads', '1', '-vf', vf,
+             '-framerate', str(FPS),
+             '-i', os.path.join(temp_dir, 'frame_%04d.png'),
+             '-c:v', 'libx264',
+             '-pix_fmt', 'yuv420p',
+             '-preset', 'ultrafast',
+             '-crf', '28',
+             '-threads', '1',
              '-movflags', '+faststart',
              str(mp4_path)],
-            capture_output=True, text=True, timeout=120
+            capture_output=True, text=True, timeout=180
         )
-        
-        # Cleanup PNG
-        try: png_path.unlink()
-        except: pass
         
         if result.returncode != 0:
             logger.error(f"[Scoreboard Video] FFmpeg failed: {result.stderr[:300]}")
@@ -652,7 +644,7 @@ async def generate_scoreboard_video(req: ScoreboardVideoRequest):
             raise HTTPException(status_code=500, detail="Video file not created")
         
         size = mp4_path.stat().st_size
-        logger.info(f"[Scoreboard Video] Created {mp4_id}: {size} bytes, {req.duration}s @ 20fps")
+        logger.info(f"[Scoreboard Video] Created {mp4_id}: {size} bytes, {req.duration}s @ {FPS}fps, {W}x{H}")
         
         return {
             "success": True,
@@ -669,6 +661,9 @@ async def generate_scoreboard_video(req: ScoreboardVideoRequest):
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)[:100]}")
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 
