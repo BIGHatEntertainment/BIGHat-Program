@@ -408,6 +408,270 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ===================== SERVER-SIDE SCOREBOARD VIDEO GENERATION =====================
+
+class ScoreboardVideoRequest(BaseModel):
+    """Request to generate a scoreboard video entirely server-side (no browser capture)."""
+    teams: List[Dict[str, Any]]
+    location: str = "BIG Hat Trivia"
+    date: str = ""
+    rounds: List[Dict[str, Any]] = []
+    aspectRatio: str = "landscape"  # "landscape" or "portrait"
+    duration: int = 15
+
+@router.post("/generate-video")
+async def generate_scoreboard_video(req: ScoreboardVideoRequest):
+    """
+    Generate a scoreboard MP4 video entirely server-side.
+    Renders the leaderboard as an image with Pillow, converts to MP4 with FFmpeg.
+    No browser capture required — works reliably on production.
+    """
+    import subprocess
+    from PIL import Image, ImageDraw, ImageFont
+    
+    is_portrait = req.aspectRatio == "portrait"
+    W, H = (1080, 1920) if is_portrait else (1920, 1080)
+    
+    try:
+        # Load fonts
+        try:
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            font_title = ImageFont.truetype(font_path, 64 if is_portrait else 56)
+            font_date = ImageFont.truetype(font_path, 24)
+            font_rank = ImageFont.truetype(font_path, 36 if is_portrait else 32)
+            font_name = ImageFont.truetype(font_path, 30 if is_portrait else 26)
+            font_score = ImageFont.truetype(font_path, 48 if is_portrait else 40)
+            font_small = ImageFont.truetype(font_path, 16)
+            font_round_label = ImageFont.truetype(font_path, 14)
+        except:
+            font_title = font_date = font_rank = font_name = font_score = font_small = font_round_label = ImageFont.load_default()
+        
+        # Create image
+        img = Image.new('RGB', (W, H), '#07070E')
+        draw = ImageDraw.Draw(img)
+        
+        # Draw synthwave grid in bottom half
+        grid_top = H // 2
+        horizon_y = grid_top
+        
+        # Horizon glow
+        for i in range(40):
+            alpha = int(60 * (1 - i / 40))
+            y = horizon_y - 20 + i
+            draw.line([(0, y), (W, y)], fill=(251, 221, 104, alpha), width=1)
+        
+        # Gold horizon line
+        draw.line([(0, horizon_y), (W, horizon_y)], fill='#fbdd68', width=3)
+        
+        # Grid lines below horizon
+        line_color_h = (89, 115, 247)  # Blue vertical
+        line_color_v = (251, 221, 104)  # Gold horizontal
+        num_v_lines = 24
+        num_h_lines = 15
+        for i in range(num_v_lines):
+            x = int((i + 0.5) / num_v_lines * W)
+            opacity = max(0, int(100 * (1 - (0.3))))  # Fade effect
+            draw.line([(x, grid_top), (x, H)], fill=(*line_color_h, opacity), width=1)
+        for i in range(num_h_lines):
+            y = grid_top + int((i + 1) / (num_h_lines + 1) * (H - grid_top))
+            fade = 1 - ((y - grid_top) / (H - grid_top)) * 0.7
+            opacity = max(30, int(100 * fade))
+            draw.line([(0, y), (W, y)], fill=(251, 221, 104, opacity), width=1)
+        
+        # Stars in top half
+        import random
+        random.seed(42)  # Consistent stars
+        for _ in range(60):
+            sx = random.randint(0, W)
+            sy = random.randint(0, horizon_y)
+            sr = random.randint(1, 3)
+            sc = random.choice([(89, 115, 247), (251, 221, 104), (136, 146, 176), (255, 255, 255)])
+            draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=sc)
+        
+        # Content area with margins
+        pad_top = int(H * 0.08) if is_portrait else int(H * 0.06)
+        pad_side = int(W * 0.05)
+        cx = pad_side
+        cy = pad_top
+        content_w = W - 2 * pad_side
+        
+        # Title
+        draw.text((cx, cy), "BIG HAT TRIVIA", fill='#FFD700', font=font_small)
+        cy += 24
+        
+        # Location name
+        draw.text((cx, cy), req.location, fill='#FFFFFF', font=font_title)
+        cy += font_title.size + 12
+        
+        # Date
+        if req.date:
+            draw.text((cx, cy), req.date, fill='#00d4ff', font=font_date)
+            cy += 32
+        
+        # Round labels
+        if req.rounds:
+            rx = cx
+            for r in req.rounds:
+                label = r.get('label', '')
+                mult = r.get('multiplier', 1)
+                text = f"{label} x{mult}" if mult > 1 else label
+                bbox = font_round_label.getbbox(text)
+                tw = bbox[2] - bbox[0] + 16
+                pill_color = (255, 215, 0, 40) if mult > 1 else (255, 255, 255, 15)
+                text_color = '#FFD700' if mult > 1 else '#666688'
+                draw.rounded_rectangle([rx, cy, rx + tw, cy + 24], radius=4, fill=pill_color)
+                draw.text((rx + 8, cy + 4), text, fill=text_color, font=font_round_label)
+                rx += tw + 6
+            cy += 36
+        
+        cy += 10
+        
+        # Rank colors
+        rank_colors = [
+            {'border': '#FFD700', 'bg': (255, 215, 0, 40), 'text': '#FFD700'},
+            {'border': '#00d4ff', 'bg': (0, 212, 255, 30), 'text': '#00d4ff'},
+            {'border': '#ff00ff', 'bg': (255, 0, 255, 25), 'text': '#ff00ff'},
+        ]
+        
+        teams = req.teams[:10]  # Max 10 teams
+        
+        # Top 3 podium cards
+        for idx, team in enumerate(teams[:3]):
+            rc = rank_colors[idx]
+            card_h = 90 if is_portrait else 80
+            
+            # Card background
+            draw.rounded_rectangle(
+                [cx, cy, cx + content_w, cy + card_h],
+                radius=12, fill=rc['bg'], outline=rc['border'], width=2
+            )
+            
+            # Rank icon area
+            icon_size = 48
+            icon_x = cx + 16
+            icon_y = cy + (card_h - icon_size) // 2
+            draw.rounded_rectangle(
+                [icon_x, icon_y, icon_x + icon_size, icon_y + icon_size],
+                radius=8, fill=rc['bg']
+            )
+            draw.text((icon_x + 8, icon_y + 6), f"#{idx + 1}", fill=rc['text'], font=font_rank)
+            
+            # Team name
+            name_x = icon_x + icon_size + 16
+            name_y = cy + 14
+            name = team.get('name', f'Team {idx + 1}')
+            # Truncate if too long
+            max_name_w = content_w - 200
+            draw.text((name_x, name_y), name, fill='#F4F2FF', font=font_name)
+            
+            # Round scores below name
+            round_scores = team.get('roundScores', [])
+            if round_scores:
+                rs_y = name_y + font_name.size + 4
+                rs_x = name_x
+                for s in round_scores:
+                    draw.text((rs_x, rs_y), str(s), fill='#666688', font=font_round_label)
+                    rs_x += 28
+            
+            # Total score (right side)
+            total = str(team.get('total', 0))
+            score_bbox = font_score.getbbox(total)
+            score_w = score_bbox[2] - score_bbox[0]
+            draw.text(
+                (cx + content_w - score_w - 24, cy + (card_h - font_score.size) // 2),
+                total, fill=rc['text'], font=font_score
+            )
+            draw.text(
+                (cx + content_w - 40, cy + card_h - 22),
+                "pts", fill='#666688', font=font_round_label
+            )
+            
+            cy += card_h + (12 if is_portrait else 10)
+        
+        # Remaining teams (simple rows)
+        for idx, team in enumerate(teams[3:]):
+            row_h = 44 if is_portrait else 38
+            
+            draw.rounded_rectangle(
+                [cx, cy, cx + content_w, cy + row_h],
+                radius=8, fill=(10, 0, 40, 150), outline=(0, 212, 255, 25), width=1
+            )
+            
+            # Rank number
+            rank_num = str(team.get('rank', idx + 4))
+            draw.text((cx + 16, cy + 8), rank_num, fill='#00d4ff', font=font_small)
+            
+            # Team name
+            draw.text((cx + 50, cy + 8), team.get('name', ''), fill='#F4F2FF', font=font_small)
+            
+            # Total score
+            total = str(team.get('total', 0))
+            total_bbox = font_small.getbbox(total)
+            total_w = total_bbox[2] - total_bbox[0]
+            draw.text((cx + content_w - total_w - 16, cy + 8), total, fill='#FFD700', font=font_small)
+            
+            cy += row_h + 6
+        
+        # Footer branding
+        footer_y = H - 50
+        draw.ellipse([cx, footer_y, cx + 16, footer_y + 16], fill='#FFD700')
+        draw.text((cx + 24, footer_y), "BIG Hat Entertainment", fill='#00d4ff60', font=font_small)
+        
+        # Save PNG
+        png_id = f"sb_{uuid.uuid4().hex[:8]}.png"
+        png_path = EXPORTS_DIR / png_id
+        img.save(str(png_path), 'PNG')
+        logger.info(f"[Scoreboard Video] Rendered {png_id}: {W}x{H}")
+        
+        # Convert to MP4 with FFmpeg
+        mp4_id = png_id.replace('.png', '.mp4')
+        mp4_path = EXPORTS_DIR / mp4_id
+        
+        vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"
+        result = subprocess.run(
+            ['ffmpeg', '-y',
+             '-loop', '1', '-i', str(png_path),
+             '-c:v', 'libx264', '-t', str(req.duration),
+             '-pix_fmt', 'yuv420p', '-r', '20',
+             '-preset', 'ultrafast', '-crf', '28',
+             '-threads', '1', '-vf', vf,
+             '-movflags', '+faststart',
+             str(mp4_path)],
+            capture_output=True, text=True, timeout=120
+        )
+        
+        # Cleanup PNG
+        try: png_path.unlink()
+        except: pass
+        
+        if result.returncode != 0:
+            logger.error(f"[Scoreboard Video] FFmpeg failed: {result.stderr[:300]}")
+            raise HTTPException(status_code=500, detail=f"Video encoding failed: {result.stderr[:150]}")
+        
+        if not mp4_path.exists():
+            raise HTTPException(status_code=500, detail="Video file not created")
+        
+        size = mp4_path.stat().st_size
+        logger.info(f"[Scoreboard Video] Created {mp4_id}: {size} bytes, {req.duration}s @ 20fps")
+        
+        return {
+            "success": True,
+            "file_id": mp4_id,
+            "url": f"/api/scoreboard/exports/{mp4_id}",
+            "size": size,
+            "duration": req.duration,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Scoreboard Video] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)[:100]}")
+
+
+
 @router.get("/exports/{file_id}")
 async def serve_export(file_id: str):
     """Serve an exported file for download"""

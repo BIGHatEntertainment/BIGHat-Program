@@ -336,55 +336,51 @@ const Dashboard = () => {
   };
 
   const handleExportVideo = async () => {
+    const data = selectedFile?.data || selectedFile;
+    if (!data?.teams?.length) {
+      toast.error('No team data loaded. Select a score file first.');
+      return;
+    }
+    
     setExporting(true);
-    setExportStatus('Capturing scoreboard...');
-    toast.info('Creating video...');
+    setExportStatus('Generating MP4 video...');
+    toast.info('Creating video on server...');
     try {
-      // Disable animation temporarily for a clean capture
-      const wasAnimating = isAnimating;
-      setIsAnimating(false);
-      await new Promise(r => setTimeout(r, 500));
-
-      if (window.__renderStage?.exportAsPng) {
-        const dataUrl = await window.__renderStage.exportAsPng();
-        if (dataUrl) {
-          setExportStatus('Generating MP4 video...');
-          
-          const res = await fetch(dataUrl);
-          const blob = await res.blob();
-          
-          const formData = new FormData();
-          formData.append('file', blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.png`);
-          
-          const videoRes = await api.imageToVideo(formData, 15);
-          
-          if (videoRes.data?.url) {
-            const mp4Url = `${BACKEND_URL}${videoRes.data.url}`;
-            try {
-              const dlRes = await fetch(mp4Url);
-              const dlBlob = await dlRes.blob();
-              const url = window.URL.createObjectURL(dlBlob);
-              const link = document.createElement('a');
-              link.download = videoRes.data.file_id || `bighat-${mode}-${aspectRatio}.mp4`;
-              link.href = url;
-              link.click();
-              window.URL.revokeObjectURL(url);
-            } catch {
-              window.open(mp4Url, '_blank');
-            }
-
-            setQrUrl(mp4Url);
-            setExportStatus('MP4 exported! QR ready.');
-            toast.success('Video exported!');
-          } else {
-            throw new Error('No video URL returned');
-          }
-        } else {
-          throw new Error('Screenshot capture failed');
+      const videoRes = await api.generateVideo({
+        teams: data.teams.map((t, i) => ({
+          name: t.name,
+          total: t.total,
+          rank: t.rank || i + 1,
+          roundScores: t.roundScores || [],
+        })),
+        location: data.location || data.presentationName || 'BIG Hat Trivia',
+        date: data.date || '',
+        rounds: data.rounds || [],
+        aspectRatio: aspectRatio,
+        duration: 15,
+      });
+      
+      if (videoRes.data?.url) {
+        const mp4Url = `${BACKEND_URL}${videoRes.data.url}`;
+        setExportStatus('Downloading MP4...');
+        try {
+          const dlRes = await fetch(mp4Url);
+          const dlBlob = await dlRes.blob();
+          const url = window.URL.createObjectURL(dlBlob);
+          const link = document.createElement('a');
+          link.download = videoRes.data.file_id || `bighat-scoreboard-${aspectRatio}.mp4`;
+          link.href = url;
+          link.click();
+          window.URL.revokeObjectURL(url);
+        } catch {
+          window.open(mp4Url, '_blank');
         }
+        setQrUrl(mp4Url);
+        setExportStatus('MP4 exported! QR ready.');
+        toast.success('Video exported!');
+      } else {
+        throw new Error('No video URL returned');
       }
-      // Restore animation state
-      if (wasAnimating) setIsAnimating(true);
     } catch (err) {
       console.error('Video export failed:', err);
       setExportStatus('Video export failed: ' + (err.response?.data?.detail || err.message));

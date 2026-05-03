@@ -25,6 +25,7 @@ const api = {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000,
   }),
   exportImage: (data) => axios.post(`${API}/export-image`, data, { responseType: 'blob', timeout: 60000 }),
+  generateVideo: (data) => axios.post(`${API}/generate-video`, data, { timeout: 60000 }),
 };
 
 export default api;
