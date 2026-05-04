@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "setup_complete": false,
+  "instance_id": "4841b9b2-ffce-49a6-8ba8-84c47a4b0a57",
+  "created_at": "2026-05-04T06:02:36.535255+00:00",
+  "updated_at": "2026-05-04T06:02:36.535284+00:00",
+  "paths": {
+    "data_root": "./data",
+    "local_trivia": "./data/trivia",
+    "assets": "./data/assets",
+    "generated": "./data/generated"
+  },
+  "settings": {
+    "company_name": "BIG Hat Entertainment",
+    "location_name": "",
+    "city": "",
+    "state": "AZ",
+    "trivia_source": "local",
+    "asset_source": "local"
+  },
+  "license_status": {
+    "key": null,
+    "master_admin_email": null,
+    "total_seats_allowed": 5,
+    "active_seats": [],
+    "is_active": false
+  },
+  "subscription": {
+    "active": false,
+    "tier": "free",
+    "expires_at": null,
+    "last_check": null,
+    "sharepoint_enabled": false,
+    "story_generator_enabled": false,
+    "cloud_sync_enabled": false
+  },
+  "users": []
+}

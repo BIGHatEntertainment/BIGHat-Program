@@ -1,0 +1,249 @@
+"""
+/api/native/* HTTP endpoints — setup wizard, license, subscription.
+
+These endpoints are mounted unconditionally so the React frontend can probe
+`/api/native/info` to decide whether to show the setup wizard. They never
+touch MongoDB; they only operate on `system_config.json`.
+"""
+from __future__ import annotations
+
+import bcrypt
+import re as _re
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field, field_validator
+
+from .config import config_manager
+from .hwid import generate_hwid
+from .license import (
+    get_license_status,
+    is_well_formed_license,
+    register_seat,
+    release_seat,
+    set_license_key,
+)
+from .subscription import get_subscription, set_subscription
+
+router = APIRouter(prefix="/api/native", tags=["native"])
+
+
+# ---------- Models ----------
+class SetupSettings(BaseModel):
+    company_name: Optional[str] = "BIG Hat Entertainment"
+    location_name: str = Field(..., min_length=1)
+    city: str = ""
+    state: str = "AZ"
+    trivia_source: str = "local"  # 'local' | 'cloud'
+
+
+_EMAIL_RE = _re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+class SetupMasterAdmin(BaseModel):
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=6)
+    first_name: str = Field(..., min_length=1)
+    last_name: str = ""
+    display_name: Optional[str] = None
+    phone: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def _check_email(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("invalid_email")
+        return v
+
+
+class SetupPaths(BaseModel):
+    data_root: Optional[str] = None
+    local_trivia: Optional[str] = None
+    assets: Optional[str] = None
+    generated: Optional[str] = None
+
+
+class SetupInitRequest(BaseModel):
+    license_key: str
+    master_admin: SetupMasterAdmin
+    settings: SetupSettings
+    paths: Optional[SetupPaths] = None
+
+
+class LicenseSetRequest(BaseModel):
+    license_key: str
+    master_admin_email: Optional[str] = None
+
+class SubscriptionUpdateRequest(BaseModel):
+    active: bool
+    tier: str = "premium"
+    expires_at: Optional[str] = None
+    sharepoint_enabled: Optional[bool] = None
+    story_generator_enabled: Optional[bool] = None
+    cloud_sync_enabled: Optional[bool] = None
+
+
+class SeatRegisterRequest(BaseModel):
+    label: Optional[str] = None
+
+
+# ---------- Endpoints ----------
+@router.get("/info")
+async def get_native_info():
+    """Used by the frontend on every load to decide UI state."""
+    cfg = config_manager.public_view()
+    return {
+        "version": "31.0.0-phase0",
+        "native_mode": config_manager.is_native_mode(),
+        "setup_complete": cfg.get("setup_complete", False),
+        "instance_id": cfg.get("instance_id"),
+        "settings": cfg.get("settings", {}),
+        "paths": cfg.get("paths", {}),
+        "license": get_license_status(),
+        "subscription": get_subscription(),
+        "current_hwid": generate_hwid(),
+        "users_count": len(cfg.get("users", [])),
+    }
+
+
+@router.get("/setup/status")
+async def get_setup_status():
+    return {
+        "setup_complete": config_manager.config.get("setup_complete", False),
+        "native_mode": config_manager.is_native_mode(),
+        "users_count": len(config_manager.config.get("users", [])),
+    }
+
+
+@router.post("/setup/initialize")
+async def initialize_setup(payload: SetupInitRequest):
+    """First-run setup wizard — creates master admin, sets license, registers seat."""
+    if config_manager.config.get("setup_complete"):
+        raise HTTPException(status_code=409, detail="setup_already_complete")
+
+    if not is_well_formed_license(payload.license_key):
+        raise HTTPException(status_code=400, detail="invalid_license_format")
+
+    # Persist license
+    set_license_key(payload.license_key.upper(), payload.master_admin.email)
+
+    # Persist settings
+    cfg = config_manager.config
+    cfg["settings"].update(payload.settings.model_dump(exclude_none=True))
+    if payload.paths:
+        cfg["paths"].update(payload.paths.model_dump(exclude_none=True))
+
+    # Create master admin
+    pwd_hash = bcrypt.hashpw(
+        payload.master_admin.password.encode("utf-8"), bcrypt.gensalt()
+    ).decode("utf-8")
+    master_user = {
+        "id": str(uuid.uuid4()),
+        "email": payload.master_admin.email.lower().strip(),
+        "password_hash": pwd_hash,
+        "first_name": payload.master_admin.first_name,
+        "last_name": payload.master_admin.last_name or "",
+        "display_name": (
+            payload.master_admin.display_name
+            or f"{payload.master_admin.first_name} {payload.master_admin.last_name}".strip()
+        ),
+        "phone": payload.master_admin.phone,
+        "role": "master_admin",
+        "is_admin": True,
+        "is_master": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "auth_method": "local",
+    }
+    cfg["users"] = [master_user]  # wipe any prior users on initial setup
+
+    cfg["setup_complete"] = True
+    config_manager.save_config()
+
+    # Register this machine as the first seat
+    register_seat(label=f"Master Admin — {master_user['display_name']}")
+
+    return {
+        "status": "ok",
+        "master_admin_email": master_user["email"],
+        "hwid": generate_hwid(),
+        "license": get_license_status(),
+    }
+
+
+@router.post("/setup/reset")
+async def reset_setup(confirm: str = ""):
+    """DANGEROUS: wipes config back to factory. Requires confirm=RESET-NATIVE."""
+    if confirm != "RESET-NATIVE":
+        raise HTTPException(status_code=400, detail="confirmation_required")
+    # Reset by writing defaults
+    from .config import _default_config  # noqa: WPS433
+
+    config_manager.config = _default_config()
+    config_manager.save_config()
+    return {"status": "ok", "message": "system_config reset to factory defaults"}
+
+
+@router.get("/license")
+async def get_license():
+    return get_license_status()
+
+
+@router.post("/license")
+async def set_license(payload: LicenseSetRequest):
+    ok, msg = set_license_key(payload.license_key, payload.master_admin_email)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "ok", "license": get_license_status()}
+
+
+@router.post("/license/seat/register")
+async def register_current_seat(payload: SeatRegisterRequest):
+    ok, msg = register_seat(label=payload.label)
+    if not ok:
+        raise HTTPException(status_code=409, detail=msg)
+    return {"status": "ok", "message": msg, "license": get_license_status()}
+
+
+@router.post("/license/seat/release")
+async def release_current_seat(hwid: Optional[str] = None):
+    ok, msg = release_seat(hwid)
+    if not ok:
+        raise HTTPException(status_code=404, detail=msg)
+    return {"status": "ok", "message": msg, "license": get_license_status()}
+
+
+@router.get("/subscription")
+async def get_sub():
+    return get_subscription()
+
+
+@router.post("/subscription")
+async def update_sub(payload: SubscriptionUpdateRequest):
+    flags = {
+        k: v
+        for k, v in payload.model_dump().items()
+        if k
+        in ("sharepoint_enabled", "story_generator_enabled", "cloud_sync_enabled")
+        and v is not None
+    }
+    sub = set_subscription(
+        active=payload.active,
+        tier=payload.tier,
+        expires_at=payload.expires_at,
+        feature_flags=flags or None,
+    )
+    return {"status": "ok", "subscription": sub}
+
+
+@router.get("/hwid")
+async def get_hwid():
+    return {"hwid": generate_hwid()}
+
+
+@router.get("/config")
+async def get_full_config():
+    """Master-Admin only in production. For Phase 0 this is open for debugging."""
+    return config_manager.public_view()

@@ -1,0 +1,26 @@
+===========================================================
+ BIG Hat Entertainment - NATIVE INSTALLATION
+===========================================================
+
+STEP 1: 
+Double-click "1_MAP_BIG_HAT_DRIVE.vbs".
+This will create the proprietary C:\BIG Hat folder.
+
+STEP 2: 
+Run the "launch" batch file. 
+When prompted for a folder, SELECT the "C:\BIG Hat" folder 
+created in Step 1.
+
+STEP 3: 
+Inside C:\BIG Hat, double-click "BIGHat_Master_Setup.vbs".
+This will create your Desktop Icon and launch the Hub.
+
+-----------------------------------------------------------
+UNINSTALL:
+To remove the program, run "Uninstall_BIGHat.vbs" inside 
+your installation folder.
+-----------------------------------------------------------
+
+===========================================================
+Proprietary Property of BIG Hat Entertainment
+===========================================================

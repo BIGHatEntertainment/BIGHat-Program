@@ -1771,6 +1771,16 @@ except Exception as e:
 # Include router
 app.include_router(api_router)
 
+# ===== NATIVE-STANDALONE module (Phase 0) =====
+# Mounts /api/native/* endpoints (setup wizard, license, HWID, subscription).
+# Additive only \u2014 does not modify any existing webapp behaviour.
+try:
+    from native.router import router as native_router
+    app.include_router(native_router)
+    logger.info("Native-Standalone router registered at /api/native/*")
+except Exception as e:
+    logger.warning(f"Could not load Native-Standalone router: {e}")
+
 
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
 try:
