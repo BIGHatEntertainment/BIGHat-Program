@@ -3,6 +3,93 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 4 (Music Bingo Native + Spec-Friendly Aliases) ✅ — backend testing agent verified 26/26 Phase 4 + 29/29 Phase 9 + **215/215 full regression**
+
+### What shipped
+The last P1 — Music Bingo — now runs entirely on local SQLite + disk in
+native mode. Song lists, decade catalogue, and bingo-card PDFs are all
+served from `<assets>/03_Bingo/Web App/00_Builder/{02_Cards,03_Songs}/`.
+Game state CRUD + WebSocket already worked on MontyDB via the global db
+swap. Plus a small ergonomic upgrade: `GameStateCreate` now accepts the
+React app's friendly wire shape `{mode, decade, game_type}` as well as
+the canonical `{bingo_type, music_decade}` — `mode='number'` is mapped
+to `bingo_type='traditional'` automatically.
+
+### Modified files
+- `backend/routes/bingo.py`:
+  - New helpers `_is_local_mode()`, `_local_assets_root()`,
+    `_local_bingo_root()`, `_LOCAL_DECADE_FILE_MAP`,
+    `_parse_bingo_xlsx(path)` — local-disk equivalents of the cloud
+    SharePoint song-list parser.
+  - `GET /api/bingo/songlist/{decade}` reads `Bingo List (<label>).xlsx`
+    from disk in native mode; returns 404 with `song_list_not_found_locally:`
+    when missing (no silent fallback). Cloud branch unchanged.
+  - `GET /api/bingo/available-decades` scans the local 03_Songs folder
+    for `Bingo List (...).xlsx` files and maps labels to canonical
+    decade-info dicts. Cloud branch unchanged.
+  - `GET /api/bingo/bingo-cards` lists local PDFs grouped by
+    `standard`/`senior`/`special` categories.
+  - `GET /api/bingo/bingo-cards/download/{category}/{decade}` streams
+    `<assets>/.../02_Cards/<category>/<decade>.pdf` with proper
+    `Content-Disposition`. 404 `card_not_found:` on missing.
+  - **New `GET /api/bingo/status`** — `{native_mode, mode, local_assets_root,
+    song_lists_count, card_categories}` for the UI.
+  - `GameStateCreate` Pydantic v2 model: `ConfigDict(populate_by_name=True,
+    extra="ignore")`, `Field(default="music", alias="mode")`,
+    `Field(default="1980s", alias="decade")`, plus a
+    `field_validator(mode="before")` that maps
+    `bingo_type='number'` → `'traditional'` so the frontend's
+    `{mode:'number', game_type:'standard'}` payload Just Works.
+- `backend/tests/test_phase9_packaging.py`:
+  `test_no_frontend_preserves_index_html` assertion flipped from `is False`
+  to `is True` to match the iteration_10 build-orchestrator fix that
+  preserves `frontend_included` across `--no-frontend` runs.
+
+### New on-disk seed (dev container only)
+`/app/backend/native/data/assets/03_Bingo/Web App/00_Builder/`:
+- `03_Songs/Bingo List (1970s).xlsx` — 5-row fixture, first row
+  `{1, "Don't Stop Believin'", "Journey"}`.
+- `03_Songs/Bingo List (1980s).xlsx` — 3-row fixture, first row
+  `{1, "Sweet Child O' Mine", "Guns N' Roses"}`.
+- `02_Cards/standard/{1970s,1980s}.pdf`, `02_Cards/senior/1970s.pdf`,
+  `02_Cards/special/Pop Punk & Emo.pdf` — 56-byte minimal valid PDFs
+  starting with `%PDF-` so streaming + content-type checks pass.
+
+### Verified end-to-end (testing agent, 26/26 Phase 4 + 29/29 Phase 9)
+- `/status`: native_mode=true, mode='local', song_lists_count=2,
+  card_categories={standard:2, senior:1, special:1}.
+- `/available-decades`: source='local', 1970s + 1980s in result.
+- `/songlist/1970s`: 5 songs, first is Don't Stop Believin'/Journey.
+- Y2K alias: `/songlist/2000s` → 404 `Bingo List (Y2K).xlsx`.
+- Unknown decade: `/songlist/UNKNOWN` → 404 with literal filename.
+- `/bingo-cards`: source='local', three categories populated as seeded.
+- `/bingo-cards/download/standard/1970s`: 200, `application/pdf`, body
+  starts with `%PDF-`, `Content-Disposition` filename `Bingo (1970s).pdf`.
+- URL-encoded special path (`%20`+`%26`) works.
+- 404 on missing card; 400/404 (NOT 500) on invalid category.
+- Full Music game lifecycle: create→start→call-song→pause→resume→bingo
+  →verify-bingo (confirmed=true and confirmed=false)→end-round→new-round.
+- Number-bingo /game/call-number 10x: no duplicates, monotonic growth.
+- **Wire-shape aliases**: `{mode:'number', game_type:'standard'}` →
+  bingo_type='traditional'. `{mode:'music', decade:'1970s'}` →
+  bingo_type='music', music_decade='1970s'. Canonical names still work.
+- **Full regression sweep**: 215/215 tests across phase{2,3,4,5,6,7,8,9}
+  in 36s; **zero fails, zero xfails, zero skips**.
+
+### Reviewer follow-ups (low-priority polish, all carry-overs)
+- `/game/call-number` returns the same 400 message for both
+  exhaustion and wrong-bingo_type — diagnostic improvement only.
+- `/bingo-cards/download` doesn't lowercase the category path component;
+  passing 'Standard' would 404. `/bingo-cards` listing already
+  lowercases.
+- `_LOCAL_DECADE_FILE_MAP` only handles 2000s/y2k/emo; if a user adds
+  `Bingo List (R&B).xlsx`, `/songlist/rnb` would 404 because the alias
+  table is one-way.
+- `/status` reports file count but not parse health.
+
+---
+
+
 ## 2026-02 — Phase 9 (Packaging & Single-Process Launcher) ✅ — backend testing agent verified 29/29 + 160/160 regression = **189/189**
 
 ### What shipped

@@ -83,12 +83,27 @@ features behind an active subscription.
   `scripts/build_standalone.py` build orchestrator, Windows VBS
   installer templates, `packaging/README.md` distribution runbook,
   Phase 8 polish carry-overs (`/advance` 404 match_not_found,
-  admin_router `set_current_user_resolver`). Testing agent: **29/29 +
-  160/160 regression = 189/189**.
+  admin_router `set_current_user_resolver`). Testing agent: 29/29 +
+  160/160 regression = 189/189.
+- **2026-02** — Phase 4 (Music Bingo Native + Spec-Friendly Aliases):
+  song lists / decade catalog / card PDFs from disk, `/api/bingo/status`,
+  `GameStateCreate` accepts `{mode, decade}` aliases. Testing agent:
+  **26/26 + 29/29 Phase 9 retest + full regression 215/215**.
 
 ## Roadmap (P0/P1/P2 features remaining)
-- **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game
-  engine — the last P1 remaining)
+
+🎉 **All 9 phases shipped — native transformation feature-complete.**
+- All P0/P1/P2 work is merged; only optional P3 polish remains.
+
+### Optional P3 backlog
+- Frontend wiring of `/api/native/admin/users` + `/api/native/sync/status`
+  + `/api/scoreboard/status` + `/api/story-generator/status` +
+  `/api/bingo/status` into a unified Settings/Diagnostics page.
+- MSI/NSIS signed Windows installer.
+- Auto-update channel.
+- Audit-log collection for admin actions.
+- Hash-based diff mode for `SyncService` (opt-in).
+- Watchdog auto-refresh on local trivia/bingo asset folder changes.
 
 ## Test credentials
 See `/app/memory/test_credentials.md`. Native master admin:

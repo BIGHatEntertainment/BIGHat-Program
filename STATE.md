@@ -1,25 +1,22 @@
 # Current State
 
-**Active phase:** 9 — Packaging (✅ complete; **189/189** tests via testing agent)
+**Active phase:** 4 — Music Bingo (✅ complete; **215/215** full regression)
 
 **Last completed work:**
-- Phase 9 — Packaging & single-process launcher: 29/29 new tests +
-  160/160 Phase 2+3+5+6+7+8 regression = **189/189 passed**
-  (`/app/test_reports/iteration_10.json`,
-  `/app/backend/tests/test_phase9_packaging.py`).
-- `backend/launcher.py`, `scripts/build_standalone.py`,
-  `packaging/{start_bighat.vbs,install_shortcut.vbs,README.md}`.
-- SPA static-bundle serving in `server.py` (conditional on
-  `backend/static/index.html`).
-- Phase 8 carry-overs: `/advance` returns 404 match_not_found on
-  unknown match_id; `admin_router.set_current_user_resolver` setter.
-- Build orchestrator manifest preserves `frontend_included=true` on
-  `--no-frontend` if bundle is on disk.
-- Phase 0/0.5/1/2/3/5/6/7/8 unchanged.
+- Phase 4 — Music Bingo native local-mode + spec-friendly aliases:
+  26/26 new + 29/29 Phase 9 retest + **215/215 full regression**
+  (`/app/test_reports/iteration_12.json`,
+  `/app/backend/tests/test_phase4_bingo_native.py`).
+- All 9 transformation phases shipped: 0, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9.
+- `routes/bingo.py` reads songs / decade catalog / card PDFs from
+  `<assets>/03_Bingo/...` in native mode; `/api/bingo/status` exposes
+  mode + counts; `GameStateCreate` honours `{mode, decade}` aliases.
+- Phase 9 stale assertion fixed (frontend_included preserved=True).
 
-**Next action:** only Phase 4 (Music Bingo — the last P1) remains on the
-roadmap. After that, the native transformation is feature-complete and
-shippable.
+**Next action:** 🎉 native transformation is **feature-complete**. Only
+optional P3 polish remains: frontend Settings/Diagnostics wiring, signed
+Windows installer, auto-update channel, audit log, watchdog hot-reload,
+hash-based sync diff. Wait for user direction.
 
 **Then Phase 3 (Round Maker):** swap PPTX-round generator service to use the
 asset factory + MontyDB, and route generated rounds back into the native

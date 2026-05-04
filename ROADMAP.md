@@ -119,6 +119,19 @@
 - [ ] Signed Windows installer (MSI/NSIS)
 - [ ] Auto-update channel
 
+### Phase 4 (Music Bingo) — DONE:
+- [x] Song lists from local xlsx files (native mode)
+- [x] /available-decades scans local 03_Songs folder
+- [x] /bingo-cards lists local PDFs by category
+- [x] /bingo-cards/download/{cat}/{decade} streams local PDFs
+- [x] /api/bingo/status endpoint
+- [x] GameStateCreate accepts {mode, decade} aliases (mode='number' → bingo_type='traditional')
+- [x] Game state lifecycle on SQLite via global db swap
+- [x] WebSocket broadcasting unchanged
+- [ ] Watchdog auto-refresh on song/card folder changes
+- [ ] /status parse_health metric
+
+
 - [ ] Frontend conditionally shows upgrade banner when `status.video_export_available=false`
 
 ### Phase 4, 7-9 — see per-phase plans created when reached.
