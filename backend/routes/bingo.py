@@ -131,6 +131,100 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+
+# ==================== LOCAL-MODE HELPERS (Phase 4) ====================
+def _is_local_mode() -> bool:
+    """True when bingo should read songs/cards from disk instead of SharePoint."""
+    try:
+        from native.asset_factory import can_use_cloud
+        return not can_use_cloud()
+    except ImportError as e:
+        logger.error(f"[BINGO] native.asset_factory unavailable — staying in cloud mode: {e}")
+        return False
+
+
+def _local_assets_root() -> Path:
+    try:
+        from native.config import config_manager
+        assets = config_manager.config.get("paths", {}).get("assets")
+        if assets:
+            return Path(assets)
+    except Exception:
+        pass
+    return ROOT_DIR.parent / "native" / "data" / "assets"
+
+
+def _local_bingo_root() -> Path:
+    return _local_assets_root() / "03_Bingo" / "Web App" / "00_Builder"
+
+
+# Maps the same label vocabulary SharePointService uses, for local files.
+_LOCAL_DECADE_FILE_MAP = {
+    "2000s": "Y2K",
+    "y2k": "Y2K",
+    "emo": "Emo",
+}
+
+
+def _parse_bingo_xlsx(path: Path) -> Optional[List[Dict]]:
+    """Parse a local Bingo List (<label>).xlsx into [{number, title, artist}]."""
+    import re as _re
+    try:
+        with open(path, "rb") as fh:
+            content = fh.read()
+    except OSError as e:
+        logger.error(f"[BINGO] could not read {path}: {e}")
+        return None
+    try:
+        df = pd.read_excel(io.BytesIO(content), engine='openpyxl', header=None)
+    except Exception as e:
+        logger.error(f"[BINGO] could not parse {path}: {e}")
+        return None
+    # Same column-detection strategy as the SharePoint parser: find numeric col,
+    # then the two longest text columns are title + artist.
+    num_col = title_col = artist_col = None
+    lengths: Dict[int, int] = {}
+    for col_idx in range(len(df.columns)):
+        col_data = df[df.columns[col_idx]].dropna()
+        if len(col_data) == 0:
+            continue
+        try:
+            numeric_vals = pd.to_numeric(col_data, errors='coerce').dropna()
+            if len(numeric_vals) > len(col_data) * 0.7 and num_col is None:
+                num_col = col_idx
+                continue
+        except Exception:
+            pass
+        avg_len = col_data.astype(str).str.len().mean()
+        lengths[col_idx] = int(avg_len or 0)
+    text_cols = sorted(lengths.items(), key=lambda kv: kv[1], reverse=True)
+    if len(text_cols) >= 2:
+        title_col, artist_col = text_cols[0][0], text_cols[1][0]
+    elif len(text_cols) == 1:
+        title_col = text_cols[0][0]
+    if num_col is None or title_col is None:
+        logger.warning(f"[BINGO] column layout unrecognised in {path.name}")
+        return None
+    songs: List[Dict] = []
+    for _, row in df.iterrows():
+        try:
+            num = int(pd.to_numeric(row[df.columns[num_col]], errors='coerce'))
+        except (ValueError, TypeError):
+            continue
+        title = str(row[df.columns[title_col]]) if title_col is not None else ""
+        artist = (
+            str(row[df.columns[artist_col]]) if artist_col is not None else ""
+        )
+        if _re.search(r"^(nan|none)$", title.strip(), _re.I):
+            continue
+        songs.append({
+            "number": num,
+            "title": title.strip(),
+            "artist": artist.strip() if artist else "",
+        })
+    return songs
+
+
 # ==================== SHAREPOINT SERVICE ====================
 
 class SharePointService:
@@ -529,14 +623,30 @@ async def create_game(settings: GameStateCreate):
 @router.get("/songlist/{decade}")
 async def get_song_list(decade: str):
     """Get song list for a specific decade. Fetches from SharePoint first, falls back to sample data."""
-    
-    # First try to fetch from SharePoint
+
+    # Native local mode: read the local Excel file directly. 404 if missing
+    # (no fallback) — frontend should call /api/bingo/available-decades to
+    # discover valid ids.
+    if _is_local_mode():
+        file_label = _LOCAL_DECADE_FILE_MAP.get(decade.lower(), decade)
+        path = _local_bingo_root() / "03_Songs" / f"Bingo List ({file_label}).xlsx"
+        if not path.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=f"song_list_not_found_locally: {path.name}",
+            )
+        songs = _parse_bingo_xlsx(path)
+        if not songs:
+            raise HTTPException(status_code=500, detail="could_not_parse_song_list")
+        return {"success": True, "decade": decade, "songs": songs, "source": "local"}
+
+    # Cloud mode: SharePoint first, sample fallback
     songs = sharepoint_service.get_song_list_from_sharepoint(decade)
-    
+
     if songs:
         logger.info(f"Returning {len(songs)} songs from SharePoint for {decade}")
         return {"success": True, "decade": decade, "songs": songs, "source": "sharepoint"}
-    
+
     # Fall back to sample song list
     logger.info(f"Using sample song list for {decade}")
     sample_songs = SAMPLE_SONGS.get(decade, SAMPLE_SONGS.get("1980s"))
@@ -839,50 +949,68 @@ async def test_sharepoint():
 @router.get("/available-decades")
 async def get_available_decades():
     """
-    Fetch available music decades from SharePoint by listing 
-    Excel files in the 03_Songs folder. Returns only playable decades.
+    Fetch available music decades.
+
+    Native local mode: scan `<assets>/03_Bingo/Web App/00_Builder/03_Songs/`
+    for `Bingo List (<label>).xlsx` files. Cloud mode: SharePoint list.
     """
     import re
+    # Shared label → canonical decade-info map
+    LABEL_TO_DECADE = {
+        "1970s":    {"id": "1970s",    "name": "1970s",    "subtitle": "Disco Era"},
+        "1980s":    {"id": "1980s",    "name": "1980s",    "subtitle": "Synth Pop"},
+        "1990s":    {"id": "1990s",    "name": "1990s",    "subtitle": "Grunge & Pop"},
+        "Y2K":      {"id": "2000s",    "name": "2000s",    "subtitle": "Y2K Hits"},
+        "2000s":    {"id": "2000s",    "name": "2000s",    "subtitle": "Y2K Hits"},
+        "Emo":      {"id": "emo",      "name": "Emo",      "subtitle": "Emo & Pop Punk"},
+        "2010s":    {"id": "2010s",    "name": "2010s",    "subtitle": "Modern Pop"},
+        "Country":  {"id": "country",  "name": "Country",  "subtitle": "Country Hits"},
+        "Reggaeton":{"id": "reggaeton","name": "Reggaeton","subtitle": "Latin Beats"},
+        "R&B":      {"id": "rnb",      "name": "R&B",      "subtitle": "R&B & Soul"},
+        "Hip Hop":  {"id": "hiphop",   "name": "Hip Hop",  "subtitle": "Hip Hop Classics"},
+    }
+
+    def _label_to_info(label: str) -> Dict:
+        info = LABEL_TO_DECADE.get(label)
+        if info:
+            return info
+        return {"id": label.lower(), "name": label, "subtitle": f"{label} Music"}
+
+    if _is_local_mode():
+        folder = _local_bingo_root() / "03_Songs"
+        decades: List[Dict] = []
+        seen = set()
+        if folder.is_dir():
+            for f in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+                if not f.is_file():
+                    continue
+                match = re.search(r'Bingo List \((.+?)\)\.xlsx', f.name)
+                if not match:
+                    continue
+                info = _label_to_info(match.group(1))
+                if info["id"] not in seen:
+                    decades.append(info)
+                    seen.add(info["id"])
+        logger.info(f"[BINGO-LOCAL] Found {len(decades)} decades in {folder}")
+        return {"success": True, "decades": decades, "source": "local"}
+
     try:
         songs_path = "03_Bingo/Web App/00_Builder/03_Songs"
         items = sharepoint_service.list_folder(songs_path)
-        
-        # Reverse map for file labels back to decade names
-        LABEL_TO_DECADE = {
-            "1970s": {"id": "1970s", "name": "1970s", "subtitle": "Disco Era"},
-            "1980s": {"id": "1980s", "name": "1980s", "subtitle": "Synth Pop"},
-            "1990s": {"id": "1990s", "name": "1990s", "subtitle": "Grunge & Pop"},
-            "Y2K":   {"id": "2000s", "name": "2000s", "subtitle": "Y2K Hits"},
-            "2000s": {"id": "2000s", "name": "2000s", "subtitle": "Y2K Hits"},
-            "Emo":   {"id": "emo", "name": "Emo", "subtitle": "Emo & Pop Punk"},
-            "2010s": {"id": "2010s", "name": "2010s", "subtitle": "Modern Pop"},
-            "Country": {"id": "country", "name": "Country", "subtitle": "Country Hits"},
-            "Reggaeton": {"id": "reggaeton", "name": "Reggaeton", "subtitle": "Latin Beats"},
-            "R&B":   {"id": "rnb", "name": "R&B", "subtitle": "R&B & Soul"},
-            "Hip Hop": {"id": "hiphop", "name": "Hip Hop", "subtitle": "Hip Hop Classics"},
-        }
-        
         decades = []
         seen = set()
         for item in items:
             name = item.name if hasattr(item, 'name') else str(item.get('name', ''))
-            # Match "Bingo List (LABEL).xlsx" pattern
             match = re.search(r'Bingo List \((.+?)\)\.xlsx', name)
             if match:
-                label = match.group(1)
-                info = LABEL_TO_DECADE.get(label)
-                if not info:
-                    # Auto-generate for unknown labels
-                    info = {"id": label.lower(), "name": label, "subtitle": f"{label} Music"}
+                info = _label_to_info(match.group(1))
                 if info["id"] not in seen:
                     decades.append(info)
                     seen.add(info["id"])
-        
         logger.info(f"Found {len(decades)} available decades from SharePoint")
         return {"success": True, "decades": decades}
     except Exception as e:
         logger.error(f"Error fetching available decades: {e}")
-        # Return defaults as fallback
         return {"success": False, "decades": [
             {"id": "1970s", "name": "1970s", "subtitle": "Disco Era"},
             {"id": "1980s", "name": "1980s", "subtitle": "Synth Pop"},
@@ -912,9 +1040,71 @@ BINGO_SPECIAL_CARDS = {
     "X-Mas": "01Z4PLCYX22ODIB5XGFVHIHLNYCKWVXMAL",
 }
 
+@router.get("/status")
+async def bingo_status():
+    """Mode + local-asset counts for the Bingo UI."""
+    native_mode = os.environ.get("BIGHAT_NATIVE_MODE", "0") in ("1", "true", "True", "yes")
+    local = _is_local_mode()
+    songs_dir = _local_bingo_root() / "03_Songs"
+    cards_dir = _local_bingo_root() / "02_Cards"
+    songs_count = 0
+    if songs_dir.is_dir():
+        songs_count = sum(
+            1 for f in songs_dir.iterdir()
+            if f.is_file() and f.name.lower().endswith(".xlsx")
+        )
+    card_categories: Dict[str, int] = {}
+    if cards_dir.is_dir():
+        for sub in cards_dir.iterdir():
+            if sub.is_dir():
+                card_categories[sub.name] = sum(
+                    1 for f in sub.iterdir()
+                    if f.is_file() and f.name.lower().endswith(".pdf")
+                )
+    return {
+        "native_mode": native_mode,
+        "mode": "local" if local else "cloud",
+        "local_assets_root": str(_local_bingo_root()),
+        "song_lists_count": songs_count,
+        "card_categories": card_categories,
+    }
+
+
 @router.get("/bingo-cards")
 async def list_bingo_cards():
-    """List available bingo card categories."""
+    """List available bingo card categories.
+
+    Native local mode: scan `<assets>/03_Bingo/Web App/00_Builder/02_Cards/`
+    for `<category>/<decade>.pdf` files. Cloud mode: hardcoded SharePoint
+    item-id catalogue below.
+    """
+    if _is_local_mode():
+        out: Dict[str, List[Dict]] = {"standard": [], "senior": [], "special": []}
+        cards_dir = _local_bingo_root() / "02_Cards"
+        if cards_dir.is_dir():
+            for sub in sorted(cards_dir.iterdir(), key=lambda p: p.name.lower()):
+                if not sub.is_dir():
+                    continue
+                cat_key = sub.name.lower() if sub.name.lower() in out else "special"
+                # Allow `Standard` / `Senior` etc. with arbitrary case
+                if sub.name.lower() == "standard":
+                    cat_key = "standard"
+                elif sub.name.lower() == "senior":
+                    cat_key = "senior"
+                else:
+                    cat_key = "special"
+                for f in sorted(sub.iterdir(), key=lambda p: p.name.lower()):
+                    if f.is_file() and f.suffix.lower() == ".pdf":
+                        decade = f.stem
+                        label = (
+                            f"Bingo ({decade})" if cat_key == "standard"
+                            else (f"Senior Bingo ({decade})" if cat_key == "senior"
+                                  else f"Special: {decade}")
+                        )
+                        out[cat_key].append({"id": decade, "name": label})
+        out["source"] = "local"  # type: ignore[assignment]
+        return out
+
     return {
         "standard": [{"id": k, "name": f"Bingo ({k})"} for k in ["1970s", "1980s", "1990s", "Y2K"]],
         "senior": [{"id": k, "name": f"Senior Bingo ({k})"} for k in BINGO_SENIOR_CARDS.keys()],
@@ -923,7 +1113,33 @@ async def list_bingo_cards():
 
 @router.get("/bingo-cards/download/{category}/{decade}")
 async def download_bingo_card(category: str, decade: str):
-    """Download a bingo card PDF from SharePoint."""
+    """Download a bingo card PDF.
+
+    Native local mode: serve from
+    `<assets>/03_Bingo/Web App/00_Builder/02_Cards/<category>/<decade>.pdf`.
+    Cloud mode: stream from SharePoint by item id.
+    """
+    if _is_local_mode():
+        base = _local_bingo_root() / "02_Cards" / category
+        path = base / f"{decade}.pdf"
+        if not path.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=f"card_not_found: {category}/{decade}.pdf",
+            )
+        try:
+            content = path.read_bytes()
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"could_not_read: {e}")
+        from fastapi.responses import Response
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="Bingo ({decade}).pdf"'
+            },
+        )
+
     import httpx
     
     if category == "standard":

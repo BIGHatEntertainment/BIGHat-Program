@@ -1,0 +1,48 @@
+{
+  "summary": "Phase 4 Music Bingo native local-mode backend tests — 25 passed + 1 xfail in new suite test_phase4_bingo_native.py (26 tests). Coverage: /api/bingo/status (native_mode + mode='local' + local_assets_root + song_lists_count + card_categories per spec), /available-decades local source, /songlist/<decade> happy path (1970s/1980s with seeded fixture first-row assertion: Don't Stop Believin'/Journey & Sweet Child O' Mine/Guns N' Roses), Y2K alias mapping (2000s→Y2K → 404 detail mentions Y2K), unknown decade 404 with literal 'song_list_not_found_locally: Bingo List (UNKNOWN).xlsx', /bingo-cards local listing (standard:[1970s,1980s], senior:[1970s], special:[Pop Punk & Emo]), PDF download streaming for standard/1970s + standard/1980s + senior/1970s + special/Pop Punk & Emo (URL-encoded %20+%26) — all return 200 + application/pdf + body[:5]==b'%PDF-' + Content-Disposition filename matches 'Bingo (<decade>).pdf', unknown decade 404 ('card_not_found:'), invalid category 400-or-404 (NOT 500), full Music game lifecycle (create→start→call-song→pause→resume→bingo→verify-bingo confirmed=true and confirmed=false→end-round→new-round→state assertions after each), volume update (0.5 reflected in state), Number-bingo /game/call-number 10x with no duplicates and called_numbers monotonic growth. Regression sweep over phase{2,3,5,6,7,8,9}: 213/214 pass — 1 unrelated Phase 9 failure (test_no_frontend_preserves_index_html) is a stale assertion after the build_standalone.py fix recommended in iteration 10 (frontend_included flag is now correctly preserved on --no-frontend).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/bingo/game/create",
+        "issue": "Spec payload {mode:'number', game_type:'standard'} does NOT initialize available_numbers — backend GameStateCreate model has no 'mode' field (Pydantic ignores it) and bingo_type defaults to 'music', so /game/call-number returns 400 'All numbers have been called'. Same applies to {mode:'music', decade:'1970s'} — 'decade' is dropped and music_decade stays at default '1980s'. Frontend must send {bingo_type:'traditional'} (or 'music') and {music_decade:'1970s'} for behaviour to match the Phase 4 spec wording. Documented as xfail TestNumberGameSpecPayloadOnly. Recommend either (a) accept aliases mode→bingo_type ('number'→'traditional','music'→'music') and decade→music_decade in GameStateCreate, or (b) update Phase 4 spec to use the canonical field names."
+      },
+      {
+        "endpoint": "build_standalone.py --no-frontend (Phase 9 regression)",
+        "issue": "test_phase9_packaging.py::TestBuildOrchestrator::test_no_frontend_preserves_index_html now FAILS because the orchestrator was fixed (per iteration_10 action item) to preserve frontend_included=True across --no-frontend runs, but the assertion still expects False. NOT a Phase 4 issue. Update the test to assert frontend_included is True (preserved) and only built_at/git_sha mutated."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase4_bingo_native.py",
+    "/app/test_reports/pytest/phase4_results.xml",
+    "/app/test_reports/pytest/phase4_full_regression.xml"
+  ],
+  "action_items": [
+    "Phase 4 (informational): If the spec payload {mode:'music'/'number', decade:..., game_type:...} is meant to be the wire contract, add field aliasing to GameStateCreate (mode→bingo_type with 'number'→'traditional','music'→'music'; decade→music_decade). Otherwise update the Phase 4 spec doc to use {bingo_type, music_decade, game_type} which is what the backend actually consumes. The xfail test in test_phase4_bingo_native.py::TestNumberGameSpecPayloadOnly will flip green automatically once aliasing is added.",
+    "Phase 9 regression: update test_phase9_packaging.py::test_no_frontend_preserves_index_html — assertion is now stale after the build_standalone.py fix that preserves frontend_included on --no-frontend. Should assert preservation (True) instead of False."
+  ],
+  "critical_code_review_comments": [
+    "GameStateCreate (routes/bingo.py L81-87) has no model_config — Pydantic v2 default is extra='ignore', which silently drops 'mode' and 'decade' from the Phase 4 spec payload. Add ConfigDict(populate_by_name=True) + Field(..., alias='mode')/Field(..., alias='decade') to honor both wire shapes, or add explicit pre-validators that map mode→bingo_type and decade→music_decade.",
+    "/game/call-number (L718-759) raises 400 'All numbers have been called' both when available_numbers is genuinely exhausted AND when the game was never set up as bingo_type='traditional'. These are different failure modes; consider distinct error messages so the frontend can surface 'wrong game mode' vs 'round complete'.",
+    "/bingo-cards/download/<category>/<decade> (L1114-1141 local branch) does not normalise category casing — passing 'Standard' with capital S would 404 because the seeded folder is 'standard'. The /bingo-cards listing handler already lowercases sub.name.lower(), so download should mirror that for consistency.",
+    "_parse_bingo_xlsx (L169-225) reads with header=None and a heuristic column detector — works for the seeded 5-row fixture but is brittle if the source xlsx contains a header row that pandas counts as a data row (the heuristic 'numeric_vals > 0.7 of column' might miss it). Recommend optional header-detection: try header=0 first, fall back to header=None.",
+    "/songlist/<decade> 500 on parse failure (L640) returns 'could_not_parse_song_list' with no detail — a corrupt xlsx in production would be hard to diagnose. Log path + exception class.",
+    "_LOCAL_DECADE_FILE_MAP (L162) lower-cases keys but only handles 2000s/y2k/emo. The /available-decades label-to-info table (L959-970) lists 1990s/2010s/Country/Reggaeton/R&B/Hip Hop with mixed-case folder labels — if a user adds 'Bingo List (R&B).xlsx' to disk, /songlist/rnb will 404 because the alias map has no rnb→R&B entry. Mirror the LABEL_TO_DECADE table both directions.",
+    "/status (L1043-1070) does not surface parse health — only file count. Consider returning {song_lists_count, song_lists_parsable_count} so the UI can warn when an xlsx is present-but-unreadable."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase4_bingo_native.py (new, 26 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% Phase 4 (25 passed + 1 xfail documenting the spec→model gap; full regression 213/214 with 1 stale Phase 9 assertion unrelated to Phase 4)",
+    "frontend": "n/a (backend-only request)"
+  },
+  "test_credentials": "No auth required for /api/bingo/* — Phase 4 endpoints are public. BIGHAT_NATIVE_MODE=1 in /app/backend/.env confirmed.",
+  "seed_data_creation": "No persistent seed data created. Music-bingo lifecycle test creates a 'TEST_winner'/'TEST_loser' winner_name on the in-memory current_game; cleared on next /game/create. Number-bingo test calls /game/call-number 10x — pure in-memory, no persistence side effects.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Phase 4 suite at /app/backend/tests/test_phase4_bingo_native.py covers all native local-mode bingo endpoints + game CRUD + 9 cross-phase regression endpoints. xfail in TestNumberGameSpecPayloadOnly is intentional — flips green if main agent adds mode→bingo_type aliasing to GameStateCreate. Phase 9 test_no_frontend_preserves_index_html is now failing because the orchestrator was fixed per iteration_10 recommendation; update the assertion to expect frontend_included=True (preserved). Seeded fixtures: /app/backend/native/data/assets/03_Bingo/Web App/00_Builder/{02_Cards/standard/1970s.pdf,1980s.pdf, senior/1970s.pdf, special/Pop Punk & Emo.pdf}, 03_Songs/Bingo List (1970s).xlsx (first row Don't Stop Believin'/Journey), Bingo List (1980s).xlsx (first row Sweet Child O' Mine/Guns N' Roses). All PDFs are 56-byte valid stubs starting with %PDF- header.",
+  "rca of the issue": "TestNumberGameSpecPayloadOnly xfail RCA: GameStateCreate Pydantic model (routes/bingo.py L81-87) declares fields {bingo_type, game_type, round_type, call_interval, music_decade, preset_mode}. The Phase 4 spec wire payload {mode:'number', game_type:'standard'} sends 'mode' and 'decade' which Pydantic v2 silently drops (default extra='ignore'). Result: bingo_type stays 'music' (default) → in /game/create the elif branch (L594-595) sets available_numbers=[] → subsequent /game/call-number raises 400 'All numbers have been called' at L727-728. Reproduction: POST /api/bingo/game/create {mode:'number',game_type:'standard'} → POST /game/start → POST /game/call-number → 400. Mitigation (any one): (a) add Field aliases mode→bingo_type and decade→music_decade with a translator (number→traditional, music→music) in a pre-validator; (b) change /game/create handler to accept the new payload shape and normalize before constructing GameSettings; (c) update spec to send the canonical {bingo_type, music_decade} names. Phase 9 regression RCA: build_standalone.py was patched (per iteration_10 action_items[1]) to preserve the prior frontend_included flag when --no-frontend is invoked — correct behaviour. The Phase 9 test was written under the old (incorrect) behaviour and asserts frontend_included becomes False after --no-frontend; assertion is now stale and needs flipping to is True (preserved)."
+}
