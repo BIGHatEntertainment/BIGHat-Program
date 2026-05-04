@@ -161,7 +161,14 @@ class UpdatesService:
         """
         fixture = os.environ.get("BIGHAT_UPDATE_MANIFEST_FIXTURE", "").strip()
         if fixture:
-            data = json.loads(Path(fixture).read_text(encoding="utf-8"))
+            try:
+                data = json.loads(Path(fixture).read_text(encoding="utf-8"))
+            except (FileNotFoundError, OSError) as e:
+                # Surface as a discoverable RuntimeError so /check returns
+                # 502 with a useful detail instead of the generic 500 path.
+                raise RuntimeError(f"manifest_fixture_missing: {fixture} ({e})") from e
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"manifest_fixture_invalid_json: {fixture} ({e})") from e
             return UpdateManifest.from_dict(data)
 
         url = self._channel_url()
@@ -292,7 +299,7 @@ class UpdatesService:
         return {"staged": staged, "manifest": manifest.as_dict()}
 
     # ----- Apply (write marker + optional unpack) -----
-    async def apply(self, *, unpack: bool = True) -> Dict[str, Any]:
+    async def apply(self, *, unpack: bool = True, force: bool = False) -> Dict[str, Any]:
         if self.db is None:
             raise RuntimeError("db_unavailable")
         state = await self.db.update_state.find_one({"_id": "singleton"}) or {}
@@ -305,6 +312,15 @@ class UpdatesService:
 
         version = staged["version"]
         marker = self._staging_root() / "pending_apply.json"
+        # Idempotent guard: if the marker already targets the same version,
+        # don't double-write. Callers can pass `force=True` to bypass.
+        if marker.is_file() and not force:
+            try:
+                existing = json.loads(marker.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+            if existing.get("version") == version:
+                raise RuntimeError(f"already_scheduled: {version}")
         unpack_dir: Optional[Path] = None
         if unpack:
             try:

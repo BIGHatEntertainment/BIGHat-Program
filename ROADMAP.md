@@ -132,6 +132,20 @@
 - [ ] /status parse_health metric
 
 
+### Phase 9.1 (Auto-Update Channel) — DONE:
+- [x] `backend/VERSION.txt` single source of truth
+- [x] `/api/native/updates/{status,check,download,apply}`
+- [x] Manifest fetch (httpx + fixture override)
+- [x] SHA-256 verification, partial-file cleanup on mismatch
+- [x] master_admin gate on /apply
+- [x] Idempotent apply with `?force=true` override
+- [x] Launcher --check prints installed_ver + pending_apply marker
+- [x] /api/native/info reads VERSION.txt
+- [ ] Move /check + /download behind master_admin (DoS hardening)
+- [ ] Pre-release tag-aware parse_version
+- [ ] asyncio.Lock around /download
+
+
 - [ ] Frontend conditionally shows upgrade banner when `status.video_export_available=false`
 
 ### Phase 4, 7-9 — see per-phase plans created when reached.

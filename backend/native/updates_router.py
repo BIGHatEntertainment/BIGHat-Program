@@ -94,12 +94,14 @@ async def updates_download() -> Dict[str, Any]:
     "/apply",
     dependencies=[Depends(_require_master_admin)],
 )
-async def updates_apply() -> Dict[str, Any]:
+async def updates_apply(force: bool = False) -> Dict[str, Any]:
     try:
-        return await _svc().apply()
+        return await _svc().apply(force=force)
     except RuntimeError as e:
         msg = str(e)
         if msg in ("nothing_staged", "staged_bundle_missing"):
+            raise HTTPException(status_code=409, detail=msg)
+        if msg.startswith("already_scheduled"):
             raise HTTPException(status_code=409, detail=msg)
         raise HTTPException(status_code=500, detail=msg)
     except Exception as e:

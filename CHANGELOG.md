@@ -3,6 +3,91 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 9.1 (Auto-Update Channel) ✅ — backend testing agent verified 25/25 + 215/215 prior baseline regression = **240/240** (plus two reviewer-flagged polish improvements applied post-test)
+
+### What shipped
+A simple, conservative auto-update channel for desktop installs:
+- Read installed version from `backend/VERSION.txt`.
+- Fetch a JSON manifest from a configurable channel URL (or a local
+  fixture for dev/CI).
+- Semver-compare; offer download.
+- Stream the bundle into `paths.generated/updates/`, verify SHA-256 (or
+  refuse and delete the partial file).
+- Master-admin–gated `apply` writes `pending_apply.json` for the launcher
+  to pick up at next boot. Optional unpack into a per-version staging
+  tree for inspection.
+- Graceful when no channel is configured — `/status` still works and
+  reports `update_available=false`, the React UI shows nothing scary.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/VERSION.txt` | Single source of truth for the installed version (currently `31.0.0`). Read by `/api/native/info`, the launcher `--check` output, and `UpdatesService.installed_version`. |
+| `backend/native/updates_service.py` | `UpdatesService` orchestrator with `parse_version`, `is_newer`, `UpdateManifest` dataclass, `fetch_manifest`, `status`, `check`, `download`, `apply`. Honours `BIGHAT_UPDATE_MANIFEST_FIXTURE` (json file) + `file://` `download_url` for offline tests. Persists `db.update_state.singleton`. |
+| `backend/native/updates_router.py` | `/api/native/updates/{status,check,download,apply}`. Status/check/download open; apply requires `master_admin` via `admin_router._require_master_admin` so the existing `set_current_user_resolver` setter still works for tests. |
+| `backend/tests/test_phase9_1_updates_native.py` | 25 pytest cases (testing agent generated): status shape + VERSION.txt source, /info VERSION read, /check 200 with fixture, /download success + sha256 mismatch + invalid_manifest_sha256 + skipped-when-up-to-date, /apply unauth + sub-admin 403 + master 200 + nothing_staged + staged_bundle_missing, launcher --check assertions, regression spot-checks. Autouse `restore_manifest` fixture snapshots and restores `manifest.json`. |
+
+### Modified files
+- `backend/server.py`: registers `updates_router` alongside the admin router.
+- `backend/native/config.py`: defaults now include
+  `updates: {channel_url: null, auto_check_interval_hours: 24}`.
+- `backend/native/router.py`: `_read_installed_version()` helper.
+  `/api/native/info` now reads `version` from `VERSION.txt` instead of
+  the hardcoded `'31.0.0-phase0'` string.
+- `backend/launcher.py`: `_print_check` now prints `installed_ver`
+  + `pending_apply` (version + scheduled timestamp, or `none`) so support
+  staff can see at a glance what update is queued.
+- `backend/.env`: `BIGHAT_UPDATE_MANIFEST_FIXTURE=/app/backend/native/data/update_fixture/manifest.json`
+  for dev container testing. Production deployments leave this unset and
+  set `system_config.json -> updates.channel_url` instead.
+
+### Reviewer follow-ups applied (post-test)
+- `fetch_manifest` now wraps fixture I/O errors in a discoverable
+  `RuntimeError("manifest_fixture_missing: <path>")` /
+  `RuntimeError("manifest_fixture_invalid_json: ...")` so `/check` returns
+  502 with a useful detail (was 500 generic).
+- `apply()` is now idempotent: if `pending_apply.json` already targets the
+  same version, raises `RuntimeError("already_scheduled: <version>")` →
+  HTTP 409 from the router. Pass `?force=true` to bypass and re-write the
+  marker. (Resolves reviewer concern about double-clicking `/apply`.)
+
+### Verified end-to-end (testing agent + post-fix manual)
+- `/api/native/info.version == '31.0.0'` (reads VERSION.txt).
+- `/api/native/updates/status`: shape includes installed_version,
+  latest_known, update_available, last_check_at, staged, applied_at,
+  channel_url, fixture_active.
+- `/check` (no channel + no fixture) → 502 `update_channel_not_configured`.
+- `/check` (broken fixture path) → 502 `manifest_fixture_missing: ...`.
+- `/check` (good fixture) → 200 `update_available=true`,
+  `manifest.latest_version='31.1.0'`. `/status` reflects last_check_at.
+- `/download` → 200 with verified=true, real bundle + correct sha256 on
+  disk.
+- `/download` with mismatched sha256 → 409 `sha256_mismatch:` and the
+  partial file is unlinked.
+- `/download` with empty/short sha256 → 409 `invalid_manifest_sha256`.
+- `/download` when installed already matches latest → 200 `skipped=true`.
+- `/apply` unauth → 401; sub-admin → 403; master → 200 `scheduled` with
+  marker file written + bundle unpacked.
+- `/apply` second time without `force` → 409 `already_scheduled: 31.1.0`.
+- `/apply?force=true` → 200 again.
+- `/apply` with empty staged → 409 `nothing_staged`.
+- `/apply` with deleted bundle → 409 `staged_bundle_missing`.
+- Launcher `--check` prints `installed_ver = 31.0.0` and `pending_apply= 31.1.0 (scheduled ...)`.
+- 240/240 full regression across phase{2,3,4,5,6,7,8,9,9_1}.
+
+### Reviewer carry-overs (low-priority, deferred)
+- `/check` + `/download` are unauthenticated — DoS vector in production
+  with a real channel_url. Either rate-limit at the ingress or move
+  `/download` behind master_admin too (status alone is enough for the
+  React update-available pill).
+- `parse_version` drops pre-release tags (`31.1.0-beta.1` ≡ `31.1.0`);
+  fine for stable channel, document if pre-release manifests ever ship.
+- `/download` lacks an `asyncio.Lock` — concurrent calls could race the
+  same target file. Single-user desktop scale, not exercised by tests.
+
+---
+
+
 ## 2026-02 — Phase 4 (Music Bingo Native + Spec-Friendly Aliases) ✅ — backend testing agent verified 26/26 Phase 4 + 29/29 Phase 9 + **215/215 full regression**
 
 ### What shipped

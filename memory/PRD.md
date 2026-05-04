@@ -88,22 +88,31 @@ features behind an active subscription.
 - **2026-02** — Phase 4 (Music Bingo Native + Spec-Friendly Aliases):
   song lists / decade catalog / card PDFs from disk, `/api/bingo/status`,
   `GameStateCreate` accepts `{mode, decade}` aliases. Testing agent:
-  **26/26 + 29/29 Phase 9 retest + full regression 215/215**.
+  26/26 + 29/29 Phase 9 retest + full regression 215/215.
+- **2026-02** — Phase 9.1 (Auto-Update Channel): `/api/native/updates/{status,check,download,apply}`,
+  `backend/VERSION.txt` source-of-truth, manifest fetch + sha256
+  verify + staged apply with master-admin gate, dev fixture via
+  `BIGHAT_UPDATE_MANIFEST_FIXTURE`, idempotent apply with `?force=true`
+  override, launcher `--check` prints pending_apply marker. Testing
+  agent: **25/25 + 215/215 regression = 240/240**.
 
 ## Roadmap (P0/P1/P2 features remaining)
 
-🎉 **All 9 phases shipped — native transformation feature-complete.**
-- All P0/P1/P2 work is merged; only optional P3 polish remains.
+🎉 **All 9 phases + Phase 9.1 shipped — native transformation feature-complete.**
 
 ### Optional P3 backlog
 - Frontend wiring of `/api/native/admin/users` + `/api/native/sync/status`
   + `/api/scoreboard/status` + `/api/story-generator/status` +
-  `/api/bingo/status` into a unified Settings/Diagnostics page.
+  `/api/bingo/status` + `/api/native/updates/status` into a unified
+  Settings/Diagnostics page.
 - MSI/NSIS signed Windows installer.
-- Auto-update channel.
 - Audit-log collection for admin actions.
 - Hash-based diff mode for `SyncService` (opt-in).
 - Watchdog auto-refresh on local trivia/bingo asset folder changes.
+- Move `/api/native/updates/{check,download}` behind master-admin
+  (Phase 9.1 reviewer DoS concern).
+- Pre-release tag-aware `parse_version` if pre-release update channel ever
+  goes live.
 
 ## Test credentials
 See `/app/memory/test_credentials.md`. Native master admin:
