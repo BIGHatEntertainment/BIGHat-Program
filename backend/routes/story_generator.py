@@ -6,7 +6,7 @@ Uses async job queue to avoid Cloudflare timeout (520 errors).
 OPTIMIZATION: Resource limits for video generation
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Depends
 from fastapi.responses import FileResponse, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel
@@ -23,6 +23,16 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 from story_generator_service import get_story_service
+
+# Native-mode premium gate for mutating endpoints (video generation /
+# preview / upload / convert / event-video). Reads free in native mode so
+# the UI can still show what would unlock with a subscription. Webapp mode
+# is unaffected (dependency is a no-op when BIGHAT_NATIVE_MODE=0).
+try:
+    from native.feature_gate import require_native_premium as _rnp
+    _story_gate = [Depends(_rnp("story_generator_enabled"))]
+except Exception:  # pragma: no cover — native module unavailable
+    _story_gate = []
 
 router = APIRouter(prefix="/story-generator", tags=["story-generator"])
 logger = logging.getLogger(__name__)
@@ -61,6 +71,52 @@ def _cleanup_old_jobs():
             logger.info(f"🧹 Cleaned up old job: {jid}")
         
         gc.collect()
+
+
+@router.get("/status")
+async def get_story_generator_status() -> Dict:
+    """Report whether Story Generator is available in the current mode.
+
+    Used by the frontend to decide whether to show an upgrade prompt or the
+    real UI. In webapp mode this always returns `available:true`. In native
+    mode, availability depends on an active premium subscription with
+    `story_generator_enabled`.
+    """
+    native_mode = os.environ.get("BIGHAT_NATIVE_MODE", "0") in ("1", "true", "True", "yes")
+    if not native_mode:
+        return {
+            "available": True,
+            "mode": "cloud",
+            "reason": None,
+            "ffmpeg_ok": _probe_ffmpeg(),
+        }
+    # Native mode — check premium
+    try:
+        from native.subscription import get_subscription, is_premium_active
+        sub = get_subscription()
+        available = is_premium_active("story_generator_enabled")
+        return {
+            "available": available,
+            "mode": "native",
+            "reason": None if available else "premium_required",
+            "subscription": sub,
+            "ffmpeg_ok": _probe_ffmpeg(),
+        }
+    except Exception as e:
+        logger.warning(f"Story Generator status probe failed: {e}")
+        return {
+            "available": False,
+            "mode": "native",
+            "reason": "native_module_unavailable",
+            "ffmpeg_ok": False,
+        }
+
+
+def _probe_ffmpeg() -> bool:
+    """Cheap one-shot check that ffmpeg is installed and runnable."""
+    import shutil
+    return shutil.which("ffmpeg") is not None
+
 
 @router.get("/presentations")
 async def list_presentations_for_story(userName: Optional[str] = None) -> List[Dict]:
@@ -529,7 +585,7 @@ async def get_build_asset_urls(request: BuildAssetRequest) -> Dict:
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/generate/{presentation_id}")
+@router.post("/generate/{presentation_id}", dependencies=_story_gate)
 async def generate_story_video(presentation_id: str, background_tasks: BackgroundTasks) -> Dict:
     """
     Start video generation job (async to avoid Cloudflare timeout).
@@ -753,7 +809,7 @@ async def download_video(filename: str):
         logger.error(f"Error downloading video: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/upload-asset")
+@router.post("/upload-asset", dependencies=_story_gate)
 async def upload_asset(
     file: UploadFile = File(...),
     asset_type: str = Form(...),
@@ -808,7 +864,7 @@ async def upload_asset(
         logger.error(f"Error uploading asset: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/asset/{asset_type}/{asset_id}")
+@router.delete("/asset/{asset_type}/{asset_id}", dependencies=_story_gate)
 async def delete_asset(asset_type: str, asset_id: str) -> Dict:
     """
     Delete an asset.
@@ -838,7 +894,7 @@ async def delete_asset(asset_type: str, asset_id: str) -> Dict:
         logger.error(f"Error deleting asset: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/preview/{presentation_id}")
+@router.post("/preview/{presentation_id}", dependencies=_story_gate)
 async def generate_preview(presentation_id: str) -> Dict:
     """
     Generate a preview of the story (returns frame data without creating video).
@@ -1160,7 +1216,7 @@ def _run_video_assembly(job_id: str, request_data: dict):
         if temp_dir and os.path.exists(temp_dir):
             import shutil; shutil.rmtree(temp_dir, ignore_errors=True)
 
-@router.post("/assemble-video")
+@router.post("/assemble-video", dependencies=_story_gate)
 async def assemble_video(request: AssembleVideoRequest):
     """Start video assembly as background job — returns immediately to avoid proxy timeout."""
     job_id = str(uuid.uuid4())[:12]
@@ -1190,7 +1246,7 @@ class WebmConvertRequest(BaseModel):
     video_data: str
     filename: Optional[str] = "story_video"
 
-@router.post("/convert-webm")
+@router.post("/convert-webm", dependencies=_story_gate)
 async def convert_webm_to_mp4(request: WebmConvertRequest):
     """Fast WebM to MP4 transcode. Client does the heavy recording, server just converts format."""
     import subprocess
@@ -1415,7 +1471,7 @@ class EventPreviewRequest(BaseModel):
     host_is_gif: bool = True
 
 
-@router.post("/event-preview")
+@router.post("/event-preview", dependencies=_story_gate)
 async def get_event_preview(request: EventPreviewRequest) -> Dict:
     """
     Get base64 preview images for an event story (location + host).

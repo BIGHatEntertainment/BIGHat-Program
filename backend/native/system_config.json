@@ -3,7 +3,7 @@
   "setup_complete": true,
   "instance_id": "75d181a8-50f3-4032-90d4-7ecfd7cf44a7",
   "created_at": "2026-05-04T06:18:24.897916+00:00",
-  "updated_at": "2026-05-04T07:09:03.671469+00:00",
+  "updated_at": "2026-05-04T13:01:42.839499+00:00",
   "paths": {
     "data_root": "/app/backend/native/data",
     "local_trivia": "/app/backend/native/data/trivia",
@@ -35,7 +35,7 @@
     "active": false,
     "tier": "premium",
     "expires_at": null,
-    "last_check": "2026-05-04T07:09:03.671455+00:00",
+    "last_check": "2026-05-04T13:01:42.839486+00:00",
     "sharepoint_enabled": false,
     "story_generator_enabled": false,
     "cloud_sync_enabled": false

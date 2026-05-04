@@ -1,0 +1,48 @@
+{
+  "summary": "Phase 6 Story Generator native-mode premium gate testing: 25/26 new Phase-6 tests pass. One real bug found — /api/story-generator/generate-event-video is missing dependencies=_story_gate on its decorator, so it returns 200 even with subscription OFF (should return 402). All Phase 2 (37) + Phase 3 (21) regression tests still pass (58/58). Subscription left OFF (active=false, story_generator_enabled=false) at teardown as required.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/story-generator/generate-event-video",
+        "issue": "Missing dependencies=_story_gate on the FastAPI decorator (routes/story_generator.py line 1517). Review-request explicitly lists this endpoint as one that MUST 402 when subscription is OFF. Currently it returns 200 and spawns a background job regardless of subscription. Fix: change `@router.post(\"/generate-event-video\")` to `@router.post(\"/generate-event-video\", dependencies=_story_gate)` — exactly like the sibling /event-preview at line 1474.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase6_story_generator_native.py",
+    "/app/test_reports/pytest/phase6_results.xml",
+    "/app/backend/tests/test_phase2_trivia_native.py",
+    "/app/backend/tests/test_phase3_roundmaker_native.py"
+  ],
+  "action_items": [
+    "Add dependencies=_story_gate to the /generate-event-video decorator at /app/backend/routes/story_generator.py:1517 to close the premium-gate bypass. One-line fix, identical pattern to the other 7 mutating endpoints already gated correctly."
+  ],
+  "critical_code_review_comments": [
+    "story_generator.py is 1600+ lines — split into story_status.py / story_presentation.py / story_assets.py / story_video.py / story_event.py for maintainability (current file violates >700-line guideline).",
+    "Two parallel job registries coexist: `video_jobs` (dict at line 44, used by /generate and /generate-event-video) and `_video_jobs` (dict at line 1028, used by /assemble-video). They share no cleanup logic and diverge — consolidate into one store with TTL eviction.",
+    "_probe_ffmpeg() runs shutil.which('ffmpeg') on every /status request; negligible cost but could be cached at module load since PATH is static in a container.",
+    "EventPreviewRequest requires `host_is_gif` with default=True but no Pydantic validator rejects mismatched content (e.g. mime-type declared as gif but bytes are PNG). Low-severity.",
+    "The fallback try/except at the top of story_generator.py L31-35 swallows ALL exceptions and silently disables the gate if `native.feature_gate` import fails. If that module ever breaks, premium checks silently turn off across every endpoint with no log. Replace bare except with `except ImportError` and emit logger.error on any other error.",
+    "convert-webm and assemble-video write user-supplied base64 to disk inside tempfile.mkdtemp with no size cap — a malicious client could upload multi-GB payloads. Add `Content-Length` check or read with a bounded buffer."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase6_story_generator_native.py"
+  ],
+  "success_rate": {
+    "backend": "96% (25/26 Phase 6; 58/58 Phase 2+3 regression; 83/84 overall)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "Not required for Phase 6 — all tested endpoints are unauthenticated (no JWT). Subscription toggle uses /api/native/subscription which is also open in native mode. Master creds from /app/memory/test_credentials.md confirmed for future auth tests.",
+  "seed_data_creation": "No persistent seed. Test toggles /api/native/subscription ON/OFF several times and restores to active=false, story_generator_enabled=false at module teardown. Verified via curl post-run that system_config.json subscription block is clean (active=false, all feature flags false).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Three pytest suites now exist: test_phase2_trivia_native.py (37), test_phase3_roundmaker_native.py (21), test_phase6_story_generator_native.py (26). All idempotent, all use BASE_URL from /app/frontend/.env. Phase 6 suite fixture `_teardown_subscription` (module-scope, autouse) guarantees subscription is left OFF whether tests pass or fail. The only failure in Phase 6 is the missing `dependencies=_story_gate` on /generate-event-video decorator — one-line fix in routes/story_generator.py. All other 7 mutating endpoints gate correctly. Read endpoints (/presentations, /assets, /job-status) correctly bypass the gate. Toggle is effective immediately (no restart needed) because set_subscription() calls config_manager.save_config() synchronously. Per-feature gating confirmed working: story_generator_enabled=true with sharepoint_enabled=false still unlocks story-gen endpoints.",
+  "rca of the issue": "Bug: POST /api/story-generator/generate-event-video bypasses the premium gate. Reproduction: (1) POST /api/native/subscription {active:false, story_generator_enabled:false}; (2) POST /api/story-generator/generate-event-video with any body — returns 200 with jobId. Expected: 402 with detail.error='premium_required', detail.feature='story_generator_enabled'. RCA: routes/story_generator.py line 1517 decorator reads `@router.post(\"/generate-event-video\")` and omits `dependencies=_story_gate`. Every other mutating endpoint (generate/{id}, preview/{id}, upload-asset, asset/{t}/{i} DELETE, assemble-video, convert-webm, event-preview) has the gate applied. This was almost certainly an oversight when the gate was added. Mitigation: change line 1517 to `@router.post(\"/generate-event-video\", dependencies=_story_gate)` — hot-reload will pick it up. Re-run `pytest backend/tests/test_phase6_story_generator_native.py -v` to confirm all 26 tests green."
+}
