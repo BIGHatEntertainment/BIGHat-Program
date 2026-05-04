@@ -93,10 +93,24 @@ def build_frontend(skip_install: bool, clean: bool) -> Path:
 
 def write_manifest(frontend_built: bool) -> None:
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    # Preserve `frontend_included=True` when index.html is already on disk,
+    # even if THIS run was --no-frontend. Prevents the launcher's
+    # static-bundle-present check from flipping to False on incremental
+    # backend-only builds.
+    prev: dict = {}
+    if MANIFEST.exists():
+        try:
+            prev = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            prev = {}
+    index_present = (STATIC_DIR / "index.html").is_file()
+    resolved_frontend = bool(
+        frontend_built or (index_present and prev.get("frontend_included"))
+    )
     manifest = {
         "built_at": int(time.time()),
         "git_sha": _git_sha(),
-        "frontend_included": frontend_built,
+        "frontend_included": resolved_frontend,
         "file_count": _count_files(STATIC_DIR),
         "python_version": sys.version.split()[0],
         "platform": sys.platform,

@@ -3,6 +3,91 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 9 (Packaging & Single-Process Launcher) ✅ — backend testing agent verified 29/29 + 160/160 regression = **189/189**
+
+### What shipped
+Everything needed to turn the monorepo into a shippable desktop artifact.
+`python backend/launcher.py` is now a single command that boots the full
+offline app: FastAPI on `127.0.0.1:8001`, SQLite via MontyDB, all routers
+(native + sync + admin + trivia + roundmaker + scoreboard + bingo +
+story-generator), and — when a React build bundle is present under
+`backend/static/` — the frontend SPA served from the same port. End users
+reach the whole app at one URL; no dev server, no proxy.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/launcher.py` | Single-process launcher. Forces `BIGHAT_NATIVE_MODE=1`, ensures `data/*` dirs exist, prints or runs `uvicorn server:app` on `127.0.0.1:<PORT>`. Flags: `--check` (print config & exit), `--port`, `--host`, `--no-browser`, `--reload`. Browser auto-opens after a 1.5s timer unless `--no-browser`. |
+| `scripts/build_standalone.py` | Build orchestrator. Runs `yarn install` (or `--skip-install`), `yarn build`, copies the output into `backend/static/`, writes `build_manifest.json` (`built_at`, `git_sha`, `frontend_included`, `file_count`, `python_version`, `platform`). Flags: `--skip-install`, `--clean`, `--no-frontend`. |
+| `packaging/start_bighat.vbs` | Windows silent-launch VBS. Runs `python\python.exe backend\launcher.py` with no console window. Edit `INSTALL_ROOT` per-install. |
+| `packaging/install_shortcut.vbs` | Creates a Desktop shortcut to `start_bighat.vbs` with optional icon. Safe to re-run. |
+| `packaging/README.md` | End-to-end distribution runbook: runtime topology, build sequence, local smoke test, Windows install steps, auto-start on login, uninstall, known gaps. |
+| `backend/tests/test_phase9_packaging.py` | 29 pytest cases covering the full Phase 9 surface — see below. |
+
+### Modified files
+- `backend/server.py`: new conditional SPA static-bundle mount. If
+  `backend/static/index.html` exists at startup, the backend mounts
+  `/static/*` to the React build's static subdirectory and registers a
+  catch-all `GET /{full_path:path}` that (1) never shadows `api/`,
+  `health`, `docs`, `openapi.json`, `redoc`; (2) serves `backend/static/<path>`
+  if present; (3) falls back to `index.html` so client-side SPA routing
+  works on hard reload / deep link. When the bundle is absent the block
+  is a no-op — dev mode (React dev server on :3000) keeps working.
+- `backend/routes/scoreboard.py`: `/tournaments/{id}/advance` now returns
+  HTTP 404 with `detail="match_not_found: '<id>' is not in bracket_state.matches"`
+  when `match_id` is unknown. Previously it silently no-op'd on the match
+  update but still touched `bracket_state.last_updated` — confusing UX and
+  easy to miss in the UI. (Testing agent uncovered a latent Phase 8 test
+  relying on the old no-op; the test was corrected to seed `bracket_state.matches`
+  via PUT before /advance.)
+- `backend/native/admin_router.py`: new public `set_current_user_resolver()`
+  setter + `_default_resolver()` coroutine. `_require_master_admin` now
+  uses the injected resolver when set; otherwise falls back to the default
+  resolver which imports `server.get_current_user` at request time (same
+  behaviour as before). Decouples the admin router from `server.py` for
+  testing and any future non-server integrations.
+- `scripts/build_standalone.py`: `write_manifest` now preserves
+  `frontend_included=True` when `--no-frontend` is used but the bundle
+  is still on disk — avoids the launcher's "static-bundle-present" check
+  flipping false on incremental backend-only builds (reviewer-flagged).
+
+### Verified end-to-end (testing agent, 29/29 Phase 9)
+- `launcher.py --check` prints backend_dir / listen / native_mode /
+  setup_complete / instance_id / paths / static_bundle and exits 0 without
+  starting uvicorn.
+- `launcher.py --no-browser --port 18102` actually boots: `/health` →
+  `{status:'healthy'}`, `/api/native/info` → JSON, `/` → `<title>BIG Hat | Host</title>`.
+- SPA mount: `/`, `/setup`, `/any/deep/link` all return `index.html`;
+  `/api/native/info` + `/api/__definitely_not_an_endpoint__` correctly
+  route to the API (200 + 404 JSON respectively); `/health` returns JSON.
+- `/static/css/<hash>.css` and `/static/js/<hash>.js` load with 200.
+- `build_manifest.json` has all six expected keys; `file_count >= 10`;
+  `git_sha` non-empty.
+- `build_standalone.py --help` lists `--skip-install`, `--clean`,
+  `--no-frontend`. `--no-frontend` preserves `index.html` bytes + now
+  preserves `frontend_included=True` via the new read-and-OR logic.
+- `/scoreboard/tournaments/{id}/advance` unknown match → 404
+  `match_not_found:`; seeded match → 200 + `completed=true`.
+- `native.admin_router.set_current_user_resolver` + `_default_resolver` +
+  `_user_resolver=None` initial state all present.
+- Packaging artifacts: 3 files exist, non-empty, contain `C:\BIG Hat\BIGHatStandalone`
+  literal.
+- All 9 public regression endpoints 200/documented. Prior-phase pytest
+  suites (phase 2, 3, 5, 6, 7, 8) = 160/160 unchanged.
+
+### Reviewer observations (non-blocking, documented)
+- Tournament creation doesn't auto-generate `bracket_state.matches`;
+  callers must supply it at create-time or PUT a bracket_state payload
+  before `/advance`. Consider a `POST /tournaments/{id}/generate-bracket`
+  convenience helper in a future iteration.
+- `set_current_user_resolver` doesn't validate the callable's signature;
+  a one-line `inspect.iscoroutinefunction` check would catch a sync stub.
+- VBS `INSTALL_ROOT` hardcode is intentional (template pattern); README
+  documents the find/replace step.
+
+---
+
+
 ## 2026-02 — Phase 8 (Admin + Hardening) ✅ — backend testing agent verified 30/30 + 130/130 regression = **160/160**
 
 ### What shipped

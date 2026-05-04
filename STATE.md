@@ -1,24 +1,25 @@
 # Current State
 
-**Active phase:** 8 — Admin + Hardening (✅ complete; **160/160** tests via testing agent)
+**Active phase:** 9 — Packaging (✅ complete; **189/189** tests via testing agent)
 
 **Last completed work:**
-- Phase 8 — Admin + Hardening: 30/30 new tests + 130/130 Phase
-  2+3+5+6+7 regression = **160/160 passed**
-  (`/app/test_reports/iteration_9.json`,
-  `/app/backend/tests/test_phase8_admin_native.py`).
-- New `backend/native/admin_router.py` — master-admin-only UI:
-  `/api/native/admin/{users,license/seats,whoami}`. User CRUD with
-  role promotion, password reset; seat rename/revoke with
-  current-device protection. Master admin cannot be
-  deleted/demoted/seat-revoked.
-- Scoreboard hardening: `TournamentCreate` validates
-  `len(teams) + bye_count == total_teams`; `/tournaments/{id}/advance`
-  now takes a `TournamentAdvance` Pydantic body.
-- Phase 0/0.5/1/2/3/5/6/7 unchanged.
+- Phase 9 — Packaging & single-process launcher: 29/29 new tests +
+  160/160 Phase 2+3+5+6+7+8 regression = **189/189 passed**
+  (`/app/test_reports/iteration_10.json`,
+  `/app/backend/tests/test_phase9_packaging.py`).
+- `backend/launcher.py`, `scripts/build_standalone.py`,
+  `packaging/{start_bighat.vbs,install_shortcut.vbs,README.md}`.
+- SPA static-bundle serving in `server.py` (conditional on
+  `backend/static/index.html`).
+- Phase 8 carry-overs: `/advance` returns 404 match_not_found on
+  unknown match_id; `admin_router.set_current_user_resolver` setter.
+- Build orchestrator manifest preserves `frontend_included=true` on
+  `--no-frontend` if bundle is on disk.
+- Phase 0/0.5/1/2/3/5/6/7/8 unchanged.
 
-**Next action:** user to choose Phase 4 (Music Bingo — the last P1) or
-Phase 9 (Packaging + small polish carry-overs from Phase 8).
+**Next action:** only Phase 4 (Music Bingo — the last P1) remains on the
+roadmap. After that, the native transformation is feature-complete and
+shippable.
 
 **Then Phase 3 (Round Maker):** swap PPTX-round generator service to use the
 asset factory + MontyDB, and route generated rounds back into the native

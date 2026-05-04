@@ -77,14 +77,18 @@ features behind an active subscription.
   license/seats,whoami}`, master-admin-only JWT gate, user CRUD + role
   promotion + password reset, seat rename + revoke, `TournamentCreate`
   `len(teams)+bye_count==total_teams` validation, `TournamentAdvance`
-  Pydantic body. Testing agent: **30/30 + 130/130 regression = 160/160**.
+  Pydantic body. Testing agent: 30/30 + 130/130 regression = 160/160.
+- **2026-02** — Phase 9 (Packaging & Single-Process Launcher):
+  `backend/launcher.py` + SPA static-bundle serving in FastAPI,
+  `scripts/build_standalone.py` build orchestrator, Windows VBS
+  installer templates, `packaging/README.md` distribution runbook,
+  Phase 8 polish carry-overs (`/advance` 404 match_not_found,
+  admin_router `set_current_user_resolver`). Testing agent: **29/29 +
+  160/160 regression = 189/189**.
 
 ## Roadmap (P0/P1/P2 features remaining)
 - **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game
   engine — the last P1 remaining)
-- **P3 — Phase 9: Packaging** (VBS installers, native launcher, build script,
-  plus a few deferred Phase 8 polish items: `_require_master_admin` setter,
-  `match_not_found` on `/advance`)
 
 ## Test credentials
 See `/app/memory/test_credentials.md`. Native master admin:

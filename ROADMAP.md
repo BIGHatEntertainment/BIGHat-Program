@@ -108,6 +108,17 @@
 
 - [x] `/api/scoreboard/status` exposes mode + subscription + local counts
 - [x] Pre-existing F821 on `/exports/upload.ext` fixed
+
+### Phase 9 (Packaging) — DONE:
+- [x] `backend/launcher.py` single-process boot
+- [x] SPA static-bundle mount in FastAPI
+- [x] `scripts/build_standalone.py` with manifest preservation
+- [x] Windows VBS installer templates + packaging/README.md
+- [x] `/advance` 404 match_not_found
+- [x] `admin_router.set_current_user_resolver`
+- [ ] Signed Windows installer (MSI/NSIS)
+- [ ] Auto-update channel
+
 - [ ] Frontend conditionally shows upgrade banner when `status.video_export_available=false`
 
 ### Phase 4, 7-9 — see per-phase plans created when reached.
