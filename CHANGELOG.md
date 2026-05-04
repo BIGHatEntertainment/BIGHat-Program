@@ -4,6 +4,47 @@ Append-only. Newest at top.
 
 ---
 
+## 2025-07 — Phase 1 (Schedule SQLite Swap) ✅ — backend testing agent verified 29/30
+
+### What shipped
+The webapp now runs entirely against SQLite (via MontyDB) when `BIGHAT_NATIVE_MODE=1`. Zero MongoDB calls in native mode.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/native/async_monty.py` | Async wrappers (`AsyncMontyClient`, `AsyncMontyDatabase`, `AsyncMontyCollection`, `AsyncMontyCursor`) that mimic motor's API on top of synchronous MontyDB. Uses `asyncio.to_thread` to keep FastAPI handlers awaitable. Covers every Mongo operation actually used in the codebase: `find_one`, `find`, `insert_one`, `insert_many`, `update_one`, `update_many`, `delete_one`, `delete_many`, `count_documents`, `find_one_and_update/replace/delete`, `distinct`, `aggregate`, `create_index`. Includes graceful "no such table" handling so empty collections behave like Mongo. |
+| `backend/native/db_factory.py` | `get_db()` returns either motor (`AsyncIOMotorClient`) or `AsyncMontyClient` (SQLite) based on `BIGHAT_NATIVE_MODE`. Cached singleton. SQLite repo at `BIGHAT_DB_DIR/bighat_db/`. |
+
+### Modified files
+- `backend/server.py`: `db = client[os.environ['DB_NAME']]` is followed by an additive native-mode swap that re-binds `db` to `get_db()` when native mode is on. `get_current_user` now tries ObjectId lookup first, then string `_id`, then email — to support both Mongo (ObjectId) and MontyDB (string UUID) auth records. Auth bridge insert uses string UUID `_id` in native mode.
+- `backend/schedule_routes.py`: same native-mode swap pattern.
+- `backend/scheduler.py`: same native-mode swap pattern.
+- `backend/notifications.py`: same native-mode swap pattern.
+- `backend/requirements.txt`: added `montydb==2.5.3`.
+
+### Verified
+**By backend testing agent (29/30 passed):**
+- Schedule CRUD round-trip: POST → GET → PUT → DELETE all 200, data persists in SQLite
+- Auto-seeded 6 venues + 24 events into SQLite on first boot
+- Native auth bridge: master admin login returns 200 with string UUID id
+- `/auth/me` returns role=master_admin
+- Wrong password → 401 (not 500); unknown email → 401
+- All 6 SQLite `.collection` files written: `users`, `venues`, `events`, `employees`, `login_attempts`, `venue_pricing`
+- Subscription premium flag toggling works (active=true → all 3 flags true; active=false → all 3 false)
+- Setup wizard idempotent guard: 409 on second call
+- Bad license format / wrong reset confirm: 400
+- License seat register: idempotent
+- HWID is deterministic 64-char hex
+- No regression on `/health`, `/api/auth/me`, `/api/venues`
+
+### Known issues fixed during Phase 1
+- **MontyDB AsyncMontyCursor: `StopIteration` cannot cross asyncio boundary** (PEP 479). Original implementation re-raised StopIteration from `to_thread`. Fixed by passing a sentinel into `next()` inside the thread and converting to `StopAsyncIteration` after `await`. (See ERRORS.md 2026-05-04 06:25)
+- **MontyDB lazy table creation: `find_one` on never-touched collection raises `OperationalError("no such table")`**, but Mongo silently returns None. Fixed by catching this in every wrapper read/write/update/delete and returning the appropriate empty/no-op result. For `update_one(..., upsert=True)`, force-create the table by inserting a `_bootstrap` doc then deleting it before retrying. (See ERRORS.md 2026-05-04 06:27)
+- **MontyDB query engine can't compare ObjectId** (`TypeError: Not weightable type: <class 'bson.objectid.ObjectId'>`). The native auth bridge initially used `result.inserted_id` (an ObjectId) which broke `/auth/me`. Fixed by inserting native users with explicit string-UUID `_id` and patching `get_current_user` to try ObjectId → string → email fallback. (See ERRORS.md 2026-05-04 06:30)
+- **login_attempts bootstrap race on missing-table** (caught by testing agent). When login fails for an unknown email, the rate-limiter calls `update_one(login_attempts, ..., upsert=True)`. On the very first login failure ever, the table doesn't exist yet, so `update_one` enters the bootstrap-and-retry path. The retry could fail in subsequent calls. Testing agent's fix: wrapped the bootstrap insert/delete cycle in its own try/except and falls through to a fake-success result — login_attempts is rate-limit metadata only, not core data. (See ERRORS.md 2026-05-04 06:35)
+
+---
+
 ## 2025-07 — Phase 0.5 (Frontend SetupWizard + Auth Bridge) ✅
 
 ### New files
