@@ -29,6 +29,51 @@ ASSETS_DIR = BACKEND_DIR / "roundmaker_assets"
 UPLOAD_DIR.mkdir(exist_ok=True)
 GENERATED_DIR.mkdir(exist_ok=True)
 
+
+def _is_local_mode() -> bool:
+    """True when the asset factory will hand back a LocalAssetService."""
+    try:
+        from native.asset_factory import can_use_cloud
+        return not can_use_cloud()
+    except Exception:
+        return False
+
+
+def _local_trivia_root() -> Path:
+    """Return the configured local-trivia path (where generated rounds land
+    so they appear in the offline trivia library).
+    """
+    try:
+        from native.config import config_manager
+        p = config_manager.config.get("paths", {}).get("local_trivia")
+        if p:
+            return Path(p)
+    except Exception:
+        pass
+    return BACKEND_DIR / "native" / "data" / "trivia"
+
+
+def _local_assets_root() -> Path:
+    try:
+        from native.config import config_manager
+        p = config_manager.config.get("paths", {}).get("assets")
+        if p:
+            return Path(p)
+    except Exception:
+        pass
+    return BACKEND_DIR / "native" / "data" / "assets"
+
+
+# Title-card folder lives under local assets in native mode (configurable
+# subpath); falls back to the existing dev assets directory.
+def _local_title_cards_dir(round_type: str) -> Path:
+    return (
+        _local_assets_root()
+        / "01_Trivia/Web App/00_Builder/04_TitleCards"
+        / round_type.upper()
+    )
+
+
 def set_database(database):
     global db
     db = database
@@ -549,9 +594,32 @@ async def _download_sp_file(item_id):
         return r.content if r.status_code == 200 else None
 
 async def _upload_to_sharepoint_direct(file_path, filename, round_type):
-    """Upload a PPTX file directly to the correct SharePoint folder via Graph API"""
+    """Upload a PPTX file. In native local mode, copy it into the local
+    trivia round library so it appears immediately in the offline trivia
+    picker. In cloud mode, push to the canonical SharePoint folder.
+    """
+    if _is_local_mode():
+        round_type_u = round_type.upper()
+        folder_map = {
+            'MC':   '01_Trivia/Web App/00_Builder/01_Rounds/01_MC',
+            'REG':  '01_Trivia/Web App/00_Builder/01_Rounds/02_REG',
+            'MISC': '01_Trivia/Web App/00_Builder/01_Rounds/03_MISC',
+            'MYS':  '01_Trivia/Web App/00_Builder/01_Rounds/04_MYS',
+            'BIG':  '01_Trivia/Web App/00_Builder/01_Rounds/05_BIG',
+        }
+        rel = folder_map.get(round_type_u)
+        if not rel:
+            raise Exception(f"No local folder mapped for round type: {round_type}")
+        dest_dir = _local_assets_root() / rel
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / filename
+        import shutil
+        shutil.copy2(file_path, dest)
+        web_url = f"file://{dest}"
+        logger.info(f"[NATIVE-MODE] Round {filename} copied to {dest}")
+        return {"success": True, "web_url": web_url, "file_id": str(dest), "folder": round_type_u}
+
     import httpx
-    
     folder_id = SP_UPLOAD_FOLDERS.get(round_type.upper())
     if not folder_id:
         raise Exception(f"No SharePoint folder configured for round type: {round_type}")
@@ -590,8 +658,26 @@ async def _upload_to_sharepoint_direct(file_path, filename, round_type):
 
 @router.get("/reg-title-images")
 async def get_reg_title_images():
-    """List available REG title card images from SharePoint folder."""
+    """List available REG title card images.
+
+    In native local mode, scan the local title-cards folder. In cloud mode,
+    hit SharePoint and cache for 5 minutes.
+    """
     import time
+
+    if _is_local_mode():
+        images = []
+        cards_dir = _local_title_cards_dir('REG')
+        if cards_dir.exists():
+            for entry in sorted(cards_dir.iterdir(), key=lambda p: p.name.lower()):
+                if entry.is_file() and entry.suffix.lower() in ('.jpg', '.jpeg', '.png', '.gif'):
+                    images.append({
+                        "name": entry.stem,
+                        "filename": entry.name,
+                        "itemId": str(entry.relative_to(_local_assets_root())).replace("\\", "/"),
+                    })
+        return {"images": images}
+
     now = time.time()
     if _reg_images_cache["data"] and now < _reg_images_cache["expires"]:
         return {"images": _reg_images_cache["data"]}
@@ -628,23 +714,35 @@ async def get_reg_next_number(category: str):
     escaped_cat = re.escape(category)
     pattern = re.compile(rf'^{escaped_cat}_(\d+)\.pptx$', re.IGNORECASE)
 
-    # Check SharePoint REG output folder
-    now = time.time()
-    if not _reg_files_cache["data"] or now >= _reg_files_cache["expires"]:
-        try:
-            items = await _list_sp_folder(SP_REG_OUTPUT_ID)
-            _reg_files_cache["data"] = [item["name"] for item in items if item.get("name", "").endswith(".pptx")]
-            _reg_files_cache["expires"] = now + 120
-        except Exception as e:
-            logger.warning(f"SharePoint REG list failed: {e}")
-            _reg_files_cache["data"] = []
+    # Check SharePoint REG output folder (skip entirely in native local mode)
+    if not _is_local_mode():
+        now = time.time()
+        if not _reg_files_cache["data"] or now >= _reg_files_cache["expires"]:
+            try:
+                items = await _list_sp_folder(SP_REG_OUTPUT_ID)
+                _reg_files_cache["data"] = [item["name"] for item in items if item.get("name", "").endswith(".pptx")]
+                _reg_files_cache["expires"] = now + 120
+            except Exception as e:
+                logger.warning(f"SharePoint REG list failed: {e}")
+                _reg_files_cache["data"] = []
 
-    for filename in (_reg_files_cache["data"] or []):
-        match = pattern.match(filename)
-        if match:
-            num = int(match.group(1))
-            if num > max_num:
-                max_num = num
+        for filename in (_reg_files_cache["data"] or []):
+            match = pattern.match(filename)
+            if match:
+                num = int(match.group(1))
+                if num > max_num:
+                    max_num = num
+    else:
+        # Local mode — scan local trivia REG folder for existing pptx names
+        local_reg = _local_assets_root() / "01_Trivia/Web App/00_Builder/01_Rounds/02_REG"
+        if local_reg.exists():
+            for entry in local_reg.iterdir():
+                if entry.is_file() and entry.suffix.lower() == ".pptx":
+                    match = pattern.match(entry.name)
+                    if match:
+                        num = int(match.group(1))
+                        if num > max_num:
+                            max_num = num
 
     # Also check local database
     local_pattern = re.compile(rf'^{escaped_cat}_(\d+)$', re.IGNORECASE)
@@ -663,18 +761,26 @@ async def get_reg_next_number(category: str):
 
 @router.post("/reg-download-title-image")
 async def download_title_image_endpoint(request: Request):
-    """Download a REG title image from SharePoint by itemId and save locally."""
+    """Download a REG title image. In native mode, copies from the local
+    asset folder into UPLOAD_DIR. In cloud mode, pulls from Graph.
+    """
     try:
         body = await request.json()
         item_id = body.get("item_id") or body.get("itemId", "")
         filename = body.get("filename", "title.jpg")
-        
+
         if not item_id:
             raise HTTPException(status_code=400, detail="item_id required")
-        
-        content = await _download_sp_file(item_id)
-        if not content:
-            raise HTTPException(status_code=404, detail="Could not download image from SharePoint")
+
+        if _is_local_mode():
+            src = (_local_assets_root() / item_id).resolve()
+            if not src.exists() or not src.is_file():
+                raise HTTPException(status_code=404, detail="Local title image not found")
+            content = src.read_bytes()
+        else:
+            content = await _download_sp_file(item_id)
+            if not content:
+                raise HTTPException(status_code=404, detail="Could not download image from SharePoint")
         
         # Save locally
         save_path = UPLOAD_DIR / filename
@@ -688,13 +794,19 @@ async def download_title_image_endpoint(request: Request):
         logger.error(f"Failed to download title image: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/reg-title-image-preview/{item_id}")
+@router.get("/reg-title-image-preview/{item_id:path}")
 async def preview_reg_title_image(item_id: str):
-    """Serve a REG title card image preview directly from SharePoint."""
+    """Serve a REG title card preview. Local file in native mode, Graph in cloud mode."""
     from fastapi.responses import Response
-    content = await _download_sp_file(item_id)
-    if not content:
-        raise HTTPException(status_code=404, detail="Image not found")
+    if _is_local_mode():
+        src = (_local_assets_root() / item_id).resolve()
+        if not src.exists() or not src.is_file():
+            raise HTTPException(status_code=404, detail="Image not found")
+        content = src.read_bytes()
+    else:
+        content = await _download_sp_file(item_id)
+        if not content:
+            raise HTTPException(status_code=404, detail="Image not found")
     # Detect content type
     ct = "image/jpeg"
     if content[:3] == b'GIF':
@@ -806,7 +918,25 @@ async def get_title_card(round_type: str):
 
 @router.get("/sharepoint-status")
 async def sharepoint_status():
-    """Check if SharePoint credentials are configured and test the connection."""
+    """Check upload backend status. In native local mode reports `mode=local`
+    so the frontend knows uploads land on disk, not in SharePoint.
+    """
+    if _is_local_mode():
+        # Lazy import to avoid circular at module load
+        try:
+            from native.subscription import get_subscription
+            sub = get_subscription()
+        except Exception:
+            sub = {"active": False, "tier": "free"}
+        return {
+            "configured": True,
+            "token_valid": True,
+            "mode": "local",
+            "local_root": str(_local_assets_root()),
+            "subscription": sub,
+            "error": None,
+            "folders": {},
+        }
     tenant_id = os.environ.get("ROUNDMAKER_TENANT_ID", os.environ.get("AZURE_TENANT_ID"))
     client_id = os.environ.get("ROUNDMAKER_CLIENT_ID", os.environ.get("AZURE_CLIENT_ID"))
     client_secret = os.environ.get("ROUNDMAKER_CLIENT_SECRET", os.environ.get("AZURE_CLIENT_SECRET"))

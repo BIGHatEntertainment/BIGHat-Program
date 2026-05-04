@@ -1,0 +1,39 @@
+{
+  "summary": "Phase 3 (Round Maker) backend native-mode testing complete. 21/21 new pytest tests pass for the round-maker endpoints, plus full Phase 2 regression sweep (37/37) re-run green = 58/58 overall. All acceptance criteria from the review request are met: sharepoint-status reports mode=local with subscription block, REG title cards (History/Geography/Music) listed and previewable as PNG bytes, reg-download-title-image copies into roundmaker_uploads, mc-next-name returns 200 without SP creds, reg-next-number increments after a round is published, full round-trip (create -> generate >100KB pptx -> upload-sharepoint as master_admin -> file:// web_url -> file appears under 02_REG -> /api/trivia/round-files/reg lists it -> cleanup) succeeds, and premium gate sanity holds (subscription off, local round-maker still works).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_roundmaker_native.py",
+    "/app/backend/tests/test_phase2_trivia_native.py",
+    "/app/test_reports/pytest/phase3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/roundmaker.py is ~1080 lines and concentrates SP logic, local-mode logic, PPTX generation triggers, JWT decoding, caching and CRUD in one module. Split into roundmaker_crud.py / roundmaker_assets.py / roundmaker_publish.py to stay below the ~700-line guideline.",
+    "upload_to_sharepoint() decodes JWT with a bare `except:` (line ~980) which silently masks any token error (expired, wrong sig, missing JWT_SECRET). Replace with `except Exception as e: logger.warning(...)` and at minimum distinguish 'no header' from 'bad token'.",
+    "reg-next-number does a regex over filenames using user-supplied {category} from path. Path is not length-bounded; an extremely long category param will produce a giant regex. Add `if len(category) > 64: raise HTTPException(400)` before re.escape().",
+    "reg-title-image-preview / reg-download-title-image build `(_local_assets_root() / item_id).resolve()` but never assert the resolved path stays under _local_assets_root(). A crafted item_id like '../../../etc/passwd' could escape the assets root. Add: `if not str(src).startswith(str(_local_assets_root().resolve())): raise HTTPException(400)`.",
+    "create_round / generate / upload-sharepoint trust the caller fully: there is no per-user ownership check, anyone authenticated can delete or generate anyone else's round. For Phase 4 hardening, attach `created_by` to the round doc and gate DELETE/upload by ownership unless role is admin/master_admin.",
+    "Title-card categorisation hard-codes the lower-case suffix list ('.jpg','.jpeg','.png','.gif') in two places (reg-title-images local + cloud branches). Extract to a module-level IMG_EXTS = {...} to keep the two branches in lock-step."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_roundmaker_native.py"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 Phase 3, 37/37 Phase 2 regression = 58/58)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "master@bighat.local / BigHat2024! (from /app/memory/test_credentials.md). Token returned in login response body; suite also falls back to cookie auth.",
+  "seed_data_creation": "Suite is idempotent: it creates a transient REG round 'TestPhase3_1' with two questions, generates+publishes the PPTX into /app/backend/native/data/assets/01_Trivia/Web App/00_Builder/01_Rounds/02_REG/, asserts trivia/round-files/reg lists it, then deletes the round and unlinks the .pptx. It also drops a synthetic 'TestPhase3_<baseline>.pptx' to verify reg-next-number increments and removes it. Subscription is forced OFF at the end. Verified post-run that 02_REG only contains the original History_1.pptx + REG_HistoryA.pptx.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Two pytest suites coexist: test_phase2_trivia_native.py (37 tests) and test_phase3_roundmaker_native.py (21 tests). They are independent and idempotent. BASE_URL is read from /app/frontend/.env (REACT_APP_BACKEND_URL). Phase 3 suite asserts upload-sharepoint returns a file:// web_url and that the PPTX physically lands in /app/backend/native/data/assets/01_Trivia/Web App/00_Builder/01_Rounds/02_REG/<RoundName>.pptx -- this is the V31 deliverable, not a mock. Master admin bypasses the 'pending approval' gate; non-admin would get 403. If a future change moves _local_assets_root() or _local_title_cards_dir(), update LOCAL_REG_OUT and LOCAL_TITLECARDS_REG constants at the top of the test file accordingly.",
+  "rca of the issue": "No failures. Verified end-to-end: (a) /api/roundmaker/sharepoint-status returns mode=local, configured=true, token_valid=true, subscription dict; (b) /reg-title-images lists the seeded History/Geography/Music title cards with itemIds rooted at '04_TitleCards/REG/'; (c) /reg-title-image-preview/<itemId> returns PNG bytes (89 50 4E 47 magic) with image/png content-type; (d) /reg-download-title-image with item_id+filename copies bytes into roundmaker_uploads and returns file_id+path that exists; (e) /mc-next-name returns 200 (no 5xx) with a candidate name; (f) full round-trip: POST /rounds -> 200 with id, GET /rounds includes it, POST /generate returns >100KB octet-stream pptx, POST /upload-sharepoint as master_admin returns status=success + file:// web_url, /app/backend/native/data/assets/.../02_REG/TestPhase3_1.pptx exists and is >100KB, /api/trivia/round-files/reg lists 'TestPhase3_1', DELETE removes round, .pptx unlinked; (g) /reg-next-number/{category} increments by exactly 1 after a synthetic <cat>_<n>.pptx is dropped on disk; (h) toggling subscription OFF leaves /sharepoint-status mode=local and /reg-title-images functional, confirming premium gate doesn't block local persistence; (i) regression on Phase 1 (/venues, /events) and Phase 2 (/trivia/hosts|locations|sponsors|rounds, /trivia-import/slides-metadata, /presentations) all 200 with list payloads."
+}
