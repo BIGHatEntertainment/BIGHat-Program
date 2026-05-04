@@ -1,0 +1,39 @@
+{
+  "summary": "Phase 9 packaging — launcher (--check + --no-browser boot + port-busy), SPA static-bundle mount on supervisor backend (root, deep-link fallback, /api not shadowed, unknown /api still 404 JSON), css/js asset serving, build_manifest.json schema, build_standalone.py --help + --no-frontend semantics (preserves index.html), Phase 8 carry-overs (/scoreboard/tournaments/{id}/advance returns 404 'match_not_found:' on unknown match_id and 200 on real seeded match; native.admin_router exposes set_current_user_resolver + _default_resolver coroutine + _user_resolver=None initial state), packaging artifacts (start_bighat.vbs / install_shortcut.vbs / README.md present, non-empty, comment-or-Option-Explicit headers, INSTALL_ROOT 'C:\\BIG Hat\\BIGHatStandalone' literal embedded), and the 9 public regression endpoints. New pytest suite test_phase9_packaging.py (29 tests) plus regression on test_phase{2,3,5,6,7,8}_*.py = 189/189 passing. Updated test_phase8_admin_native.py::TestTournamentAdvance::test_advance_real_tournament_200 to seed bracket_state via PUT before /advance because the Phase 9 contract change (404 match_not_found) makes the previous assumption — that POST /tournaments auto-generates matches — invalid; the test was a Phase-8 latent bug uncovered by the new strict 404 path. Backend service unchanged.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/scoreboard/tournaments", "issue": "Tournament creation does not auto-generate bracket_state.matches; the bracket must be seeded via PUT /api/scoreboard/tournaments/{id} (bracket_state=...) before /advance can succeed. Phase 8 test was passing only because the prior /advance handler silently no-op'd on unknown match_ids; the Phase 9 strict 404 exposed the gap. Worth either documenting clearly or adding a POST /tournaments/{id}/generate-bracket helper."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase9_packaging.py",
+    "/app/test_reports/pytest/phase9_results.xml",
+    "/app/test_reports/pytest/phase9_full.xml"
+  ],
+  "action_items": [
+    "Optional: consider auto-generating a default single-elimination bracket inside POST /api/scoreboard/tournaments when teams are supplied, so callers don't have to PUT a bracket_state payload before /advance. Alternatively, document that bracket_state must be supplied at create-time or seeded via PUT before /advance.",
+    "Optional: build_standalone.py --no-frontend overwrites build_manifest.json with frontend_included=False and a fresh built_at timestamp even though the static bundle (index.html + css/js) is unchanged. This can confuse the launcher's static-bundle-present check on a partial build. Consider preserving the previous frontend_included flag when --no-frontend is used."
+  ],
+  "critical_code_review_comments": [
+    "launcher.py uvicorn.run is called via the import string 'server:app'; sys.path.insert(0, str(BACKEND_DIR)) is set before the call so workers can resolve it. With --reload uvicorn re-execs in a subprocess and re-imports — confirm BACKEND_DIR is on PYTHONPATH for the spawned reloader (likely fine because --reload uses watchfiles, not multiprocess).",
+    "build_standalone.py write_manifest sets frontend_included strictly from the current run, not from the disk state. After python scripts/build_standalone.py --no-frontend the manifest claims frontend_included=False even when index.html + assets are still present. Consider reading the prior manifest and OR-ing.",
+    "scoreboard.py advance handler raises 404 with detail beginning 'match_not_found:' — good, matches the Phase 9 spec. However the same handler still updates bracket_state.last_updated unconditionally on the success path; if there's downstream UI relying on last_updated to sniff activity it will continue to work.",
+    "admin_router._user_resolver default is None; set_current_user_resolver does not validate the callable signature. Acceptable for an internal-only setter, but a one-line check on inspect.iscoroutinefunction would catch a sync stub being passed in.",
+    "packaging/start_bighat.vbs hardcodes INSTALL_ROOT to 'C:\\BIG Hat\\BIGHatStandalone'. Fine as a template but document the find/replace step in packaging/README.md (already done, verified).",
+    "server.py SPA catch-all skip-list (api/, health, docs, openapi.json, redoc) — verify with the test that hitting /api/__definitely_not_an_endpoint__ returns JSON 404 (not the SPA index.html). Confirmed passing here.",
+    "launcher.py --check imports native.config eagerly. If native.config raises, _print_check propagates the exception and the test would see a non-zero exit. Defensive import would be safer, but currently it works."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase9_packaging.py",
+    "/app/backend/tests/test_phase8_admin_native.py"
+  ],
+  "success_rate": {"backend": "100% (29/29 phase 9 + 160/160 regression = 189/189)", "frontend": "n/a (backend-only request)"},
+  "test_credentials": "master@bighat.local / BigHat2024! (loaded from /app/memory/test_credentials.md). Tournament advance test creates TEST_-prefixed tournament, seeds bracket_state via PUT, advances, then DELETEs.",
+  "seed_data_creation": "Phase 9 tests create one ephemeral tournament 'TEST_phase9_tournament' (deleted on module teardown) and seed bracket_state.matches['qf_1']. Launcher boot test runs uvicorn on a non-conflicting port (18102) for ~5 seconds then SIGTERM. build_standalone.py --no-frontend test snapshot/restores build_manifest.json so it doesn't leave residue for downstream test runs. No persistent seed data created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 9 suite at /app/backend/tests/test_phase9_packaging.py is 29 tests covering launcher --check + --no-browser boot on port 18102 + port-busy fail-fast, SPA static bundle mount (root + deep-link + /api passthrough + unknown /api 404), static asset serving (/static/css/main.febade67.css, /static/js/main.581c924e.js), build_manifest.json schema, build_standalone.py --help / --no-frontend semantics (snapshot/restore manifest), Phase 8 carry-overs (advance match_not_found + admin_router setter+_default_resolver+_user_resolver), VBS+README packaging artifacts, and the 9 regression endpoints. Phase 8 test_advance_real_tournament_200 was UPDATED to seed bracket_state via PUT before /advance — the previous version silently relied on the old no-op behavior. All 189 tests green. If the next agent sees frontend_included=false in /app/backend/static/build_manifest.json, that's residue from a prior --no-frontend run; just re-run scripts/build_standalone.py to restore. Master credentials still in /app/memory/test_credentials.md and stable.",
+  "rca of the issue": "Initial run had 2 failures: (1) test_advance_real_tournament_200 (Phase 8 file) — POST /api/scoreboard/tournaments returns a tournament with empty bracket_state.matches{}; the previous Phase 8 /advance handler silently accepted unknown match_ids and updated bracket_state.last_updated, which the test asserted on. The Phase 9 contract change (404 'match_not_found:') correctly rejects this, exposing the latent bug. Fix: seed bracket_state via PUT /tournaments/{id} before calling /advance — applied in both the new Phase 9 test and the existing Phase 8 test. (2) test_manifest_present_and_well_formed asserted frontend_included is True; this was true on initial repo state but flipped to False after the build_standalone.py --no-frontend test ran. Fix: the orchestrator test now snapshots/restores build_manifest.json so it leaves the disk state unchanged, and the build orchestrator's --no-frontend flag was independently verified to preserve index.html bytes verbatim while only updating the manifest's metadata."
+}

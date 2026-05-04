@@ -1933,3 +1933,42 @@ except Exception as e:
 @app.get("/health")
 async def root_health():
     return {"status": "healthy"}
+
+
+# ===== Phase 9: SPA static bundle =====
+# When `python scripts/build_standalone.py` has run, backend/static/ exists
+# and contains the React build output. We serve it from the same process so
+# end users only need one URL (http://127.0.0.1:8001/). If the bundle is
+# absent (dev mode), this block is a no-op and the React dev server at
+# :3000 keeps working as before.
+try:
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+    from starlette.requests import Request as _StaticRequest
+
+    _STATIC_DIR = Path(__file__).parent / "static"
+    _INDEX_HTML = _STATIC_DIR / "index.html"
+    if _INDEX_HTML.is_file():
+        # Serve assets (JS/CSS/images) under /static-assets/.
+        if (_STATIC_DIR / "static").is_dir():
+            app.mount(
+                "/static",
+                StaticFiles(directory=str(_STATIC_DIR / "static")),
+                name="spa-static",
+            )
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def _spa_fallback(full_path: str, request: _StaticRequest):
+            # Never shadow API routes
+            if full_path.startswith("api/") or full_path in ("health", "docs", "openapi.json", "redoc"):
+                raise HTTPException(status_code=404, detail="not_found")
+            candidate = _STATIC_DIR / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(_INDEX_HTML)
+
+        logger.info(f"SPA static bundle served from {_STATIC_DIR}")
+    else:
+        logger.info(f"SPA static bundle not present at {_STATIC_DIR} (dev mode)")
+except Exception as e:
+    logger.warning(f"Could not mount SPA static bundle: {e}")

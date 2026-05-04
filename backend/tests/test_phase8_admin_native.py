@@ -385,9 +385,30 @@ class TestTournamentAdvance:
         assert r.status_code == 200, r.text
         t = r.json()
         tid = t["id"]
-        # Find a match id from bracket_state
+        # Tournament create does NOT auto-generate matches; seed bracket_state
+        # via PUT so /advance has a known match_id (Phase 9 contract: unknown
+        # match_id now returns 404 'match_not_found:' instead of silently no-oping).
         matches = (t.get("bracket_state") or {}).get("matches", {})
-        match_id = next(iter(matches.keys()), "qf1")
+        if not matches:
+            seed_match_id = "qf1"
+            seed = {
+                "matches": {
+                    seed_match_id: {
+                        "round": 1,
+                        "team_a": {"seed": 1, "name": "A"},
+                        "team_b": {"seed": 2, "name": "B"},
+                        "completed": False,
+                    }
+                }
+            }
+            put = api.put(
+                f"{BASE_URL}/api/scoreboard/tournaments/{tid}",
+                json={"bracket_state": seed},
+            )
+            assert put.status_code == 200, put.text
+            match_id = seed_match_id
+        else:
+            match_id = next(iter(matches.keys()))
 
         adv = api.post(
             f"{BASE_URL}/api/scoreboard/tournaments/{tid}/advance",

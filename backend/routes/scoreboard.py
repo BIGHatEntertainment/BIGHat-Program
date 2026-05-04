@@ -982,11 +982,15 @@ async def advance_tournament(tournament_id: str, body: TournamentAdvance):
 
     # Update the match result
     matches = bracket_state.get("matches", {})
-    if match_id in matches:
-        matches[match_id]["winner_seed"] = winner_seed
-        matches[match_id]["score_a"] = score_a
-        matches[match_id]["score_b"] = score_b
-        matches[match_id]["completed"] = True
+    if match_id not in matches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"match_not_found: '{match_id}' is not in bracket_state.matches",
+        )
+    matches[match_id]["winner_seed"] = winner_seed
+    matches[match_id]["score_a"] = score_a
+    matches[match_id]["score_b"] = score_b
+    matches[match_id]["completed"] = True
 
     bracket_state["matches"] = matches
     bracket_state["last_updated"] = datetime.now(timezone.utc).isoformat()

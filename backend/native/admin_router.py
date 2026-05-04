@@ -46,28 +46,45 @@ router = APIRouter(prefix="/native/admin", tags=["native-admin"])
 # DB injected by server.py after the native swap
 _db = None
 
+# Pluggable current-user resolver so tests (and any future non-server.py
+# integration) can swap auth without the runtime-import coupling to server.
+# Default resolver defers to `server.get_current_user` at request time,
+# matching the existing behaviour.
+_user_resolver = None
+
 
 def set_database(database) -> None:
     global _db
     _db = database
 
 
+def set_current_user_resolver(resolver) -> None:
+    """Inject an async callable `(request) -> user_dict` used by the
+    master-admin guard. Pass `None` to reset to the default resolver.
+    """
+    global _user_resolver
+    _user_resolver = resolver
+
+
+async def _default_resolver(request: Request) -> Dict[str, Any]:
+    try:
+        from server import get_current_user  # type: ignore
+    except ImportError as e:
+        logger.error(f"[NATIVE-ADMIN] get_current_user not importable: {e}")
+        raise HTTPException(status_code=500, detail="auth_unavailable")
+    return await get_current_user(request)
+
+
 # ----- Auth dependency -----
 async def _require_master_admin(request: Request) -> Dict[str, Any]:
     """Only master_admin may call /api/native/admin/*.
 
-    We defer to the existing `get_current_user` helper in server.py so
-    token rotation, expiry, and cookie-vs-Bearer handling all match
-    the rest of the webapp.
+    Uses the injected resolver when present, otherwise defers to
+    `server.get_current_user` for token rotation, expiry, and cookie-vs-
+    Bearer handling consistent with the rest of the webapp.
     """
-    try:
-        # Local import to avoid a circular at module load time.
-        from server import get_current_user
-    except ImportError as e:
-        # Shouldn't happen in a live app; surface it clearly.
-        logger.error(f"[NATIVE-ADMIN] get_current_user not importable: {e}")
-        raise HTTPException(status_code=500, detail="auth_unavailable")
-    user = await get_current_user(request)
+    resolver = _user_resolver or _default_resolver
+    user = await resolver(request)
     if user.get("role") != "master_admin":
         raise HTTPException(status_code=403, detail="master_admin_required")
     return user
