@@ -1,0 +1,11 @@
+{
+  "event": "Demo Pub Trivia 2026-05-01",
+  "date": "2026-05-01",
+  "host": "Demo Host",
+  "teams": [
+    {"name": "The Quizzards",     "rounds": [10, 9, 8, 10, 18], "total": 55},
+    {"name": "Couch Potatoes",    "rounds": [8, 10, 9, 9, 14],  "total": 50},
+    {"name": "Brainstorm",        "rounds": [7, 9, 7, 8, 16],   "total": 47},
+    {"name": "Trivial Pursuers",  "rounds": [9, 8, 7, 7, 12],   "total": 43}
+  ]
+}

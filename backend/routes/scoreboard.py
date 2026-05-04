@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Body, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Body, UploadFile, File, Depends
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -23,6 +23,43 @@ db = None
 def set_database(database):
     global db
     db = database
+
+
+# Native-mode premium gate for FFmpeg-heavy export endpoints.
+# Reuses the same `story_generator_enabled` feature flag so "rich media
+# generation" (story videos + scoreboard videos) is a single user-visible
+# premium line item. No-op in webapp mode.
+try:
+    from native.feature_gate import require_native_premium as _rnp
+    _video_gate = [Depends(_rnp("story_generator_enabled"))]
+    _cloud_sync_gate = [Depends(_rnp("cloud_sync_enabled"))]
+except ImportError as _e:
+    logging.getLogger(__name__).error(
+        f"[SCOREBOARD-GATE] native.feature_gate unavailable — premium gates DISABLED: {_e}"
+    )
+    _video_gate = []
+    _cloud_sync_gate = []
+
+
+def _is_local_mode() -> bool:
+    """True when the scoreboard should read scores from disk instead of SharePoint."""
+    try:
+        from native.asset_factory import can_use_cloud
+        return not can_use_cloud()
+    except Exception:
+        return False
+
+
+def _local_scores_root() -> Path:
+    """`<assets>/01_Scores/` — folder of per-venue subfolders of `.json` score files."""
+    try:
+        from native.config import config_manager
+        assets = config_manager.config.get("paths", {}).get("assets")
+        if assets:
+            return Path(assets) / "01_Scores"
+    except Exception:
+        pass
+    return ROOT_DIR.parent / "native" / "data" / "assets" / "01_Scores"
 
 # Create the main app
 
@@ -85,6 +122,72 @@ async def root():
     return {"message": "BIG Hat Trivia Scoreboard API", "status": "active"}
 
 
+@router.get("/status")
+async def scoreboard_status() -> Dict[str, Any]:
+    """Expose mode + subscription + local-score counts so the frontend can
+    decide whether to show the upgrade banner, the cloud-sync button, or
+    the local scores list.
+    """
+    native_mode = os.environ.get("BIGHAT_NATIVE_MODE", "0") in ("1", "true", "True", "yes")
+    sub: Dict[str, Any] = {"active": False, "tier": "free"}
+    try:
+        from native.subscription import get_subscription
+        sub = get_subscription()
+    except Exception:
+        pass
+
+    import shutil
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+
+    # Count local files when in native+local mode so the UI knows whether
+    # the user has any offline data to render.
+    local_root = _local_scores_root()
+    local_venues = 0
+    local_files = 0
+    if _is_local_mode() and local_root.exists():
+        for venue_dir in local_root.iterdir():
+            if venue_dir.is_dir():
+                local_venues += 1
+                local_files += sum(
+                    1 for f in venue_dir.iterdir()
+                    if f.is_file() and f.name.lower().endswith(".json")
+                )
+
+    try:
+        tournaments = await db.tournaments.count_documents({})
+        presets = await db.presets.count_documents({})
+        synced_files = await db.score_files.count_documents({})
+    except Exception:
+        tournaments = presets = synced_files = 0
+
+    mode = "cloud" if not native_mode else ("local" if _is_local_mode() else "cloud")
+    video_export_available = (not native_mode) or bool(
+        sub.get("active") and sub.get("story_generator_enabled")
+    )
+    cloud_sync_available = (not native_mode) or bool(
+        sub.get("active") and sub.get("cloud_sync_enabled")
+    )
+
+    return {
+        "mode": mode,
+        "native_mode": native_mode,
+        "subscription": sub,
+        "ffmpeg_ok": ffmpeg_ok,
+        "video_export_available": video_export_available,
+        "cloud_sync_available": cloud_sync_available,
+        "local_scores": {
+            "root": str(local_root),
+            "venues": local_venues,
+            "files": local_files,
+        },
+        "db_counts": {
+            "tournaments": tournaments,
+            "presets": presets,
+            "synced_files": synced_files,
+        },
+    }
+
+
 SP_DRIVE_ID = "b!vFnSKrOPL02dj2-MZU_EHmAti4Py2yROjNNkPjQrBjDvfYp5Cu28QIG93vJSp4xs"
 SP_SCORES_FOLDER_ID = "01Z4PLCYTDUSDUZ2ONIZFYVB54TIOLWSRQ"
 
@@ -103,7 +206,33 @@ async def _get_sp_token():
 
 @router.get("/sharepoint/files")
 async def get_sharepoint_files():
-    """Fetch all score files from SharePoint scores folder via Graph API"""
+    """Fetch all score files from SharePoint scores folder via Graph API.
+
+    Native local mode: scan `<assets>/01_Scores/<venue>/*.json` on disk.
+    Keeps the response shape identical so the frontend doesn't care.
+    """
+    if _is_local_mode():
+        root = _local_scores_root()
+        files = []
+        if root.exists() and root.is_dir():
+            for venue_dir in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+                if not venue_dir.is_dir():
+                    continue
+                for f in sorted(venue_dir.iterdir(), key=lambda p: p.name.lower()):
+                    if f.is_file() and f.name.lower().endswith(".json"):
+                        stat = f.stat()
+                        rel = str(f.relative_to(root)).replace("\\", "/")
+                        files.append({
+                            "file_name": f.name,
+                            "venue": venue_dir.name,
+                            "file_id": rel,
+                            "last_modified": datetime.fromtimestamp(
+                                stat.st_mtime, tz=timezone.utc
+                            ).isoformat(),
+                            "size": stat.st_size,
+                        })
+        return {"files": files, "count": len(files), "source": "local"}
+
     import httpx
     token = await _get_sp_token()
     if not token:
@@ -142,7 +271,46 @@ async def get_sharepoint_files():
 
 @router.post("/sharepoint/sync")
 async def sync_sharepoint_data():
-    """Sync all SharePoint score JSON files into MongoDB"""
+    """Sync all SharePoint score JSON files into the DB.
+
+    Native local mode: sync local `<assets>/01_Scores/<venue>/*.json` files
+    into `db.score_files`. This gives the frontend one consistent API: the
+    scoreboard reads `db.score_files` regardless of asset source.
+    """
+    if _is_local_mode():
+        root = _local_scores_root()
+        synced = []
+        if root.exists() and root.is_dir():
+            for venue_dir in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+                if not venue_dir.is_dir():
+                    continue
+                venue = venue_dir.name
+                for f in sorted(venue_dir.iterdir(), key=lambda p: p.name.lower()):
+                    if not (f.is_file() and f.name.lower().endswith(".json")):
+                        continue
+                    try:
+                        with open(f, "r", encoding="utf-8") as fh:
+                            data = json.load(fh)
+                    except (json.JSONDecodeError, OSError) as e:
+                        logger.warning(f"Could not parse local score file {f}: {e}")
+                        continue
+                    doc = {
+                        "file_name": f.name,
+                        "venue": venue,
+                        "last_modified": datetime.fromtimestamp(
+                            f.stat().st_mtime, tz=timezone.utc
+                        ).isoformat(),
+                        "synced_at": datetime.now(timezone.utc).isoformat(),
+                        "data": data,
+                    }
+                    await db.score_files.update_one(
+                        {"file_name": f.name},
+                        {"$set": doc},
+                        upsert=True,
+                    )
+                    synced.append(f.name)
+        return {"synced": synced, "count": len(synced), "source": "local"}
+
     import httpx
     token = await _get_sp_token()
     if not token:
@@ -271,7 +439,7 @@ EXPORTS_DIR = ROOT_DIR / "exports"
 EXPORTS_DIR.mkdir(exist_ok=True)
 
 
-@router.post("/exports/upload")
+@router.post("/exports/upload", dependencies=_video_gate)
 async def upload_export(file: UploadFile = File(...)):
     """Upload an exported PNG/WebM file and return a public URL.
     WebM files are converted to MP4. PNG files can also be converted to video."""
@@ -320,7 +488,7 @@ async def upload_export(file: UploadFile = File(...)):
     }
 
 
-@router.post("/exports/image-to-video")
+@router.post("/exports/image-to-video", dependencies=_video_gate)
 async def image_to_video(file: UploadFile = File(...), duration: int = 15):
     """Convert a PNG screenshot to a smooth 20fps MP4 video."""
     import subprocess
@@ -419,7 +587,7 @@ class ScoreboardVideoRequest(BaseModel):
     aspectRatio: str = "landscape"  # "landscape" or "portrait"
     duration: int = 15
 
-@router.post("/generate-video")
+@router.post("/generate-video", dependencies=_video_gate)
 async def generate_scoreboard_video(req: ScoreboardVideoRequest):
     """
     Generate a scoreboard MP4 video entirely server-side.
@@ -782,9 +950,29 @@ async def advance_tournament(tournament_id: str, body: Dict[str, Any] = Body(...
     return updated
 
 
-@router.get("/sharepoint/file/{file_id}")
+@router.get("/sharepoint/file/{file_id:path}")
 async def get_score_file_content(file_id: str):
-    """Download and return the JSON content of a specific score file from SharePoint."""
+    """Download and return the JSON content of a specific score file.
+
+    Native local mode: `file_id` is the relative path under the local
+    scores root (e.g. `Demo Pub/2026-05-01.json`). Cloud mode: Graph itemId.
+    """
+    if _is_local_mode():
+        src = (_local_scores_root() / file_id).resolve()
+        root = _local_scores_root().resolve()
+        # Path-traversal guard
+        try:
+            src.relative_to(root)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid path")
+        if not src.exists() or not src.is_file():
+            raise HTTPException(status_code=404, detail="Score file not found")
+        try:
+            with open(src, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (json.JSONDecodeError, OSError) as e:
+            raise HTTPException(status_code=500, detail=f"Invalid JSON: {e}")
+
     import httpx
     token = await _get_sp_token()
     if not token:

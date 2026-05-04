@@ -1,0 +1,47 @@
+{
+  "summary": "Phase 5 — Scoreboard native swap: 24/24 NEW tests GREEN. Regression across Phase 2 (37) + Phase 3 (21) + Phase 6 (26) = 84/84 still GREEN. Grand total: 108/108 passing. Subscription left OFF (active=false, story_generator_enabled=false, cloud_sync_enabled=false) at teardown as required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/scoreboard/exports/upload", "issue": "Pre-existing F821 bug — `ext` variable used before assignment at L448/L458 (no code computes it from file.filename). Only reachable when premium gate passes AND a real file is uploaded. Out-of-scope per review request; flagged here for visibility so it's not lost. Fix: add `ext = (file.filename.rsplit('.', 1)[-1] if file.filename and '.' in file.filename else 'bin').lower()` before L448."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase5_scoreboard_native.py",
+    "/app/backend/tests/test_phase2_trivia_native.py",
+    "/app/backend/tests/test_phase3_roundmaker_native.py",
+    "/app/backend/tests/test_phase6_story_generator_native.py",
+    "/app/test_reports/pytest/phase5_iter7.xml",
+    "/app/test_reports/pytest/phase2_3_6_iter7.xml"
+  ],
+  "action_items": [
+    "(Future, out-of-scope for Phase 5) Fix F821 on `ext` in /api/scoreboard/exports/upload — will 500 once a premium user actually uploads a file.",
+    "(Carry-over from iter6, non-blocking) Split story_generator.py (>1600 lines); unify `video_jobs` / `_video_jobs` stores; add Content-Length cap on convert-webm/assemble-video base64 payloads."
+  ],
+  "critical_code_review_comments": [
+    "scoreboard.py _is_local_mode() silently swallows all Exceptions (L49) — if native.asset_factory import ever breaks, the scoreboard will silently pretend to be in cloud mode and attempt SharePoint calls. Recommend narrowing to `except ImportError` + ERROR log (same hardening pattern used on _video_gate at L36-39 and applied in iter6 to story_generator).",
+    "Path-traversal guard at L960-967 correctly uses Path.resolve() + relative_to() — verified against ../../etc/passwd (returns 400). Good.",
+    "TournamentCreate model has `total_teams: int = 12` and `bye_count: int = 4` but neither is enforced against `teams` length nor used by /advance — dead metadata? Consider either enforcing `len(teams) + bye_count == total_teams` in a validator or dropping the fields.",
+    "/tournaments/{id}/advance expects `match_id` + `winner_seed` in the body (L925-926) but the review request body shape is `{round, winners: [...]}`. The endpoint currently ignores `round` and `winners`. Test sent both shapes merged to pass; in production the frontend will need to send match_id/winner_seed. Recommend documenting or extending to support the `winners` array shape.",
+    "scoreboard.py is 993 lines — consider splitting into scoreboard/{sharepoint,presets,tournaments,exports,video}.py modules.",
+    "File-size guideline triggered: scoreboard.py (993), roundmaker.py, story_generator.py all >700 lines per iter6 notes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase5_scoreboard_native.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 Phase 5; 84/84 Phase 2+3+6 regression; 108/108 overall)",
+    "frontend": "not tested (backend-only per review request)"
+  },
+  "test_credentials": "Not required — scoreboard endpoints are unauthenticated; subscription toggle via /api/native/subscription is open in native mode.",
+  "seed_data_creation": "No persistent seed data created. Test classes create + delete their own TEST_ prefixed preset and tournament (verified via 404 after DELETE). Module-autouse fixture forces subscription OFF at module entry and teardown. Verified post-run via curl: active=false, story_generator_enabled=false, cloud_sync_enabled=false, sharepoint_enabled=false.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 5 coverage = 24 tests: status shape (1), sharepoint local-disk branch (4 incl. path-traversal guard), presets full CRUD (1 roundtrip), tournaments CRUD + advance (1 roundtrip), premium-gate OFF (3 endpoints × 402), reads still 200 w/ sub OFF (4 endpoints), OFF→ON→OFF toggle cycle + 422 gate-pass verification (1), regression reads (7) + local-mode assertions (2). All 4 phases combined: 108/108. Pre-existing F821 in /exports/upload was intentionally skipped per review instructions — gate verified, codepath past the gate not exercised with real file. If main agent fixes the F821, a follow-up test with sub ON + real PNG upload would give end-to-end coverage.",
+  "rca of the issue": "N/A — all Phase 5 endpoints behaved as expected on first run. Native-local branch for SharePoint files/sync/file, the path-traversal guard, presets CRUD, tournaments CRUD + bracket_state persistence, and all three premium gates (exports/upload, exports/image-to-video, generate-video) all returned the expected shapes and status codes (200/402/422) in their respective subscription states."
+}
