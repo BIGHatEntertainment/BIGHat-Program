@@ -3,6 +3,72 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 7 (SharePoint Hybrid Sync) ✅ — backend testing agent verified 22/22 + 108/108 regression = **130/130**
+
+### What shipped
+Premium-gated bidirectional sync between the local asset tree
+(`/app/backend/native/data/assets/`) and SharePoint. The core engine is
+implementation-agnostic: it syncs between any object that implements the
+small asset-service surface (`list_folder_contents`, `download_file_to_bytes`,
+`upload_content`) and a local folder. In production that's the real
+`SharePointService`; in dev/test an env-var fixture lets us substitute a
+second `LocalAssetService` pointed at a simulated cloud folder.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/native/sync_service.py` | `SyncService` orchestrator + `RemoteFile`/`LocalFile`/`SyncPlan` dataclasses. Implements remote/local walks (depth-capped), size-based diff, pull/push apply loops with path-traversal guard, and `record_sync_run`/`get_sync_state` for MontyDB persistence. |
+| `backend/native/sync_router.py` | `/api/native/sync/{status,plan,pull,push}` FastAPI router. `/plan /pull /push` carry `Depends(require_native_premium("cloud_sync_enabled"))`. `/status` is intentionally free so the UI can always show "upgrade to unlock". `_remote_service()` honours `BIGHAT_SYNC_REMOTE_FIXTURE` for dev — production uses `asset_factory.get_asset_service()`. |
+| `backend/tests/test_phase7_sync_native.py` | 22 pytest cases covering gate toggles, full pull/push round-trip, convergence, delete_missing, state persistence, and path-traversal safety. Seeds unique files per run and cleans TEST_* artefacts. |
+
+### Modified files
+- `backend/server.py`: registers `sync_router` after the native router.
+  Wires `sync_set_database(db)` so `record_sync_run` / `get_sync_state`
+  write the MontyDB `sync_state` collection.
+- `backend/.env`: `BIGHAT_SYNC_REMOTE_FIXTURE=/app/backend/native/data/cloud_fixture`
+  so the dev container runs real sync against a deterministic local mirror.
+
+### New on-disk seed (dev container only)
+`/app/backend/native/data/cloud_fixture/01_Trivia/Web App/00_Builder/` —
+parallel mirror tree with intentional drift vs the live assets folder:
+`01_Hosts/Cloud_Host_1.pptx`, `03_Sponsors/Sponsors_Extra.pptx`,
+`01_Rounds/01_MC/MC_NewTopic.pptx`, and a size-differing
+`01_Rounds/01_MC/MC_Music.pptx` to exercise to_add / to_update paths.
+
+### Verified end-to-end (testing agent, 22/22 Phase 7)
+- `GET /status` returns 200 with the expected shape regardless of
+  subscription state. `available` is true iff
+  `subscription.active && subscription.cloud_sync_enabled`.
+- Subscription OFF → `/plan`, `/pull`, `/push` all return **402** with
+  `detail.error='premium_required'` and
+  `detail.feature='cloud_sync_enabled'`.
+- Subscription ON + fixture → full bidirectional round-trip converges
+  (plan returns 0 changes in either direction afterwards). `added` /
+  `updated` counts match file contents on both sides.
+- `db.sync_state` collection stores `last_pull` and `last_push` summaries
+  (kind, finished_at, added, updated, deleted, errors, unchanged) that
+  surface under `/status`.
+- `delete_missing:true` correctly surfaces `to_delete` entries. Deletes
+  are only applied on `push` when the remote service exposes
+  `delete_path` (safety default — SharePointService + LocalAssetService
+  both do in practice; this just shields against missing methods).
+- Path traversal (`sync_root='../../etc'`): walks return empty / clean
+  500; no files outside `local_root` leaked.
+- Subscription OFF after ON → gate re-engages immediately, no restart.
+
+### Reviewer-flagged observations (documented, non-blocking)
+- Size-only diff (not hash-based) is the deliberate trade-off — hashing
+  every PPTX on every plan is wasteful and mtime across SharePoint vs
+  local disk is TZ-skewed in the real world. A hash-mode override can
+  be added if users end up editing pptx files in-place at byte-identical
+  sizes (unlikely — python-pptx re-zips = size always changes).
+- `subscription.set_subscription` auto-enables all feature flags when
+  `active=True && tier='premium'`. Intentional for "one premium SKU = all
+  cloud features" UX; document in PRD once the pricing page exists.
+
+---
+
+
 ## 2026-02 — Phase 5 (Scoreboard: Leaderboards + Tournament Brackets) ✅ — backend testing agent verified 24/24 + 84/84 regression = **108/108**
 
 ### What shipped

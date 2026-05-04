@@ -73,6 +73,16 @@
 ### Phase 5 (Scoreboard) — DONE when:
 - [x] Presets + Tournaments CRUD on SQLite (MontyDB)
 - [x] SharePoint score-sync endpoints read from `<assets>/01_Scores/<venue>/*.json` in native mode
+
+### Phase 5 (Scoreboard) — DONE:
+- [x] Presets + Tournaments CRUD on SQLite
+- [x] SharePoint score-sync reads from `<assets>/01_Scores/<venue>/*.json`
+- [x] `/sharepoint/file/{file_id:path}` serves JSON with path-traversal guard
+- [x] `/exports/*` + `/generate-video` premium-gated
+- [x] `/api/scoreboard/status`
+- [x] F821 on `/exports/upload.ext` fixed
+- [ ] Frontend upgrade banner
+
 - [x] `/sharepoint/file/{file_id:path}` serves JSON with path-traversal guard
 - [x] `/exports/upload`, `/exports/image-to-video`, `/generate-video` premium-gated
 - [x] `/api/scoreboard/status` exposes mode + subscription + local counts

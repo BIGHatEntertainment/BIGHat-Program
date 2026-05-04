@@ -67,15 +67,19 @@ features behind an active subscription.
 - **2026-02** — Phase 5 (Scoreboard: Leaderboards + Tournament Brackets):
   local disk score sync, SQLite presets + tournaments, video-export
   premium gate, `/api/scoreboard/status`, path-traversal guard, F821 fix
-  on `/exports/upload`. Testing agent: **24/24 + 84/84 regression = 108/108**.
+  on `/exports/upload`. Testing agent: 24/24 + 84/84 regression = 108/108.
+- **2026-02** — Phase 7 (SharePoint Hybrid Sync): `SyncService` engine,
+  `/api/native/sync/{status,plan,pull,push}`, premium-gated by
+  `cloud_sync_enabled`, MontyDB `sync_state` persistence, dev fixture via
+  `BIGHAT_SYNC_REMOTE_FIXTURE`. Testing agent: **22/22 + 108/108 regression
+  = 130/130**.
 
 ## Roadmap (P0/P1/P2 features remaining)
-- **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game engine)
-- **P2 — Phase 7: SharePoint Hybrid Sync** (premium-gated pull/push —
-  `_cloud_sync_gate` is already wired in scoreboard.py, ready to reuse
-  across trivia/schedule/rounds)
+- **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game engine — the last P1)
 - **P2 — Phase 8: Admin** (user mgmt, license seats, sub-admin promotion,
-  plus the hardening notes accumulated over Phases 2-6)
+  plus the accumulated reviewer notes: split big route files, validate
+  `TournamentCreate.total_teams`, document `/advance` body shape, optional
+  hash-based sync diff)
 - **P3 — Phase 9: Packaging** (VBS installers, native launcher, build script)
 
 ## Test credentials
