@@ -31,7 +31,10 @@ from story_generator_service import get_story_service
 try:
     from native.feature_gate import require_native_premium as _rnp
     _story_gate = [Depends(_rnp("story_generator_enabled"))]
-except Exception:  # pragma: no cover — native module unavailable
+except ImportError as _e:
+    # Only catch the import failure; any other error should surface.
+    logger = logging.getLogger(__name__)
+    logger.error(f"[STORY-GATE] native.feature_gate unavailable — premium gate DISABLED: {_e}")
     _story_gate = []
 
 router = APIRouter(prefix="/story-generator", tags=["story-generator"])
@@ -1514,7 +1517,7 @@ class GenerateEventVideoRequest(BaseModel):
     host_is_gif: bool = True
 
 
-@router.post("/generate-event-video")
+@router.post("/generate-event-video", dependencies=_story_gate)
 async def generate_event_video(request: GenerateEventVideoRequest, background_tasks: BackgroundTasks) -> Dict:
     """
     Start background job to generate a 20s event story video.

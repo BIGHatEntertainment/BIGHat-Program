@@ -1,0 +1,36 @@
+{
+  "summary": "Phase 6 re-test after one-line fix. All 26 Phase 6 premium-gate tests GREEN (was 25/26 in iter5). Phase 2 (37) + Phase 3 (21) regression suites remain 58/58 GREEN. Grand total: 84/84 passing. Subscription left OFF (active=false, story_generator_enabled=false) at teardown as required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase6_story_generator_native.py",
+    "/app/backend/tests/test_phase2_trivia_native.py",
+    "/app/backend/tests/test_phase3_roundmaker_native.py",
+    "/app/test_reports/pytest/phase6_iter6.xml",
+    "/app/test_reports/pytest/phase2_3_iter6.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix verified at /app/backend/routes/story_generator.py line 1520: `@router.post(\"/generate-event-video\", dependencies=_story_gate)` — premium gate now applied. Endpoint correctly returns 402 with detail.error='premium_required' and detail.feature='story_generator_enabled' when subscription is OFF.",
+    "Gate import hardening at L31-38 verified: bare `except Exception` replaced with `except ImportError as _e` + ERROR-level log. Any non-import error will now surface instead of silently disabling the gate.",
+    "Carry-over (non-blocking, not re-tested this iteration): story_generator.py is still >1600 lines — split recommended; dual job stores `video_jobs` / `_video_jobs` still coexist; `convert-webm` / `assemble-video` still accept unbounded base64 payloads — add Content-Length cap."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (26/26 Phase 6; 58/58 Phase 2+3 regression; 84/84 overall)",
+    "frontend": "not tested (backend-only re-test)"
+  },
+  "test_credentials": "Not required — all gated endpoints are unauthenticated; subscription toggle via /api/native/subscription is also open in native mode.",
+  "seed_data_creation": "None persistent. Module-scope autouse fixture `_teardown_subscription` toggles subscription OFF at module start and OFF again at teardown. Post-run curl confirmed active=false, story_generator_enabled=false, sharepoint_enabled=false, cloud_sync_enabled=false.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 3 native-mode pytest suites are GREEN at 84/84: test_phase2_trivia_native.py (37), test_phase3_roundmaker_native.py (21), test_phase6_story_generator_native.py (26). Phase 6 exercises 8 mutating endpoints for 402-gate (generate, preview, assemble-video, convert-webm, generate-event-video, event-preview, upload-asset, delete asset), 3 read endpoints that must never 402, and a full OFF→ON→OFF toggle cycle. Subscription teardown is guaranteed via module autouse fixture. Results: /app/test_reports/pytest/phase6_iter6.xml and /app/test_reports/pytest/phase2_3_iter6.xml. No further action needed from main agent on the gate bug — it is fixed and verified.",
+  "rca of the issue": "Original bug (iter5): POST /api/story-generator/generate-event-video was missing `dependencies=_story_gate` on its decorator, so the premium check was skipped and the endpoint returned 200 even with subscription OFF. Fix (iter6, verified): main agent added `dependencies=_story_gate` to /app/backend/routes/story_generator.py line 1520, matching the pattern of the sibling /event-preview endpoint. Hot-reload picked up the change; test_mutating_returns_402[POST-/api/story-generator/generate-event-video-body4] now PASSES, and test_gate_on counterparts (non-402 when subscription ON) also pass. Additionally the fallback try/except at L31-38 was tightened to `except ImportError` with ERROR log, preventing silent gate-disable on unrelated failures."
+}
