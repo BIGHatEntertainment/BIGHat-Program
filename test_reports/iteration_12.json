@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 12 retest of iteration_11 follow-ups — both fixes verified green. (1) routes/bingo.py GameStateCreate now uses ConfigDict(populate_by_name=True, extra='ignore') with Field aliases mode→bingo_type and decade→music_decade plus a pre-validator mapping 'number'→'traditional'; xfail in test_phase4_bingo_native.py::TestNumberGameSpecPayloadOnly now PASSES (no longer xfail). (2) test_phase9_packaging.py::test_no_frontend_preserves_index_html assertion flipped to `is True` and PASSES. Phase 4: 26/26. Phase 9: 29/29. Full regression sweep across phase{2,3,4,5,6,7,8,9}: 215/215 passed in 36.07s, zero fails, zero xfails. Live API checks all green: POST /api/bingo/game/create {mode:'number',game_type:'standard'} → bingo_type='traditional', game_type='standard'; subsequent /game/start + /game/call-number → 200 {success:true, number:2, letter:'B', remaining:74}. {mode:'music',decade:'1970s'} → bingo_type='music', music_decade='1970s'. Canonical {bingo_type:'music',music_decade:'1980s'} still works → bingo_type='music', music_decade='1980s'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase4_bingo_native.py",
+    "/app/backend/tests/test_phase9_packaging.py",
+    "/app/test_reports/pytest/phase4_iter12.xml",
+    "/app/test_reports/pytest/phase9_iter12.xml",
+    "/app/test_reports/pytest/full_regression_iter12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "(carry-over, low-priority, NOT a Phase 4 retest blocker) /game/call-number (routes/bingo.py L718-759) still raises the same 400 'All numbers have been called' both when available_numbers is genuinely exhausted AND when bingo_type is wrong. Now that the alias mapping protects the common path, this is a low-risk diagnostic improvement only.",
+    "(carry-over) /bingo-cards/download/<category>/<decade> (L1114-1141 local branch) does not normalise category casing — passing 'Standard' would 404. The /bingo-cards listing handler lowercases sub.name.lower(); download should mirror.",
+    "(carry-over) _LOCAL_DECADE_FILE_MAP (L162) only handles 2000s/y2k/emo. If user adds 'Bingo List (R&B).xlsx', /songlist/rnb will 404. Mirror the LABEL_TO_DECADE table both directions for parity with /available-decades.",
+    "(carry-over) /status (L1043-1070) reports song_lists_count but not a parse_health metric. Consider adding song_lists_parsable_count so the UI can warn on present-but-unreadable xlsx files."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% — Phase 4 26/26, Phase 9 29/29, full regression 215/215. Zero fails, zero xfails, zero skips.",
+    "frontend": "n/a (backend-only request per review_request.testing_type)"
+  },
+  "test_credentials": "No auth required for /api/bingo/* — Phase 4 endpoints are public. BIGHAT_NATIVE_MODE=1 in /app/backend/.env confirmed.",
+  "seed_data_creation": "No new seed data. Phase 4 seeded fixtures from prior iterations preserved at /app/backend/native/data/assets/03_Bingo/Web App/00_Builder/{02_Cards/{standard/{1970s,1980s}.pdf, senior/1970s.pdf, special/Pop Punk & Emo.pdf}, 03_Songs/Bingo List (1970s).xlsx, Bingo List (1980s).xlsx}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration_11 follow-ups fully resolved — TestNumberGameSpecPayloadOnly is now a real PASS (xfail branch in the test body remains as a defensive fallback but never triggers). test_no_frontend_preserves_index_html assertion correctly expects frontend_included is True (preserved) and passes. Live wire payload {mode:'number',game_type:'standard'} → /call-number returns a valid B/I/N/G/O number. Backend GameStateCreate now ships with Pydantic v2 alias support; do not regress to extra='ignore' without populate_by_name. Full regression baseline: 215 tests across 8 phase files.",
+  "rca of the issue": "N/A — no failures in this iteration. Both fixes from iteration_11 action_items are verified working in the live preview backend (https://standalone-tools.preview.emergentagent.com)."
+}

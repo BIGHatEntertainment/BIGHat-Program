@@ -226,9 +226,13 @@ class TestBuildOrchestrator:
             # Manifest must still be valid JSON afterwards
             new_manifest = json.loads(manifest_path.read_text())
             assert new_manifest.get("frontend_included") in (True, False)
-            # When --no-frontend is used, frontend_included should reflect that
-            # this run didn't rebuild the frontend.
-            assert new_manifest.get("frontend_included") is False, new_manifest
+            # `--no-frontend` must NOT lie about a present bundle. When
+            # backend/static/index.html exists at run time the orchestrator
+            # preserves the prior `frontend_included=True` flag (see
+            # CHANGELOG Phase 9 reviewer follow-up). The launcher's static-
+            # bundle-present check would otherwise flip false on every
+            # incremental backend-only build.
+            assert new_manifest.get("frontend_included") is True, new_manifest
             assert new_manifest.get("file_count", 0) >= 10, new_manifest
         finally:
             # Restore the as-shipped manifest so other tests (and follow-up

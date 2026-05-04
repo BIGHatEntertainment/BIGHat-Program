@@ -6,7 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
@@ -79,12 +79,33 @@ class GameState(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class GameStateCreate(BaseModel):
-    bingo_type: str = "music"  # NEW
+    """Wire shape for POST /api/bingo/game/create.
+
+    Accepts both the canonical field names (`bingo_type`, `music_decade`) and
+    the friendlier aliases (`mode`, `decade`) used by the React app and the
+    Phase 4 spec. `mode='number'` maps to `bingo_type='traditional'` so a
+    typical caller can send {mode:'number', game_type:'standard'} without
+    knowing about the legacy name.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    bingo_type: str = Field(default="music", alias="mode")
     game_type: str = "regular"
     round_type: str = "traditional"
     call_interval: int = 30
-    music_decade: str = "1980s"
+    music_decade: str = Field(default="1980s", alias="decade")
     preset_mode: bool = False
+
+    @field_validator("bingo_type", mode="before")
+    @classmethod
+    def _normalise_bingo_type(cls, v):
+        if v is None:
+            return "music"
+        v = str(v).strip().lower()
+        # 'number' is the friendly name for the legacy 'traditional' bingo_type
+        if v == "number":
+            return "traditional"
+        return v
 
 class SongCall(BaseModel):
     number: int
