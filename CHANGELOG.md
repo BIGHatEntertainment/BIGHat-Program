@@ -3,6 +3,82 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 5 (Scoreboard: Leaderboards + Tournament Brackets) ✅ — backend testing agent verified 24/24 + 84/84 regression = **108/108**
+
+### What shipped
+Scoreboard now runs entirely on SQLite + local disk in native mode. Score
+sync reads JSON files from `<assets>/01_Scores/<venue>/*.json` instead of
+SharePoint. Presets and tournament brackets persist in MontyDB. Video/
+image-to-video export endpoints are premium-gated behind
+`story_generator_enabled`. A new `/api/scoreboard/status` endpoint gives
+the frontend everything it needs to show the right UI state (upgrade
+banner vs real UI vs offline hint).
+
+### Modified files
+- `backend/routes/scoreboard.py`:
+  - Imports `require_native_premium` → builds `_video_gate` (for export
+    endpoints) and `_cloud_sync_gate` (reserved for Phase 7 cloud sync).
+    Tight `except ImportError` with ERROR log.
+  - `_is_local_mode()` + `_local_scores_root()` helpers. ImportError-only
+    guard on the asset-factory import.
+  - `GET /api/scoreboard/status` — new endpoint returning `{mode,
+    native_mode, subscription, ffmpeg_ok, video_export_available,
+    cloud_sync_available, local_scores:{root,venues,files},
+    db_counts:{tournaments,presets,synced_files}}`.
+  - `GET /sharepoint/files`, `POST /sharepoint/sync`, `GET /sharepoint/file/{file_id:path}`
+    now branch on `_is_local_mode()` to read/sync from disk. Response
+    shape unchanged; adds `source:"local"` when applicable. The
+    `file_id:path` converter lets the relative path (`Demo Pub/2026-05-01.json`)
+    survive URL routing. **Path-traversal guard** applied on the content
+    endpoint via `Path.resolve().relative_to(root)`.
+  - `POST /exports/upload`, `POST /exports/image-to-video`,
+    `POST /generate-video` — all carry `dependencies=_video_gate`.
+  - **Pre-existing F821 bug fix**: `/exports/upload` referenced an
+    undefined `ext` variable. Now derived from `file.filename` with a
+    `'bin'` default. The endpoint was 500ing since before Phase 5; this
+    unblocks real PNG/WebM uploads once subscription is active.
+
+### New on-disk seed (dev container only)
+`/app/backend/native/data/assets/01_Scores/Demo Pub/2026-05-01.json` —
+sample event with 4 teams, 5 rounds. Sync + content + leaderboard all tested
+end-to-end against this fixture.
+
+### Verified end-to-end (testing agent, 24/24 Phase 5)
+- `/status` reports expected shape with/without subscription.
+- Local sync round-trip: `POST /sharepoint/sync` → MontyDB upsert →
+  `GET /scores` returns the data payload with the same `teams` array.
+- `GET /sharepoint/file/Demo%20Pub/2026-05-01.json` returns the full JSON
+  (path converter works).
+- Path traversal (`../../etc/passwd`) → 400 (guarded).
+- Presets full CRUD on SQLite (create, read, update, delete, round-trip of
+  `config` blob).
+- Tournaments full CRUD on SQLite + `/{id}/advance` mutates `bracket_state`
+  and persists.
+- Premium gate with sub OFF: `/exports/upload`, `/exports/image-to-video`,
+  `/generate-video` → 402 `premium_required`, `feature=story_generator_enabled`.
+- Read endpoints stay free with sub OFF (scores, tournaments, presets, status).
+- Sub ON → 402 disappears; body-validation 422s take over as expected.
+- 108/108 overall including Phase 2/3/6 regression.
+
+### Reviewer-flagged items applied immediately
+- `_is_local_mode()` now catches only `ImportError` with ERROR log (was
+  bare `Exception` — risked silent fallback to cloud mode).
+- `/exports/upload` F821 fix (`ext` derivation from filename).
+
+### Reviewer-flagged items deferred to Phase 8 hardening
+- `TournamentCreate.total_teams` / `bye_count` dead metadata (neither
+  validates against `teams` length nor used by `/advance`).
+- `/tournaments/{id}/advance` body shape documented as
+  `{match_id, winner_seed}`; frontend may want a batch `{round, winners[]}`
+  variant.
+- `scoreboard.py` is now 1000 lines — split candidate: `scoreboard/{scores,
+  presets, tournaments, exports, video}.py`.
+- Module-level imports of `httpx` / `subprocess` currently live inside
+  endpoint functions for lazy-load reasons; fine for now but could move up.
+
+---
+
+
 ## 2026-02 — Phase 6 (Story Generator Premium Gate) ✅ — backend testing agent verified 26/26 + 58/58 regression = 84/84
 
 ### What shipped

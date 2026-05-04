@@ -46,7 +46,10 @@ def _is_local_mode() -> bool:
     try:
         from native.asset_factory import can_use_cloud
         return not can_use_cloud()
-    except Exception:
+    except ImportError as e:
+        logger.error(
+            f"[SCOREBOARD] native.asset_factory unavailable — falling back to cloud mode: {e}"
+        )
         return False
 
 
@@ -444,7 +447,11 @@ async def upload_export(file: UploadFile = File(...)):
     """Upload an exported PNG/WebM file and return a public URL.
     WebM files are converted to MP4. PNG files can also be converted to video."""
     import subprocess
-    
+
+    # Pre-existing F821 fix: derive `ext` from the uploaded filename (or default to 'bin').
+    ext = (file.filename.rsplit('.', 1)[-1].lower()
+           if file.filename and '.' in file.filename else 'bin')
+
     file_id = f"{uuid.uuid4().hex[:12]}.{ext}"
     file_path = EXPORTS_DIR / file_id
     

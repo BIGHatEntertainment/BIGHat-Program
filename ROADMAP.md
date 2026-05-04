@@ -63,14 +63,23 @@
 - [x] `/reg-next-number/{category}` increments based on local files + DB
 
 ### Phase 6 (Story Generator) — DONE when:
-- [x] Mutating endpoints (generate, preview, assemble-video, convert-webm, event-preview, generate-event-video, upload-asset, delete-asset) 402 when native+no-premium
-- [x] Read endpoints (presentations, assets, job-status) stay free in native+no-premium so UI can show upgrade hint
-- [x] Subscription toggle is effective immediately (no backend restart)
+- [x] Mutating endpoints 402 when native+no-premium
+- [x] Read endpoints stay free
 - [x] `/api/story-generator/status` reports availability + ffmpeg_ok + subscription
-- [x] Gate is per-feature (story_generator_enabled independent of sharepoint_enabled)
-- [ ] UI surfaces upgrade screen when `status.available=false` (frontend work)
+- [x] Gate is per-feature (story_generator_enabled)
+- [ ] UI surfaces upgrade screen when `status.available=false`
 
-### Phase 4-5, 7-9 — see per-phase plans created when reached.
+
+### Phase 5 (Scoreboard) — DONE when:
+- [x] Presets + Tournaments CRUD on SQLite (MontyDB)
+- [x] SharePoint score-sync endpoints read from `<assets>/01_Scores/<venue>/*.json` in native mode
+- [x] `/sharepoint/file/{file_id:path}` serves JSON with path-traversal guard
+- [x] `/exports/upload`, `/exports/image-to-video`, `/generate-video` premium-gated
+- [x] `/api/scoreboard/status` exposes mode + subscription + local counts
+- [x] Pre-existing F821 on `/exports/upload.ext` fixed
+- [ ] Frontend conditionally shows upgrade banner when `status.video_export_available=false`
+
+### Phase 4, 7-9 — see per-phase plans created when reached.
 
 ## Sub-agent strategy
 

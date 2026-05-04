@@ -63,13 +63,19 @@ features behind an active subscription.
   agent: 21/21 + 37/37 regression = 58/58.
 - **2026-02** — Phase 6 (Story Generator Premium Gate): `feature_gate.py`,
   `/api/story-generator/status`, 8 mutating endpoints gated. Testing
-  agent: 26/26 + 58/58 regression = **84/84**.
+  agent: 26/26 + 58/58 regression = 84/84.
+- **2026-02** — Phase 5 (Scoreboard: Leaderboards + Tournament Brackets):
+  local disk score sync, SQLite presets + tournaments, video-export
+  premium gate, `/api/scoreboard/status`, path-traversal guard, F821 fix
+  on `/exports/upload`. Testing agent: **24/24 + 84/84 regression = 108/108**.
 
 ## Roadmap (P0/P1/P2 features remaining)
 - **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game engine)
-- **P1 — Phase 5: Scoreboard** (leaderboard + tournament brackets)
-- **P2 — Phase 7: SharePoint Hybrid Sync** (premium-gated pull/push — feature_gate is now reusable for this)
-- **P2 — Phase 8: Admin** (user mgmt, license seats, sub-admin promotion)
+- **P2 — Phase 7: SharePoint Hybrid Sync** (premium-gated pull/push —
+  `_cloud_sync_gate` is already wired in scoreboard.py, ready to reuse
+  across trivia/schedule/rounds)
+- **P2 — Phase 8: Admin** (user mgmt, license seats, sub-admin promotion,
+  plus the hardening notes accumulated over Phases 2-6)
 - **P3 — Phase 9: Packaging** (VBS installers, native launcher, build script)
 
 ## Test credentials

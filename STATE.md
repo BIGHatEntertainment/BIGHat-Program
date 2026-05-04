@@ -1,22 +1,22 @@
 # Current State
 
-**Active phase:** 6 — Story Generator Premium Gate (✅ complete; 84/84 tests via testing agent)
+**Active phase:** 5 — Scoreboard (✅ complete; **108/108** tests via testing agent)
 
 **Last completed work:**
-- Phase 6 — Story Generator premium gate: 26/26 new tests + 58/58 Phase 2+3
-  regression = **84/84 passed** (`/app/test_reports/iteration_6.json`,
-  `/app/backend/tests/test_phase6_story_generator_native.py`).
-- New `backend/native/feature_gate.py` — `require_native_premium(feature)`
-  dependency, reusable for Phase 7/8.
-- 8 mutating story-generator endpoints now gated; read endpoints stay free;
-  `/api/story-generator/status` exposes `{available, mode, reason,
-  subscription, ffmpeg_ok}` for the UI.
-- Gate import tightened to `except ImportError` with ERROR-level logging.
-- Phase 0/0.5/1/2/3 unchanged (all still verified).
+- Phase 5 — Scoreboard leaderboards + tournament brackets native swap:
+  24/24 new tests + 84/84 Phase 2+3+6 regression = **108/108 passed**
+  (`/app/test_reports/iteration_7.json`,
+  `/app/backend/tests/test_phase5_scoreboard_native.py`).
+- New `/api/scoreboard/status`; SharePoint score-sync branches to disk
+  in native mode; `/exports/*` + `/generate-video` gated by
+  `story_generator_enabled`; path-traversal guard on `/sharepoint/file`;
+  pre-existing F821 in `/exports/upload` fixed.
+- `_cloud_sync_gate` wired in scoreboard.py, ready for Phase 7 reuse.
+- Phase 0/0.5/1/2/3/6 unchanged.
 
 **Next action:** user to choose Phase 4 (Music Bingo), Phase 7 (SharePoint
-Hybrid Sync — unlocks the new `feature_gate.py` machinery), or Phase 8
-(Admin + hardening).
+Hybrid Sync — `_cloud_sync_gate` and `can_use_cloud()` are already wired),
+or Phase 8 (Admin + the accumulated code-review hardening items).
 
 **Then Phase 3 (Round Maker):** swap PPTX-round generator service to use the
 asset factory + MontyDB, and route generated rounds back into the native
