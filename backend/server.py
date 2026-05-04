@@ -1887,6 +1887,16 @@ except Exception as e:
     logger.warning(f"Could not load Native-Standalone router: {e}")
 
 
+# SharePoint Hybrid Sync router (Phase 7). Premium-gated by `cloud_sync_enabled`.
+try:
+    from native.sync_router import router as sync_router, set_database as sync_set_database
+    sync_set_database(db)
+    app.include_router(sync_router, prefix="/api")
+    logger.info("Native sync router registered at /api/native/sync/*")
+except Exception as e:
+    logger.warning(f"Could not load Native sync router: {e}")
+
+
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
 try:
     from routes.bingo import manager as bingo_manager
