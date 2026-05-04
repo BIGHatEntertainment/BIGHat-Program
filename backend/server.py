@@ -10,6 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+from bson.errors import InvalidId
 from contextlib import asynccontextmanager
 import os
 import re
@@ -30,6 +31,19 @@ logger = logging.getLogger("bighat-hub")
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# ===== NATIVE-MODE DB SWITCH (Phase 1) =====
+# When BIGHAT_NATIVE_MODE=1, replace the global `db` with a MontyDB-backed
+# SQLite client that exposes the same async API (find_one, insert_one, etc.).
+# Webapp mode keeps the original motor.AsyncIOMotorClient unchanged.
+try:
+    from native.db_factory import get_db as _get_native_db, is_native as _is_native_mode
+    if _is_native_mode():
+        db = _get_native_db()
+        logger.info("[NATIVE-MODE] Using MontyDB SQLite backend instead of MongoDB")
+except Exception as _e:
+    logger.warning(f"[NATIVE-MODE] db_factory unavailable, sticking with MongoDB: {_e}")
+# ===== END NATIVE-MODE DB SWITCH =====
 
 # JWT config
 JWT_ALGORITHM = "HS256"
@@ -64,7 +78,25 @@ async def get_current_user(request: Request) -> dict:
         payload = pyjwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        sub = payload["sub"]
+        # Try ObjectId lookup first (Mongo path), fall back to string lookup
+        # (native MontyDB path \u2014 doesn't support ObjectId equality matching).
+        user = None
+        try:
+            user = await db.users.find_one({"_id": ObjectId(sub)})
+        except (InvalidId, TypeError, Exception) as _e:  # noqa: BLE001
+            user = None
+        if not user:
+            # Native path: try string _id and email-based lookup
+            try:
+                user = await db.users.find_one({"_id": sub})
+            except Exception:  # noqa: BLE001
+                user = None
+        if not user and payload.get("email"):
+            try:
+                user = await db.users.find_one({"email": payload["email"]})
+            except Exception:  # noqa: BLE001
+                user = None
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         user["_id"] = str(user["_id"])
@@ -616,7 +648,80 @@ async def login(request: Request, response: Response, body: LoginRequest):
                 raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
             else:
                 await db.login_attempts.delete_one({"identifier": identifier})
-        
+
+        # ===== NATIVE-MODE AUTH BRIDGE (Phase 0.5) =====
+        # If the email matches a user created by the Setup Wizard
+        # (system_config.json -> users[]), authenticate via bcrypt against the
+        # native config and mirror the user into db.users so the rest of the
+        # app (auth/me, JWT cookies, role checks) keeps working unchanged.
+        try:
+            from native import config_manager  # local import to avoid circulars
+            cfg_users = config_manager.config.get("users", []) or []
+            native_user = next(
+                (u for u in cfg_users if (u.get("email", "") or "").lower().strip() == email),
+                None,
+            )
+        except Exception:
+            native_user = None
+        if native_user and native_user.get("password_hash"):
+            try:
+                pwd_ok = bcrypt.checkpw(
+                    body.password.encode("utf-8"),
+                    native_user["password_hash"].encode("utf-8"),
+                )
+            except Exception:
+                pwd_ok = False
+            if not pwd_ok:
+                await db.login_attempts.update_one(
+                    {"identifier": identifier},
+                    {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}},
+                    upsert=True,
+                )
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+            # Mirror into Mongo (idempotent)
+            mongo_user = await db.users.find_one({"email": email})
+            display_name = native_user.get("display_name") or f"{native_user.get('first_name','')} {native_user.get('last_name','')}".strip()
+            role = native_user.get("role", "master_admin")
+            if mongo_user:
+                await db.users.update_one(
+                    {"_id": mongo_user["_id"]},
+                    {"$set": {
+                        "name": display_name,
+                        "role": role,
+                        "password_hash": hash_password(body.password),
+                        "auth_method": "native",
+                        "native_user_id": native_user.get("id"),
+                    }},
+                )
+                user_id = str(mongo_user["_id"])
+            else:
+                # Native mode: use string UUID as _id so MontyDB query engine
+                # never has to compare ObjectId values (it can't).
+                from native.db_factory import is_native as _is_native
+                new_id = str(uuid.uuid4()) if _is_native() else None
+                doc = {
+                    "email": email,
+                    "password_hash": hash_password(body.password),
+                    "name": display_name,
+                    "role": role,
+                    "auth_method": "native",
+                    "native_user_id": native_user.get("id"),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+                if new_id:
+                    doc["_id"] = new_id
+                result = await db.users.insert_one(doc)
+                user_id = new_id if new_id else str(result.inserted_id)
+
+            await db.login_attempts.delete_many({"identifier": identifier})
+            access_token = create_access_token(user_id, email, role)
+            refresh_token = create_refresh_token(user_id)
+            response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
+            response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+            logger.info(f"[Auth] Native bridge login: {email} -> {role}")
+            return {"id": user_id, "email": email, "name": display_name, "role": role, "token": access_token}
+        # ===== END NATIVE-MODE AUTH BRIDGE =====
+
         # Step 1: Look up employee in the Personnel Index (source of truth)
         employee = await db.employees.find_one(
             {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}},

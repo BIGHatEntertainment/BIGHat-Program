@@ -25,8 +25,18 @@ load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+# Native-mode swap: when BIGHAT_NATIVE_MODE=1, use SQLite-backed MontyDB
+try:
+    from native.db_factory import get_db as _get_native_db, is_native as _is_native_mode
+    if _is_native_mode():
+        db = _get_native_db()
+        logger.info("[NATIVE-MODE] schedule_routes using MontyDB SQLite backend")
+except Exception as _e:
+    logger.warning(f"[NATIVE-MODE] schedule_routes db_factory unavailable: {_e}")
 
 # Scheduler reference
 scheduler = None

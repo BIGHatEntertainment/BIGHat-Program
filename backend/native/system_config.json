@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "setup_complete": false,
-  "instance_id": "4841b9b2-ffce-49a6-8ba8-84c47a4b0a57",
-  "created_at": "2026-05-04T06:02:36.535255+00:00",
-  "updated_at": "2026-05-04T06:02:36.535284+00:00",
+  "setup_complete": true,
+  "instance_id": "75d181a8-50f3-4032-90d4-7ecfd7cf44a7",
+  "created_at": "2026-05-04T06:18:24.897916+00:00",
+  "updated_at": "2026-05-04T06:36:40.629993+00:00",
   "paths": {
     "data_root": "./data",
     "local_trivia": "./data/trivia",
@@ -12,27 +12,48 @@
   },
   "settings": {
     "company_name": "BIG Hat Entertainment",
-    "location_name": "",
-    "city": "",
+    "location_name": "Phoenix HQ",
+    "city": "Phoenix",
     "state": "AZ",
     "trivia_source": "local",
     "asset_source": "local"
   },
   "license_status": {
-    "key": null,
-    "master_admin_email": null,
+    "key": "BHE-TEST-1234-ABCD-WXYZ",
+    "master_admin_email": "master@bighat.local",
     "total_seats_allowed": 5,
-    "active_seats": [],
-    "is_active": false
+    "active_seats": [
+      {
+        "hwid": "980efedf614439521aebba139755d1d590f87743b218195a0ee13851821cb33a",
+        "label": "Master Admin \u2014 Master Admin",
+        "registered_at": "2026-05-04T06:18:26.951260+00:00"
+      }
+    ],
+    "is_active": true
   },
   "subscription": {
     "active": false,
     "tier": "free",
     "expires_at": null,
-    "last_check": null,
+    "last_check": "2026-05-04T06:36:40.629979+00:00",
     "sharepoint_enabled": false,
     "story_generator_enabled": false,
     "cloud_sync_enabled": false
   },
-  "users": []
+  "users": [
+    {
+      "id": "2ae649f3-4cc2-447e-b638-e8bcd67cba6b",
+      "email": "master@bighat.local",
+      "password_hash": "$2b$12$LveI0oIhrVhmYxavQRgmdOS.ZANhFCJ1B/1ESSFZ1.UPDl9qy0Mdi",
+      "first_name": "Master",
+      "last_name": "Admin",
+      "display_name": "Master Admin",
+      "phone": null,
+      "role": "master_admin",
+      "is_admin": true,
+      "is_master": true,
+      "created_at": "2026-05-04T06:18:26.950794+00:00",
+      "auth_method": "local"
+    }
+  ]
 }

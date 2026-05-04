@@ -139,3 +139,4 @@ wrapt==2.1.2
 xlsxwriter==3.2.9
 yarl==1.23.0
 zipp==3.23.0
+montydb==2.5.3

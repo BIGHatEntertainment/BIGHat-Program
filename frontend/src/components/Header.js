@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Settings, LogOut, Menu, X, ChevronDown } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import NativeBadge from './NativeBadge';
 
 export default function Header() {
   const { user, logout } = useAuth();
@@ -43,6 +44,9 @@ export default function Header() {
 
           {/* Right - Profile */}
           <div className="flex items-center gap-3">
+            {/* Native badge (only renders when in native standalone mode) */}
+            <NativeBadge className="hidden md:inline-flex" />
+
             {/* Role Badge */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs" style={{ backgroundColor: 'rgba(20, 27, 80, 0.6)', border: '1px solid rgba(251, 221, 104, 0.1)' }}>
               <span style={{ color: '#8892b0' }}>Role:</span>

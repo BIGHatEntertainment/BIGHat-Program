@@ -23,6 +23,14 @@ SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'Notifications@bighat.live')
 mongo_url = os.environ['MONGO_URL']
 _client = AsyncIOMotorClient(mongo_url)
 _db = _client[os.environ['DB_NAME']]
+# Native-mode swap: when BIGHAT_NATIVE_MODE=1, use SQLite-backed MontyDB
+try:
+    from native.db_factory import get_db as _get_native_db, is_native as _is_native_mode
+    if _is_native_mode():
+        _db = _get_native_db()
+        logger.info("[NATIVE-MODE] notifications using MontyDB SQLite backend")
+except Exception as _e:
+    logger.warning(f"[NATIVE-MODE] notifications db_factory unavailable: {_e}")
 
 
 def _get_following_week_range():
