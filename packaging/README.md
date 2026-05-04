@@ -115,7 +115,82 @@ The legacy `start_bighat.vbs` / `install_shortcut.vbs` workflow remains in
 this folder for environments that can't run the NSIS installer (locked-down
 machines, USB sneakernet). See "Manual install" below.
 
-## Manual install (legacy)
+## macOS distribution — `.app` / `.pkg` / `.dmg`
+
+Mirrors the Windows pipeline. **The cross-platform parts run anywhere** (Linux,
+macOS, Windows); the `pkgbuild` / `productbuild` / `hdiutil` / `codesign` /
+`notarytool` steps are auto-detected and only execute on a macOS host.
+
+### 1. Build the `.app` (any OS)
+
+```bash
+# From the repo root (/app)
+python scripts/build_standalone.py        # produces backend/static/
+python scripts/build_dmg.py --arch aarch64   # Apple Silicon (default)
+# or:
+python scripts/build_dmg.py --arch x86_64    # Intel
+```
+
+That produces `dist/macos/BIG Hat Standalone.app/` with:
+- `Contents/Info.plist` (validated as a real plist after template substitution)
+- `Contents/MacOS/BIGHatStandalone` shell launcher (+x, execs the embedded Python)
+- `Contents/Resources/python/` — relocatable CPython 3.11.9 from
+  [`astral-sh/python-build-standalone`][pbs] (sha256 verified via the GitHub
+  release `.sha256` sidecar file)
+- `Contents/Resources/backend/` — full backend source tree
+- `Contents/Resources/packaging/`, `VERSION.txt`, `PkgInfo`
+
+[pbs]: https://github.com/astral-sh/python-build-standalone
+
+### 2. Sign + notarise + ship (macOS CI only)
+
+```bash
+# Configure once: store an app-store-connect API key as a keychain profile.
+xcrun notarytool store-credentials bighat \
+    --apple-id you@example.com \
+    --team-id  TEAMIDXXXX \
+    --password app-specific-password
+
+# Build, sign, package, notarise — single command:
+python scripts/build_dmg.py \
+    --arch aarch64 \
+    --developer-id "Developer ID Application: BH Entertainment (TEAMIDXXXX)" \
+    --installer-id "Developer ID Installer: BH Entertainment (TEAMIDXXXX)" \
+    --notarize-profile bighat
+```
+
+That produces:
+- `dist/BIGHatStandalone-<version>.pkg` — productbuild signed install package
+- `dist/BIGHatStandalone-<version>.dmg` — disk image with a drag-to-Applications symlink
+
+Both artifacts are notarised and stapled (Gatekeeper-friendly offline).
+
+### 3. Common build flags
+
+| Flag                        | Purpose                                                         |
+|-----------------------------|-----------------------------------------------------------------|
+| `--arch aarch64`/`x86_64`   | Target architecture (default `aarch64` = Apple Silicon)         |
+| `--no-embed-python`         | Skip downloading CPython (rely on system `/usr/bin/python3`)    |
+| `--skip-frontend`           | Reuse an already-built `backend/static/` bundle                 |
+| `--skip-pkg`                | Build only the `.app` (no productbuild)                         |
+| `--skip-dmg`                | Build only the `.app` + `.pkg` (no hdiutil)                     |
+| `--developer-id "…"`        | Codesign identity for the `.app`                                |
+| `--installer-id "…"`        | productbuild identity for the `.pkg`                            |
+| `--notarize-profile bighat` | `xcrun notarytool` keychain profile name                        |
+| `--entitlements file.plist` | Entitlements for hardened runtime                               |
+| `--version 31.0.1`          | Override `backend/VERSION.txt`                                  |
+
+### 4. What the user sees on their Mac
+
+- **DMG flow:** drag the `.app` icon onto the `Applications` symlink shown in
+  the disk image. Same UX as every other Mac app.
+- **PKG flow:** double-click → guided installer → `.app` lands in `/Applications`,
+  postinstall script strips the quarantine xattr and creates
+  `~/Library/Application Support/BIG Hat Standalone/` for user data.
+- **First launch:** the app honours `BIGHAT_DATA_ROOT=$HOME/Library/Application Support/BIG Hat Standalone`,
+  so the bundle stays pristine (signature-stable) across upgrades.
+
+## Manual install (legacy Windows)
 
 ### Copy the install root
 
@@ -141,6 +216,8 @@ Manual install: delete the install root.
 
 ## Known gaps (deferred)
 
-- **macOS / Linux native packages** (`.dmg`, `.deb`, `.AppImage`) — backlog.
-- **Code-signing certificate provisioning** — wired and tested with self-signed
-  certs; production needs an EV cert from a trusted CA.
+- **Linux native packages** (`.deb`, `.AppImage`) — backlog.
+- **Code-signing certificate provisioning** — Windows pipeline tested with
+  self-signed certs; production needs an EV cert from a trusted CA. macOS
+  pipeline tested up to template-substitution + .app assembly; production
+  needs an Apple Developer ID + a notarytool keychain profile.

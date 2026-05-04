@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>@APP_NAME@</title>
+    <organization>@APP_BUNDLE_ID@</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true" hostArchitectures="@APP_ARCH_HOSTS@"/>
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="11.0"/>
+        </allowed-os-versions>
+    </volume-check>
+    <choices-outline>
+        <line choice="default">
+            <line choice="@APP_BUNDLE_ID@.app"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="@APP_BUNDLE_ID@.app" visible="false">
+        <pkg-ref id="@APP_BUNDLE_ID@.app"/>
+    </choice>
+    <pkg-ref id="@APP_BUNDLE_ID@.app" version="@APP_VERSION@" onConclusion="none">@APP_INTERNAL@-component.pkg</pkg-ref>
+</installer-gui-script>

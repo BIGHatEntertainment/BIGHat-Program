@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>@APP_NAME@</string>
+    <key>CFBundleExecutable</key>
+    <string>@APP_INTERNAL@</string>
+    <key>CFBundleIconFile</key>
+    <string>bighat</string>
+    <key>CFBundleIdentifier</key>
+    <string>@APP_BUNDLE_ID@</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>@APP_NAME@</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@APP_VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@APP_VERSION@</string>
+    <key>CFBundleSignature</key>
+    <string>BHat</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.entertainment</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>(c) @APP_PUBLISHER@</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>@APP_NAME@ uses Apple Events to open the local web UI.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>@APP_NAME@ runs a local web server on 127.0.0.1 to serve its UI.</string>
+</dict>
+</plist>

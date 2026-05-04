@@ -1,0 +1,27 @@
+#!/bin/bash
+# pkgbuild postinstall script — runs once on the target machine after files
+# have been laid down at /Applications/BIG Hat Standalone.app/.
+#
+# We don't do much here because the app is self-contained, but we DO:
+#   1. Create the per-user data directory if missing.
+#   2. Strip macOS quarantine xattr so the embedded Python isn't blocked
+#      by Gatekeeper on first launch (only relevant for unnotarised builds;
+#      notarised apps don't need this).
+#   3. Print a friendly "open from Applications" hint to the system log.
+set -e
+
+APP_BUNDLE="/Applications/BIG Hat Standalone.app"
+
+if [ -d "$APP_BUNDLE" ]; then
+    /usr/bin/xattr -dr com.apple.quarantine "$APP_BUNDLE" || true
+fi
+
+# If the install was triggered by a logged-in user, set up their data dir.
+if [ -n "$USER" ] && [ "$USER" != "root" ]; then
+    DATA_ROOT="$HOME/Library/Application Support/BIG Hat Standalone"
+    /bin/mkdir -p "$DATA_ROOT"
+    /usr/sbin/chown -R "$USER" "$DATA_ROOT" || true
+fi
+
+/usr/bin/logger -t bighat-installer "BIG Hat Standalone installed at $APP_BUNDLE"
+exit 0

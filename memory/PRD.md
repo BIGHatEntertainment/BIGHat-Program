@@ -108,21 +108,41 @@ features behind an active subscription.
   (`BIGHAT_RUN_MAKENSIS=1`). Verified: makensis 0 warnings, full build
   produces 35 MB `.exe`, osslsigncode self-signed sign + verify pipeline OK.
   **254/254 tests pass (252 default + 2 gated).**
+- **2026-02** — Phase 9.3 (macOS `.app` / `.pkg` / `.dmg`): `scripts/build_dmg.py`
+  mirrors the Windows orchestrator — assembles `BIG Hat Standalone.app` bundle
+  (Info.plist from `packaging/macos/Info.plist.in`, MacOS launcher.sh with
+  exec bit + native-mode env, Resources/{backend,packaging,VERSION.txt,python}),
+  downloads + sha256-verifies relocatable CPython from
+  `astral-sh/python-build-standalone` (3.11.9, `aarch64-apple-darwin` /
+  `x86_64-apple-darwin`), gated `pkgbuild` + `productbuild` produce a signed
+  `.pkg` with postinstall (xattr quarantine strip + per-user
+  `~/Library/Application Support/BIG Hat Standalone` data dir), gated
+  `hdiutil create` produces a `.dmg` with `/Applications` drag symlink,
+  optional `codesign --deep --options runtime --timestamp` + `xcrun notarytool
+  submit --wait` + `xcrun stapler staple`. **Cross-platform parts run on
+  Linux** (so CI can stage everything except the sign+package step on a Mac
+  host). Test suite `test_phase9_3_macos_packaging.py` — 15 always-on static
+  + bundle-assembly tests, 1 gated full pipeline test (macOS + `BIGHAT_RUN_PKGBUILD=1`).
+  Verified end-to-end on this Linux container: 2318-file `.app` bundle with
+  embedded CPython, valid Info.plist, exec-bit launcher, `PkgInfo=APPLBHat`.
+  **269/269 always-on tests pass** (3 gated — 2 Windows-NSIS, 1 macOS).
 
 ## Roadmap (P0/P1/P2 features remaining)
 
-🎉 **All 9 phases + 9.1 + 9.2 shipped — native transformation + Windows
-distribution feature-complete.**
+🎉 **All 9 phases + 9.1 (auto-update) + 9.2 (Windows installer) + 9.3 (macOS
+.app/.pkg/.dmg) shipped — native transformation + cross-platform distribution
+feature-complete.**
 
 ### Optional P3 backlog
-- **macOS native packaging** (`.dmg` via `pkgbuild` / `productbuild`) — next up.
-- **Linux native packaging** (`.deb`, `.AppImage`).
+- **Linux native packaging** (`.deb`, `.AppImage`) — natural follow-on after
+  macOS.
 - Frontend wiring of `/api/native/admin/users` + `/api/native/sync/status`
   + `/api/scoreboard/status` + `/api/story-generator/status` +
   `/api/bingo/status` + `/api/native/updates/status` into a unified
   Settings/Diagnostics page.
-- Provisioning of a real EV code-signing certificate to remove SmartScreen
-  warnings (signing pipeline already in place; just needs the cert).
+- Provisioning of a real EV code-signing certificate (Windows) and an Apple
+  Developer ID + notarytool keychain profile (macOS) — pipelines ready, just
+  need the certs.
 - Audit-log collection for admin actions.
 - Hash-based diff mode for `SyncService` (opt-in).
 - Watchdog auto-refresh on local trivia/bingo asset folder changes.
