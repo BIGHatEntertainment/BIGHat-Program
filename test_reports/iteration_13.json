@@ -1,0 +1,34 @@
+{
+  "summary": "Phase 9.1 Auto-Update Channel — full backend test coverage. Created /app/backend/tests/test_phase9_1_updates_native.py with 25 tests covering: status shape + installed_version source-of-truth, /info VERSION.txt read, /check with fixture (200, update_available=true, latest_version=31.1.0), /download success (verified=true, file on disk, valid zip, sha256 matches), /download sha256 mismatch (409), /download invalid_manifest_sha256 empty + short (409), /download skipped when up-to-date (200, skipped=true), /apply unauth (401), /apply sub-admin (403), /apply master (200, scheduled, marker file written with version + previous_version + scheduled_at + bundle_path + unpacked_path), /apply nothing_staged (409), /apply staged_bundle_missing (409), launcher --check prints installed_ver=31.0.0 + pending_apply=, plus 9 regression spot-checks. ALL 25/25 GREEN. Full regression sweep across phase{2,3,4,5,6,7,8,9,9_1}: 240/240 PASS in 41.98s. Manifest + VERSION.txt restored to original state after teardown. Subadmin user cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase9_1_updates_native.py",
+    "/app/test_reports/pytest/phase9_1_iter13.xml",
+    "/app/test_reports/pytest/full_regression_iter13.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "updates_router.py /check: catches RuntimeError and always maps to 502. The review_request alternative test (point fixture at non-existent path) currently raises FileNotFoundError, NOT RuntimeError, so it would fall through to the generic Exception handler and return 500 with detail='check_failed: ...' rather than 502 with a path-error detail. Consider catching OSError/FileNotFoundError in fetch_manifest and re-raising as RuntimeError('manifest_fixture_missing: <path>') so the dev-fixture-missing path also returns 502 with a discoverable detail. (Not blocking — primary unconfigured-channel path uses the explicit RuntimeError('update_channel_not_configured').)",
+    "updates_service.download() schedules the download even when sha256 mismatch — the partial file is unlinked, but a parallel /download invocation could race. Consider a download lock (asyncio.Lock per service instance) since /download is open + unauthenticated.",
+    "/api/native/updates/check + /download are unauthenticated and trigger network/disk I/O. In production with a real channel_url this is a denial-of-service vector. Recommend rate-limiting or moving /download behind the same master-admin gate as /apply (status alone is enough for the React 'update available' pill).",
+    "/apply mutates db.update_state.applied_at on success but the actual install swap is deferred to the launcher next-boot. If an admin clicks /apply twice without rebooting, the marker is overwritten and applied_at is updated each time — there is no 'already_scheduled' short-circuit. Low priority but worth a 409 if pending_apply.json already exists for the same version.",
+    "is_newer() returns False for equal versions (correct) but parse_version drops pre-release tags entirely ('31.1.0-beta.1' compares equal to '31.1.0'). For a minor build channel this is fine, but document or extend if pre-release manifest entries are ever published."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase9_1_updates_native.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% — 25/25 Phase 9.1 + 240/240 full regression",
+    "frontend": "n/a (backend-only request)"
+  },
+  "test_credentials": "Master master@bighat.local / BigHat2024! used for /apply tests. Sub-admin updates_subadmin@bighat.local / SubAdmin123 created via POST /api/native/admin/users (master JWT) for the 403 test and torn down via DELETE on teardown.",
+  "seed_data_creation": "No persistent seed. /app/backend/native/data/generated/updates/bighat-31.1.0.zip + pending_apply.json + 31.1.0/ unpacked dir are created during test as expected by the design (apply writes marker + unpacks). DB.update_state.singleton mutated during nothing_staged + staged_bundle_missing tests; restored to a verified staged state by re-running /download at end of staged_bundle_missing test. Manifest sha256 is rewritten in-place during 3 negative tests but restored via autouse `restore_manifest` fixture.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Full regression baseline is now 240/240 (was 215/215 pre-Phase-9.1). The new test file is /app/backend/tests/test_phase9_1_updates_native.py with class layout TestStatus, TestNativeInfoVersion, TestCheck, TestDownload, TestApply, TestLauncherCheck, TestRegressionSpotChecks. autouse fixture `restore_manifest` snapshots manifest.json before any test in this module and restores after — be careful if you add a session-scoped fixture that mutates manifest. Apply tests use a tmp_path subprocess script to talk directly to MontyDB at /app/backend/native/data (server.db). The unconfigured-channel-url 502 case (review item 2) was NOT covered as a live test because BIGHAT_UPDATE_MANIFEST_FIXTURE is set in /app/backend/.env and removing it would require a backend restart that other concurrent regression tests would observe; covered indirectly by code review (RuntimeError('update_channel_not_configured') path is unit-clear).",
+  "rca of the issue": "N/A — no failures."
+}

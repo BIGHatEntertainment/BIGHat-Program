@@ -88,6 +88,27 @@ def _print_check(port: int) -> None:
     static_dir = BACKEND_DIR / "static"
     has_static = static_dir.is_dir() and (static_dir / "index.html").exists()
     print(f"[launcher] static_bundle = {static_dir} (present={has_static})")
+    # Phase 9.1: surface installed version + pending update marker
+    version_file = BACKEND_DIR / "VERSION.txt"
+    version = (version_file.read_text(encoding="utf-8").strip()
+               if version_file.is_file() else "unknown")
+    print(f"[launcher] installed_ver = {version}")
+    pending_marker = (
+        Path(cfg.get("paths", {}).get("generated", BACKEND_DIR / "data" / "generated"))
+        / "updates" / "pending_apply.json"
+    )
+    if pending_marker.is_file():
+        try:
+            import json as _json
+            payload = _json.loads(pending_marker.read_text(encoding="utf-8"))
+            print(
+                f"[launcher] pending_apply= {payload.get('version')} "
+                f"(scheduled {payload.get('scheduled_at')})"
+            )
+        except Exception:
+            print(f"[launcher] pending_apply= present at {pending_marker}")
+    else:
+        print("[launcher] pending_apply= none")
 
 
 def _open_browser_delayed(url: str, delay: float = 1.5) -> None:

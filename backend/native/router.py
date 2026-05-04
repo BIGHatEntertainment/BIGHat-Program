@@ -90,13 +90,23 @@ class SeatRegisterRequest(BaseModel):
     label: Optional[str] = None
 
 
+def _read_installed_version() -> str:
+    """Read backend/VERSION.txt — single source of truth used by Phase 9.1."""
+    try:
+        from pathlib import Path as _P
+        p = _P(__file__).resolve().parent.parent / "VERSION.txt"
+        return p.read_text(encoding="utf-8").strip() or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
 # ---------- Endpoints ----------
 @router.get("/info")
 async def get_native_info():
     """Used by the frontend on every load to decide UI state."""
     cfg = config_manager.public_view()
     return {
-        "version": "31.0.0-phase0",
+        "version": _read_installed_version(),
         "native_mode": config_manager.is_native_mode(),
         "setup_complete": cfg.get("setup_complete", False),
         "instance_id": cfg.get("instance_id"),

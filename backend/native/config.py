@@ -79,6 +79,10 @@ def _default_config() -> Dict[str, Any]:
             "story_generator_enabled": False,
             "cloud_sync_enabled": False,
         },
+        "updates": {
+            "channel_url": None,  # null disables auto-update checks; set per-deployment
+            "auto_check_interval_hours": 24,
+        },
         "users": [],  # populated by setup wizard — master admin first
     }
 

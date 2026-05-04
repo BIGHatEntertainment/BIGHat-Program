@@ -1907,6 +1907,16 @@ except Exception as e:
     logger.warning(f"Could not load Native admin router: {e}")
 
 
+# Native updates router (Phase 9.1). Auto-update channel; apply is master-admin only.
+try:
+    from native.updates_router import router as updates_router, set_database as updates_set_database
+    updates_set_database(db)
+    app.include_router(updates_router, prefix="/api")
+    logger.info("Native updates router registered at /api/native/updates/*")
+except Exception as e:
+    logger.warning(f"Could not load Native updates router: {e}")
+
+
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
 try:
     from routes.bingo import manager as bingo_manager

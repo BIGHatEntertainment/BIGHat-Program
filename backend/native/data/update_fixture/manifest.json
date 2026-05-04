@@ -1,0 +1,8 @@
+{
+  "latest_version": "31.1.0",
+  "download_url": "file:///app/backend/native/data/update_fixture/bighat-31.1.0.zip",
+  "sha256": "b812b7774031dabcc6b135014686589d84bb3921d253346aa5f3d9f41fe9bd47",
+  "release_notes": "Auto-update test release",
+  "release_date": "2026-02-15",
+  "mandatory": false
+}
