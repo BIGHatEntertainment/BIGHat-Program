@@ -1,0 +1,29 @@
+{
+  "summary": "Phase 8 — master-admin user management + license-seat admin + reviewer-flagged tournament hardening. New pytest suite test_phase8_admin_native.py with 30 tests, all passing. Verified: GET /api/native/admin/users unauth returns 401 (router mounted), master JWT lists users with master_admin role, sub-admin (role=admin) is rejected with 403 master_admin_required, validation 422s on invalid role/invalid email/short password, duplicate email returns 409, host->admin promotion sets is_admin=true, admin->host demotion sets is_admin=false, password reset propagates so user can re-login via /api/auth/login, master cannot be deleted (400 cannot_delete_master_admin) or demoted (400 cannot_demote_master_admin), license seats endpoint returns expected shape, seat label rename 200, current-hwid revoke blocked 400 cannot_revoke_current_device, unknown hwid revoke 404, TournamentCreate rejects len(teams)+bye_count != total_teams with 422 carrying expected error string, valid 4-team bracket and pre-seeded empty-teams 12-team bracket both 200, TournamentAdvance rejects empty body with 422 listing match_id+winner_seed missing, valid advance against real tournament returns 200 with bracket_state.last_updated populated. 9 public regression endpoints all 200. Regression on prior phases test_phase{2,3,5,6,7}_*.py = 130/130 passed. Module teardown verified — system_config.json users[] count=1 (master only).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase8_admin_native.py",
+    "/app/test_reports/pytest/phase8_results.xml",
+    "/app/test_reports/pytest/phase8_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin_router._require_master_admin imports get_current_user from server.py at request time — works but creates a runtime coupling; prefer wiring get_current_user via a setter (like set_database) for testability.",
+    "create_user / update_user use bcrypt.gensalt() default cost (12). Acceptable, but mirror_to_db copies password_hash field over — if db.users already has a different hash for an external auth method, this will overwrite. Currently safe because admin endpoint is the source of truth in native mode.",
+    "rename_seat path converter is plain `{hwid}` — FastAPI will percent-decode it before handing to the handler, so URL-encoding in clients is the right call. Suite tests with hex hwids confirm round-trip.",
+    "TournamentAdvance response returns full tournament doc (good, includes updated bracket_state.last_updated). However if match_id is not in bracket_state.matches the handler silently no-ops on the match update but still touches last_updated — consider returning a 404 detail='match_not_found' for clearer UX.",
+    "admin_router /users/{user_id} PUT order: the code applies patch then re-derives is_admin. is_admin derivation when promoting host->admin works, but when payload has only first_name change it re-evaluates and could flip is_admin for an admin user — current logic guards with `not user.get('is_master')` and uses role==admin, so net effect is correct. Worth a unit test for partial-field updates if not already covered (covered indirectly here).",
+    "config_manager.save_config writes synchronously on every request; for high-frequency rename_seat or update_user calls in an enterprise UI this could become a bottleneck but is fine at the standalone scale."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase8_admin_native.py"
+  ],
+  "success_rate": {"backend": "100% (30/30 phase 8 + 130/130 regression = 160/160)", "frontend": "n/a (backend-only request)"},
+  "test_credentials": "master@bighat.local / BigHat2024! (loaded from /app/memory/test_credentials.md). Ephemeral users TEST_subadmin_p8_*, TEST_dup_*, TEST_host_promo_* etc. all created and cleaned by fixture teardown.",
+  "seed_data_creation": "Each test class creates uuid-suffixed TEST_-prefixed users via POST /api/native/admin/users; the module-scoped created_user_ids fixture deletes every id at teardown and the final TestZCleanupVerification asserts the final users[] count is 1 (master only). Tournament tests create TEST_-prefixed tournaments and DELETE them inline.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 8 admin router lives at /app/backend/native/admin_router.py and is mounted at /api/native/admin/* in server.py. Tests in /app/backend/tests/test_phase8_admin_native.py cover the full surface. Master credentials in /app/memory/test_credentials.md are stable. Tournament hardening (TournamentCreate model_validator + TournamentAdvance pydantic body) verified inside the same file. All prior-phase suites (phase2/3/5/6/7) remain green at 130/130. License seat tests gracefully skip if no seats are present, but in the current environment the master has registered the dev seat so they execute. Subscription state is untouched by these tests.",
+  "rca of the issue": "No issues found — all Phase 8 admin + tournament-hardening flows behave per spec."
+}

@@ -1897,6 +1897,16 @@ except Exception as e:
     logger.warning(f"Could not load Native sync router: {e}")
 
 
+# Native admin router (Phase 8). Master-admin-only user + seat management.
+try:
+    from native.admin_router import router as admin_router, set_database as admin_set_database
+    admin_set_database(db)
+    app.include_router(admin_router, prefix="/api")
+    logger.info("Native admin router registered at /api/native/admin/*")
+except Exception as e:
+    logger.warning(f"Could not load Native admin router: {e}")
+
+
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
 try:
     from routes.bingo import manager as bingo_manager

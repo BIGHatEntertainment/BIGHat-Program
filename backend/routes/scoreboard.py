@@ -6,7 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
@@ -110,6 +110,32 @@ class TournamentCreate(BaseModel):
     bye_count: int = 4
     teams: List[Dict[str, Any]] = []
     bracket_state: Dict[str, Any] = {}
+
+    @field_validator("total_teams")
+    @classmethod
+    def _positive_total(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("total_teams must be >= 1")
+        return v
+
+    @field_validator("bye_count")
+    @classmethod
+    def _non_negative_byes(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("bye_count must be >= 0")
+        return v
+
+    @model_validator(mode="after")
+    def _teams_match_total(self):
+        # Only enforce when the caller supplied a non-empty teams list; an
+        # empty teams array is valid for "pre-seeded" brackets.
+        if self.teams and (len(self.teams) + self.bye_count) != self.total_teams:
+            raise ValueError(
+                "total_teams must equal len(teams) + bye_count "
+                f"(got {len(self.teams)} teams + {self.bye_count} byes != "
+                f"{self.total_teams})"
+            )
+        return self
 
 
 class TournamentUpdate(BaseModel):
@@ -921,21 +947,38 @@ async def delete_tournament(tournament_id: str):
     return {"deleted": True}
 
 
+class TournamentAdvance(BaseModel):
+    """Record a single match result and advance the bracket.
+
+    Example body:
+        {
+          "match_id": "qf_1",
+          "winner_seed": 3,
+          "score_a": 42,
+          "score_b": 37
+        }
+
+    `winner_seed` is the seed number of the winning team. `score_a` /
+    `score_b` are optional and stored verbatim on the match record.
+    """
+    match_id: str = Field(..., min_length=1)
+    winner_seed: int
+    score_a: Optional[int] = None
+    score_b: Optional[int] = None
+
+
 @router.post("/tournaments/{tournament_id}/advance")
-async def advance_tournament(tournament_id: str, body: Dict[str, Any] = Body(...)):
+async def advance_tournament(tournament_id: str, body: TournamentAdvance):
     """Record a match result and advance bracket"""
     doc = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Tournament not found")
 
     bracket_state = doc.get("bracket_state", {})
-    match_id = body.get("match_id")
-    winner_seed = body.get("winner_seed")
-    score_a = body.get("score_a")
-    score_b = body.get("score_b")
-
-    if not match_id or winner_seed is None:
-        raise HTTPException(status_code=400, detail="match_id and winner_seed required")
+    match_id = body.match_id
+    winner_seed = body.winner_seed
+    score_a = body.score_a
+    score_b = body.score_b
 
     # Update the match result
     matches = bracket_state.get("matches", {})
