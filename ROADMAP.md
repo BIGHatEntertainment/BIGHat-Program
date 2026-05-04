@@ -62,7 +62,15 @@
 - [x] `/sharepoint-status` reports `mode='local'` cleanly
 - [x] `/reg-next-number/{category}` increments based on local files + DB
 
-### Phase 4-9 — see per-phase plans created when reached.
+### Phase 6 (Story Generator) — DONE when:
+- [x] Mutating endpoints (generate, preview, assemble-video, convert-webm, event-preview, generate-event-video, upload-asset, delete-asset) 402 when native+no-premium
+- [x] Read endpoints (presentations, assets, job-status) stay free in native+no-premium so UI can show upgrade hint
+- [x] Subscription toggle is effective immediately (no backend restart)
+- [x] `/api/story-generator/status` reports availability + ffmpeg_ok + subscription
+- [x] Gate is per-feature (story_generator_enabled independent of sharepoint_enabled)
+- [ ] UI surfaces upgrade screen when `status.available=false` (frontend work)
+
+### Phase 4-5, 7-9 — see per-phase plans created when reached.
 
 ## Sub-agent strategy
 

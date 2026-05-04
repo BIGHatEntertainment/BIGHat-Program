@@ -1,19 +1,22 @@
 # Current State
 
-**Active phase:** 3 — Round Maker (✅ complete; 58/58 tests via testing agent)
+**Active phase:** 6 — Story Generator Premium Gate (✅ complete; 84/84 tests via testing agent)
 
 **Last completed work:**
-- Phase 3 — Round Maker SQLite + local publish: 21/21 new tests + 37/37 Phase 2
-  regression = **58/58 passed**. (See `/app/test_reports/iteration_4.json`,
-  `/app/backend/tests/test_phase3_roundmaker_native.py`.)
-- Round-maker generates PPTX locally, publishes into the local trivia round
-  library, round appears immediately in `/api/trivia/round-files/<type>`.
-- Title-card seed at `/app/backend/native/data/assets/01_Trivia/Web App/00_Builder/04_TitleCards/REG/`.
-- `_upload_to_sharepoint_direct` and `_get_graph_token` callers now branch
-  on `_is_local_mode()` so they never crash on missing Azure creds.
-- Phase 0/0.5/1/2 unchanged (still verified).
+- Phase 6 — Story Generator premium gate: 26/26 new tests + 58/58 Phase 2+3
+  regression = **84/84 passed** (`/app/test_reports/iteration_6.json`,
+  `/app/backend/tests/test_phase6_story_generator_native.py`).
+- New `backend/native/feature_gate.py` — `require_native_premium(feature)`
+  dependency, reusable for Phase 7/8.
+- 8 mutating story-generator endpoints now gated; read endpoints stay free;
+  `/api/story-generator/status` exposes `{available, mode, reason,
+  subscription, ffmpeg_ok}` for the UI.
+- Gate import tightened to `except ImportError` with ERROR-level logging.
+- Phase 0/0.5/1/2/3 unchanged (all still verified).
 
-**Next action:** propose Phase 4 (Music Bingo) to the user.
+**Next action:** user to choose Phase 4 (Music Bingo), Phase 7 (SharePoint
+Hybrid Sync — unlocks the new `feature_gate.py` machinery), or Phase 8
+(Admin + hardening).
 
 **Then Phase 3 (Round Maker):** swap PPTX-round generator service to use the
 asset factory + MontyDB, and route generated rounds back into the native

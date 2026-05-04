@@ -56,24 +56,19 @@ features behind an active subscription.
 ## Implemented (with dates)
 - **2025-07** — Phase 0 (Foundation): `/api/native/*` router, license/HWID,
   subscription, atomic `system_config.json`.
-- **2025-07** — Phase 0.5 (Frontend SetupWizard + Auth Bridge): React
-  `SetupWizard`, `NativeBadge`, `NativeContext`, native auth bridge in
-  `/api/auth/login`.
-- **2025-07** — Phase 1 (Schedule SQLite Swap): `db_factory`, `async_monty`,
-  schedule routes on SQLite. Backend testing agent: 29/30 passed.
-- **2026-02** — Phase 2 (Trivia Core SQLite Swap): GridFS shim, local asset
-  service, asset factory, SharePointService new swap, trivia route local
-  short-circuits. Backend testing agent: **37/37 passed**.
-- **2026-02** — Phase 3 (Round Maker SQLite + Local Publish): native PPTX
-  publish into local trivia library, REG title cards from disk,
-  `/sharepoint-status` mode=local. Backend testing agent: **21/21 +
-  37/37 regression = 58/58 passed**.
+- **2025-07** — Phase 0.5 (Frontend SetupWizard + Auth Bridge).
+- **2025-07** — Phase 1 (Schedule SQLite Swap). Testing agent: 29/30.
+- **2026-02** — Phase 2 (Trivia Core SQLite Swap). Testing agent: 37/37.
+- **2026-02** — Phase 3 (Round Maker SQLite + Local Publish). Testing
+  agent: 21/21 + 37/37 regression = 58/58.
+- **2026-02** — Phase 6 (Story Generator Premium Gate): `feature_gate.py`,
+  `/api/story-generator/status`, 8 mutating endpoints gated. Testing
+  agent: 26/26 + 58/58 regression = **84/84**.
 
 ## Roadmap (P0/P1/P2 features remaining)
 - **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game engine)
 - **P1 — Phase 5: Scoreboard** (leaderboard + tournament brackets)
-- **P2 — Phase 6: Story Generator** (FFmpeg pipeline, premium-gated)
-- **P2 — Phase 7: SharePoint Hybrid Sync** (premium-gated pull/push)
+- **P2 — Phase 7: SharePoint Hybrid Sync** (premium-gated pull/push — feature_gate is now reusable for this)
 - **P2 — Phase 8: Admin** (user mgmt, license seats, sub-admin promotion)
 - **P3 — Phase 9: Packaging** (VBS installers, native launcher, build script)
 

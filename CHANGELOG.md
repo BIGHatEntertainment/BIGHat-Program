@@ -3,6 +3,72 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 6 (Story Generator Premium Gate) ✅ — backend testing agent verified 26/26 + 58/58 regression = 84/84
+
+### What shipped
+The Story Generator (video + preview + webm convert + event video) is now
+gated by the `story_generator_enabled` premium flag in native mode. Webapp
+mode is unchanged — the gate is a no-op when `BIGHAT_NATIVE_MODE=0`. Read
+endpoints stay free in both modes so the UI can still list presentations
+and show what unlocks with a subscription.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/native/feature_gate.py` | `require_native_premium(feature)` — FastAPI dependency factory. No-op in webapp mode; returns HTTP 402 `premium_required` in native mode when the named subscription feature flag is inactive. Reusable for Phase 7/8 cloud-sync and admin features. |
+
+### Modified files
+- `backend/routes/story_generator.py`:
+  - Imports `require_native_premium` with a single `except ImportError`
+    (tightened from bare Exception so unrelated errors no longer silently
+    disable the gate — they now log at ERROR).
+  - Builds `_story_gate = [Depends(require_native_premium("story_generator_enabled"))]`
+    once at module load.
+  - Applies `dependencies=_story_gate` to the 8 mutating endpoints:
+    `POST /generate/{id}`, `POST /preview/{id}`, `POST /upload-asset`,
+    `DELETE /asset/{type}/{id}`, `POST /assemble-video`,
+    `POST /convert-webm`, `POST /event-preview`,
+    `POST /generate-event-video`.
+  - Adds `GET /api/story-generator/status` — returns
+    `{available, mode, reason, subscription, ffmpeg_ok}` so the frontend
+    can decide whether to show the upgrade prompt or the real UI, and so
+    native support can see at a glance why the feature is disabled.
+
+### Verified end-to-end (testing agent, 26/26)
+- Subscription OFF → all 8 mutating endpoints return HTTP 402 with
+  `detail.error='premium_required'` and `detail.feature='story_generator_enabled'`.
+- Subscription OFF → read endpoints (`/presentations`, `/assets`,
+  `/job-status/{id}`) still return 200/404 (never 402).
+- Subscription ON (via `POST /api/native/subscription {active:true,
+  tier:'premium', story_generator_enabled:true}`) → same mutating endpoints
+  drop the 402 and return 404/422/500 depending on body validity. Toggle is
+  effective immediately — no backend restart.
+- Per-feature gating: `sharepoint_enabled=false` + `story_generator_enabled=true`
+  still unlocks story-gen endpoints (confirming we gate on the specific
+  feature, not the whole subscription).
+- Regression: Phase 2 (37) + Phase 3 (21) suites still green.
+
+### Known issues fixed during Phase 6
+- **Initial version missed `dependencies=_story_gate` on `/generate-event-video`**
+  (testing agent caught it — iteration 5 was 25/26). One-line fix, re-run
+  at iteration 6 showed 26/26 + 58/58 regression = **84/84 overall**.
+- **Bare `except Exception` around the gate import** risked silently
+  disabling premium checks if any unrelated import error occurred.
+  Tightened to `except ImportError` with ERROR-level logging.
+
+### Code-review follow-ups (deferred to Phase 8 hardening)
+- Split `story_generator.py` (>1600 lines) into
+  `story_status.py` / `story_presentation.py` / `story_assets.py` /
+  `story_video.py` / `story_event.py`.
+- Consolidate the dual job stores (`video_jobs` / `_video_jobs`) with TTL
+  eviction.
+- Add `Content-Length` caps on `/convert-webm` and `/assemble-video` base64
+  payloads (currently unbounded).
+- Cache `_probe_ffmpeg()` at module load (negligible hit but obvious win).
+
+---
+
+
 ## 2026-02 — Phase 3 (Round Maker SQLite + Local Publish) ✅ — backend testing agent verified 21/21 (Phase 3) + 37/37 (Phase 2 regression) = 58/58
 
 ### What shipped
