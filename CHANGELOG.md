@@ -3,6 +3,85 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 3 (Round Maker SQLite + Local Publish) ✅ — backend testing agent verified 21/21 (Phase 3) + 37/37 (Phase 2 regression) = 58/58
+
+### What shipped
+The Round Maker (`/api/roundmaker/*`) now generates and publishes PPTX rounds
+end-to-end in pure native local mode. No SharePoint creds, no Graph API.
+Generated rounds land in the local trivia round library so they show up
+immediately in the Trivia presenter without any sync step.
+
+### Modified files
+- `backend/routes/roundmaker.py`:
+  - Added `_is_local_mode()`, `_local_assets_root()`, `_local_trivia_root()`,
+    `_local_title_cards_dir()` helpers at module top.
+  - `_upload_to_sharepoint_direct(file_path, filename, round_type)` now
+    branches: in native local mode it copies the generated PPTX into
+    `paths.assets/01_Trivia/Web App/00_Builder/01_Rounds/<TYPE_FOLDER>/<filename>.pptx`
+    and returns `{success, web_url=file://..., file_id=<abs_path>, folder=<type>}`
+    so the existing CRUD round-doc update fields stay populated.
+  - `/reg-title-images` lists `04_TitleCards/REG/*.{jpg,jpeg,png,gif}` from
+    the local assets folder when in native local mode.
+  - `/reg-download-title-image` reads bytes from the local file system and
+    writes them into `roundmaker_uploads/` (used for inline cover-image
+    embedding by the PPTX generator).
+  - `/reg-title-image-preview/{item_id:path}` serves the local file directly
+    (path-style item_id supported via `:path` converter).
+  - `/reg-next-number/{category}` skips the SharePoint scan in native mode
+    and instead enumerates the local 02_REG folder for `<category>_<n>.pptx`.
+  - `/sharepoint-status` reports `{mode:'local', configured:true, token_valid:true, subscription:{...}}`
+    in native local mode so the frontend can show "Publishing locally" instead
+    of "SharePoint not configured".
+
+### New on-disk seed (dev container only)
+`/app/backend/native/data/assets/01_Trivia/Web App/00_Builder/04_TitleCards/REG/`
+seeded with `History.png`, `Geography.png`, `Music.png` (real 1×1 PNGs,
+69 bytes each) so title-card endpoints have content to return during testing.
+
+### Verified end-to-end (testing agent)
+- `POST /api/roundmaker/rounds` → SQLite insert.
+- `POST /api/roundmaker/rounds/{id}/generate` → returns >100KB PPTX (HTTP 200,
+  octet-stream). Pure-Python `python-pptx` generation works against the
+  in-DB round doc.
+- `POST /api/roundmaker/rounds/{id}/upload-sharepoint` as master_admin →
+  `status:success, web_url:file:///app/backend/native/data/assets/01_Trivia/Web App/00_Builder/01_Rounds/02_REG/<name>.pptx`,
+  the PPTX physically lands at that path, and immediately afterwards
+  `/api/trivia/round-files/reg` returns the new round in its array.
+- `/reg-next-number/{category}` increments by exactly +1 once a new
+  `<category>_<n>.pptx` is dropped on disk.
+- All Phase 1 + Phase 2 endpoints regressed clean (37/37 from previous suite
+  re-run by the testing agent).
+
+### Known issues fixed during Phase 3
+- `_get_graph_token()` returned None silently when `AZURE_*` env vars were
+  missing, but `/sharepoint-status` would still report `configured:false`,
+  giving the user a confusing "SharePoint not configured" screen even though
+  the local-mode publish flow worked perfectly. Fixed by short-circuiting
+  the endpoint with `mode:'local'` when `_is_local_mode()` is true, before
+  any SharePoint check runs.
+- `/reg-title-image-preview/{item_id}` rejected the item_id when it was a
+  relative path with slashes (the local-mode itemId is the relative path
+  under the assets root). Fixed by upgrading the path parameter to
+  `{item_id:path}` so FastAPI doesn't slash-strip.
+- The local `04_TitleCards/REG/` folder was not part of the original V31
+  asset tree; the path is now defined by `_local_title_cards_dir(round_type)`
+  and matches the convention `<assets>/01_Trivia/Web App/00_Builder/04_TitleCards/<TYPE>/`,
+  consistent with the existing `01_Hosts`, `02_Locations`, `03_Sponsors` siblings.
+
+### Code-review notes for follow-up (non-blocking)
+- `routes/roundmaker.py` (~1080 lines) should be split into
+  `roundmaker_crud.py` / `roundmaker_assets.py` / `roundmaker_publish.py` in
+  Phase 8 hardening.
+- Path traversal hardening on `_local_title_cards_dir` lookup (`item_id`
+  containing `..`). Currently only authenticated callers can hit it, but a
+  `resolve().is_relative_to(_local_assets_root().resolve())` check is cheap.
+- Per-round `created_by` ownership gate for DELETE/upload (Phase 8).
+- Replace bare `except:` JWT decode in `upload_to_sharepoint` with explicit
+  exception logging (Phase 8 hardening).
+
+---
+
+
 ## 2026-02 — Phase 2 (Trivia Core SQLite Swap) — backend pieces ready, awaiting integration testing
 
 ### What shipped

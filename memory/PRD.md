@@ -64,9 +64,12 @@ features behind an active subscription.
 - **2026-02** — Phase 2 (Trivia Core SQLite Swap): GridFS shim, local asset
   service, asset factory, SharePointService new swap, trivia route local
   short-circuits. Backend testing agent: **37/37 passed**.
+- **2026-02** — Phase 3 (Round Maker SQLite + Local Publish): native PPTX
+  publish into local trivia library, REG title cards from disk,
+  `/sharepoint-status` mode=local. Backend testing agent: **21/21 +
+  37/37 regression = 58/58 passed**.
 
 ## Roadmap (P0/P1/P2 features remaining)
-- **P0 — Phase 3: Round Maker** (PPTX generator) → SQLite + asset factory
 - **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game engine)
 - **P1 — Phase 5: Scoreboard** (leaderboard + tournament brackets)
 - **P2 — Phase 6: Story Generator** (FFmpeg pipeline, premium-gated)

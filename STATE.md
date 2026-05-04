@@ -1,26 +1,19 @@
 # Current State
 
-**Active phase:** 2 — Trivia Core (backend native swap ✅; full editor/presenter UI smoke-tested only via login screen)
+**Active phase:** 3 — Round Maker (✅ complete; 58/58 tests via testing agent)
 
 **Last completed work:**
-- Phase 2 — Trivia Core SQLite swap: backend testing agent **37/37 passed**.
-  (See `/app/test_reports/iteration_3.json` and
-  `/app/backend/tests/test_phase2_trivia_native.py`.)
-- Phase 1 (Schedule on SQLite) — complete and verified.
-- Phase 2 ships:
-  - Native GridFS shim (`/app/backend/native/gridfs_shim.py`).
-  - `gridfs_service.GridFSService` auto-detects `AsyncMontyDatabase` and
-    swaps in the native bucket.
-  - Local asset service (`/app/backend/native/local_asset_service.py`).
-  - Asset factory (`/app/backend/native/asset_factory.py`).
-  - `SharePointService.__new__` transparently returns a `LocalAssetService`
-    in native+local mode.
-  - `routes/trivia.py` `/rounds*`, `/round-files/{type}`, `/hosts`,
-    `/locations`, `/sponsors` work in local mode.
-- Default `paths` in `system_config.json` use absolute paths under
-  `/app/backend/native/data/`.
+- Phase 3 — Round Maker SQLite + local publish: 21/21 new tests + 37/37 Phase 2
+  regression = **58/58 passed**. (See `/app/test_reports/iteration_4.json`,
+  `/app/backend/tests/test_phase3_roundmaker_native.py`.)
+- Round-maker generates PPTX locally, publishes into the local trivia round
+  library, round appears immediately in `/api/trivia/round-files/<type>`.
+- Title-card seed at `/app/backend/native/data/assets/01_Trivia/Web App/00_Builder/04_TitleCards/REG/`.
+- `_upload_to_sharepoint_direct` and `_get_graph_token` callers now branch
+  on `_is_local_mode()` so they never crash on missing Azure creds.
+- Phase 0/0.5/1/2 unchanged (still verified).
 
-**Next action:** propose Phase 3 (Round Maker) to the user.
+**Next action:** propose Phase 4 (Music Bingo) to the user.
 
 **Then Phase 3 (Round Maker):** swap PPTX-round generator service to use the
 asset factory + MontyDB, and route generated rounds back into the native

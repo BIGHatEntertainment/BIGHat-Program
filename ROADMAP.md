@@ -54,7 +54,15 @@
 - [ ] Editor saves and loads slides via UI smoke test
 - [ ] Presenter renders slides + overlays + TV view via UI smoke test
 
-### Phase 3-9 — see per-phase plans created when reached.
+### Phase 3 (Round Maker) — DONE when:
+- [x] PPTX generation works locally via `python-pptx`
+- [x] Round CRUD persists in SQLite (`db.rounds` via MontyDB)
+- [x] "Upload to SharePoint" copies into the local trivia library when in native local mode; round appears immediately in `/api/trivia/round-files/<type>`
+- [x] REG title-card listing/preview/download work without SharePoint
+- [x] `/sharepoint-status` reports `mode='local'` cleanly
+- [x] `/reg-next-number/{category}` increments based on local files + DB
+
+### Phase 4-9 — see per-phase plans created when reached.
 
 ## Sub-agent strategy
 
