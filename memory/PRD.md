@@ -71,16 +71,20 @@ features behind an active subscription.
 - **2026-02** — Phase 7 (SharePoint Hybrid Sync): `SyncService` engine,
   `/api/native/sync/{status,plan,pull,push}`, premium-gated by
   `cloud_sync_enabled`, MontyDB `sync_state` persistence, dev fixture via
-  `BIGHAT_SYNC_REMOTE_FIXTURE`. Testing agent: **22/22 + 108/108 regression
-  = 130/130**.
+  `BIGHAT_SYNC_REMOTE_FIXTURE`. Testing agent: 22/22 + 108/108 regression
+  = 130/130.
+- **2026-02** — Phase 8 (Admin + Hardening): `/api/native/admin/{users,
+  license/seats,whoami}`, master-admin-only JWT gate, user CRUD + role
+  promotion + password reset, seat rename + revoke, `TournamentCreate`
+  `len(teams)+bye_count==total_teams` validation, `TournamentAdvance`
+  Pydantic body. Testing agent: **30/30 + 130/130 regression = 160/160**.
 
 ## Roadmap (P0/P1/P2 features remaining)
-- **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game engine — the last P1)
-- **P2 — Phase 8: Admin** (user mgmt, license seats, sub-admin promotion,
-  plus the accumulated reviewer notes: split big route files, validate
-  `TournamentCreate.total_teams`, document `/advance` body shape, optional
-  hash-based sync diff)
-- **P3 — Phase 9: Packaging** (VBS installers, native launcher, build script)
+- **P1 — Phase 4: Music Bingo** (lobby + host + audience views, full game
+  engine — the last P1 remaining)
+- **P3 — Phase 9: Packaging** (VBS installers, native launcher, build script,
+  plus a few deferred Phase 8 polish items: `_require_master_admin` setter,
+  `match_not_found` on `/advance`)
 
 ## Test credentials
 See `/app/memory/test_credentials.md`. Native master admin:

@@ -1,23 +1,24 @@
 # Current State
 
-**Active phase:** 7 — SharePoint Hybrid Sync (✅ complete; **130/130** tests via testing agent)
+**Active phase:** 8 — Admin + Hardening (✅ complete; **160/160** tests via testing agent)
 
 **Last completed work:**
-- Phase 7 — SharePoint Hybrid Sync: 22/22 new tests + 108/108
-  Phase 2+3+5+6 regression = **130/130 passed**
-  (`/app/test_reports/iteration_8.json`,
-  `/app/backend/tests/test_phase7_sync_native.py`).
-- `backend/native/sync_service.py` + `sync_router.py`;
-  `/api/native/sync/{status,plan,pull,push}` — plan/pull/push premium-gated
-  by `cloud_sync_enabled`; status always free.
-- `BIGHAT_SYNC_REMOTE_FIXTURE` env var in `/app/backend/.env` points to
-  `/app/backend/native/data/cloud_fixture` for dev testing without real
-  SharePoint creds.
-- `db.sync_state` persists `last_pull` + `last_push` summaries.
-- Phase 0/0.5/1/2/3/5/6 unchanged.
+- Phase 8 — Admin + Hardening: 30/30 new tests + 130/130 Phase
+  2+3+5+6+7 regression = **160/160 passed**
+  (`/app/test_reports/iteration_9.json`,
+  `/app/backend/tests/test_phase8_admin_native.py`).
+- New `backend/native/admin_router.py` — master-admin-only UI:
+  `/api/native/admin/{users,license/seats,whoami}`. User CRUD with
+  role promotion, password reset; seat rename/revoke with
+  current-device protection. Master admin cannot be
+  deleted/demoted/seat-revoked.
+- Scoreboard hardening: `TournamentCreate` validates
+  `len(teams) + bye_count == total_teams`; `/tournaments/{id}/advance`
+  now takes a `TournamentAdvance` Pydantic body.
+- Phase 0/0.5/1/2/3/5/6/7 unchanged.
 
 **Next action:** user to choose Phase 4 (Music Bingo — the last P1) or
-Phase 8 (Admin + accumulated code-review hardening) or Phase 9 (Packaging).
+Phase 9 (Packaging + small polish carry-overs from Phase 8).
 
 **Then Phase 3 (Round Maker):** swap PPTX-round generator service to use the
 asset factory + MontyDB, and route generated rounds back into the native

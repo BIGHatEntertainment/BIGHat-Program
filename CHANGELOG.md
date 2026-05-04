@@ -3,6 +3,95 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 8 (Admin + Hardening) ✅ — backend testing agent verified 30/30 + 130/130 regression = **160/160**
+
+### What shipped
+Master-admin-only surface for managing sub-admins, hosts, passwords, and
+license seats, plus two reviewer-flagged hardening items on the scoreboard
+tournament models.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/native/admin_router.py` | `/api/native/admin/{users,license/seats,whoami}`. Every endpoint carries `Depends(_require_master_admin)` which imports `get_current_user` from `server.py` at request time (avoids a circular at module load). `UserCreate`, `UserUpdate`, `SeatLabel` Pydantic models. `_mirror_to_db` keeps `db.users` in sync with `system_config.json -> users[]` so the native auth bridge sees the same user data the admin UI writes. |
+| `backend/tests/test_phase8_admin_native.py` | 30 pytest cases covering auth, validation, promotion, demotion, password reset, master-protection rules, seat listing/renaming/revoke, and tournament validation. |
+
+### New endpoints (all require `master_admin` JWT)
+- `GET  /api/native/admin/users` — list all users
+- `POST /api/native/admin/users` — create sub-admin (`role: admin`) or host (`role: host`)
+- `PUT  /api/native/admin/users/{id}` — update name / role / password / phone / enabled
+- `DELETE /api/native/admin/users/{id}` — remove user (refuses for master)
+- `GET  /api/native/admin/license/seats` — seat roster + current-hwid flag
+- `PUT  /api/native/admin/license/seats/{hwid}/label` — rename a seat
+- `DELETE /api/native/admin/license/seats/{hwid}` — revoke seat (blocked for current device)
+- `GET  /api/native/admin/whoami` — current master-admin snapshot
+
+### Modified files
+- `backend/server.py`: registers `admin_router` alongside `sync_router`
+  with `prefix="/api"`.
+- `backend/routes/scoreboard.py`:
+  - `TournamentCreate` now carries `@field_validator` + `@model_validator`
+    enforcing `len(teams) + bye_count == total_teams` (when `teams`
+    non-empty). `total_teams >= 1`, `bye_count >= 0`.
+  - New `TournamentAdvance` Pydantic model with required `match_id` +
+    `winner_seed` and optional `score_a` / `score_b`. `/advance` handler
+    now takes this typed body instead of `Dict[str, Any] = Body(...)`, so
+    missing fields surface as proper 422s and the API docs now describe
+    the expected shape.
+  - Imports `field_validator, model_validator` from pydantic.
+
+### Design notes
+- **Dual-store users.** Native-mode users live in `system_config.json` as
+  source-of-truth and mirror into MontyDB `db.users` for the rest of the
+  webapp (auth/me, role checks, employee lookups). `_mirror_to_db` is
+  idempotent and preserves the native-bridge contract.
+- **Role vocabulary stays tight.** The API accepts `admin` and `host` only
+  for the `role` field on create/update. `master_admin` is allocated
+  exactly once by the setup wizard and cannot be assigned through the
+  admin endpoints. `is_admin` is derived from `role` so clients don't need
+  to pass both.
+- **Lockout prevention.** The master admin cannot be demoted, deleted, or
+  have their seat revoked — all three paths return HTTP 400.
+- **Seat renaming** keeps `registered_at` intact so the UI can show both
+  "first registered" and "last renamed" timestamps.
+
+### Verified end-to-end (testing agent, 30/30 Phase 8)
+- Unauth → 401; non-master JWT → 403 `master_admin_required`; master JWT
+  → 200.
+- Validation 422s on invalid role (`god`), malformed email, password < 6
+  chars. Duplicate email → 409.
+- Promotion host → admin (is_admin flips true), demotion admin → host
+  (is_admin flips false).
+- Password reset propagates: new password immediately works via
+  `/api/auth/login` (native bridge picks up the updated hash).
+- Master protection: delete master → 400 `cannot_delete_master_admin`;
+  demote master → 400 `cannot_demote_master_admin`; revoke current HWID
+  seat → 400 `cannot_revoke_current_device`.
+- Seat rename round-trip; unknown HWID revoke → 404.
+- Tournament validation: `total_teams=8, bye_count=0, teams=[A,B]` →
+  422 with expected error string; valid 4-team bracket → 200; empty-teams
+  pre-seeded 12-team bracket → 200 (empty teams are explicitly allowed).
+- `/tournaments/{id}/advance` empty body → 422 listing `match_id` +
+  `winner_seed` missing; proper body → 200 with `bracket_state.last_updated`
+  populated.
+- All 9 public regression endpoints 200; prior-phase pytest suites
+  (phase 2, 3, 5, 6, 7) = 130/130 unchanged.
+
+### Reviewer observations (non-blocking, documented)
+- `_require_master_admin` imports `server.get_current_user` at request
+  time. Works, but creates a runtime import coupling that a proper
+  `set_current_user_resolver` setter would break cleanly. Defer to
+  Phase 9.
+- `TournamentAdvance` handler silently no-ops when `match_id` isn't in
+  `bracket_state.matches` but still bumps `last_updated`. Consider a
+  404 `match_not_found` for clearer UX.
+- `config_manager.save_config()` writes synchronously per request;
+  acceptable at single-user scale, revisit if rename-seat UX ever
+  batches many writes.
+
+---
+
+
 ## 2026-02 — Phase 7 (SharePoint Hybrid Sync) ✅ — backend testing agent verified 22/22 + 108/108 regression = **130/130**
 
 ### What shipped

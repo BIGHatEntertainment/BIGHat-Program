@@ -85,6 +85,27 @@
 
 - [x] `/sharepoint/file/{file_id:path}` serves JSON with path-traversal guard
 - [x] `/exports/upload`, `/exports/image-to-video`, `/generate-video` premium-gated
+
+### Phase 7 (SharePoint Hybrid Sync) — DONE:
+- [x] `SyncService` engine, pull/push/plan/status
+- [x] Premium-gated by `cloud_sync_enabled`
+- [x] MontyDB `sync_state` persistence
+- [x] Path traversal guard
+- [x] Dev fixture via `BIGHAT_SYNC_REMOTE_FIXTURE`
+- [ ] Frontend: "Last synced" pill + Sync Now button
+- [ ] Optional hash-based diff mode
+
+### Phase 8 (Admin + Hardening) — DONE:
+- [x] `/api/native/admin/users` master-admin-only CRUD
+- [x] Role promotion / demotion with is_admin derivation
+- [x] Password reset propagates via native bridge
+- [x] Master protection (delete/demote/revoke-current)
+- [x] License seat rename + revoke
+- [x] `TournamentCreate` validates `len(teams)+bye_count==total_teams`
+- [x] `TournamentAdvance` Pydantic body with proper 422s
+- [ ] `/advance` 404 on unknown match_id
+- [ ] `_require_master_admin` setter-based wiring (decoupling)
+
 - [x] `/api/scoreboard/status` exposes mode + subscription + local counts
 - [x] Pre-existing F821 on `/exports/upload.ext` fixed
 - [ ] Frontend conditionally shows upgrade banner when `status.video_export_available=false`
