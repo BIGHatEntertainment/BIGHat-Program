@@ -19,11 +19,26 @@ MAX_CHUNK_SIZE_BYTES = MAX_CHUNK_SIZE_MB * 1024 * 1024
 
 
 class GridFSService:
-    """Service for storing and retrieving large slide data using GridFS"""
-    
-    def __init__(self, db: AsyncIOMotorDatabase):
+    """Service for storing and retrieving large slide data using GridFS.
+
+    In native mode the database is a MontyDB shim (no GridFS). We swap in
+    `NativeGridFSBucket`, which has the same async surface but persists blobs
+    inside a regular SQLite-backed collection.
+    """
+
+    def __init__(self, db):
         self.db = db
-        self.fs = AsyncIOMotorGridFSBucket(db, bucket_name='slides')
+        # Detect native MontyDB-backed db: it has no `command` method that
+        # supports GridFS, but more directly — we check the class name to
+        # avoid heavyweight imports.
+        is_native = type(db).__name__ == "AsyncMontyDatabase"
+        if is_native:
+            from native.gridfs_shim import NativeGridFSBucket
+
+            self.fs = NativeGridFSBucket(db, bucket_name='slides')
+            logger.info("[NATIVE-MODE] GridFSService using SQLite blob store")
+        else:
+            self.fs = AsyncIOMotorGridFSBucket(db, bucket_name='slides')
     
     async def store_slides(self, presentation_id: str, slides: List[Dict], metadata: Optional[Dict] = None) -> Dict:
         """
@@ -295,8 +310,15 @@ class GridFSService:
                     file_id = chunk_info.get('file_id')
                     if file_id:
                         try:
-                            from bson import ObjectId
-                            await self.fs.delete(ObjectId(file_id))
+                            # In native mode `file_id` is a str UUID; in webapp
+                            # mode it is an ObjectId hex. Try ObjectId first,
+                            # fall back to the raw string.
+                            try:
+                                from bson import ObjectId
+                                target = ObjectId(file_id)
+                            except Exception:
+                                target = file_id
+                            await self.fs.delete(target)
                             deleted_count += 1
                             logger.info(f"  Deleted chunk file: {file_id}")
                         except Exception as chunk_err:

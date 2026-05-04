@@ -34,7 +34,15 @@ DEFAULT_CONFIG_PATH = Path(
 )
 
 
+def _default_data_root() -> str:
+    return os.environ.get(
+        "BIGHAT_DATA_ROOT",
+        str(Path(__file__).parent / "data"),
+    )
+
+
 def _default_config() -> Dict[str, Any]:
+    _root = _default_data_root()
     return {
         "schema_version": 1,
         "setup_complete": False,
@@ -42,10 +50,10 @@ def _default_config() -> Dict[str, Any]:
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
         "paths": {
-            "data_root": os.environ.get("BIGHAT_DATA_ROOT", "./data"),
-            "local_trivia": os.environ.get("BIGHAT_TRIVIA_DIR", "./data/trivia"),
-            "assets": os.environ.get("BIGHAT_ASSETS_DIR", "./data/assets"),
-            "generated": os.environ.get("BIGHAT_GENERATED_DIR", "./data/generated"),
+            "data_root": _root,
+            "local_trivia": os.environ.get("BIGHAT_TRIVIA_DIR", str(Path(_root) / "trivia")),
+            "assets": os.environ.get("BIGHAT_ASSETS_DIR", str(Path(_root) / "assets")),
+            "generated": os.environ.get("BIGHAT_GENERATED_DIR", str(Path(_root) / "generated")),
         },
         "settings": {
             "company_name": "BIG Hat Entertainment",

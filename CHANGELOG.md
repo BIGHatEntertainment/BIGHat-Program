@@ -3,6 +3,48 @@
 Append-only. Newest at top.
 
 ---
+## 2026-02 — Phase 2 (Trivia Core SQLite Swap) — backend pieces ready, awaiting integration testing
+
+### What shipped
+Trivia routes (presenter editor, viewer, importer, slide cache) now run
+entirely on SQLite + the local file system in native mode. SharePoint is
+still reachable but only when (a) `BIGHAT_NATIVE_MODE=1`, (b) the user has
+an active premium subscription with `sharepoint_enabled=true`, and (c)
+`settings.trivia_source == "cloud"`. Otherwise every asset comes from the
+local data root.
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/native/gridfs_shim.py` | `NativeGridFSBucket` — drop-in replacement for `AsyncIOMotorGridFSBucket` against an `AsyncMontyDatabase`. Stores blobs base64-encoded inside a regular `slides_files` collection. Exposes `upload_from_stream`, `find`, `delete`, `open_download_stream` with the same async surface motor uses. |
+| `backend/native/local_asset_service.py` | `LocalAssetService` — file-system mirror of the small `SharePointService` API used by trivia routes. Reads from `paths.assets` in `system_config.json` (default `/app/backend/native/data/assets`). Returns Graph-driveItem-shaped dicts so call sites don't need to change. |
+| `backend/native/asset_factory.py` | `get_asset_service()` returns `SharePointService` only when `can_use_cloud()` is true (premium + sharepoint_enabled + trivia_source=cloud), otherwise `LocalAssetService`. `reset_cache()` for tests/config reload. |
+
+### Modified files
+- `backend/sharepoint_service.py`: `SharePointService.__new__` now consults `native.asset_factory.can_use_cloud()` and transparently returns a `LocalAssetService` instance when the answer is no. Effect: every existing `SharePointService()` call site in the codebase (~20 of them across trivia, schedule, story generator, slide_fetcher, overlays, presentations) routes to disk in native+local mode without code changes — and importantly, no longer crashes on missing `AZURE_*` env vars.
+- `backend/gridfs_service.py`: `GridFSService.__init__` detects `AsyncMontyDatabase` and instantiates `NativeGridFSBucket` instead of `AsyncIOMotorGridFSBucket`. `delete_presentation_slides` now tolerates string-UUID file ids (native) as well as `ObjectId` (motor).
+- `backend/routes/trivia.py`: `/rounds`, `/rounds/{mc,reg,misc,mys,big}`, `/round-files/{type}` short-circuit through `_list_local_round_files` when `_is_local_mode()` returns true. The 180-day round-usage lockout filter still runs against MontyDB.
+- `backend/native/config.py`: `paths.{data_root, local_trivia, assets, generated}` defaults are now absolute (`/app/backend/native/data/...`) so the asset folder doesn't depend on backend cwd. Existing `system_config.json` was updated in place to absolute paths.
+
+### New on-disk seed (dev container only)
+`/app/backend/native/data/assets/01_Trivia/Web App/00_Builder/` populated
+with placeholder hosts, locations, sponsors, and round (.pptx) files so the
+local asset endpoints return non-empty arrays during testing.
+
+### Verified (curl + direct python)
+- `/api/trivia/hosts`, `/locations`, `/sponsors`, `/rounds`, `/rounds/mc`, `/round-files/mc` all return seed data in native local mode (no SharePoint creds needed)
+- GridFS round-trip: `gridfs.store_slides(...)` → `find_one(slides_metadata)` → `chunk_data['slides']` matches input. Verified through both `/api/trivia-import/slides-metadata/{id}` and `/api/trivia-import/slides/{id}` endpoints
+- Subscription toggle (`POST /api/native/subscription` active=true/false) does not crash trivia routes; cloud is only attempted when settings.trivia_source=cloud + sharepoint_enabled
+- Schedule + auth + presentations CRUD still pass (no regression)
+
+### Known issues fixed during Phase 2
+- **Default asset path was relative (`./data/assets`)** so the LocalAssetService root depended on backend cwd, which silently differed between supervisor (`/app/backend`) and python repl scripts (`/app`). Fixed by making `_default_data_root()` resolve against the native module's directory and updating the live `system_config.json` to absolute paths. (See ERRORS.md 2026-02 06:55)
+- **`SharePointService()` raised `KeyError: AZURE_TENANT_ID`** in native mode because every callsite still ran the original `__init__`. Fixed via `__new__` swap that returns `LocalAssetService` before `__init__` executes. The check is gated on `can_use_cloud()` so webapp mode is unaffected.
+- **`bson.ObjectId(file_id)` crashed in `GridFSService.delete_presentation_slides`** when `file_id` was a string UUID (native). Fixed by trying `ObjectId(file_id)` first then falling back to the raw string before calling `fs.delete()`.
+
+---
+
+
 
 ## 2025-07 — Phase 1 (Schedule SQLite Swap) ✅ — backend testing agent verified 29/30
 

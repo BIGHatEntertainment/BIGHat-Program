@@ -13,7 +13,26 @@ logger = logging.getLogger(__name__)
 SHAREPOINT_TIMEOUT = (30, 120)  # 30s connect, 120s read
 
 class SharePointService:
+    def __new__(cls, *args, **kwargs):
+        """In native mode without an active premium 'sharepoint_enabled' flag,
+        transparently return a LocalAssetService so all callers stop hitting
+        the cloud and read from the local asset folder instead.
+        """
+        try:
+            from native.asset_factory import can_use_cloud  # local import to avoid cycles
+
+            if not can_use_cloud():
+                from native.local_asset_service import LocalAssetService
+
+                return LocalAssetService()
+        except Exception:
+            # If native is unavailable for any reason, fall through to the real
+            # SharePoint init below (webapp mode behaviour).
+            pass
+        return super().__new__(cls)
+
     def __init__(self):
+        # When __new__ returned a LocalAssetService, Python skips __init__ here.
         # Require environment variables - no hardcoded fallbacks for security
         self.tenant_id = os.environ['AZURE_TENANT_ID']
         self.client_id = os.environ['AZURE_CLIENT_ID']

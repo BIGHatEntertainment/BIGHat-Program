@@ -1,0 +1,37 @@
+{
+  "summary": "Phase 2 (Trivia Core) backend native-mode testing complete. 37/37 pytest tests pass covering native boot, master admin auth, trivia local asset endpoints, presentation CRUD on SQLite, GridFS shim round-trip, premium subscription gate, schedule regression, native foundation, and on-disk SQLite collection layout. All acceptance criteria from the review request are met.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2_trivia_native.py",
+    "/app/test_reports/pytest/phase2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/trivia.py is ~600 lines with heavy duplication across /rounds/{mc,reg,misc,mys,big} handlers — collapse into one parametrised helper to reduce DRY violations and ease future changes.",
+    "gridfs_service.py detects native MontyDB via type(db).__name__ == 'AsyncMontyDatabase' (string class-name check). Works, but brittle; prefer isinstance against an imported class or a capability flag.",
+    "routes/trivia.py still references the sync `requests` library inside an async endpoint (get_round_files_by_type sub-folder path, line ~537). Not exercised in native mode, but in cloud mode it blocks the event loop — wrap with httpx/async or run_in_executor.",
+    "routes/presentations.py get_presentations loops and re-dumps through Presentation(**p) — works but swallows validation errors silently with a bare except Exception. Log at least at debug level.",
+    "Local-mode round-files filter builds `location_regex` from user input without a length guard — low risk since it's authenticated + re-escaped, but worth a short assertion."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase2_trivia_native.py"
+  ],
+  "success_rate": {
+    "backend": "100% (37/37)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "master@bighat.local / BigHat2024! (from /app/memory/test_credentials.md). Token returned in login response body.",
+  "seed_data_creation": "Tests seed a transient presentation + 3-slide GridFS blob via gridfs_service.store_slides, then clean up via /api/trivia-import/clear-cache and DELETE /api/presentations. Schedule tests create one TEST_phase2_event and delete it. Premium subscription is toggled on and then off in a single test; final state verified as active=false, sharepoint_enabled=false.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Pytest suite lives at /app/backend/tests/test_phase2_trivia_native.py and can be rerun end-to-end (it is idempotent and cleans up after itself). BASE_URL is read from /app/frontend/.env. The GridFS direct-seed test imports `native.db_factory` and `gridfs_service` in-process; the shim writes are visible to the backend server because both sides hit the same MontyDB SQLite files on disk. If auth changes (token field name or cookie-only), adjust the auth fixture — currently it supports both 'token' and 'access_token' keys plus falls back to cookies. Subscription state is left OFF at end of suite so downstream tests see default local mode.",
+  "rca of the issue": "No failures observed. Verified: (a) Native boot reports native_mode=true and trivia_source=local; (b) /api/auth/login with master creds returns 200 + role=master_admin on /auth/me; (c) trivia/hosts, locations, sponsors, rounds/mc, rounds/reg, round-files/mc, round-files/reg each return non-empty JSON arrays from the seeded asset tree at /app/backend/native/data/assets; (d) /api/trivia/rounds union contains MC and REG entries; (e) presentation CRUD writes to /app/backend/native/data/bighat_db/test_database/presentations.collection; (f) GridFSService.store_slides(presentation_id, [...]) via NativeGridFSBucket produces hasGridFSSlides:true with correct totalSlides, /slides returns the original array, /chunk/0 returns 200, and DELETE /clear-cache flips hasGridFSSlides back to false; (g) Premium toggle ON with sharepoint_enabled=true but trivia_source=local still serves local hosts (gate logic correct); subscription reset OFF afterwards; (h) /api/venues, /api/events CRUD all succeed with SQLite persistence (no Mongo writes); (i) /api/native/info|setup/status|license|hwid|subscription all 200; (j) Required SQLite collection files present on disk including slides_files + slides_metadata after GridFS write."
+}

@@ -46,10 +46,13 @@
 - [ ] Existing webapp Mongo schedule code is shimmed via dual-write or replaced cleanly
 
 ### Phase 2 (Trivia) — DONE when:
-- [ ] Presentations stored in SQLite (slides as JSON blob)
-- [ ] PPTX import works against local C:\BIG Hat\data\trivia
-- [ ] Editor saves and loads slides
-- [ ] Presenter renders slides + overlays + TV view
+- [x] Presentations stored in SQLite (slides as JSON blob via MontyDB)
+- [x] Native GridFS shim — slide cache reads/writes against SQLite blob store
+- [x] Trivia round/host/location/sponsor lookup served from local file system in native mode (no SharePoint creds required)
+- [x] Asset factory transparently swaps SharePoint ↔ Local based on premium subscription + trivia_source flag
+- [ ] PPTX-to-image conversion verified end-to-end against a real .pptx in the native asset root (dev container only has placeholder zero-byte files)
+- [ ] Editor saves and loads slides via UI smoke test
+- [ ] Presenter renders slides + overlays + TV view via UI smoke test
 
 ### Phase 3-9 — see per-phase plans created when reached.
 

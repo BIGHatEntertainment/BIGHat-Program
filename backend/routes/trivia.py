@@ -17,6 +17,49 @@ def set_database(database):
     db = database
 
 
+# ----- Local-mode helpers -----
+_LOCAL_ROUND_FOLDER_MAP = {
+    'mc':   '01_Trivia/Web App/00_Builder/01_Rounds/01_MC',
+    'reg':  '01_Trivia/Web App/00_Builder/01_Rounds/02_REG',
+    'misc': '01_Trivia/Web App/00_Builder/01_Rounds/03_MISC',
+    'mys':  '01_Trivia/Web App/00_Builder/01_Rounds/04_MYS',
+    'big':  '01_Trivia/Web App/00_Builder/01_Rounds/05_BIG',
+}
+
+
+def _is_local_mode() -> bool:
+    """True when the asset factory will hand back a LocalAssetService."""
+    try:
+        from native.asset_factory import can_use_cloud
+        return not can_use_cloud()
+    except Exception:
+        return False
+
+
+def _list_local_round_files(round_type: str) -> List[Dict[str, str]]:
+    """List .pptx files in the conventional local round folder."""
+    folder = _LOCAL_ROUND_FOLDER_MAP.get(round_type.lower())
+    if not folder:
+        return []
+    sp = SharePointService()  # transparently swapped to LocalAssetService
+    items = sp.list_folder_contents(folder)
+    rounds: List[Dict[str, str]] = []
+    for item in items:
+        if item.get('file') and item['name'].endswith('.pptx'):
+            rounds.append({
+                'id': item['id'],
+                'name': item['name'].replace('.pptx', ''),
+                'path': item['id'],
+                'type': round_type.upper(),
+                'driveId': 'local',
+                'itemId': item['id'],
+                'displayName': item['name'].replace('.pptx', ''),
+                'folder': round_type.upper(),
+                'sharingUrl': '',
+            })
+    return rounds
+
+
 @router.get("/hosts")
 async def get_hosts() -> List[Dict[str, str]]:
     """Get list of available hosts from SharePoint"""
@@ -67,6 +110,11 @@ async def get_locations() -> List[Dict[str, str]]:
 @router.get("/rounds")
 async def get_all_rounds() -> List[Dict[str, str]]:
     """Get all available rounds from all types using dedicated folders"""
+    if _is_local_mode():
+        out: List[Dict[str, str]] = []
+        for rt in _LOCAL_ROUND_FOLDER_MAP.keys():
+            out.extend(_list_local_round_files(rt))
+        return sorted(out, key=lambda x: (x['type'], x['name']))
     try:
         sp = SharePointService()
         
@@ -103,6 +151,8 @@ async def get_all_rounds() -> List[Dict[str, str]]:
 @router.get("/rounds/mc")
 async def get_mc_rounds() -> List[Dict[str, str]]:
     """Get Multiple Choice round folders from dedicated folder"""
+    if _is_local_mode():
+        return _list_local_round_files('mc')
     try:
         sp = SharePointService()
         sharing_url = ROUND_FOLDER_URLS['mc']
@@ -142,6 +192,8 @@ async def get_mc_rounds() -> List[Dict[str, str]]:
 @router.get("/rounds/reg")
 async def get_reg_rounds() -> List[Dict[str, str]]:
     """Get General (REG) round folders from dedicated folder"""
+    if _is_local_mode():
+        return _list_local_round_files('reg')
     try:
         sp = SharePointService()
         sharing_url = ROUND_FOLDER_URLS['reg']
@@ -180,6 +232,8 @@ async def get_reg_rounds() -> List[Dict[str, str]]:
 @router.get("/rounds/misc")
 async def get_misc_rounds() -> List[Dict[str, str]]:
     """Get Specific (MISC) round folders from dedicated folder"""
+    if _is_local_mode():
+        return _list_local_round_files('misc')
     try:
         sp = SharePointService()
         sharing_url = ROUND_FOLDER_URLS['misc']
@@ -218,6 +272,8 @@ async def get_misc_rounds() -> List[Dict[str, str]]:
 @router.get("/rounds/mys")
 async def get_mys_rounds() -> List[Dict[str, str]]:
     """Get Mystery (MYS) round folders from dedicated folder"""
+    if _is_local_mode():
+        return _list_local_round_files('mys')
     try:
         sp = SharePointService()
         sharing_url = ROUND_FOLDER_URLS['mys']
@@ -256,6 +312,8 @@ async def get_mys_rounds() -> List[Dict[str, str]]:
 @router.get("/rounds/big")
 async def get_big_rounds() -> List[Dict[str, str]]:
     """Get BIG Question round folders from dedicated folder"""
+    if _is_local_mode():
+        return _list_local_round_files('big')
     try:
         sp = SharePointService()
         sharing_url = ROUND_FOLDER_URLS['big']
@@ -403,6 +461,31 @@ async def get_round_files_by_type(round_type: str, location: Optional[str] = Non
         round_type: One of 'mc', 'reg', 'misc', 'mys', 'big'
         location: Optional location path to filter out recently used files
     """
+    if _is_local_mode():
+        # Local-mode short-circuit — list from disk and apply 180-day lockout
+        all_files = _list_local_round_files(round_type)
+        if location and db is not None and all_files:
+            from datetime import timedelta
+            import re as re_mod
+            now = datetime.utcnow()
+            cutoff_dt = now - timedelta(days=180)
+            cutoff_iso = cutoff_dt.isoformat()
+            loc_name = location.split('/')[-1] if '/' in location else location
+            loc_name_clean = re_mod.sub(r'^\d+_', '', loc_name)
+            location_regex = f'({re_mod.escape(loc_name)}|{re_mod.escape(loc_name_clean)})'
+            try:
+                used_records = await db.round_usage.find({
+                    'location': {'$regex': location_regex, '$options': 'i'},
+                    '$or': [
+                        {'usedDate': {'$gte': cutoff_dt}},
+                        {'usedDate': {'$gte': cutoff_iso}},
+                    ]
+                }).to_list(5000)
+            except Exception:
+                used_records = []
+            used_names = {(u.get('roundFileName') or '').lower().strip() for u in used_records}
+            all_files = [f for f in all_files if f['name'].lower().strip() not in used_names]
+        return sorted(all_files, key=lambda x: x['displayName'])
     try:
         sp = SharePointService()
         
