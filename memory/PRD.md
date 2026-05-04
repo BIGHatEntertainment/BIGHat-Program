@@ -95,17 +95,34 @@ features behind an active subscription.
   `BIGHAT_UPDATE_MANIFEST_FIXTURE`, idempotent apply with `?force=true`
   override, launcher `--check` prints pending_apply marker. Testing
   agent: **25/25 + 215/215 regression = 240/240**.
+- **2026-02** — Phase 9.2 (Signed NSIS Windows installer): `scripts/build_installer.py`
+  one-shot orchestrator (assemble payload → download embeddable CPython 3.11.9
+  pinned by sha256 → run `makensis` → optional Authenticode signing via
+  `osslsigncode` / `signtool`), `packaging/installer/bighat-installer.nsi`
+  with Welcome / Directory / Components / InstFiles / Finish pages,
+  upgrade detection + auto-migration of `backend\data\` from prior installs,
+  Programs-and-Features uninstall registration, optional Desktop / Start Menu /
+  Auto-start sections, end-user gets a single self-contained `.exe` (~35 MB
+  with embedded Python). Test suite `test_phase9_2_installer.py` — 14 fast
+  static + payload tests always-on, 2 gated full-compile + signing tests
+  (`BIGHAT_RUN_MAKENSIS=1`). Verified: makensis 0 warnings, full build
+  produces 35 MB `.exe`, osslsigncode self-signed sign + verify pipeline OK.
+  **254/254 tests pass (252 default + 2 gated).**
 
 ## Roadmap (P0/P1/P2 features remaining)
 
-🎉 **All 9 phases + Phase 9.1 shipped — native transformation feature-complete.**
+🎉 **All 9 phases + 9.1 + 9.2 shipped — native transformation + Windows
+distribution feature-complete.**
 
 ### Optional P3 backlog
+- **macOS native packaging** (`.dmg` via `pkgbuild` / `productbuild`) — next up.
+- **Linux native packaging** (`.deb`, `.AppImage`).
 - Frontend wiring of `/api/native/admin/users` + `/api/native/sync/status`
   + `/api/scoreboard/status` + `/api/story-generator/status` +
   `/api/bingo/status` + `/api/native/updates/status` into a unified
   Settings/Diagnostics page.
-- MSI/NSIS signed Windows installer.
+- Provisioning of a real EV code-signing certificate to remove SmartScreen
+  warnings (signing pipeline already in place; just needs the cert).
 - Audit-log collection for admin actions.
 - Hash-based diff mode for `SyncService` (opt-in).
 - Watchdog auto-refresh on local trivia/bingo asset folder changes.

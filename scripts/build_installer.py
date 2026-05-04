@@ -35,11 +35,14 @@ Typical usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import urllib.request
+import zipfile
 from pathlib import Path
 
 logger = logging.getLogger("build-installer")
@@ -51,6 +54,19 @@ PACKAGING = ROOT / "packaging"
 INSTALLER_NSI = PACKAGING / "installer" / "bighat-installer.nsi"
 DIST = ROOT / "dist"
 PAYLOAD = DIST / "payload"
+CACHE = DIST / ".cache"
+
+# Windows embeddable CPython — pinned for reproducible builds.
+EMBED_PYTHON_VERSION = "3.11.9"
+EMBED_PYTHON_URL = (
+    f"https://www.python.org/ftp/python/{EMBED_PYTHON_VERSION}/"
+    f"python-{EMBED_PYTHON_VERSION}-embed-amd64.zip"
+)
+# Official sha256 from python.org for 3.11.9 amd64 embeddable.
+EMBED_PYTHON_SHA256 = "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
+
+# pip wheel installer (get-pip.py) for bootstrapping pip into the embeddable runtime.
+GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
 # Files / dirs we never ship in the payload.
 PAYLOAD_EXCLUDES = {
@@ -77,6 +93,77 @@ def _safe_rmtree(p: Path) -> None:
         shutil.rmtree(p)
 
 
+def _sha256(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _download(url: str, dest: Path, *, expected_sha256: str | None = None) -> Path:
+    """Download `url` to `dest` (cached). Verifies sha256 if provided."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_file() and expected_sha256 and _sha256(dest) == expected_sha256:
+        print(f"[build-installer] cache hit: {dest.name}")
+        return dest
+    print(f"[build-installer] downloading {url}")
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    with urllib.request.urlopen(url) as r, tmp.open("wb") as f:
+        shutil.copyfileobj(r, f)
+    if expected_sha256:
+        got = _sha256(tmp)
+        if got != expected_sha256:
+            tmp.unlink(missing_ok=True)
+            raise SystemExit(
+                f"[build-installer] sha256 mismatch for {url}\n"
+                f"   expected {expected_sha256}\n   got      {got}"
+            )
+    tmp.replace(dest)
+    return dest
+
+
+def fetch_embeddable_python(target: Path) -> Path:
+    """Download and extract the Windows embeddable CPython distribution into `target`.
+
+    Also un-comments the `import site` line in `python<ver>._pth` so that
+    site-packages installed by pip become importable, and pre-installs pip via
+    get-pip.py so that the bundled launcher can `pip install -r requirements.txt`
+    against this runtime if/when the installer is run on Windows.
+    """
+    if target.is_dir() and (target / "python.exe").is_file():
+        print(f"[build-installer] embeddable Python already staged at {target}")
+        return target
+
+    zip_path = CACHE / f"python-{EMBED_PYTHON_VERSION}-embed-amd64.zip"
+    _download(EMBED_PYTHON_URL, zip_path, expected_sha256=EMBED_PYTHON_SHA256)
+
+    _safe_rmtree(target)
+    target.mkdir(parents=True, exist_ok=True)
+    print(f"[build-installer] extracting embeddable Python -> {target}")
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(target)
+
+    # Enable site-packages so that `pip install` works inside the embeddable runtime.
+    # The file is named e.g. python311._pth; we uncomment the `import site` line.
+    pth_files = list(target.glob("python*._pth"))
+    if not pth_files:
+        raise SystemExit(f"[build-installer] no python*._pth found in {target}")
+    pth = pth_files[0]
+    text = pth.read_text(encoding="utf-8")
+    if "#import site" in text:
+        pth.write_text(text.replace("#import site", "import site"), encoding="utf-8")
+        print(f"[build-installer] enabled `import site` in {pth.name}")
+
+    # Drop get-pip.py next to python.exe so the first-run launcher can bootstrap pip.
+    # We don't run it here (we're not on Windows) but we ship the file so the
+    # post-install step can do `python.exe get-pip.py` once.
+    get_pip = target / "get-pip.py"
+    _download(GET_PIP_URL, get_pip)
+    print(f"[build-installer] staged {get_pip.name} for first-run pip bootstrap")
+    return target
+
+
 def _copy_tree(src: Path, dst: Path, *, exclude_dirs: set[str], exclude_names: set[str] = frozenset()) -> int:
     """Copy `src` into `dst`, skipping any dir whose name is in `exclude_dirs`
     and any top-level dir name in `exclude_names`. Returns file count."""
@@ -97,7 +184,7 @@ def _copy_tree(src: Path, dst: Path, *, exclude_dirs: set[str], exclude_names: s
     return n
 
 
-def assemble_payload(*, python_dir: Path | None, skip_frontend: bool) -> int:
+def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_python: bool) -> int:
     _safe_rmtree(PAYLOAD)
     PAYLOAD.mkdir(parents=True, exist_ok=True)
 
@@ -118,14 +205,18 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool) -> int:
     print(f"[build-installer] payload packaging/: {packaging_files} files")
 
     # python runtime
+    target_py = PAYLOAD / "python"
     if python_dir:
         if not python_dir.is_dir():
             raise SystemExit(f"[build-installer] --python-dir not found: {python_dir}")
-        target = PAYLOAD / "python"
-        n = _copy_tree(python_dir, target, exclude_dirs=PAYLOAD_EXCLUDES)
+        n = _copy_tree(python_dir, target_py, exclude_dirs=PAYLOAD_EXCLUDES)
         print(f"[build-installer] payload python/   : {n} files (from {python_dir})")
-    elif (PAYLOAD / "python").exists():
+    elif target_py.exists() and (target_py / "python.exe").is_file():
         print("[build-installer] payload python/   : pre-staged, leaving alone")
+    elif embed_python:
+        fetch_embeddable_python(target_py)
+        n = sum(1 for _ in target_py.rglob("*") if _.is_file())
+        print(f"[build-installer] payload python/   : {n} files (embeddable {EMBED_PYTHON_VERSION})")
     else:
         print("[build-installer] payload python/   : ABSENT — build will produce a runner-less installer")
         print("[build-installer]                       Pass --python-dir to embed CPython, or pre-stage it.")
@@ -206,7 +297,7 @@ def sign_executable(
             "-in",     str(exe),
             "-out",    str(signed),
         ]
-        print(f"[build-installer] $ osslsigncode sign … (cert hidden)")
+        print("[build-installer] $ osslsigncode sign … (cert hidden)")
         r = subprocess.run(cmd)
         if r.returncode != 0:
             raise SystemExit(f"[build-installer] osslsigncode failed (exit {r.returncode})")
@@ -217,11 +308,17 @@ def sign_executable(
             [tool, "verify", "-in", str(exe)],
             capture_output=True, text=True,
         )
-        # osslsigncode prints to stderr at INFO level; treat exit 0 as ok.
-        if v.returncode == 0:
-            print(f"[build-installer] verify OK")
+        out = (v.stdout or "") + (v.stderr or "")
+        if "Signature verification: ok" in out and "Number of verified signatures: 1" in out:
+            print("[build-installer] verify OK (chain trusted)")
+        elif "self-signed certificate" in out or "Verify error" in out:
+            print("[build-installer] verify: signed correctly, but cert chain not trusted "
+                  "(expected for self-signed dev certs)")
         else:
-            print(f"[build-installer] verify WARNING: {v.stderr.strip().splitlines()[-1] if v.stderr else 'unknown'}")
+            tail = out.strip().splitlines()[-3:] if out.strip() else ["(no output)"]
+            print("[build-installer] verify WARNING:")
+            for line in tail:
+                print(f"                   {line}")
     elif signer == "signtool":
         tool = _which("signtool") or _which("signtool.exe")
         if not tool:
@@ -237,7 +334,7 @@ def sign_executable(
             "/du", "https://bighat.example",
             str(exe),
         ]
-        print(f"[build-installer] $ signtool sign … (cert hidden)")
+        print("[build-installer] $ signtool sign … (cert hidden)")
         r = subprocess.run(cmd)
         if r.returncode != 0:
             raise SystemExit(f"[build-installer] signtool failed (exit {r.returncode})")
@@ -256,6 +353,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="explicit .exe path (default dist/BIGHatStandalone-Setup-<ver>.exe)")
     p.add_argument("--skip-frontend", action="store_true",
                    help="don't run scripts/build_standalone.py for the React bundle")
+    p.add_argument("--no-embed-python", action="store_true",
+                   help=f"skip downloading the embeddable CPython {EMBED_PYTHON_VERSION} runtime")
     p.add_argument("--skip-payload", action="store_true",
                    help="reuse an already-staged dist/payload tree")
     p.add_argument("--skip-makensis", action="store_true",
@@ -278,7 +377,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[build-installer] output : {output}")
 
     if not args.skip_payload:
-        assemble_payload(python_dir=args.python_dir, skip_frontend=args.skip_frontend)
+        assemble_payload(
+            python_dir=args.python_dir,
+            skip_frontend=args.skip_frontend,
+            embed_python=not args.no_embed_python,
+        )
     else:
         print(f"[build-installer] reusing existing payload at {PAYLOAD}")
 
