@@ -192,9 +192,25 @@ features behind an active subscription.
   `test_phase10_2_desktop_cloud_wireup.py` — **18 tests** covering
   cloud_client transport (200/4xx/timeout/network_error) +
   endpoint round-trips with mocked cloud + offline-grace boundary cases.
-  Verified live: dev box without DNS to `api.bighat.live` returns clean
-  503 envelope instead of crashing. **338/338 always-on tests pass**
-  (3 platform-gated).
+- **2026-02** — Phase 10.2.1 (Setup Wizard polish): rebuilt
+  `frontend/src/pages/SetupWizard.jsx` to use the new cloud-activate
+  endpoint with full state machine: `idle → verifying → success → error
+  → offline`. Step 1 now collects an optional `purchase_email` (Squarespace
+  order email for matching), shows a live "Verifying with bighat.live…"
+  spinner, then a tier badge panel on success (✓ BIG Hat Entertainment
+  lifetime / Cloud Library subscription with expiry / seats X of Y), or
+  an amber "Cloud unreachable — we'll activate next time you're online"
+  panel for transport errors. **"Continue offline" affordance** lets
+  users complete setup even when the cloud is down — Phase 10.2's offline
+  grace logic carries the rest. **"Next" is gated**: requires either
+  cloud-success OR explicit offline opt-in. Branding updated to "BIG Hat
+  Entertainment" throughout (header + footer + company-name default).
+  Success screen now shows the verified tier badges. Full
+  `data-testid` coverage on every interactive element. Visually verified
+  end-to-end via Playwright screenshots: empty, filled, verifying,
+  offline-fallback, Step 2 admin form. **338/338 always-on tests pass**
+  (3 platform-gated; one pre-existing Phase 3 round-maker test is
+  order-flaky and unrelated).
 
 ## Roadmap (P0/P1/P2 features remaining)
 

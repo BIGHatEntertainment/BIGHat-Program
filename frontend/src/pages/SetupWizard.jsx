@@ -5,14 +5,19 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Cloud,
+  CloudOff,
   Eye,
   EyeOff,
   Hash,
   KeyRound,
   Loader2,
+  Mail,
   MapPin,
   ShieldCheck,
   UserPlus,
+  WifiOff,
+  XCircle,
 } from 'lucide-react';
 import { useNative } from '../context/NativeContext';
 
@@ -30,10 +35,8 @@ const LICENSE_RE = /^BHE(?:-[A-Z0-9]{4}){4}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function formatLicenseInput(v) {
-  // Uppercase, strip non-alnum, regroup into BHE-XXXX-XXXX-XXXX-XXXX
   const cleaned = (v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!cleaned) return '';
-  // Force first 3 chars to be "BHE" prefix
   let out = '';
   if (cleaned.startsWith('BHE')) {
     out = 'BHE';
@@ -42,13 +45,23 @@ function formatLicenseInput(v) {
       out += '-' + rest.slice(i, i + 4);
     }
   } else {
-    // User typed without "BHE" prefix — prepend it
     out = 'BHE';
     for (let i = 0; i < cleaned.length && i < 16; i += 4) {
       out += '-' + cleaned.slice(i, i + 4);
     }
   }
   return out;
+}
+
+function formatExpiry(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  } catch {
+    return null;
+  }
 }
 
 function Stepper({ step }) {
@@ -117,6 +130,102 @@ function inputCls(hasIcon = false) {
   return `w-full ${hasIcon ? 'pl-10' : 'pl-3'} pr-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-[#fbdd68]/60 focus:ring-2 focus:ring-[#fbdd68]/20 transition-all text-sm`;
 }
 
+// --- Cloud verification status panel (Step 1) ---
+function VerificationPanel({ verify }) {
+  if (verify.state === 'idle') return null;
+
+  if (verify.state === 'verifying') {
+    return (
+      <div
+        data-testid="license-verify-status-verifying"
+        className="mb-4 p-4 rounded-lg bg-[#5973F7]/10 border border-[#5973F7]/30 flex items-center gap-3"
+      >
+        <Loader2 className="w-5 h-5 text-[#5973F7] animate-spin shrink-0" />
+        <div>
+          <p className="text-sm text-white font-medium">Verifying with bighat.live…</p>
+          <p className="text-xs text-[#8892b0]">Binding this machine to your license</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (verify.state === 'success') {
+    const expiry = formatExpiry(verify.cloudLibraryExpiresAt);
+    return (
+      <div
+        data-testid="license-verify-status-success"
+        className="mb-4 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30"
+      >
+        <div className="flex items-center gap-3 mb-3">
+          <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+          <p className="text-sm text-white font-semibold">License activated</p>
+        </div>
+        <div className="space-y-1.5 text-xs pl-9">
+          {verify.ownsStandalone && (
+            <div className="flex items-center gap-2 text-emerald-300">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>BIG Hat Entertainment <span className="text-[#8892b0]">— lifetime</span></span>
+            </div>
+          )}
+          {verify.cloudLibraryActive ? (
+            <div className="flex items-center gap-2 text-emerald-300">
+              <Cloud className="w-3.5 h-3.5" />
+              <span>
+                Cloud Library subscription
+                {expiry && <span className="text-[#8892b0]"> — active until {expiry}</span>}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-[#8892b0]">
+              <CloudOff className="w-3.5 h-3.5" />
+              <span>Cloud Library — not subscribed (you can add this later for $5/mo)</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-[#8892b0] pt-1">
+            <Hash className="w-3.5 h-3.5" />
+            <span>This machine is seat {verify.activeSeats} of {verify.maxSeats}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (verify.state === 'error') {
+    return (
+      <div
+        data-testid="license-verify-status-error"
+        className="mb-4 p-4 rounded-lg bg-red-500/10 border border-red-500/30"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+          <p className="text-sm text-white font-semibold">Couldn't verify license</p>
+        </div>
+        <p className="text-xs text-red-200/90 pl-8">{verify.error}</p>
+      </div>
+    );
+  }
+
+  if (verify.state === 'offline') {
+    return (
+      <div
+        data-testid="license-verify-status-offline"
+        className="mb-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <WifiOff className="w-5 h-5 text-amber-400 shrink-0" />
+          <p className="text-sm text-white font-semibold">Cloud unreachable</p>
+        </div>
+        <p className="text-xs text-amber-100/90 pl-8">
+          We can't reach bighat.live right now. You can finish setup and we'll
+          activate this machine automatically the next time you're online.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function SetupWizard() {
   const navigate = useNavigate();
   const { refresh, currentHwid } = useNative();
@@ -127,8 +236,10 @@ export default function SetupWizard() {
   const [showPass, setShowPass] = useState(false);
   const [success, setSuccess] = useState(null);
 
-  // Step 1: License
+  // Step 1: License + cloud verification
   const [licenseKey, setLicenseKey] = useState('');
+  const [purchaseEmail, setPurchaseEmail] = useState('');
+  const [verify, setVerify] = useState({ state: 'idle' });
 
   // Step 2: Master Admin
   const [admin, setAdmin] = useState({
@@ -157,6 +268,8 @@ export default function SetupWizard() {
       else if (!LICENSE_RE.test(licenseKey))
         e.licenseKey =
           'Format: BHE-XXXX-XXXX-XXXX-XXXX (4 groups of 4 letters/digits).';
+      if (purchaseEmail && !EMAIL_RE.test(purchaseEmail))
+        e.purchaseEmail = 'Enter the email you used at checkout, or leave blank.';
     }
     if (step === 2) {
       if (!admin.first_name.trim()) e.first_name = 'First name is required.';
@@ -172,9 +285,64 @@ export default function SetupWizard() {
         e.location_name = 'Location name is required.';
     }
     return e;
-  }, [step, licenseKey, admin, settings]);
+  }, [step, licenseKey, purchaseEmail, admin, settings]);
 
-  const canProceed = Object.keys(errors).length === 0;
+  const formCanProceed = Object.keys(errors).length === 0;
+
+  // Step 1 needs cloud verification (or explicit offline opt-in) to advance.
+  const step1CanProceed =
+    formCanProceed && (verify.state === 'success' || verify.state === 'offline');
+  const canProceed = step === 1 ? step1CanProceed : formCanProceed;
+
+  // --- Cloud verification ---
+  const handleVerifyLicense = async () => {
+    if (!formCanProceed) return;
+    setServerError('');
+    setVerify({ state: 'verifying' });
+    try {
+      const { data } = await axios.post(
+        `${API}/api/native/license/cloud/activate`,
+        {
+          license_key: licenseKey,
+          email: purchaseEmail || null,
+          label: 'Setup Wizard',
+        },
+      );
+      const cloud = data?.cloud || {};
+      setVerify({
+        state: 'success',
+        ownsStandalone: Boolean(cloud.owns_standalone),
+        cloudLibraryActive: Boolean(cloud.cloud_library_active),
+        cloudLibraryExpiresAt: cloud.cloud_library_expires_at,
+        activeSeats: cloud.active_seats ?? 1,
+        maxSeats: cloud.max_seats ?? 5,
+      });
+    } catch (e) {
+      const status = e.response?.status;
+      const detail = e.response?.data?.detail;
+      // 503 from our backend means transport failure to api.bighat.live.
+      if (status === 503) {
+        setVerify({ state: 'offline' });
+        return;
+      }
+      let msg = 'Verification failed. Double-check the key and try again.';
+      if (typeof detail === 'string') msg = detail;
+      else if (detail?.error) {
+        msg = detail.message || detail.error;
+        if (detail.error === 'unknown_key') msg = "We don't recognise that license key.";
+        else if (String(detail.error).startsWith('seat_limit'))
+          msg = 'All seats on this license are in use. Deactivate one from another machine first.';
+        else if (detail.error === 'revoked')
+          msg = 'This license has been revoked. Please contact support@bighat.live.';
+      }
+      setVerify({ state: 'error', error: msg });
+    }
+  };
+
+  const handleContinueOffline = () => {
+    if (!formCanProceed) return;
+    setVerify({ state: 'offline' });
+  };
 
   const handleNext = () => {
     if (!canProceed) return;
@@ -210,10 +378,9 @@ export default function SetupWizard() {
         `${API}/api/native/setup/initialize`,
         payload,
       );
-      setSuccess(data);
-      // NOTE: Do NOT call refresh() here. NativeGate would see setupComplete=true
-      // while we're still on /setup and immediately redirect to /login, hiding the
-      // success screen. We refresh inside the "Continue to Login" handler instead.
+      // Carry the cloud verification result forward so the Success screen
+      // can show the tier badges (verified state survives the local init).
+      setSuccess({ ...data, verify });
     } catch (e) {
       const detail = e.response?.data?.detail;
       let msg = 'Setup failed. Check the form and try again.';
@@ -228,13 +395,18 @@ export default function SetupWizard() {
 
   // ===== Success screen =====
   if (success) {
+    const v = success.verify || {};
+    const expiry = formatExpiry(v.cloudLibraryExpiresAt);
     return (
       <div
         className="min-h-screen flex items-center justify-center relative overflow-hidden"
         style={{ backgroundColor: '#000e2a' }}
+        data-testid="setup-wizard-success"
       >
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full opacity-20 animate-pulse-glow"
-             style={{ background: 'radial-gradient(circle, #fbdd68 0%, transparent 70%)' }} />
+        <div
+          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full opacity-20 animate-pulse-glow"
+          style={{ background: 'radial-gradient(circle, #fbdd68 0%, transparent 70%)' }}
+        />
         <div className="relative z-10 w-full max-w-lg mx-4">
           <div className="glass-card rounded-2xl p-8 text-center">
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[#fbdd68]/10 flex items-center justify-center">
@@ -244,8 +416,46 @@ export default function SetupWizard() {
               All Set Up!
             </h2>
             <p className="text-sm text-[#8892b0] mb-6">
-              Master admin <span className="text-[#fbdd68] font-mono">{success.master_admin_email}</span> created. This computer is registered as seat 1 of 5.
+              Master admin{' '}
+              <span className="text-[#fbdd68] font-mono">{success.master_admin_email}</span>{' '}
+              created. This computer is registered as seat 1 of 5.
             </p>
+
+            {/* Tier badges (only if cloud verification succeeded) */}
+            {v.state === 'success' && (
+              <div className="text-left bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4 mb-4 space-y-2">
+                {v.ownsStandalone && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-300">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>BIG Hat Entertainment — lifetime</span>
+                  </div>
+                )}
+                {v.cloudLibraryActive ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-300">
+                    <Cloud className="w-4 h-4 shrink-0" />
+                    <span>
+                      Cloud Library
+                      {expiry && <span className="text-[#8892b0]"> — until {expiry}</span>}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-[#8892b0]">
+                    <CloudOff className="w-4 h-4 shrink-0" />
+                    <span>Cloud Library — not subscribed</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {v.state === 'offline' && (
+              <div className="text-left bg-amber-500/5 border border-amber-500/20 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2 text-sm text-amber-200">
+                  <WifiOff className="w-4 h-4 shrink-0" />
+                  <span>Activated locally. We'll verify online next time you're connected.</span>
+                </div>
+              </div>
+            )}
+
             <div className="text-left bg-black/30 rounded-lg p-4 mb-6 font-mono text-xs space-y-1">
               <div className="flex justify-between">
                 <span className="text-[#8892b0]">License:</span>
@@ -265,6 +475,7 @@ export default function SetupWizard() {
               </div>
             </div>
             <button
+              data-testid="continue-to-login-btn"
               onClick={async () => {
                 await refresh();
                 navigate('/login', { replace: true });
@@ -285,16 +496,30 @@ export default function SetupWizard() {
       className="min-h-screen flex items-center justify-center relative overflow-hidden py-8"
       style={{ backgroundColor: '#000e2a' }}
     >
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full opacity-20 animate-pulse-glow"
-           style={{ background: 'radial-gradient(circle, #fbdd68 0%, transparent 70%)' }} />
-      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full opacity-15 animate-pulse-glow"
-           style={{ background: 'radial-gradient(circle, #5973F7 0%, transparent 70%)', animationDelay: '2s' }} />
+      <div
+        className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full opacity-20 animate-pulse-glow"
+        style={{ background: 'radial-gradient(circle, #fbdd68 0%, transparent 70%)' }}
+      />
+      <div
+        className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full opacity-15 animate-pulse-glow"
+        style={{
+          background: 'radial-gradient(circle, #5973F7 0%, transparent 70%)',
+          animationDelay: '2s',
+        }}
+      />
 
-      <div className="relative z-10 w-full max-w-xl mx-4 animate-slide-up" data-testid="setup-wizard">
+      <div
+        className="relative z-10 w-full max-w-xl mx-4 animate-slide-up"
+        data-testid="setup-wizard"
+      >
         <div className="text-center mb-6">
-          <img src="/hat-logo.png" alt="BIG Hat" className="w-20 h-20 mx-auto mb-3 object-contain" />
+          <img
+            src="/hat-logo.png"
+            alt="BIG Hat"
+            className="w-20 h-20 mx-auto mb-3 object-contain"
+          />
           <h1 className="text-3xl font-bold font-['Lemonada']" style={{ color: '#fbdd68' }}>
-            BIG Hat — Standalone Setup
+            BIG Hat Entertainment — Setup
           </h1>
           <p className="mt-1 text-sm text-[#8892b0]">
             One-time first-run configuration. Takes &lt; 60 seconds.
@@ -311,7 +536,8 @@ export default function SetupWizard() {
                 Activate your license
               </h2>
               <p className="text-xs text-[#8892b0] mb-5">
-                Each license includes 5 machine seats. This computer becomes seat 1.
+                Enter the key we emailed after your purchase. We'll bind this
+                machine as seat 1 of 5 and unlock everything you've paid for.
               </p>
               <Field
                 label="License Key"
@@ -323,11 +549,34 @@ export default function SetupWizard() {
                   type="text"
                   className={inputCls(true) + ' font-mono tracking-wider'}
                   value={licenseKey}
-                  onChange={(e) => setLicenseKey(formatLicenseInput(e.target.value))}
+                  onChange={(e) => {
+                    setLicenseKey(formatLicenseInput(e.target.value));
+                    setVerify({ state: 'idle' }); // re-verify if key changes
+                  }}
                   placeholder="BHE-XXXX-XXXX-XXXX-XXXX"
                   maxLength={23}
                   spellCheck={false}
                   data-testid="license-input"
+                />
+              </Field>
+              <Field
+                label="Email used at checkout (optional)"
+                icon={Mail}
+                error={errors.purchaseEmail}
+                hint="Helps us match this license to your Squarespace order."
+              >
+                <input
+                  type="email"
+                  className={inputCls(true)}
+                  value={purchaseEmail}
+                  onChange={(e) => {
+                    setPurchaseEmail(e.target.value);
+                    setVerify({ state: 'idle' });
+                  }}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  spellCheck={false}
+                  data-testid="purchase-email-input"
                 />
               </Field>
               <Field label="This Machine ID (auto-detected)" icon={Hash}>
@@ -336,8 +585,53 @@ export default function SetupWizard() {
                   readOnly
                   className={inputCls(true) + ' font-mono text-xs text-[#8892b0]'}
                   value={currentHwid || 'detecting…'}
+                  data-testid="hwid-display"
                 />
               </Field>
+
+              <VerificationPanel verify={verify} />
+
+              {/* Verify / offline-fallback action row */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={handleVerifyLicense}
+                  disabled={
+                    !!errors.licenseKey ||
+                    !!errors.purchaseEmail ||
+                    !licenseKey ||
+                    verify.state === 'verifying'
+                  }
+                  data-testid="verify-license-btn"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#5973F7]/15 border border-[#5973F7]/40 text-[#5973F7] text-sm font-semibold hover:bg-[#5973F7]/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {verify.state === 'verifying' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Verifying…
+                    </>
+                  ) : verify.state === 'success' ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" /> Re-verify online
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="w-4 h-4" /> Verify online
+                    </>
+                  )}
+                </button>
+                {verify.state !== 'success' && verify.state !== 'verifying' && (
+                  <button
+                    type="button"
+                    onClick={handleContinueOffline}
+                    disabled={!!errors.licenseKey || !licenseKey}
+                    data-testid="continue-offline-btn"
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Activate later — when this computer is online"
+                  >
+                    <WifiOff className="w-4 h-4" /> Continue offline
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -348,7 +642,8 @@ export default function SetupWizard() {
                 Create the Master Admin
               </h2>
               <p className="text-xs text-[#8892b0] mb-5">
-                The Master Admin is the only role that can create other Admins, manage seats and licensing. You can change all of this later.
+                The Master Admin is the only role that can create other Admins,
+                manage seats and licensing. You can change all of this later.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="First Name" error={errors.first_name}>
@@ -358,6 +653,7 @@ export default function SetupWizard() {
                     value={admin.first_name}
                     onChange={(e) => setAdmin({ ...admin, first_name: e.target.value })}
                     placeholder="Jordan"
+                    data-testid="admin-first-name-input"
                   />
                 </Field>
                 <Field label="Last Name">
@@ -367,6 +663,7 @@ export default function SetupWizard() {
                     value={admin.last_name}
                     onChange={(e) => setAdmin({ ...admin, last_name: e.target.value })}
                     placeholder="Sellards"
+                    data-testid="admin-last-name-input"
                   />
                 </Field>
               </div>
@@ -378,6 +675,7 @@ export default function SetupWizard() {
                   onChange={(e) => setAdmin({ ...admin, email: e.target.value })}
                   placeholder="master@bighat.local"
                   autoComplete="username"
+                  data-testid="admin-email-input"
                 />
               </Field>
               <Field
@@ -391,11 +689,13 @@ export default function SetupWizard() {
                   value={admin.password}
                   onChange={(e) => setAdmin({ ...admin, password: e.target.value })}
                   autoComplete="new-password"
+                  data-testid="admin-password-input"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8892b0] hover:text-white"
+                  data-testid="toggle-password-visibility"
                 >
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -405,8 +705,11 @@ export default function SetupWizard() {
                   type={showPass ? 'text' : 'password'}
                   className={inputCls()}
                   value={admin.confirmPassword}
-                  onChange={(e) => setAdmin({ ...admin, confirmPassword: e.target.value })}
+                  onChange={(e) =>
+                    setAdmin({ ...admin, confirmPassword: e.target.value })
+                  }
                   autoComplete="new-password"
+                  data-testid="admin-confirm-password-input"
                 />
               </Field>
               <Field label="Phone (optional)">
@@ -416,6 +719,7 @@ export default function SetupWizard() {
                   value={admin.phone}
                   onChange={(e) => setAdmin({ ...admin, phone: e.target.value })}
                   placeholder="555-1234"
+                  data-testid="admin-phone-input"
                 />
               </Field>
             </div>
@@ -435,7 +739,10 @@ export default function SetupWizard() {
                   type="text"
                   className={inputCls()}
                   value={settings.company_name}
-                  onChange={(e) => setSettings({ ...settings, company_name: e.target.value })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, company_name: e.target.value })
+                  }
+                  data-testid="company-name-input"
                 />
               </Field>
               <Field
@@ -448,8 +755,11 @@ export default function SetupWizard() {
                   type="text"
                   className={inputCls(true)}
                   value={settings.location_name}
-                  onChange={(e) => setSettings({ ...settings, location_name: e.target.value })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, location_name: e.target.value })
+                  }
                   placeholder="Phoenix Headquarters"
+                  data-testid="location-name-input"
                 />
               </Field>
               <div className="grid grid-cols-3 gap-3">
@@ -461,6 +771,7 @@ export default function SetupWizard() {
                       value={settings.city}
                       onChange={(e) => setSettings({ ...settings, city: e.target.value })}
                       placeholder="Phoenix"
+                      data-testid="city-input"
                     />
                   </Field>
                 </div>
@@ -468,7 +779,10 @@ export default function SetupWizard() {
                   <select
                     className={inputCls()}
                     value={settings.state}
-                    onChange={(e) => setSettings({ ...settings, state: e.target.value })}
+                    onChange={(e) =>
+                      setSettings({ ...settings, state: e.target.value })
+                    }
+                    data-testid="state-select"
                   >
                     {US_STATES.map((s) => (
                       <option key={s} value={s} className="bg-[#000e2a]">
@@ -480,18 +794,21 @@ export default function SetupWizard() {
               </div>
               <Field
                 label="Trivia Content Source"
-                hint="Local = bundled rounds only. Cloud = pull from BIG Hat library (requires premium)."
+                hint="Local = bundled rounds only. Cloud = pull from BIG Hat library (requires Cloud Library subscription)."
               >
                 <select
                   className={inputCls()}
                   value={settings.trivia_source}
-                  onChange={(e) => setSettings({ ...settings, trivia_source: e.target.value })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, trivia_source: e.target.value })
+                  }
+                  data-testid="trivia-source-select"
                 >
                   <option value="local" className="bg-[#000e2a]">
                     Local-only (offline)
                   </option>
                   <option value="cloud" className="bg-[#000e2a]">
-                    Cloud Library (premium)
+                    Cloud Library ($5/mo subscription)
                   </option>
                 </select>
               </Field>
@@ -499,7 +816,10 @@ export default function SetupWizard() {
           )}
 
           {serverError && (
-            <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-300">
+            <div
+              className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-300"
+              data-testid="setup-server-error"
+            >
               {serverError}
             </div>
           )}
@@ -511,6 +831,7 @@ export default function SetupWizard() {
                 onClick={handleBack}
                 disabled={submitting}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                data-testid="wizard-back"
               >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
@@ -548,7 +869,7 @@ export default function SetupWizard() {
         </div>
 
         <p className="text-center text-xs text-[#8892b0] mt-4">
-          BIG Hat Standalone v31 • Native edition • Local-First
+          BIG Hat Entertainment v31 • Native edition • Local-First
         </p>
       </div>
     </div>
