@@ -1917,6 +1917,39 @@ except Exception as e:
     logger.warning(f"Could not load Native updates router: {e}")
 
 
+# Cloud licensing service (Phase 10.0). Gated by BIGHAT_CLOUD_MODE=1; this is
+# ONLY enabled when the container is deployed as `api.bighat.live`, never when
+# the same codebase runs inside a desktop installer (BIGHAT_NATIVE_MODE=1).
+try:
+    from cloud.config import is_cloud_mode
+    if is_cloud_mode():
+        from cloud.license_store import LicenseStore
+        from cloud.license_service import LicenseService
+        from cloud.email_service import ResendEmailSender
+        from cloud.squarespace_webhook import WebhookHandler
+        from cloud.license_router import router as cloud_router, set_runtime as cloud_set_runtime
+        from cloud.admin_router import router as cloud_admin_router, set_service as cloud_admin_set_service
+
+        _license_store = LicenseStore(db)
+        _license_email = ResendEmailSender()
+        _license_service = LicenseService(_license_store, email_sender=_license_email)
+        _license_webhook = WebhookHandler(_license_service, _license_store)
+        cloud_set_runtime(
+            store=_license_store,
+            service=_license_service,
+            webhook=_license_webhook,
+        )
+        cloud_admin_set_service(_license_service)
+        app.include_router(cloud_router)
+        app.include_router(cloud_admin_router)
+        logger.info("Cloud licensing router registered at /api/license/* + /api/squarespace/webhook "
+                    "(Resend %s)", "enabled" if _license_email.enabled else "DISABLED (no RESEND_API_KEY)")
+    else:
+        logger.info("BIGHAT_CLOUD_MODE != 1; cloud licensing routes NOT registered")
+except Exception as e:
+    logger.warning(f"Could not load Cloud licensing router: {e}")
+
+
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
 try:
     from routes.bingo import manager as bingo_manager

@@ -126,16 +126,46 @@ features behind an active subscription.
   Verified end-to-end on this Linux container: 2318-file `.app` bundle with
   embedded CPython, valid Info.plist, exec-bit launcher, `PkgInfo=APPLBHat`.
   **269/269 always-on tests pass** (3 gated — 2 Windows-NSIS, 1 macOS).
+- **2026-02** — Phase 10.0 (Cloud Licensing Service / SaaS storefront): new
+  `backend/cloud/` package gated by `BIGHAT_CLOUD_MODE=1`. Implements:
+  *(a)* HMAC-verified Squarespace webhook handler (`order.create`,
+  `order.update`, `subscription.cancel`) with idempotent event dedupe;
+  *(b)* unified per-customer license model — one `BHE-XXXX-XXXX-XXXX-XXXX`
+  key carries `owns_standalone` (lifetime $24.99) + `cloud_library_status`
+  ($5/mo subscription, expires_at, auto-extend, auto-cancel);
+  *(c)* `/api/license/activate` HWID binding (max 3 seats standalone, 5
+  with cloud library), `/validate` (7-day cadence + 30-day offline grace),
+  `/deactivate` (move-to-new-machine), `/status/{key}` (public masked view);
+  *(d)* `/api/downloads/{windows|macos}` returns the configured installer
+  URL + version; *(e)* admin router at `/api/license/admin/*` with JWT
+  auth (mint/list/get/revoke keys); *(f)* Resend email integration with
+  HTML+text templates and graceful no-op when `RESEND_API_KEY` missing.
+  Storage: MongoDB collections `license_keys` + `license_webhook_events`.
+  Test suite `test_phase10_0_license_server.py` — **41 in-process tests**
+  covering pure helpers (key gen, masking, signature verification, payload
+  parsing), service-level integration via MontyDB SQLite (mint, idempotent
+  replay, sub-then-standalone unification, seat limits, validate, revoke,
+  deactivate, subscription lifecycle), and FastAPI TestClient integration
+  for public + admin routes (webhook → mint → activate → validate → revoke
+  end-to-end). Setup runbook: `packaging/SAAS_SETUP.md`. **310/310
+  always-on tests pass** (3 platform-gated).
 
 ## Roadmap (P0/P1/P2 features remaining)
 
 🎉 **All 9 phases + 9.1 (auto-update) + 9.2 (Windows installer) + 9.3 (macOS
-.app/.pkg/.dmg) shipped — native transformation + cross-platform distribution
-feature-complete.**
+.app/.pkg/.dmg) + 10.0 (cloud licensing / SaaS storefront) shipped — full
+product-to-customer pipeline operational.**
 
 ### Optional P3 backlog
-- **Linux native packaging** (`.deb`, `.AppImage`) — natural follow-on after
-  macOS.
+- **Phase 10.1**: Wire desktop SetupWizard to actually call
+  `https://api.bighat.live/api/license/activate` in production (currently
+  the desktop license code is local-stub; payloads/contracts already align).
+- **Phase 10.2**: Move installer hosting from Squarespace digital downloads
+  to S3 + CloudFront with signed URLs (better analytics + per-user audit).
+- **Phase 10.3**: Customer Portal — let customers self-serve "deactivate
+  a seat", "view receipts", "redownload installer" on bighat.live (Member
+  Areas + small React widget hitting `/api/license/status/{key}`).
+- **Linux native packaging** (`.deb`, `.AppImage`).
 - Frontend wiring of `/api/native/admin/users` + `/api/native/sync/status`
   + `/api/scoreboard/status` + `/api/story-generator/status` +
   `/api/bingo/status` + `/api/native/updates/status` into a unified
