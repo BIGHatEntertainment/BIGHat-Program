@@ -168,8 +168,33 @@ features behind an active subscription.
   `test_phase10_1_no_secret_leakage.py` — **10 tests** that build real
   Windows/macOS payloads then **byte-grep them for the live `.env` secret
   values** (catches accidental copies under any filename) + verify
-  template safety + first-run JWT generation. **320/320 always-on tests
-  pass** (3 platform-gated).
+  template safety + first-run JWT generation.
+- **2026-02** — Phase 10.2 (Desktop ↔ Cloud licensing wire-up): connects
+  the desktop app's existing Setup Wizard + premium gates to the Phase
+  10.0 cloud license server. New `backend/native/cloud_client.py` —
+  async httpx wrapper (5s timeout, fail-soft on transport errors,
+  tagged-dict responses) for `activate / validate / deactivate / status /
+  downloads`. Three new endpoints in `native/router.py`:
+  `POST /api/native/license/cloud/activate` (Setup Wizard target —
+  validates key locally, calls `api.bighat.live`, mirrors authoritative
+  response into `system_config.json` subscription/feature flags, registers
+  HWID seat); `POST /api/native/license/cloud/validate` (7-day re-check
+  — refreshes cached state on success, preserves cache on transport
+  error); `POST /api/native/license/cloud/deactivate` (move-to-new-machine
+  — frees seat both server-side and locally, even if cloud is unreachable).
+  `is_premium_active()` extended with **30-day offline grace** —
+  cloud-tier features (`cloud_sync_enabled`, `sharepoint_enabled`) honour
+  the last successful cloud snapshot for `OFFLINE_GRACE_DAYS`, then
+  degrade; standalone-tier (`story_generator_enabled` when
+  `owns_standalone=True`) is **NEVER** network-gated so one-time
+  purchasers keep features forever. `BIGHAT_LICENSE_API_BASE_URL` (default
+  `https://api.bighat.live`) now ships in `.env.standalone`. Test suite
+  `test_phase10_2_desktop_cloud_wireup.py` — **18 tests** covering
+  cloud_client transport (200/4xx/timeout/network_error) +
+  endpoint round-trips with mocked cloud + offline-grace boundary cases.
+  Verified live: dev box without DNS to `api.bighat.live` returns clean
+  503 envelope instead of crashing. **338/338 always-on tests pass**
+  (3 platform-gated).
 
 ## Roadmap (P0/P1/P2 features remaining)
 

@@ -967,3 +967,12 @@ credentials.json
 
 # Allow the desktop-safe env template (no secrets, just safe defaults)
 !packaging/.env.standalone
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

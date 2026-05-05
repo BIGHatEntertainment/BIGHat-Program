@@ -26,6 +26,7 @@ from .license import (
     set_license_key,
 )
 from .subscription import get_subscription, set_subscription
+from . import cloud_client
 
 router = APIRouter(prefix="/api/native", tags=["native"])
 
@@ -88,6 +89,16 @@ class SubscriptionUpdateRequest(BaseModel):
 
 class SeatRegisterRequest(BaseModel):
     label: Optional[str] = None
+
+
+class CloudActivateRequest(BaseModel):
+    license_key: str
+    email: Optional[str] = None
+    label: Optional[str] = None
+
+
+class CloudDeactivateRequest(BaseModel):
+    confirm: bool = False
 
 
 def _read_installed_version() -> str:
@@ -223,6 +234,123 @@ async def release_current_seat(hwid: Optional[str] = None):
     if not ok:
         raise HTTPException(status_code=404, detail=msg)
     return {"status": "ok", "message": msg, "license": get_license_status()}
+
+
+# ---------- Cloud-license activation (Phase 10.2) ----------
+def _apply_cloud_response_to_local_state(resp: dict, *, license_key: str, email: Optional[str]) -> None:
+    """Mirror the cloud's authoritative state into `system_config.json` so that
+    `is_premium_active()` and `get_license_status()` return correct values
+    even when offline."""
+    set_license_key(license_key, master_admin_email=email)
+    flags = {
+        "sharepoint_enabled":     bool(resp.get("cloud_library_active")),
+        "story_generator_enabled": bool(resp.get("owns_standalone")),
+        "cloud_sync_enabled":     bool(resp.get("cloud_library_active")),
+    }
+    set_subscription(
+        active=bool(resp.get("owns_standalone") or resp.get("cloud_library_active")),
+        tier=("premium" if resp.get("cloud_library_active")
+              else "standalone" if resp.get("owns_standalone") else "free"),
+        expires_at=resp.get("cloud_library_expires_at"),
+        feature_flags=flags,
+    )
+    # Stash the last cloud snapshot for the offline-grace logic.
+    sub = config_manager.config.setdefault("subscription", {})
+    sub["last_cloud_validated_at"] = datetime.now(timezone.utc).isoformat()
+    sub["revalidate_after"] = resp.get("revalidate_after")
+    sub["owns_standalone"] = bool(resp.get("owns_standalone"))
+    sub["cloud_library_active"] = bool(resp.get("cloud_library_active"))
+    config_manager.save_config()
+
+
+@router.post("/license/cloud/activate")
+async def cloud_activate(payload: CloudActivateRequest):
+    """Online activation: tells `api.bighat.live` to bind this machine's HWID
+    to the supplied license key. Mirrors the cloud's response into local state."""
+    key = payload.license_key.strip().upper()
+    if not is_well_formed_license(key):
+        raise HTTPException(status_code=400, detail="invalid_license_format")
+    hwid = generate_hwid()
+    resp = await cloud_client.activate(
+        license_key=key, hwid=hwid,
+        machine_name=payload.label,
+        email=payload.email,
+    )
+    if not resp.get("ok"):
+        is_transport_err = resp.get("error") in ("timeout", "network_error", "server_error")
+        raise HTTPException(
+            status_code=503 if is_transport_err else 400,
+            detail={
+                "error":      resp.get("error", "cloud_unreachable"),
+                "message":    resp.get("message", ""),
+                "status_code": resp.get("status_code"),
+            },
+        )
+    _apply_cloud_response_to_local_state(resp, license_key=key, email=payload.email)
+    register_seat(label=payload.label or "This computer")
+    return {
+        "status":       "ok",
+        "license":      get_license_status(),
+        "subscription": get_subscription(),
+        "cloud":        resp,
+    }
+
+
+@router.post("/license/cloud/validate")
+async def cloud_validate():
+    """Periodic re-check (UI cron'd at startup + every 7 days). Refreshes
+    local subscription state from the cloud's authoritative truth.
+
+    On transport error we DO NOT raise — the cached state is still honoured
+    via the offline grace window. We surface the error in the payload so
+    the UI can show a "last checked X minutes ago, offline" badge."""
+    cfg = config_manager.config
+    lic = cfg.get("license_status", {}) or {}
+    key = lic.get("key")
+    if not key:
+        raise HTTPException(status_code=400, detail="no_license_key_set")
+    hwid = generate_hwid()
+    resp = await cloud_client.validate(license_key=key, hwid=hwid)
+    if resp.get("ok") and resp.get("error") is None:
+        _apply_cloud_response_to_local_state(resp, license_key=key, email=None)
+        return {
+            "status":       "ok",
+            "license":      get_license_status(),
+            "subscription": get_subscription(),
+            "cloud":        resp,
+        }
+    # Network error → don't downgrade; bubble up the offline state.
+    return {
+        "status":       "offline",
+        "license":      get_license_status(),
+        "subscription": get_subscription(),
+        "error":        resp.get("error"),
+        "message":      resp.get("message"),
+    }
+
+
+@router.post("/license/cloud/deactivate")
+async def cloud_deactivate(payload: CloudDeactivateRequest):
+    """Move-to-new-machine path. Releases the seat on the cloud + locally.
+    User must `confirm=true` to prevent accidental clicks."""
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="confirmation_required")
+    cfg = config_manager.config
+    lic = cfg.get("license_status", {}) or {}
+    key = lic.get("key")
+    if not key:
+        raise HTTPException(status_code=400, detail="no_license_key_set")
+    hwid = generate_hwid()
+    resp = await cloud_client.deactivate(license_key=key, hwid=hwid)
+    # Even if cloud is unreachable, free the local seat so the user can move on.
+    release_seat(hwid)
+    set_subscription(active=False, tier="free")
+    return {
+        "status": "ok" if resp.get("ok") else "offline",
+        "license": get_license_status(),
+        "cloud":  resp,
+    }
+
 
 
 @router.get("/subscription")

@@ -19,10 +19,19 @@ Feature flags:
   - cloud_sync_enabled
 If any one flag is True the user has *some* premium access, but each route
 can require a specific flag.
+
+Phase 10.2 — Offline grace:
+  When the desktop has previously seen a successful cloud activation
+  (`last_cloud_validated_at`), we honour that snapshot for `OFFLINE_GRACE_DAYS`
+  even if the cloud server is unreachable. Past the grace window, premium
+  features re-gate to free until the next successful `cloud_validate()`.
+  The standalone purchase is NEVER gated by network — owners keep all
+  one-time-purchase features forever.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -34,6 +43,8 @@ ALL_FEATURES = (
     "story_generator_enabled",
     "cloud_sync_enabled",
 )
+
+OFFLINE_GRACE_DAYS = int(os.environ.get("BIGHAT_OFFLINE_GRACE_DAYS", "30"))
 
 
 def _now_utc() -> datetime:
@@ -52,8 +63,15 @@ def get_subscription() -> dict:
 
 def is_premium_active(feature: Optional[str] = None) -> bool:
     sub = get_subscription()
+
+    # Standalone-purchase features (e.g. story_generator_enabled) are NEVER
+    # gated by network — once `owns_standalone=True` the customer keeps them.
+    if feature == "story_generator_enabled" and sub.get("owns_standalone"):
+        return True
+
     if not sub.get("active"):
         return False
+
     expires_at = sub.get("expires_at")
     if expires_at:
         try:
@@ -62,6 +80,20 @@ def is_premium_active(feature: Optional[str] = None) -> bool:
                 return False
         except (ValueError, TypeError):
             return False
+
+    # Offline grace: if we have a successful cloud validation in the past
+    # `OFFLINE_GRACE_DAYS`, the cached subscription remains active even
+    # without a fresh online check. Past the window we degrade to free.
+    last_validated = sub.get("last_cloud_validated_at")
+    if last_validated:
+        try:
+            seen = datetime.fromisoformat(str(last_validated).replace("Z", "+00:00"))
+            if seen + timedelta(days=OFFLINE_GRACE_DAYS) < _now_utc():
+                return False
+        except (ValueError, TypeError):
+            # Corrupt timestamp — fail closed for cloud-tier features only.
+            return False
+
     if feature:
         return bool(sub.get(feature, False))
     return True

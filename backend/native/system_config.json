@@ -3,7 +3,7 @@
   "setup_complete": true,
   "instance_id": "75d181a8-50f3-4032-90d4-7ecfd7cf44a7",
   "created_at": "2026-05-04T06:18:24.897916+00:00",
-  "updated_at": "2026-05-05T02:34:43.368638+00:00",
+  "updated_at": "2026-05-05T02:58:25.337734+00:00",
   "paths": {
     "data_root": "/app/backend/native/data",
     "local_trivia": "/app/backend/native/data/trivia",
@@ -25,9 +25,9 @@
     "active_seats": [
       {
         "hwid": "980efedf614439521aebba139755d1d590f87743b218195a0ee13851821cb33a",
-        "label": "TEST_seat_2117eb",
+        "label": "TEST_seat_704a7d",
         "registered_at": "2026-05-04T06:18:26.951260+00:00",
-        "updated_at": "2026-05-05T02:34:37.599348+00:00"
+        "updated_at": "2026-05-05T02:58:19.691042+00:00"
       }
     ],
     "is_active": true
@@ -36,7 +36,7 @@
     "active": false,
     "tier": "free",
     "expires_at": null,
-    "last_check": "2026-05-05T02:34:33.435981+00:00",
+    "last_check": "2026-05-05T02:58:15.444819+00:00",
     "sharepoint_enabled": false,
     "story_generator_enabled": false,
     "cloud_sync_enabled": false
