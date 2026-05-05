@@ -16,8 +16,8 @@ def is_cloud_mode() -> bool:
 # These are the Squarespace product SKUs that map to our two tiers.
 # You configure these in Squarespace → Products → Edit Product → SKU.
 # Override via env if you prefer different SKU strings.
-SKU_STANDALONE: Final[str] = os.environ.get("LICENSE_SKU_STANDALONE", "BH-STANDALONE-2499")
-SKU_CLOUD_LIBRARY: Final[str] = os.environ.get("LICENSE_SKU_CLOUD_LIBRARY", "BH-CLOUD-LIBRARY-5MO")
+SKU_STANDALONE: Final[str] = os.environ.get("LICENSE_SKU_STANDALONE", "BHE-STANDALONE-2499")
+SKU_CLOUD_LIBRARY: Final[str] = os.environ.get("LICENSE_SKU_CLOUD_LIBRARY", "BHE-CLOUD-LIBRARY-5MO")
 
 # ---- License key format -------------------------------------------------
 LICENSE_KEY_PREFIX: Final[str] = "BHE"          # BIG Hat Entertainment

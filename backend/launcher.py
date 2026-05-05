@@ -54,14 +54,43 @@ def _ensure_data_dirs() -> None:
                 logger.warning(f"Could not create {key}={p!r}: {e}")
 
 
+def _bootstrap_env_from_template() -> Path | None:
+    """First-run safety: if no `.env` exists but `.env.standalone` was
+    shipped by the installer, copy it into place and replace the
+    `__GENERATED_AT_FIRST_RUN__` placeholder with a fresh per-install
+    `JWT_SECRET`. Returns the path written, or None if no template existed."""
+    env_path = BACKEND_DIR / ".env"
+    if env_path.is_file():
+        return None
+    template = BACKEND_DIR / ".env.standalone"
+    if not template.is_file():
+        return None
+    import secrets as _secrets
+    text = template.read_text(encoding="utf-8")
+    text = text.replace("__GENERATED_AT_FIRST_RUN__", _secrets.token_hex(32))
+    env_path.write_text(text, encoding="utf-8")
+    try:
+        env_path.chmod(0o600)
+    except OSError:
+        pass
+    logger.info("[launcher] generated %s from .env.standalone (unique JWT_SECRET)", env_path)
+    return env_path
+
+
 def _load_env() -> None:
     """Load backend/.env if present, then force native mode."""
+    _bootstrap_env_from_template()
     try:
         from dotenv import load_dotenv  # type: ignore
         load_dotenv(BACKEND_DIR / ".env")
     except Exception as e:
         logger.warning(f"dotenv not loaded: {e}")
     os.environ.setdefault("BIGHAT_NATIVE_MODE", "1")
+    # SECURITY: in installed copies the cloud licensing routes must NEVER load,
+    # even if a stray BIGHAT_CLOUD_MODE leaks in via system env. Native mode
+    # always wins on a desktop install.
+    if os.environ.get("BIGHAT_NATIVE_MODE") == "1":
+        os.environ["BIGHAT_CLOUD_MODE"] = "0"
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

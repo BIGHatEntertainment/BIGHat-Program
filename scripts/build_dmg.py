@@ -136,6 +136,9 @@ def _copy_tree(src: Path, dst: Path, *, exclude_dirs: set[str], exclude_names: s
         for f in files:
             if f.endswith((".pyc", ".pyo")):
                 continue
+            # SECURITY: never ship `.env*` (production secrets) into the bundle.
+            if f == ".env" or f.startswith(".env."):
+                continue
             shutil.copy2(Path(root) / f, target_dir / f)
             n += 1
     return n
@@ -252,6 +255,13 @@ def assemble_app_bundle(
 
     # 5. VERSION.txt at the bundle Resources root
     (res / "VERSION.txt").write_text(version + "\n", encoding="utf-8")
+
+    # SECURITY: ship the desktop-safe `.env.standalone` template; the launcher
+    # generates the per-install `.env` (with a unique JWT_SECRET) on first run.
+    env_template_src = PACKAGING / ".env.standalone"
+    if env_template_src.is_file():
+        shutil.copy2(env_template_src, res / "backend" / ".env.standalone")
+        print("[build-dmg] resources .env.standalone shipped (desktop-safe template)")
 
     # 6. Frontend bundle (already lives at backend/static/, copied as part of backend/)
     if not skip_frontend and not (res / "backend" / "static" / "index.html").is_file():

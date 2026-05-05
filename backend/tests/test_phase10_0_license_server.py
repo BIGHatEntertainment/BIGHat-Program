@@ -168,9 +168,9 @@ class TestPayloadParsing:
         order = {
             "id": "ord-99",
             "customerEmail": "alice@example.com",
-            "lineItems": [{"sku": "BH-STANDALONE-2499"}, {"sku": "EXTRA"}],
+            "lineItems": [{"sku": "BHE-STANDALONE-2499"}, {"sku": "EXTRA"}],
         }
-        assert _iter_skus(order) == ["BH-STANDALONE-2499", "EXTRA"]
+        assert _iter_skus(order) == ["BHE-STANDALONE-2499", "EXTRA"]
         assert _customer_email(order) == "alice@example.com"
         assert _order_id(order) == "ord-99"
 
@@ -373,7 +373,7 @@ class TestWebhookHandler:
             "data": {"order": {
                 "id": "ord_1",
                 "customerEmail": "alice@example.com",
-                "lineItems": [{"sku": "BH-STANDALONE-2499"}],
+                "lineItems": [{"sku": "BHE-STANDALONE-2499"}],
             }},
         })
         assert result["ok"] is True
@@ -396,7 +396,7 @@ class TestWebhookHandler:
             "data": {"order": {
                 "id": "ord_dup",
                 "customerEmail": "bob@e.com",
-                "lineItems": [{"sku": "BH-STANDALONE-2499"}],
+                "lineItems": [{"sku": "BHE-STANDALONE-2499"}],
             }},
         }
         r1 = await h.handle(payload)
@@ -478,7 +478,7 @@ class TestPublicRoutes:
         seed = client.post("/api/squarespace/webhook", json={
             "id": "evt_seed_route", "topic": "order.create",
             "data": {"order": {"id": "oR", "customerEmail": "route@e.com",
-                               "lineItems": [{"sku": "BH-STANDALONE-2499"}]}},
+                               "lineItems": [{"sku": "BHE-STANDALONE-2499"}]}},
         })
         assert seed.status_code == 200, seed.text
         # Pull the key out via admin (cleaner than poking the DB).
@@ -537,7 +537,7 @@ class TestPublicRoutes:
             "data": {"order": {
                 "id": "ord_R",
                 "customerEmail": "webhook@e.com",
-                "lineItems": [{"sku": "BH-STANDALONE-2499"}],
+                "lineItems": [{"sku": "BHE-STANDALONE-2499"}],
             }},
         }
         r = client.post("/api/squarespace/webhook", json=body)
@@ -593,7 +593,7 @@ class TestAdminRoutes:
         client.post("/api/squarespace/webhook", json={
             "id": "evt_seed_rv", "topic": "order.create",
             "data": {"order": {"id": "orv", "customerEmail": "rv@e.com",
-                               "lineItems": [{"sku": "BH-STANDALONE-2499"}]}},
+                               "lineItems": [{"sku": "BHE-STANDALONE-2499"}]}},
         })
         token = self._login(client)
         h = {"Authorization": f"Bearer {token}"}

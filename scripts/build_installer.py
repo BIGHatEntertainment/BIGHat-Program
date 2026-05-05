@@ -179,6 +179,10 @@ def _copy_tree(src: Path, dst: Path, *, exclude_dirs: set[str], exclude_names: s
         for f in files:
             if f.endswith((".pyc", ".pyo")):
                 continue
+            # SECURITY: never ship `.env*` (production secrets, API keys,
+            # OAuth client secrets etc) to customer machines.
+            if f == ".env" or f.startswith(".env."):
+                continue
             shutil.copy2(Path(root) / f, target_dir / f)
             n += 1
     return n
@@ -224,6 +228,17 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_pyth
     # VERSION.txt at the install root (separate from backend/VERSION.txt for visibility)
     version = _read_version(None)
     (PAYLOAD / "VERSION.txt").write_text(version + "\n", encoding="utf-8")
+
+    # SECURITY: ship the desktop-safe `.env.standalone` template in the place
+    # where the launcher expects to find it on first run. The real `.env` is
+    # generated per-install by `launcher.py` (with a unique JWT_SECRET).
+    env_template_src = PACKAGING / ".env.standalone"
+    if env_template_src.is_file():
+        shutil.copy2(env_template_src, PAYLOAD / "backend" / ".env.standalone")
+        print("[build-installer] payload .env.standalone shipped (desktop-safe template)")
+    else:
+        print(f"[build-installer] WARNING: {env_template_src} missing; "
+              "first-run env bootstrap will fall back to defaults")
 
     # Frontend bundle (re-uses the existing build orchestrator)
     if not skip_frontend:

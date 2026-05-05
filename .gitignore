@@ -964,3 +964,6 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Allow the desktop-safe env template (no secrets, just safe defaults)
+!packaging/.env.standalone

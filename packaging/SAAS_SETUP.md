@@ -24,6 +24,33 @@ production SaaS storefront on **bighat.live** (Squarespace) + **api.bighat.live*
                                        └─────────────────────────┘
 ```
 
+## ⚠️ Security: API keys & secrets
+
+**Never commit, ship, or paste the following into the desktop installer or
+any client-facing artifact:**
+- `SQUARESPACE_API_KEY` / `SQUARESPACE_WEBHOOK_SECRET`
+- `RESEND_API_KEY`
+- `JWT_SECRET` / `LICENSE_ADMIN_SECRET`
+- `ADMIN_PASSWORD`
+- Any `AZURE_*` / `ROUNDMAKER_*` OAuth client secrets
+
+These keys live ONLY in:
+1. **`/app/backend/.env`** on the dev box (git-ignored, never committed).
+2. **The Emergent deployment env vars dashboard** for `api.bighat.live`.
+
+The build pipeline (`scripts/build_installer.py` and `scripts/build_dmg.py`)
+explicitly **strips every `.env*` file** from the installer payload and
+ships `packaging/.env.standalone` (a desktop-safe template — no secrets,
+just `BIGHAT_NATIVE_MODE=1` and similar) in its place. On first run, the
+launcher copies it to `backend/.env` and substitutes a unique per-install
+`JWT_SECRET`. Regression test: `test_phase10_1_no_secret_leakage.py`.
+
+If you ever need to rotate a key:
+1. Update `/app/backend/.env` (server side).
+2. Update the matching env var on the Emergent deploy dashboard.
+3. Restart the deploy.
+4. **No installer rebuild required** — keys are not bundled into the desktop app.
+
 ## One-time setup (do these in order)
 
 ### 1. Sign up for Resend (5 minutes)
@@ -45,13 +72,17 @@ production SaaS storefront on **bighat.live** (Squarespace) + **api.bighat.live*
 
 You need TWO products on Squarespace.
 
-#### Product A — BIG Hat Standalone ($24.99 one-time)
+#### Product A — BIG Hat Entertainment ($24.99 one-time)
+
+Bundles the activation download for: the **Main Hub**, the **Trivia App**,
+the **Schedule Tool**, the **Story Generator**, the **Scoreboard Tool**,
+and the **Answer Sheets**.
 
 1. **Squarespace admin → Commerce → Products → Add Product → Digital**
 2. Fill in:
-   - Name: `BIG Hat Standalone`
+   - Name: `BIG Hat Entertainment`
    - Price: `$24.99`
-   - **SKU: `BH-STANDALONE-2499`**  ← MUST match exactly (or set
+   - **SKU: `BHE-STANDALONE-2499`**  ← MUST match exactly (or set
      `LICENSE_SKU_STANDALONE` env var on the license server to whatever you choose)
    - Upload the file:
      `dist/BIGHatStandalone-Setup-31.0.0.exe` (Windows) and
@@ -67,7 +98,7 @@ You need TWO products on Squarespace.
    - Name: `BIG Hat Cloud Library`
    - Price: `$5/month`
    - Recurring: monthly
-   - **SKU: `BH-CLOUD-LIBRARY-5MO`**
+   - **SKU: `BHE-CLOUD-LIBRARY-5MO`**
    - Description: "Adds shared trivia library, Music Bingo catalog, and
      SharePoint sync to your BIG Hat Standalone install."
 
@@ -122,8 +153,8 @@ Required env vars in the deployment dashboard:
 | `DOWNLOAD_URL_WINDOWS` | (Squarespace digital download URL for the .exe) |
 | `DOWNLOAD_URL_MACOS` | (Squarespace digital download URL for the .dmg) |
 | `CURRENT_RELEASE_VERSION` | `31.0.0` |
-| `LICENSE_SKU_STANDALONE` | `BH-STANDALONE-2499` (override only if SKU differs) |
-| `LICENSE_SKU_CLOUD_LIBRARY` | `BH-CLOUD-LIBRARY-5MO` |
+| `LICENSE_SKU_STANDALONE` | `BHE-STANDALONE-2499` (override only if SKU differs) |
+| `LICENSE_SKU_CLOUD_LIBRARY` | `BHE-CLOUD-LIBRARY-5MO` |
 
 ### 2. Point DNS
 

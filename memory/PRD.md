@@ -147,8 +147,29 @@ features behind an active subscription.
   replay, sub-then-standalone unification, seat limits, validate, revoke,
   deactivate, subscription lifecycle), and FastAPI TestClient integration
   for public + admin routes (webhook → mint → activate → validate → revoke
-  end-to-end). Setup runbook: `packaging/SAAS_SETUP.md`. **310/310
-  always-on tests pass** (3 platform-gated).
+  end-to-end). Setup runbook: `packaging/SAAS_SETUP.md`.
+- **2026-02** — Phase 10.1 (Secret-leakage prevention + product naming):
+  **CRITICAL FIX** to Phase 9.2/9.3 build pipelines — `_copy_tree` in
+  `build_installer.py` and `build_dmg.py` now strips `.env` and any
+  `.env.*` file from payloads (previously the dev `backend/.env` with all
+  production secrets was being shipped to every customer machine).
+  Replaced with `packaging/.env.standalone` desktop-safe template (no
+  secrets, just `BIGHAT_NATIVE_MODE=1`, stub Mongo URL, placeholder JWT).
+  `launcher.py:_bootstrap_env_from_template()` copies template to
+  `backend/.env` on first run and substitutes a fresh per-install
+  `JWT_SECRET` (256-bit hex). Launcher also force-sets
+  `BIGHAT_CLOUD_MODE=0` whenever native mode is on, defending against any
+  stray cloud env var enabling licensing endpoints inside the customer
+  install. Added `SQUARESPACE_API_KEY` (BIGHat-Program) to
+  `backend/.env` (server-side only, never ships). Renamed product to
+  **"BIG Hat Entertainment"** with SKU `BHE-STANDALONE-2499` (bundles main
+  hub, trivia, schedule tool, story generator, scoreboard, answer sheets);
+  cloud subscription SKU `BHE-CLOUD-LIBRARY-5MO`. Test suite
+  `test_phase10_1_no_secret_leakage.py` — **10 tests** that build real
+  Windows/macOS payloads then **byte-grep them for the live `.env` secret
+  values** (catches accidental copies under any filename) + verify
+  template safety + first-run JWT generation. **320/320 always-on tests
+  pass** (3 platform-gated).
 
 ## Roadmap (P0/P1/P2 features remaining)
 
