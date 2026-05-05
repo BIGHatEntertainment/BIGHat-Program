@@ -208,9 +208,41 @@ features behind an active subscription.
   Success screen now shows the verified tier badges. Full
   `data-testid` coverage on every interactive element. Visually verified
   end-to-end via Playwright screenshots: empty, filled, verifying,
-  offline-fallback, Step 2 admin form. **338/338 always-on tests pass**
-  (3 platform-gated; one pre-existing Phase 3 round-maker test is
-  order-flaky and unrelated).
+  offline-fallback, Step 2 admin form.
+- **2026-02** — Phase 10.4 (Modular pricing model — Music Bingo + Karaoke
+  add-ons): final pricing locked in for launch. **BIG Hat Entertainment
+  base ($49.99 one-time, SKU `BHE-STANDALONE`)** bundles Main Hub +
+  Trivia + Schedule + Story Generator + Scoreboard + Answer Sheets.
+  **Music Bingo add-on ($24.99 one-time, SKU `BHE-MUSIC-BINGO`)** unlocks
+  the Music Bingo event app + Bingo Story generator. **Karaoke add-on
+  ($24.99 one-time, SKU `BHE-KARAOKE`)** unlocks Karaoke event app +
+  Karaoke Story generator. **Cloud Library subscription ($5/mo, SKU
+  `BHE-CLOUD-LIBRARY`)** stays untouched. SKUs are now **price-decoupled**
+  (you can change Squarespace prices anytime without rebuilding installers).
+  All add-ons require the standalone base to function — desktop gates
+  enforce this with an `(owns_standalone AND owns_addon)` AND check.
+  Add-ons inherit the base license's HWID seat count (3 standard, 5 with
+  Cloud Library). New cloud method `mint_addon_purchase(addon, email,
+  order_id)` (idempotent, supports both addons + customer who buys add-on
+  before base). Webhook dispatcher recognises all 4 SKUs in one order.
+  `LicenseKey` model gains `owns_music_bingo`, `owns_karaoke`,
+  `squarespace_music_bingo_order_id`, `squarespace_karaoke_order_id`.
+  Email template lists all owned tiers as bullets. Native subscription
+  module gains `STANDALONE_FEATURES` map (4 new flags:
+  `music_bingo_enabled`, `karaoke_enabled`, `bingo_story_enabled`,
+  `karaoke_story_enabled`) with **legacy backward-compat** — pre-Phase
+  10.4 subscriptions without `owns_standalone` key fall back to honouring
+  raw feature flags so existing installs don't break. Frontend
+  `AppCards.js` rebuilt: dynamic Owned/Locked states per app, "🛒 Add
+  Music Bingo for $24.99" upsell buttons that open
+  `bighat.live/shop/music-bingo` in new tab, "Activate BIG Hat
+  Entertainment first to use add-ons" guidance for customers without
+  base. Test suite `test_phase10_4_addons.py` — **15 tests** (SKU
+  cleanliness audit, mint flows, idempotency, all-four-SKU order webhook,
+  add-on-without-base, ownership AND gating, offline-grace immunity,
+  cloud→local feature-flag mirror). Visually verified: 3-tile dashboard
+  with locked badges + clear next-step CTAs. **353/353 always-on tests
+  pass** (3 platform-gated).
 
 ## Roadmap (P0/P1/P2 features remaining)
 

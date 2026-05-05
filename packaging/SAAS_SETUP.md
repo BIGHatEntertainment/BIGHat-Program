@@ -70,27 +70,55 @@ If you ever need to rotate a key:
 
 ### 2. Configure Squarespace products
 
-You need TWO products on Squarespace.
+You need **four** products on Squarespace. The base + 2 add-ons are **one-time purchases** (digital downloads); the Cloud Library is a **monthly subscription**.
 
-#### Product A — BIG Hat Entertainment ($24.99 one-time)
+#### Product A — BIG Hat Entertainment ($49.99 one-time)
 
-Bundles the activation download for: the **Main Hub**, the **Trivia App**,
-the **Schedule Tool**, the **Story Generator**, the **Scoreboard Tool**,
-and the **Answer Sheets**.
+The mandatory base package — every customer must buy this. Bundles:
+**Main Hub**, **Trivia tool** (and all trivia tools), **Schedule Tool**,
+**Story Generator** (for trivia stories), **Scoreboard Tool**, **Answer Sheets**.
 
 1. **Squarespace admin → Commerce → Products → Add Product → Digital**
 2. Fill in:
    - Name: `BIG Hat Entertainment`
-   - Price: `$24.99`
-   - **SKU: `BHE-STANDALONE-2499`**  ← MUST match exactly (or set
-     `LICENSE_SKU_STANDALONE` env var on the license server to whatever you choose)
+   - Price: `$49.99`
+   - **SKU: `BHE-STANDALONE`**  ← MUST match exactly (override via env
+     `LICENSE_SKU_STANDALONE` if you want a different string)
    - Upload the file:
      `dist/BIGHatStandalone-Setup-31.0.0.exe` (Windows) and
      `dist/BIGHatStandalone-31.0.0.dmg` (macOS) — Squarespace allows
      multiple files per digital product.
 3. Description: include "License key delivered separately by email."
 
-#### Product B — Cloud Library ($5/month)
+#### Product B — Music Bingo Add-on ($24.99 one-time)
+
+Unlocks the **Music Bingo** event app and the **Bingo Story** generator.
+Requires the BIG Hat Entertainment base — describe this clearly in the
+Squarespace product description so customers don't buy in the wrong order.
+
+1. **Squarespace admin → Commerce → Products → Add Product → Digital**
+2. Fill in:
+   - Name: `BIG Hat — Music Bingo Add-on`
+   - Price: `$24.99`
+   - **SKU: `BHE-MUSIC-BINGO`**
+   - File upload: leave blank — the unlock is delivered via license key.
+3. Description: e.g. *"Adds Music Bingo to your BIG Hat install. Requires
+   BIG Hat Entertainment ($49.99) to function."*
+
+#### Product C — Karaoke Add-on ($24.99 one-time)
+
+Unlocks the **Karaoke** event app and the **Karaoke Story** generator.
+
+1. **Squarespace admin → Commerce → Products → Add Product → Digital**
+2. Fill in:
+   - Name: `BIG Hat — Karaoke Add-on`
+   - Price: `$24.99`
+   - **SKU: `BHE-KARAOKE`**
+   - File upload: leave blank.
+3. Description: e.g. *"Adds Karaoke to your BIG Hat install. Requires
+   BIG Hat Entertainment ($49.99) to function."*
+
+#### Product D — Cloud Library ($5/month)
 
 1. **Squarespace admin → Commerce → Products → Add Product → Subscription**
    (requires Advanced Commerce plan)
@@ -98,9 +126,9 @@ and the **Answer Sheets**.
    - Name: `BIG Hat Cloud Library`
    - Price: `$5/month`
    - Recurring: monthly
-   - **SKU: `BHE-CLOUD-LIBRARY-5MO`**
+   - **SKU: `BHE-CLOUD-LIBRARY`**
    - Description: "Adds shared trivia library, Music Bingo catalog, and
-     SharePoint sync to your BIG Hat Standalone install."
+     SharePoint sync to your BIG Hat install."
 
 ### 3. Configure the Squarespace webhook
 
@@ -153,8 +181,10 @@ Required env vars in the deployment dashboard:
 | `DOWNLOAD_URL_WINDOWS` | (Squarespace digital download URL for the .exe) |
 | `DOWNLOAD_URL_MACOS` | (Squarespace digital download URL for the .dmg) |
 | `CURRENT_RELEASE_VERSION` | `31.0.0` |
-| `LICENSE_SKU_STANDALONE` | `BHE-STANDALONE-2499` (override only if SKU differs) |
-| `LICENSE_SKU_CLOUD_LIBRARY` | `BHE-CLOUD-LIBRARY-5MO` |
+| `LICENSE_SKU_STANDALONE` | `BHE-STANDALONE` (override only if SKU differs) |
+| `LICENSE_SKU_CLOUD_LIBRARY` | `BHE-CLOUD-LIBRARY` |
+| `LICENSE_SKU_MUSIC_BINGO` | `BHE-MUSIC-BINGO` |
+| `LICENSE_SKU_KARAOKE` | `BHE-KARAOKE` |
 
 ### 2. Point DNS
 

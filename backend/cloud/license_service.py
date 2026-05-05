@@ -23,7 +23,9 @@ logger = logging.getLogger("bighat-license")
 
 class EmailSender(Protocol):
     async def send_license_key_email(self, *, to: str, key: str, owns_standalone: bool,
-                                     cloud_library_active: bool) -> bool: ...
+                                     cloud_library_active: bool,
+                                     owns_music_bingo: bool = False,
+                                     owns_karaoke: bool = False) -> bool: ...
     async def send_subscription_canceled(self, *, to: str, key: str) -> bool: ...
 
 
@@ -98,6 +100,8 @@ class LicenseService:
                     to=updated.email, key=updated.key,
                     owns_standalone=True,
                     cloud_library_active=updated.cloud_library_status == "active",
+                    owns_music_bingo=updated.owns_music_bingo,
+                    owns_karaoke=updated.owns_karaoke,
                 )
             return updated
 
@@ -119,6 +123,7 @@ class LicenseService:
             await self.email.send_license_key_email(
                 to=lic.email, key=lic.key,
                 owns_standalone=True, cloud_library_active=False,
+                owns_music_bingo=False, owns_karaoke=False,
             )
         logger.info("[license] minted standalone key for %s", email)
         return lic
@@ -158,6 +163,8 @@ class LicenseService:
                     to=updated.email, key=updated.key,
                     owns_standalone=updated.owns_standalone,
                     cloud_library_active=True,
+                    owns_music_bingo=updated.owns_music_bingo,
+                    owns_karaoke=updated.owns_karaoke,
                 )
             return updated
 
@@ -181,11 +188,79 @@ class LicenseService:
             await self.email.send_license_key_email(
                 to=lic.email, key=lic.key,
                 owns_standalone=False, cloud_library_active=True,
+                owns_music_bingo=False, owns_karaoke=False,
             )
         logger.info("[license] minted subscription-only key for %s", email)
         return lic
 
-    # ---- subscription lifecycle ----
+    async def mint_addon_purchase(
+        self,
+        *,
+        addon: str,                # "music_bingo" or "karaoke"
+        email: str,
+        order_id: str,
+        customer_id: str = "",
+    ) -> LicenseKey:
+        """Webhook-driven add-on purchase (one-time, non-subscription).
+        Idempotent on (email, order_id).
+
+        Add-ons require the customer to also own the standalone base to
+        actually function — but we accept the purchase even if they haven't
+        bought the base yet (cloud just records ownership; desktop gates).
+        """
+        if addon not in ("music_bingo", "karaoke"):
+            raise ValueError(f"unknown addon: {addon!r}")
+        owns_field = f"owns_{addon}"
+        order_field = f"squarespace_{addon}_order_id"
+
+        existing = await self.store.get_by_email(email)
+        if existing and getattr(existing, order_field) == order_id:
+            logger.info("[license] %s purchase replay for %s; no-op", addon, email)
+            return existing
+
+        if existing:
+            updates = {owns_field: True, order_field: order_id}
+            if customer_id:
+                updates["squarespace_customer_id"] = customer_id
+            updated = await self.store.update(existing.key, updates)
+            assert updated is not None
+            if self.email:
+                await self.email.send_license_key_email(
+                    to=updated.email, key=updated.key,
+                    owns_standalone=updated.owns_standalone,
+                    cloud_library_active=updated.cloud_library_status == "active",
+                    owns_music_bingo=updated.owns_music_bingo,
+                    owns_karaoke=updated.owns_karaoke,
+                )
+            return updated
+
+        # Fresh customer who's only buying an add-on first (rare but possible).
+        now = now_utc()
+        lic_kwargs = {
+            "key": generate_key(),
+            "email": email.lower(),
+            "owns_standalone": False,
+            "cloud_library_status": "inactive",
+            "max_seats": config.DEFAULT_MAX_SEATS,
+            "squarespace_customer_id": customer_id or None,
+            "created_at": now,
+            "updated_at": now,
+            owns_field: True,
+            order_field: order_id,
+        }
+        lic = LicenseKey(**lic_kwargs)
+        await self.store.insert(lic)
+        if self.email:
+            await self.email.send_license_key_email(
+                to=lic.email, key=lic.key,
+                owns_standalone=False, cloud_library_active=False,
+                owns_music_bingo=lic.owns_music_bingo,
+                owns_karaoke=lic.owns_karaoke,
+            )
+        logger.info("[license] minted addon-only key for %s (addon=%s)", email, addon)
+        return lic
+
+    # ---- minting (webhook-driven) — Cloud Library subscription ----
     async def cancel_cloud_subscription(self, *, subscription_id: str) -> Optional[LicenseKey]:
         # Find the key by subscription_id. Iterate (volume is tiny in early SaaS).
         cursor = self.store.db["license_keys"].find(
@@ -270,13 +345,19 @@ class LicenseService:
         email: str,
         owns_standalone: bool,
         cloud_library_months: int,
+        owns_music_bingo: bool = False,
+        owns_karaoke: bool = False,
         note: str = "",
     ) -> LicenseKey:
         """Support/comp path — create a key outside any purchase flow."""
         existing = await self.store.get_by_email(email)
         now = now_utc()
         if existing:
-            updates: dict = {"owns_standalone": existing.owns_standalone or owns_standalone}
+            updates: dict = {
+                "owns_standalone":   existing.owns_standalone or owns_standalone,
+                "owns_music_bingo":  existing.owns_music_bingo or owns_music_bingo,
+                "owns_karaoke":      existing.owns_karaoke or owns_karaoke,
+            }
             if cloud_library_months > 0:
                 updates["cloud_library_expires_at"] = _extend_subscription(
                     existing.cloud_library_expires_at, cloud_library_months,
@@ -293,6 +374,8 @@ class LicenseService:
             key=generate_key(),
             email=email.lower(),
             owns_standalone=owns_standalone,
+            owns_music_bingo=owns_music_bingo,
+            owns_karaoke=owns_karaoke,
             cloud_library_status="active" if cloud_library_months > 0 else "inactive",
             cloud_library_expires_at=(
                 _extend_subscription(None, cloud_library_months) if cloud_library_months > 0 else None

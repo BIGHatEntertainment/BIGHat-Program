@@ -38,12 +38,17 @@ _STYLE = """
 """
 
 
-def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: bool) -> str:
+def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: bool,
+                      owns_music_bingo: bool = False, owns_karaoke: bool = False) -> str:
     brand = config.brand_base_url()
     support = config.support_email()
     tier_line = []
     if owns_standalone:
-        tier_line.append("✓ BIG Hat Standalone (lifetime)")
+        tier_line.append("✓ BIG Hat Entertainment (lifetime)")
+    if owns_music_bingo:
+        tier_line.append("✓ Music Bingo add-on (lifetime)")
+    if owns_karaoke:
+        tier_line.append("✓ Karaoke add-on (lifetime)")
     if cloud_library_active:
         tier_line.append("✓ Cloud Library subscription (active)")
     tier_html = "<br/>".join(tier_line) or "No paid tier — manually issued"
@@ -51,16 +56,17 @@ def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>{_STYLE}</style></head>
 <body><div class="card">
-  <h1>Your BIG Hat Standalone license</h1>
+  <h1>Your BIG Hat Entertainment license</h1>
   <p>Thanks for your purchase. Your license key is:</p>
   <p><span class="key">{key}</span></p>
   <p class="small">{tier_html}</p>
   <hr class="divider"/>
   <p><strong>Get the app</strong></p>
-  <p><a class="btn" href="{brand}/download">Download BIG Hat Standalone</a></p>
+  <p><a class="btn" href="{brand}/download">Download BIG Hat Entertainment</a></p>
   <p>On first launch, paste the key above into the Setup Wizard. The key binds
-     to up to 3 machines (5 with an active Cloud Library subscription). If you
-     need to move it to a new computer, deactivate the old machine from
+     to up to 3 machines (5 with an active Cloud Library subscription). All
+     add-ons you've purchased unlock on every machine bound to this key. If
+     you need to move it to a new computer, deactivate the old machine from
      <em>Settings → License</em>, or email us.</p>
   <hr class="divider"/>
   <p class="small">Questions? Reply to this email or write to <a href="mailto:{support}">{support}</a>.</p>
@@ -68,22 +74,28 @@ def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: 
 </div></body></html>"""
 
 
-def _license_key_text(key: str, *, owns_standalone: bool, cloud_library_active: bool) -> str:
+def _license_key_text(key: str, *, owns_standalone: bool, cloud_library_active: bool,
+                      owns_music_bingo: bool = False, owns_karaoke: bool = False) -> str:
     tier = []
     if owns_standalone:
-        tier.append("- BIG Hat Standalone (lifetime)")
+        tier.append("- BIG Hat Entertainment (lifetime)")
+    if owns_music_bingo:
+        tier.append("- Music Bingo add-on (lifetime)")
+    if owns_karaoke:
+        tier.append("- Karaoke add-on (lifetime)")
     if cloud_library_active:
         tier.append("- Cloud Library subscription (active)")
     tier_s = "\n".join(tier) or "- No paid tier (manually issued)"
     return (
-        f"Your BIG Hat Standalone license\n\n"
+        f"Your BIG Hat Entertainment license\n\n"
         f"Thanks for your purchase. Your license key is:\n\n"
         f"    {key}\n\n"
         f"Tier:\n{tier_s}\n\n"
         f"Download the app at {config.brand_base_url()}/download\n"
         f"Paste the key into the Setup Wizard on first launch.\n\n"
         f"The key binds to up to 3 machines (5 with an active Cloud Library\n"
-        f"subscription). Questions? {config.support_email()}\n\n"
+        f"subscription). All add-ons unlock on every bound machine.\n"
+        f"Questions? {config.support_email()}\n\n"
         f"— BIG Hat Entertainment"
     )
 
@@ -150,14 +162,20 @@ class ResendEmailSender:
         key: str,
         owns_standalone: bool,
         cloud_library_active: bool,
+        owns_music_bingo: bool = False,
+        owns_karaoke: bool = False,
     ) -> bool:
-        subject = "Your BIG Hat Standalone license"
+        subject = "Your BIG Hat Entertainment license"
         return await self._send(
             to=to, subject=subject,
             html=_license_key_html(key, owns_standalone=owns_standalone,
-                                   cloud_library_active=cloud_library_active),
+                                   cloud_library_active=cloud_library_active,
+                                   owns_music_bingo=owns_music_bingo,
+                                   owns_karaoke=owns_karaoke),
             text=_license_key_text(key, owns_standalone=owns_standalone,
-                                   cloud_library_active=cloud_library_active),
+                                   cloud_library_active=cloud_library_active,
+                                   owns_music_bingo=owns_music_bingo,
+                                   owns_karaoke=owns_karaoke),
         )
 
     async def send_subscription_canceled(self, *, to: str, key: str) -> bool:

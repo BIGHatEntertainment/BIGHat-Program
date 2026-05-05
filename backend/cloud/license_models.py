@@ -31,12 +31,16 @@ class LicenseKey(BaseModel):
     key: str                                             # BHE-XXXX-XXXX-XXXX-XXXX
     email: EmailStr
     owns_standalone: bool = False
+    owns_music_bingo: bool = False
+    owns_karaoke: bool = False
     cloud_library_status: CloudLibraryStatus = "inactive"
     cloud_library_expires_at: Optional[datetime] = None
     max_seats: int = 3
     active_hwids: List[HwidBinding] = Field(default_factory=list)
     squarespace_customer_id: Optional[str] = None
     squarespace_standalone_order_id: Optional[str] = None
+    squarespace_music_bingo_order_id: Optional[str] = None
+    squarespace_karaoke_order_id: Optional[str] = None
     squarespace_subscription_id: Optional[str] = None
     revoked: bool = False
     revocation_reason: str = ""
@@ -65,6 +69,8 @@ class ActivateResponse(BaseModel):
     ok: bool
     message: str
     owns_standalone: bool
+    owns_music_bingo: bool = False
+    owns_karaoke: bool = False
     cloud_library_active: bool
     cloud_library_expires_at: Optional[datetime] = None
     max_seats: int
@@ -80,6 +86,8 @@ class ValidateRequest(BaseModel):
 class ValidateResponse(BaseModel):
     ok: bool
     owns_standalone: bool
+    owns_music_bingo: bool = False
+    owns_karaoke: bool = False
     cloud_library_active: bool
     cloud_library_expires_at: Optional[datetime] = None
     revoked: bool
@@ -95,6 +103,8 @@ class StatusResponse(BaseModel):
     """Public status lookup — redacts sensitive fields."""
     key_masked: str
     owns_standalone: bool
+    owns_music_bingo: bool = False
+    owns_karaoke: bool = False
     cloud_library_status: CloudLibraryStatus
     active_seats: int
     max_seats: int
@@ -111,6 +121,8 @@ class MintKeyRequest(BaseModel):
     """Admin-only: manual key minting for support / comp / gifts."""
     email: EmailStr
     owns_standalone: bool = True
+    owns_music_bingo: bool = False
+    owns_karaoke: bool = False
     cloud_library_months: int = 0         # grants N months of subscription
     note: str = ""
 
@@ -120,6 +132,8 @@ class AdminKeyView(BaseModel):
     key: str
     email: EmailStr
     owns_standalone: bool
+    owns_music_bingo: bool = False
+    owns_karaoke: bool = False
     cloud_library_status: CloudLibraryStatus
     cloud_library_expires_at: Optional[datetime] = None
     max_seats: int

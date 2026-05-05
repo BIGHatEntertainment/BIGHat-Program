@@ -72,6 +72,8 @@ async def activate(req: ActivateRequest) -> ActivateResponse:
     return ActivateResponse(
         ok=True, message=msg,
         owns_standalone=lic.owns_standalone,
+        owns_music_bingo=lic.owns_music_bingo,
+        owns_karaoke=lic.owns_karaoke,
         cloud_library_active=lic.cloud_library_status == "active"
                              and not lic.revoked,
         cloud_library_expires_at=lic.cloud_library_expires_at,
@@ -101,6 +103,8 @@ async def validate(req: ValidateRequest) -> ValidateResponse:
     return ValidateResponse(
         ok=True,
         owns_standalone=lic.owns_standalone,
+        owns_music_bingo=lic.owns_music_bingo,
+        owns_karaoke=lic.owns_karaoke,
         cloud_library_active=lic.cloud_library_status == "active" and not lic.revoked,
         cloud_library_expires_at=lic.cloud_library_expires_at,
         revoked=lic.revoked,
@@ -128,6 +132,8 @@ async def status(key: str = Path(..., min_length=8, max_length=64)) -> StatusRes
     return StatusResponse(
         key_masked=mask_key(lic.key),
         owns_standalone=lic.owns_standalone,
+        owns_music_bingo=lic.owns_music_bingo,
+        owns_karaoke=lic.owns_karaoke,
         cloud_library_status=lic.cloud_library_status,
         active_seats=len(lic.active_hwids),
         max_seats=lic.max_seats,

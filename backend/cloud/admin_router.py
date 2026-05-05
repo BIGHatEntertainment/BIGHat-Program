@@ -91,6 +91,8 @@ def _to_view(lic) -> AdminKeyView:
         key=lic.key,
         email=lic.email,
         owns_standalone=lic.owns_standalone,
+        owns_music_bingo=lic.owns_music_bingo,
+        owns_karaoke=lic.owns_karaoke,
         cloud_library_status=lic.cloud_library_status,
         cloud_library_expires_at=lic.cloud_library_expires_at,
         max_seats=lic.max_seats,
@@ -160,6 +162,8 @@ async def mint_key(
     lic = await svc.mint_manual(
         email=str(req.email),
         owns_standalone=req.owns_standalone,
+        owns_music_bingo=req.owns_music_bingo,
+        owns_karaoke=req.owns_karaoke,
         cloud_library_months=req.cloud_library_months,
         note=req.note,
     )

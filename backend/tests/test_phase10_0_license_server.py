@@ -61,10 +61,13 @@ class FakeEmail:
     def enabled(self) -> bool:  # mirror real interface
         return True
 
-    async def send_license_key_email(self, *, to, key, owns_standalone, cloud_library_active):
+    async def send_license_key_email(self, *, to, key, owns_standalone, cloud_library_active,
+                                     owns_music_bingo=False, owns_karaoke=False):
         self.sent.append({"kind": "key", "to": to, "key": key,
                           "owns_standalone": owns_standalone,
-                          "cloud_library_active": cloud_library_active})
+                          "cloud_library_active": cloud_library_active,
+                          "owns_music_bingo": owns_music_bingo,
+                          "owns_karaoke": owns_karaoke})
         return True
 
     async def send_subscription_canceled(self, *, to, key):
@@ -168,9 +171,9 @@ class TestPayloadParsing:
         order = {
             "id": "ord-99",
             "customerEmail": "alice@example.com",
-            "lineItems": [{"sku": "BHE-STANDALONE-2499"}, {"sku": "EXTRA"}],
+            "lineItems": [{"sku": "BHE-STANDALONE"}, {"sku": "EXTRA"}],
         }
-        assert _iter_skus(order) == ["BHE-STANDALONE-2499", "EXTRA"]
+        assert _iter_skus(order) == ["BHE-STANDALONE", "EXTRA"]
         assert _customer_email(order) == "alice@example.com"
         assert _order_id(order) == "ord-99"
 
@@ -373,7 +376,7 @@ class TestWebhookHandler:
             "data": {"order": {
                 "id": "ord_1",
                 "customerEmail": "alice@example.com",
-                "lineItems": [{"sku": "BHE-STANDALONE-2499"}],
+                "lineItems": [{"sku": "BHE-STANDALONE"}],
             }},
         })
         assert result["ok"] is True
@@ -396,7 +399,7 @@ class TestWebhookHandler:
             "data": {"order": {
                 "id": "ord_dup",
                 "customerEmail": "bob@e.com",
-                "lineItems": [{"sku": "BHE-STANDALONE-2499"}],
+                "lineItems": [{"sku": "BHE-STANDALONE"}],
             }},
         }
         r1 = await h.handle(payload)
@@ -478,7 +481,7 @@ class TestPublicRoutes:
         seed = client.post("/api/squarespace/webhook", json={
             "id": "evt_seed_route", "topic": "order.create",
             "data": {"order": {"id": "oR", "customerEmail": "route@e.com",
-                               "lineItems": [{"sku": "BHE-STANDALONE-2499"}]}},
+                               "lineItems": [{"sku": "BHE-STANDALONE"}]}},
         })
         assert seed.status_code == 200, seed.text
         # Pull the key out via admin (cleaner than poking the DB).
@@ -537,7 +540,7 @@ class TestPublicRoutes:
             "data": {"order": {
                 "id": "ord_R",
                 "customerEmail": "webhook@e.com",
-                "lineItems": [{"sku": "BHE-STANDALONE-2499"}],
+                "lineItems": [{"sku": "BHE-STANDALONE"}],
             }},
         }
         r = client.post("/api/squarespace/webhook", json=body)
@@ -593,7 +596,7 @@ class TestAdminRoutes:
         client.post("/api/squarespace/webhook", json={
             "id": "evt_seed_rv", "topic": "order.create",
             "data": {"order": {"id": "orv", "customerEmail": "rv@e.com",
-                               "lineItems": [{"sku": "BHE-STANDALONE-2499"}]}},
+                               "lineItems": [{"sku": "BHE-STANDALONE"}]}},
         })
         token = self._login(client)
         h = {"Authorization": f"Bearer {token}"}

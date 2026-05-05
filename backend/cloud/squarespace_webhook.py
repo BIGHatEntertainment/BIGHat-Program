@@ -203,6 +203,18 @@ class WebhookHandler:
                     months=1, customer_id=customer_id,
                 )
                 minted.append(f"cloud:{lic.key}")
+            elif sku == config.SKU_MUSIC_BINGO:
+                lic = await self.service.mint_addon_purchase(
+                    addon="music_bingo", email=email,
+                    order_id=order_id, customer_id=customer_id,
+                )
+                minted.append(f"music_bingo:{lic.key}")
+            elif sku == config.SKU_KARAOKE:
+                lic = await self.service.mint_addon_purchase(
+                    addon="karaoke", email=email,
+                    order_id=order_id, customer_id=customer_id,
+                )
+                minted.append(f"karaoke:{lic.key}")
             else:
                 logger.info("[webhook] ignoring unknown sku=%r in order=%s", sku, order_id)
 

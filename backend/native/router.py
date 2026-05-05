@@ -243,9 +243,13 @@ def _apply_cloud_response_to_local_state(resp: dict, *, license_key: str, email:
     even when offline."""
     set_license_key(license_key, master_admin_email=email)
     flags = {
-        "sharepoint_enabled":     bool(resp.get("cloud_library_active")),
+        "sharepoint_enabled":      bool(resp.get("cloud_library_active")),
         "story_generator_enabled": bool(resp.get("owns_standalone")),
-        "cloud_sync_enabled":     bool(resp.get("cloud_library_active")),
+        "cloud_sync_enabled":      bool(resp.get("cloud_library_active")),
+        "music_bingo_enabled":     bool(resp.get("owns_standalone") and resp.get("owns_music_bingo")),
+        "karaoke_enabled":         bool(resp.get("owns_standalone") and resp.get("owns_karaoke")),
+        "bingo_story_enabled":     bool(resp.get("owns_standalone") and resp.get("owns_music_bingo")),
+        "karaoke_story_enabled":   bool(resp.get("owns_standalone") and resp.get("owns_karaoke")),
     }
     set_subscription(
         active=bool(resp.get("owns_standalone") or resp.get("cloud_library_active")),
@@ -258,7 +262,9 @@ def _apply_cloud_response_to_local_state(resp: dict, *, license_key: str, email:
     sub = config_manager.config.setdefault("subscription", {})
     sub["last_cloud_validated_at"] = datetime.now(timezone.utc).isoformat()
     sub["revalidate_after"] = resp.get("revalidate_after")
-    sub["owns_standalone"] = bool(resp.get("owns_standalone"))
+    sub["owns_standalone"]    = bool(resp.get("owns_standalone"))
+    sub["owns_music_bingo"]   = bool(resp.get("owns_music_bingo"))
+    sub["owns_karaoke"]       = bool(resp.get("owns_karaoke"))
     sub["cloud_library_active"] = bool(resp.get("cloud_library_active"))
     config_manager.save_config()
 

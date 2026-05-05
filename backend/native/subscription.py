@@ -42,7 +42,23 @@ ALL_FEATURES = (
     "sharepoint_enabled",
     "story_generator_enabled",
     "cloud_sync_enabled",
+    "music_bingo_enabled",
+    "karaoke_enabled",
+    "bingo_story_enabled",
+    "karaoke_story_enabled",
 )
+
+# Standalone-tier features: paid one-time, NEVER network-gated. Each maps
+# to a flag in the locally-cached `subscription` dict that must be True.
+# `bingo_story_enabled` requires both standalone AND music_bingo, so it
+# rolls up two ownership flags.
+STANDALONE_FEATURES: dict[str, tuple[str, ...]] = {
+    "story_generator_enabled":  ("owns_standalone",),
+    "music_bingo_enabled":      ("owns_standalone", "owns_music_bingo"),
+    "karaoke_enabled":          ("owns_standalone", "owns_karaoke"),
+    "bingo_story_enabled":      ("owns_standalone", "owns_music_bingo"),
+    "karaoke_story_enabled":    ("owns_standalone", "owns_karaoke"),
+}
 
 OFFLINE_GRACE_DAYS = int(os.environ.get("BIGHAT_OFFLINE_GRACE_DAYS", "30"))
 
@@ -64,10 +80,20 @@ def get_subscription() -> dict:
 def is_premium_active(feature: Optional[str] = None) -> bool:
     sub = get_subscription()
 
-    # Standalone-purchase features (e.g. story_generator_enabled) are NEVER
-    # gated by network — once `owns_standalone=True` the customer keeps them.
-    if feature == "story_generator_enabled" and sub.get("owns_standalone"):
-        return True
+    # Standalone-tier features (lifetime one-time purchases — NEVER network-gated).
+    # When the cloud ownership flags ARE present in the cached subscription
+    # (i.e. the desktop has talked to api.bighat.live at least once), enforce
+    # the AND across all required ownership keys. Otherwise (legacy installs
+    # that pre-date Phase 10.4) fall back to the simple feature-flag check
+    # so existing keys keep working without forced re-validation.
+    if feature in STANDALONE_FEATURES:
+        required = STANDALONE_FEATURES[feature]
+        has_cloud_ownership = any(k in sub for k in required)
+        if has_cloud_ownership:
+            return all(bool(sub.get(flag)) for flag in required)
+        # Legacy fallback: pre-Phase-10.4 subscription dict — honour the
+        # feature flag the caller passes through `set_subscription`.
+        return bool(sub.get(feature, False))
 
     if not sub.get("active"):
         return False
