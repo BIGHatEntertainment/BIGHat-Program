@@ -21,8 +21,23 @@ import ScoreboardDashboard from './pages/scoreboard/ScoreboardDashboard';
 import ScoreboardLiveRender from './pages/scoreboard/LiveRender';
 import StoryGeneratorPage from './pages/story/StoryGeneratorPage';
 import SetupWizard from './pages/SetupWizard';
+import LicenseApiLanding from './pages/LicenseApiLanding';
 import { Toaster } from './components/ui/sonner';
 import './index.css';
+
+/**
+ * True when this React bundle is being served from the cloud license API
+ * deployment (e.g. `api.bighat.live`). The cloud server hosts the same
+ * backend as the desktop app but should NEVER expose the host UI to humans.
+ * We detect by hostname so no extra build step / env var is needed.
+ */
+function isLicenseApiHost() {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname || '';
+  // Exact prefix match: api.bighat.live, api.staging.bighat.live, etc.
+  // Local dev (127.0.0.1, localhost, *.preview.emergentagent.com) never matches.
+  return h.startsWith('api.');
+}
 
 function LoadingScreen({ label = 'Loading...' }) {
   return (
@@ -104,6 +119,17 @@ function AppRoutes() {
 }
 
 function App() {
+  // Cloud license API server: never expose the desktop host UI publicly.
+  // Bypasses Auth + Native providers (no /api/native/* calls — the cloud
+  // deploy runs with BIGHAT_CLOUD_MODE=1 where those routes are absent).
+  if (isLicenseApiHost()) {
+    return (
+      <>
+        <Toaster richColors position="top-center" />
+        <LicenseApiLanding />
+      </>
+    );
+  }
   return (
     <BrowserRouter>
       <NativeProvider>
