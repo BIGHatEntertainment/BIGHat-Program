@@ -126,10 +126,9 @@ def _download(url: str, dest: Path, *, expected_sha256: str | None = None) -> Pa
 def fetch_embeddable_python(target: Path) -> Path:
     """Download and extract the Windows embeddable CPython distribution into `target`.
 
-    Also un-comments the `import site` line in `python<ver>._pth` so that
-    site-packages installed by pip become importable, and pre-installs pip via
-    get-pip.py so that the bundled launcher can `pip install -r requirements.txt`
-    against this runtime if/when the installer is run on Windows.
+    Also enables `import site` in `python<ver>._pth` and adds the
+    `Lib\\site-packages` search path so that wheels pre-installed by
+    `bake_desktop_wheels()` are importable when the customer launches the app.
     """
     if target.is_dir() and (target / "python.exe").is_file():
         print(f"[build-installer] embeddable Python already staged at {target}")
@@ -145,23 +144,109 @@ def fetch_embeddable_python(target: Path) -> Path:
         zf.extractall(target)
 
     # Enable site-packages so that `pip install` works inside the embeddable runtime.
-    # The file is named e.g. python311._pth; we uncomment the `import site` line.
+    # The file is named e.g. python311._pth; we uncomment the `import site` line and
+    # explicitly add the Lib\\site-packages search path (the embed default omits it).
     pth_files = list(target.glob("python*._pth"))
     if not pth_files:
         raise SystemExit(f"[build-installer] no python*._pth found in {target}")
     pth = pth_files[0]
     text = pth.read_text(encoding="utf-8")
     if "#import site" in text:
-        pth.write_text(text.replace("#import site", "import site"), encoding="utf-8")
-        print(f"[build-installer] enabled `import site` in {pth.name}")
+        text = text.replace("#import site", "import site")
+    if "Lib\\site-packages" not in text and "Lib/site-packages" not in text:
+        # Insert before the `import site` line so the path is registered first.
+        if "import site" in text:
+            text = text.replace("import site", "Lib\\site-packages\nimport site")
+        else:
+            text = text.rstrip() + "\nLib\\site-packages\nimport site\n"
+    pth.write_text(text, encoding="utf-8")
+    print(f"[build-installer] enabled site-packages in {pth.name}")
 
-    # Drop get-pip.py next to python.exe so the first-run launcher can bootstrap pip.
-    # We don't run it here (we're not on Windows) but we ship the file so the
-    # post-install step can do `python.exe get-pip.py` once.
-    get_pip = target / "get-pip.py"
-    _download(GET_PIP_URL, get_pip)
-    print(f"[build-installer] staged {get_pip.name} for first-run pip bootstrap")
+    # Pre-create the site-packages dir so `pip download --target` lands cleanly.
+    (target / "Lib" / "site-packages").mkdir(parents=True, exist_ok=True)
     return target
+
+
+def bake_desktop_wheels(python_dir: Path, *, requirements: Path) -> int:
+    """Pre-install all desktop runtime wheels into the embedded Python's
+    `Lib/site-packages/` so the customer never needs internet on first launch.
+
+    We use `pip install --target` against Windows wheels (`--platform win_amd64`,
+    `--python-version 3.11`, `--only-binary=:all:`). The dev box can be Linux —
+    `pip` resolves and downloads the Windows wheels, then copies their contents
+    into the target dir. No execution of compiled Windows code happens locally.
+    """
+    if not requirements.is_file():
+        raise SystemExit(f"[build-installer] missing {requirements}")
+    site_packages = python_dir / "Lib" / "site-packages"
+    site_packages.mkdir(parents=True, exist_ok=True)
+
+    # Ensure python311._pth has site-packages + `import site` even when we're
+    # baking into a pre-staged embed (fetch_embeddable_python is skipped on
+    # cache hits but the .pth must still be correct).
+    for pth in python_dir.glob("python*._pth"):
+        text = pth.read_text(encoding="utf-8")
+        original = text
+        if "#import site" in text:
+            text = text.replace("#import site", "import site")
+        if "Lib\\site-packages" not in text and "Lib/site-packages" not in text:
+            if "import site" in text:
+                text = text.replace("import site", "Lib\\site-packages\nimport site")
+            else:
+                text = text.rstrip() + "\nLib\\site-packages\nimport site\n"
+        if text != original:
+            pth.write_text(text, encoding="utf-8")
+            print(f"[build-installer] patched {pth.name} for site-packages")
+
+    # If we've already baked, skip — keyed by requirements file mtime via a marker.
+    marker = site_packages / ".bighat_wheels_baked"
+    req_mtime = requirements.stat().st_mtime
+    if marker.is_file() and float(marker.read_text().strip() or "0") >= req_mtime:
+        n = sum(1 for _ in site_packages.rglob("*") if _.is_file())
+        print(f"[build-installer] wheels already baked ({n} files); use --rebake to redo")
+        return n
+
+    # Clean old wheels (but keep the marker line writeable below).
+    for child in site_packages.iterdir():
+        if child.name == ".bighat_wheels_baked":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink()
+
+    print(f"[build-installer] baking Windows wheels into {site_packages}")
+    cmd = [
+        sys.executable, "-m", "pip", "install",
+        "--target", str(site_packages),
+        "--platform", "win_amd64",
+        "--python-version", "3.11",
+        "--implementation", "cp",
+        "--abi", "cp311",
+        "--only-binary=:all:",
+        "--no-compile",
+        "--upgrade",
+        "-r", str(requirements),
+    ]
+    print(f"[build-installer] $ {' '.join(cmd)}")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.stdout.write(r.stdout)
+        sys.stderr.write(r.stderr)
+        raise SystemExit(
+            f"[build-installer] pip install --target failed (exit {r.returncode}). "
+            f"See output above; common cause is a transitive dep missing a "
+            f"win_amd64 cp311 wheel — pin a different version in "
+            f"backend/requirements-desktop.txt."
+        )
+    # Print only the trailing summary, not the 100s of "Collecting" lines.
+    tail = "\n".join((r.stdout or "").splitlines()[-3:])
+    if tail:
+        print(tail)
+    marker.write_text(str(req_mtime), encoding="utf-8")
+    n = sum(1 for _ in site_packages.rglob("*") if _.is_file())
+    print(f"[build-installer] baked {n} files into Lib/site-packages")
+    return n
 
 
 def _copy_tree(src: Path, dst: Path, *, exclude_dirs: set[str], exclude_names: set[str] = frozenset()) -> int:
@@ -224,6 +309,15 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_pyth
     else:
         print("[build-installer] payload python/   : ABSENT — build will produce a runner-less installer")
         print("[build-installer]                       Pass --python-dir to embed CPython, or pre-stage it.")
+
+    # Bake desktop runtime wheels (uvicorn, fastapi, pydantic, …) into the embed
+    # so the customer's first launch never needs internet or pip.
+    if (target_py / "python.exe").is_file():
+        desktop_reqs = BACKEND / "requirements-desktop.txt"
+        if desktop_reqs.is_file():
+            bake_desktop_wheels(target_py, requirements=desktop_reqs)
+        else:
+            print(f"[build-installer] WARNING: {desktop_reqs} missing — installer will be missing all third-party deps")
 
     # VERSION.txt at the install root (separate from backend/VERSION.txt for visibility)
     version = _read_version(None)

@@ -260,6 +260,30 @@ download links automatically; license keys are mailed in parallel by
 Resend from `api.bighat.live`. Click-by-click guide:
 `/app/packaging/SQUARESPACE_DELIVERY_QUICKSTART.md`.
 
+### Phase 10.5 — Installer dependency baking (Feb 2026, P0 hotfix)
+First customer-machine install revealed every prior installer was broken:
+the embedded Windows / macOS Python had **zero third-party packages**
+installed, so `import uvicorn` in `launcher.py` died on first launch.
+Because the desktop shortcut ran `pythonw.exe` (no console), the user
+saw nothing. Fix:
+- New `backend/requirements-desktop.txt` — runtime-only subset of
+  `requirements.txt` (drops linters, AWS SDK, etc.).
+- `scripts/build_installer.py` and `scripts/build_dmg.py` now run
+  `pip install --target` against `--platform win_amd64` / macosx
+  arm64+x86_64 wheels at build time, baking ~13k files into
+  `python/Lib/site-packages` so the customer never needs internet.
+- `backend/launcher.py` wraps `main()` in a top-level try/except that
+  shows a Win32 `MessageBoxW` (Windows) or `osascript display dialog`
+  (macOS) on failure, pointing at a crash-log path. No more silent dies.
+- `packaging/start_bighat.vbs` polls `127.0.0.1:8001` for 12s after
+  spawning the launcher and surfaces a MsgBox with the crash-log path
+  if the server never binds.
+- NSIS shortcuts (Desktop / Start Menu / Auto-start) now route through
+  `wscript.exe start_bighat.vbs` so the health-check fires on every
+  launch, not just from the installer's Finish page.
+- Installer size grew from 34 MB → 105 MB (still well under
+  Squarespace's 300 MB per-file limit).
+
 ### Optional P3 backlog
 - **Phase 10.1**: Wire desktop SetupWizard to actually call
   `https://api.bighat.live/api/license/activate` in production (currently

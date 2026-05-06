@@ -153,6 +153,52 @@ def _open_browser_delayed(url: str, delay: float = 1.5) -> None:
     threading.Timer(delay, _open).start()
 
 
+def _show_native_error_dialog(title: str, message: str) -> None:
+    """Show a blocking, native error dialog so the customer sees *something*
+    when launch fails — instead of the embedded `pythonw.exe` exiting silently.
+
+    Falls back to printing if the platform-specific dialog API isn't available.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes  # stdlib, available in the embedded runtime
+            MB_ICONERROR = 0x10
+            MB_OK = 0x0
+            ctypes.windll.user32.MessageBoxW(0, message, title, MB_ICONERROR | MB_OK)
+            return
+        if sys.platform == "darwin":
+            import subprocess as _sp
+            # AppleScript dialog — single line, no shell quoting headaches.
+            script = (
+                f'display dialog {message!r} '
+                f'with title {title!r} buttons {{"OK"}} '
+                'with icon stop default button "OK"'
+            )
+            _sp.run(["osascript", "-e", script], check=False, timeout=30)
+            return
+    except Exception as e:  # noqa: BLE001 — the dialog is best-effort
+        logger.warning(f"Could not show native error dialog: {e}")
+    # Last resort — at least put it on stdout/stderr.
+    print(f"\n=== {title} ===\n{message}\n", file=sys.stderr)
+
+
+def _write_crashlog(exc: BaseException) -> Path:
+    """Write the current exception traceback to a stable log location and
+    return that path so the dialog can point the customer at it."""
+    import traceback
+    log_dir = BACKEND_DIR / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "launcher_crash.log"
+    try:
+        with log_path.open("a", encoding="utf-8") as f:
+            from datetime import datetime, timezone
+            f.write(f"\n===== {datetime.now(timezone.utc).isoformat()} =====\n")
+            traceback.print_exc(file=f)
+    except Exception:  # noqa: BLE001 — log write must never raise
+        pass
+    return log_path
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -163,29 +209,47 @@ def main(argv: list[str] | None = None) -> int:
     # Make `import server` / `import native.*` work from anywhere.
     sys.path.insert(0, str(BACKEND_DIR))
 
-    _load_env()
-    _ensure_data_dirs()
+    try:
+        _load_env()
+        _ensure_data_dirs()
 
-    if args.check:
-        _print_check(args.port)
+        if args.check:
+            _print_check(args.port)
+            return 0
+
+        # Import late — relies on env + sys.path above.
+        import uvicorn  # type: ignore
+
+        url = f"http://{args.host}:{args.port}/"
+        if not args.no_browser:
+            _open_browser_delayed(url)
+
+        logger.info(f"Starting BIG Hat Standalone at {url}")
+        uvicorn.run(
+            "server:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            log_level="info",
+        )
         return 0
-
-    # Import late — relies on env + sys.path above.
-    import uvicorn  # type: ignore
-
-    url = f"http://{args.host}:{args.port}/"
-    if not args.no_browser:
-        _open_browser_delayed(url)
-
-    logger.info(f"Starting BIG Hat Standalone at {url}")
-    uvicorn.run(
-        "server:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        log_level="info",
-    )
-    return 0
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        return 130
+    except BaseException as exc:  # noqa: BLE001 — top-level failure boundary
+        log_path = _write_crashlog(exc)
+        logger.exception("Launcher failed: %s", exc)
+        _show_native_error_dialog(
+            "BIG Hat Entertainment — failed to start",
+            (
+                "BIG Hat Entertainment couldn't start.\n\n"
+                f"{type(exc).__name__}: {exc}\n\n"
+                f"Full details have been written to:\n{log_path}\n\n"
+                "Please send that file to support@bighat.live so we can help."
+            ),
+        )
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover

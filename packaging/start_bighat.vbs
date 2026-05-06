@@ -1,13 +1,12 @@
-' BIG Hat Standalone V31 — Windows silent-start launcher
-' Runs the Python launcher without a visible console window.
+' BIG Hat Entertainment — Windows silent-start launcher (with health check)
 '
-' Place this file alongside BIG Hat Standalone\ on the target machine
-' (typical install root: C:\BIG Hat\BIGHatStandalone\). Double-click to
-' launch; right-click -> "Create shortcut" for a Start-menu entry.
+' Boots the bundled Python launcher in the background, then waits up to 12s
+' for the local FastAPI server to come up. If the server never answers
+' (typical cause: missing Python wheel, corrupted install, antivirus quarantine),
+' we surface a friendly MsgBox pointing the user at the crash log instead of
+' just leaving them with a black-screen "nothing happened" experience.
 '
-' Expects:
-'   C:\BIG Hat\BIGHatStandalone\python\python.exe
-'   C:\BIG Hat\BIGHatStandalone\backend\launcher.py
+' Default install root: C:\BIG Hat\BIGHatStandalone\
 ' Edit INSTALL_ROOT below if you deploy elsewhere.
 
 Option Explicit
@@ -20,18 +19,24 @@ Set FSO = WScript.CreateObject("Scripting.FileSystemObject")
 INSTALL_ROOT = "C:\BIG Hat\BIGHatStandalone"
 ' ---------------------------------------------------------------
 
-PY       = INSTALL_ROOT & "\python\python.exe"
+PY       = INSTALL_ROOT & "\python\pythonw.exe"
+' Fall back to python.exe if pythonw.exe somehow missing (older embeds did skip it).
+If Not FSO.FileExists(PY) Then PY = INSTALL_ROOT & "\python\python.exe"
+
 LAUNCHER = INSTALL_ROOT & "\backend\launcher.py"
+Dim CRASHLOG
+CRASHLOG = INSTALL_ROOT & "\backend\data\logs\launcher_crash.log"
 
 If Not FSO.FileExists(PY) Then
-    MsgBox "BIG Hat Standalone: python runtime not found at " & PY & vbCrLf & _
-           "Re-run the installer or edit start_bighat.vbs to point at the correct path.", _
-           vbCritical, "BIG Hat Standalone"
+    MsgBox "BIG Hat Entertainment: python runtime not found at " & PY & vbCrLf & vbCrLf & _
+           "Please re-run the installer.", _
+           vbCritical, "BIG Hat Entertainment"
     WScript.Quit 1
 End If
 If Not FSO.FileExists(LAUNCHER) Then
-    MsgBox "BIG Hat Standalone: launcher not found at " & LAUNCHER, _
-           vbCritical, "BIG Hat Standalone"
+    MsgBox "BIG Hat Entertainment: launcher not found at " & LAUNCHER & vbCrLf & vbCrLf & _
+           "Please re-run the installer.", _
+           vbCritical, "BIG Hat Entertainment"
     WScript.Quit 1
 End If
 
@@ -39,3 +44,35 @@ CMD = """" & PY & """ """ & LAUNCHER & """"
 
 ' 0 = hide window, False = don't wait for exit (server stays running)
 WshShell.Run CMD, 0, False
+
+' ---- Health check: wait up to 12 seconds for the server to bind port 8001 ----
+Dim http, ok, attempt
+ok = False
+For attempt = 1 To 12
+    WScript.Sleep 1000
+    On Error Resume Next
+    Set http = CreateObject("MSXML2.XMLHTTP.6.0")
+    http.open "GET", "http://127.0.0.1:8001/", False
+    http.send
+    If Err.Number = 0 And http.Status > 0 Then
+        ok = True
+        Exit For
+    End If
+    Err.Clear
+    On Error Goto 0
+Next
+
+If Not ok Then
+    Dim msg
+    msg = "BIG Hat Entertainment didn't start within 12 seconds." & vbCrLf & vbCrLf
+    If FSO.FileExists(CRASHLOG) Then
+        msg = msg & "A crash log was written to:" & vbCrLf & CRASHLOG & vbCrLf & vbCrLf & _
+                    "Please email that file to support@bighat.live."
+    Else
+        msg = msg & "No crash log was produced — Python may have failed to start " & _
+                    "(antivirus quarantine, missing files, or permissions)." & vbCrLf & vbCrLf & _
+                    "Try running the app once as Administrator, then email " & _
+                    "support@bighat.live if it still doesn't open."
+    End If
+    MsgBox msg, vbExclamation, "BIG Hat Entertainment"
+End If
