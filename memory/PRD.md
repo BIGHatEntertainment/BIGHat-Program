@@ -250,12 +250,24 @@ features behind an active subscription.
 .app/.pkg/.dmg) + 10.0 (cloud licensing / SaaS storefront) shipped — full
 product-to-customer pipeline operational.**
 
+### Storefront delivery — Squarespace Commerce Digital Products (chosen Feb 2026)
+After friction with the unlinked `/download` page workflow, the user
+chose to attach all three installers (`BIGHatStandalone-Setup-31.0.0.exe`,
+`BIGHatEntertainment-31.0.0-macOS-AppleSilicon.zip`,
+`BIGHatEntertainment-31.0.0-macOS-Intel.zip`) directly to the
+`BHE-STANDALONE` product in Squarespace Commerce. Squarespace mails
+download links automatically; license keys are mailed in parallel by
+Resend from `api.bighat.live`. Click-by-click guide:
+`/app/packaging/SQUARESPACE_DELIVERY_QUICKSTART.md`.
+
 ### Optional P3 backlog
 - **Phase 10.1**: Wire desktop SetupWizard to actually call
   `https://api.bighat.live/api/license/activate` in production (currently
   the desktop license code is local-stub; payloads/contracts already align).
-- **Phase 10.2**: Move installer hosting from Squarespace digital downloads
-  to S3 + CloudFront with signed URLs (better analytics + per-user audit).
+- **Phase 10.2**: Move installer hosting off Squarespace to Cloudflare R2
+  (free egress) or S3 + CloudFront with signed URLs (better analytics +
+  per-user audit) — only if Squarespace's 24h / 5-attempt download links
+  ever become a customer-support pain point.
 - **Phase 10.3**: Customer Portal — let customers self-serve "deactivate
   a seat", "view receipts", "redownload installer" on bighat.live (Member
   Areas + small React widget hitting `/api/license/status/{key}`).

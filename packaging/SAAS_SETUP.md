@@ -84,10 +84,16 @@ The mandatory base package — every customer must buy this. Bundles:
    - Price: `$49.99`
    - **SKU: `BHE-STANDALONE`**  ← MUST match exactly (override via env
      `LICENSE_SKU_STANDALONE` if you want a different string)
-   - Upload the file:
-     `dist/BIGHatStandalone-Setup-31.0.0.exe` (Windows) and
-     `dist/BIGHatStandalone-31.0.0.dmg` (macOS) — Squarespace allows
-     multiple files per digital product.
+   - Upload **all three** installer files (Squarespace Commerce Digital
+     Products allows multiple files per product, up to 300 MB each):
+     - `dist/BIGHatStandalone-Setup-31.0.0.exe` (Windows, 34 MB)
+     - `dist/BIGHatEntertainment-31.0.0-macOS-AppleSilicon.zip` (Apple Silicon, 60 MB)
+     - `dist/BIGHatEntertainment-31.0.0-macOS-Intel.zip` (Intel Mac, 61 MB)
+     - If Squarespace's UI rejects the `.exe` from a regular file block,
+       use **Commerce → Products → Digital → Files** specifically — that
+       upload path accepts `.exe` (the button/file block does not).
+     - Fallback: a `.zip` of the Windows installer is pre-built at
+       `frontend/public/downloads/BIGHatEntertainment-31.0.0-Windows.zip`.
 3. Description: include "License key delivered separately by email."
 
 #### Product B — Music Bingo Add-on ($24.99 one-time)
