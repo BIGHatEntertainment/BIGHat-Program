@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Grid2X2, HelpCircle, Target, Search, Crown, Trash2, Download, FileText, Upload, CheckCircle, Loader2, Copy, Shield, Check, X } from "lucide-react";
+import { Grid2X2, HelpCircle, Target, Search, Crown, Trash2, Download, FileText, Upload, CheckCircle, Loader2, Copy, Shield, Check, X, Save, FolderOpen } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
@@ -72,6 +72,32 @@ export default function Dashboard() {
     fetchRounds();
     checkSharepoint();
   }, []);
+
+  // File-association handoff from BIGHat.exe: when a customer double-clicks
+  // a .bighat file in Explorer, the wrapper opens this dashboard with
+  // ?openFile=<absolute path> appended. Pull that, import, then strip the
+  // param so a refresh doesn't double-import.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const path = params.get("openFile");
+    if (!path) return;
+    (async () => {
+      try {
+        const form = new FormData();
+        form.append("path", path);
+        const res = await axios.post(`${API}/bighat-files/import-from-path`, form);
+        toast.success(`Opened "${res.data.name}"`);
+        fetchRounds();
+      } catch (e) {
+        toast.error(e.response?.data?.detail || `Could not open ${path}`);
+      } finally {
+        // Clean the URL so a refresh doesn't re-import.
+        params.delete("openFile");
+        const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
+        window.history.replaceState({}, "", clean);
+      }
+    })();
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const checkSharepoint = async () => {
     try {
@@ -149,6 +175,36 @@ export default function Dashboard() {
       navigate(`/roundmaker/create/${res.data.round_type}?edit=${res.data.id}`);
     } catch (e) {
       toast.error("Failed to duplicate round");
+    }
+  };
+
+  const handleSaveBighat = (round, e) => {
+    if (e) e.stopPropagation();
+    // Trigger a browser download — same-origin so cookies/session ride along.
+    const url = `${API}/bighat-files/export/${round.id}`;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${round.name}.bighat`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast.success(`Saved "${round.name}.bighat"`);
+  };
+
+  const handleOpenBighat = async (file) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".bighat")) {
+      toast.error("Please select a .bighat file");
+      return;
+    }
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await axios.post(`${API}/bighat-files/import`, form);
+      toast.success(`Imported "${res.data.name}"`);
+      fetchRounds();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to import .bighat file");
     }
   };
 
@@ -233,11 +289,36 @@ export default function Dashboard() {
 
         {/* Recent Rounds */}
         <section>
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-1 h-8 bg-yellow-400 rounded-full" />
-            <h2 className="text-2xl font-medium text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-              Recent Rounds
-            </h2>
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-1 h-8 bg-yellow-400 rounded-full" />
+              <h2 className="text-2xl font-medium text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                Recent Rounds
+              </h2>
+            </div>
+            <label
+              htmlFor="bighat-import-input"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm font-medium
+                         text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 border border-yellow-400/30
+                         transition-colors duration-200"
+              data-testid="open-bighat-button"
+              title="Open a .bighat round file"
+            >
+              <FolderOpen size={16} />
+              Open .bighat...
+              <input
+                id="bighat-import-input"
+                data-testid="open-bighat-input"
+                type="file"
+                accept=".bighat,application/x-bighat"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";  // allow re-opening the same file
+                  handleOpenBighat(f);
+                }}
+              />
+            </label>
           </div>
 
           {loading ? (
@@ -331,6 +412,17 @@ export default function Dashboard() {
                       >
                         <Download size={16} className="mr-1" />
                         PPTX
+                      </Button>
+                      <Button
+                        data-testid={`save-bighat-btn-${round.id}`}
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => handleSaveBighat(round, e)}
+                        className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10"
+                        title="Save as .bighat file (portable round backup)"
+                      >
+                        <Save size={16} className="mr-1" />
+                        .bighat
                       </Button>
                       <Button
                         data-testid={`delete-btn-${round.id}`}
