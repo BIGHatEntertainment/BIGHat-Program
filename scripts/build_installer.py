@@ -544,6 +544,18 @@ def main(argv: list[str] | None = None) -> int:
         print("[build-installer] no --cert provided; producing UNSIGNED installer.")
         print("                  Set BIGHAT_SIGNING_CERT_PFX + BIGHAT_SIGNING_PASSWORD on CI to enable signing.")
 
+    # Mirror the artifact + the zipped fallback into frontend/public/downloads/
+    # so the dev-preview download page always serves the freshly-built binary.
+    # Without this step the public folder bit-rots and customers redownload the
+    # last successfully copied build forever.
+    public_downloads = ROOT / "frontend" / "public" / "downloads"
+    public_downloads.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(exe, public_downloads / exe.name)
+    zip_fallback = DIST / f"BIGHatEntertainment-{version}-Windows.zip"
+    if zip_fallback.is_file():
+        shutil.copy2(zip_fallback, public_downloads / zip_fallback.name)
+    print(f"[build-installer] mirrored installer + zip to {public_downloads}")
+
     print(f"[build-installer] DONE  -> {exe}")
     return 0
 

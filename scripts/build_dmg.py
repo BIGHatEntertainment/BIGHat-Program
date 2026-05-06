@@ -597,6 +597,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"           .dmg : {dmg}")
     if not pkg and not dmg and sys.platform != "darwin":
         print("           (.pkg/.dmg deferred to macOS CI — .app bundle is ready to upload)")
+
+    # Mirror the prebuilt customer-facing zip (built by hand from the .app via
+    # `zip -r9` in the orchestrator) into frontend/public/downloads/ so the
+    # dev-preview download page always serves the freshly-built bundle. The
+    # arch-specific zip name matches what the Windows builder uses elsewhere.
+    arch_label = {"aarch64": "macOS-AppleSilicon", "x86_64": "macOS-Intel"}.get(args.arch, args.arch)
+    zip_artifact = DIST / f"BIGHatEntertainment-{version}-{arch_label}.zip"
+    if zip_artifact.is_file():
+        public_downloads = ROOT / "frontend" / "public" / "downloads"
+        public_downloads.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(zip_artifact, public_downloads / zip_artifact.name)
+        print(f"[build-dmg] mirrored {zip_artifact.name} -> {public_downloads}")
     return 0
 
 
