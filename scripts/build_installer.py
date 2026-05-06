@@ -323,6 +323,31 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_pyth
     version = _read_version(None)
     (PAYLOAD / "VERSION.txt").write_text(version + "\n", encoding="utf-8")
 
+    # BIGHat.exe — Win32 wrapper that replaces the wscript.exe + .vbs launcher
+    # chain with a polished, icon-bearing GUI executable. Cross-compiled with
+    # MinGW-w64 on the Linux dev box.
+    try:
+        from importlib import import_module
+        wrapper_mod = import_module("build_win32_wrapper")
+    except ImportError:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        try:
+            from importlib import import_module as _im2
+            wrapper_mod = _im2("build_win32_wrapper")
+        except ImportError as e:
+            wrapper_mod = None
+            print(f"[build-installer] WARNING: cannot import build_win32_wrapper: {e}")
+    if wrapper_mod is not None:
+        try:
+            wrapper_mod.build(version, PAYLOAD / "BIGHat.exe")
+        except SystemExit as e:
+            print(f"[build-installer] WARNING: BIGHat.exe build skipped: {e}")
+        except subprocess.CalledProcessError as e:
+            print(f"[build-installer] WARNING: BIGHat.exe build failed: {e}")
+    else:
+        print("[build-installer] WARNING: BIGHat.exe wrapper not built — "
+              "install mingw-w64 to enable.")
+
     # SECURITY: ship the desktop-safe `.env.standalone` template in the place
     # where the launcher expects to find it on first run. The real `.env` is
     # generated per-install by `launcher.py` (with a unique JWT_SECRET).
