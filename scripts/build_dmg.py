@@ -71,6 +71,15 @@ EMBED_ARCH_TO_TRIPLET = {
     "aarch64": "aarch64-apple-darwin",
     "x86_64":  "x86_64-apple-darwin",
 }
+# `pip download --platform <X>` tag for each arch — used to bake desktop
+# wheels into the .app's site-packages without needing a macOS dev box.
+EMBED_ARCH_TO_PIP_PLATFORMS = {
+    # Apple Silicon: use macosx_11_0_arm64 wheels (and any earlier compatible).
+    "aarch64": ["macosx_14_0_arm64", "macosx_13_0_arm64", "macosx_12_0_arm64", "macosx_11_0_arm64"],
+    # Intel Macs: 10.9 baseline covers everything modern.
+    "x86_64":  ["macosx_14_0_x86_64", "macosx_13_0_x86_64", "macosx_12_0_x86_64",
+                "macosx_11_0_x86_64", "macosx_10_15_x86_64", "macosx_10_9_x86_64"],
+}
 
 PAYLOAD_EXCLUDES = {"__pycache__", "node_modules", ".pytest_cache", ".git", ".cache"}
 PAYLOAD_EXCLUDE_NAMES = {"data", "tests", "test_reports"}
@@ -191,6 +200,79 @@ def fetch_embeddable_python_macos(target: Path, *, arch: str) -> Path:
     return target
 
 
+def bake_desktop_wheels_macos(python_dir: Path, *, arch: str, requirements: Path) -> int:
+    """Pre-install all desktop runtime wheels into the embedded macOS Python's
+    `lib/python3.11/site-packages/` so the customer never needs internet on
+    first launch.
+
+    Like the Windows builder, we use cross-platform `pip install --target`
+    against the macOS-specific wheel platform tags. The dev box can be Linux
+    — pip resolves and downloads the macOS wheels, then copies their contents
+    into the target directory. No execution of compiled Mac code happens
+    locally.
+    """
+    if not requirements.is_file():
+        raise SystemExit(f"[build-dmg] missing {requirements}")
+
+    py_major_minor = "python" + ".".join(EMBED_PYTHON_VERSION.split(".")[:2])
+    site_packages = python_dir / "lib" / py_major_minor / "site-packages"
+    site_packages.mkdir(parents=True, exist_ok=True)
+
+    marker = site_packages / ".bighat_wheels_baked"
+    req_mtime = requirements.stat().st_mtime
+    marker_value = f"{arch}:{req_mtime}"
+    if marker.is_file() and marker.read_text().strip() == marker_value:
+        n = sum(1 for _ in site_packages.rglob("*") if _.is_file())
+        print(f"[build-dmg] wheels already baked for {arch} ({n} files); use --rebake to redo")
+        return n
+
+    # Wipe any prior arch's wheels — we mustn't mix archs in the same site-packages.
+    for child in list(site_packages.iterdir()):
+        if child.name.startswith(".") and child.name != ".bighat_wheels_baked":
+            continue
+        if child.name == ".bighat_wheels_baked":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink()
+
+    print(f"[build-dmg] baking macOS {arch} wheels into {site_packages}")
+    platform_args: list[str] = []
+    for tag in EMBED_ARCH_TO_PIP_PLATFORMS[arch]:
+        platform_args += ["--platform", tag]
+
+    cmd = [
+        sys.executable, "-m", "pip", "install",
+        "--target", str(site_packages),
+        *platform_args,
+        "--python-version", "3.11",
+        "--implementation", "cp",
+        "--abi", "cp311",
+        "--only-binary=:all:",
+        "--no-compile",
+        "--upgrade",
+        "-r", str(requirements),
+    ]
+    print(f"[build-dmg] $ {' '.join(cmd)}")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.stdout.write(r.stdout)
+        sys.stderr.write(r.stderr)
+        raise SystemExit(
+            f"[build-dmg] pip install --target failed (exit {r.returncode}). "
+            f"Common cause: a transitive dep missing a {arch} cp311 wheel — "
+            f"pin a different version in backend/requirements-desktop.txt."
+        )
+    tail = "\n".join((r.stdout or "").splitlines()[-3:])
+    if tail:
+        print(tail)
+    marker.write_text(marker_value, encoding="utf-8")
+    n = sum(1 for _ in site_packages.rglob("*") if _.is_file())
+    print(f"[build-dmg] baked {n} files into {site_packages.relative_to(python_dir)}")
+    return n
+
+
 # ---------- .app bundle ----------
 def render_template(src: Path, dst: Path, mapping: dict[str, str]) -> None:
     text = src.read_text(encoding="utf-8")
@@ -280,6 +362,13 @@ def assemble_app_bundle(
     # 7. Embedded Python under Resources/python/
     if embed_python:
         fetch_embeddable_python_macos(res / "python", arch=arch)
+        # Bake desktop runtime wheels (uvicorn, fastapi, pydantic, …) into the
+        # embed so first launch never needs internet or pip.
+        desktop_reqs = BACKEND / "requirements-desktop.txt"
+        if desktop_reqs.is_file():
+            bake_desktop_wheels_macos(res / "python", arch=arch, requirements=desktop_reqs)
+        else:
+            print(f"[build-dmg] WARNING: {desktop_reqs} missing — .app will be missing all third-party deps")
         n = sum(1 for _ in (res / "python").rglob("*") if _.is_file())
         print(f"[build-dmg] resources python/   : {n} files (embeddable {EMBED_PYTHON_VERSION} {arch})")
     else:

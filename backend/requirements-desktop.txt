@@ -1,0 +1,162 @@
+# BIG Hat Entertainment — DESKTOP runtime dependencies.
+#
+# Subset of requirements.txt baked into the embedded Python that ships
+# with the Windows / macOS installer. Everything that's only used on the
+# dev box (linters, type checkers) or only by the cloud license server
+# (boto3, stripe, resend on the server side) is stripped here so we
+# don't bloat the customer download.
+#
+# Pinned versions match requirements.txt exactly — DO NOT diverge, or
+# the desktop wheels will resolve differently from what we test against
+# on the dev box. When you bump a version in requirements.txt, mirror it
+# here too.
+#
+# Build pipeline: scripts/build_installer.py + scripts/build_dmg.py
+# call `pip download --platform … --only-binary=:all:` against this file
+# to fetch native wheels for the customer's platform.
+
+# --- Web framework ---
+fastapi==0.110.1
+starlette==0.37.2
+uvicorn==0.25.0
+python-multipart==0.0.22
+slowapi==0.1.9
+limits==5.8.0
+
+# --- Models / validation ---
+pydantic==2.12.5
+pydantic_core==2.41.5
+annotated-types==0.7.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+email-validator==2.3.0
+
+# --- Auth & crypto ---
+bcrypt==4.1.3
+passlib==1.7.4
+PyJWT==2.12.1
+python-jose==3.5.0
+cryptography==46.0.5
+ecdsa==0.19.1
+rsa==4.9.1
+pyasn1==0.6.3
+pyasn1_modules==0.4.2
+
+# --- HTTP / networking ---
+httpx==0.28.1
+httpcore==1.0.9
+h11==0.16.0
+anyio==4.13.0
+sniffio==1.3.1
+aiohttp==3.13.3
+aiohappyeyeballs==2.6.1
+aiosignal==1.4.0
+frozenlist==1.8.0
+multidict==6.7.1
+propcache==0.4.1
+yarl==1.23.0
+attrs==26.1.0
+requests==2.32.5
+urllib3==2.6.3
+charset-normalizer==3.4.6
+idna==3.11
+certifi==2026.2.25
+websockets==16.0
+
+# --- Database (local SQLite via Mongo-compatible shim) ---
+montydb==2.5.3
+pymongo==4.5.0
+motor==3.3.1
+dnspython==2.8.0
+
+# --- Env + config ---
+python-dotenv==1.2.2
+PyYAML==6.0.3
+
+# --- Scheduler ---
+APScheduler==3.11.2
+tzdata==2025.3
+tzlocal==5.3.1
+python-dateutil==2.9.0.post0
+six==1.17.0
+
+# --- Office docs (slide + spreadsheet parsing for trivia) ---
+python-pptx==1.0.2
+openpyxl==3.1.5
+xlsxwriter==3.2.9
+lxml==6.0.2
+et_xmlfile==2.0.0
+pillow==11.3.0
+
+# --- Media (Music Bingo + scoreboard videos) ---
+moviepy==2.2.1
+imageio==2.37.3
+imageio-ffmpeg==0.6.0
+proglog==0.1.12
+numpy==2.4.3
+
+# --- Microsoft 365 / SharePoint sync (optional premium) ---
+msal==1.35.1
+
+# --- LLM clients (story generator, trivia helpers) ---
+openai==1.99.9
+litellm==1.80.0
+google-genai==1.68.0
+google-generativeai==0.8.6
+google-ai-generativelanguage==0.6.15
+google-api-core==2.30.0
+google-api-python-client==2.193.0
+google-auth==2.49.1
+google-auth-httplib2==0.3.0
+googleapis-common-protos==1.73.0
+grpcio==1.78.0
+grpcio-status==1.71.2
+proto-plus==1.27.1
+protobuf==5.29.6
+httplib2==0.31.2
+oauthlib==3.3.1
+requests-oauthlib==2.0.0
+uritemplate==4.2.0
+pyparsing==3.3.2
+huggingface_hub==1.7.2
+hf-xet==1.4.2
+tokenizers==0.22.2
+tiktoken==0.12.0
+regex==2026.2.28
+jiter==0.13.0
+fsspec==2026.2.0
+filelock==3.25.2
+distro==1.9.0
+
+# --- Core deps & utilities ---
+click==8.3.1
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+markdown-it-py==4.0.0
+mdurl==0.1.2
+Pygments==2.19.2
+rich==14.3.3
+typer==0.24.1
+shellingham==1.5.4
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==0.30.0
+fastuuid==0.14.0
+packaging==26.0
+zipp==3.23.0
+importlib_metadata==9.0.0
+Deprecated==1.3.1
+wrapt==2.1.2
+cffi==2.0.0
+pycparser==3.0
+decorator==5.2.1
+tenacity==9.1.4
+tqdm==4.67.3
+watchfiles==1.1.1
+
+# --- Used by emergent integrations + telemetry ---
+emergentintegrations==0.1.0
+
+# --- pandas (used by some trivia analytics paths) ---
+pandas==3.0.1

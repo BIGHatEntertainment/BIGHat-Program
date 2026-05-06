@@ -157,8 +157,8 @@ SectionEnd
 Section "Desktop shortcut" SEC_DESKTOP
   SetShellVarContext current
   CreateShortCut "$DESKTOP\${APP_NAME}.lnk" \
-                 "$INSTDIR\${PYTHON_DIRNAME}\pythonw.exe" \
-                 '"$INSTDIR\backend\launcher.py"' \
+                 "wscript.exe" \
+                 '"$INSTDIR\packaging\start_bighat.vbs"' \
                  "$INSTDIR\packaging\bighat.ico" 0
 SectionEnd
 
@@ -166,8 +166,8 @@ Section "Start Menu shortcut" SEC_STARTMENU
   SetShellVarContext current
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
-                 "$INSTDIR\${PYTHON_DIRNAME}\pythonw.exe" \
-                 '"$INSTDIR\backend\launcher.py"' \
+                 "wscript.exe" \
+                 '"$INSTDIR\packaging\start_bighat.vbs"' \
                  "$INSTDIR\packaging\bighat.ico" 0
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" \
                  "$INSTDIR\Uninstall.exe"
@@ -176,8 +176,8 @@ SectionEnd
 Section /o "Auto-start at login" SEC_AUTOSTART
   SetShellVarContext current
   CreateShortCut "$SMPROGRAMS\..\..\..\Microsoft\Windows\Start Menu\Programs\Startup\${APP_NAME}.lnk" \
-                 "$INSTDIR\${PYTHON_DIRNAME}\pythonw.exe" \
-                 '"$INSTDIR\backend\launcher.py" --no-browser' \
+                 "wscript.exe" \
+                 '"$INSTDIR\packaging\start_bighat.vbs"' \
                  "$INSTDIR\packaging\bighat.ico" 0
 SectionEnd
 
