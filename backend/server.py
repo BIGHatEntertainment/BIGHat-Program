@@ -1873,6 +1873,16 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Scoreboard routes: {e}")
 
+# Mount .bighat file import/export routes (Phase 10.7)
+try:
+    from routes import bighat_files as bighat_files_routes
+    if hasattr(bighat_files_routes, 'set_database'):
+        bighat_files_routes.set_database(db)
+    api_router.include_router(bighat_files_routes.router)
+    logger.info(".bighat file routes mounted successfully")
+except Exception as e:
+    logger.warning(f"Could not load .bighat file routes: {e}")
+
 # Include router
 app.include_router(api_router)
 

@@ -151,6 +151,21 @@ Section "Core (required)" SEC_CORE
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${APP_UNINSTKEY}" "EstimatedSize" "$0"
 
+  ; ---- File association: .bighat ----
+  ; Customers can save trivia rounds as .bighat files (portable round
+  ; archives) and double-click to re-open in BIG Hat Entertainment.
+  WriteRegStr HKCU "Software\Classes\.bighat" "" "BIGHat.bighatfile"
+  WriteRegStr HKCU "Software\Classes\.bighat" "Content Type" "application/x-bighat"
+  WriteRegStr HKCU "Software\Classes\.bighat\OpenWithProgids" "BIGHat.bighatfile" ""
+
+  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile" "" "BIG Hat round file"
+  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile" "FriendlyTypeName" "BIG Hat round file"
+  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile\DefaultIcon" "" '"$INSTDIR\BIGHat.exe",0'
+  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile\shell\open\command" "" '"$INSTDIR\BIGHat.exe" "%1"'
+
+  ; Notify Explorer so the new association takes effect immediately.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'  ; SHCNE_ASSOCCHANGED
+
   ; ---- Uninstaller ----
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
@@ -225,6 +240,11 @@ Section "Uninstall"
 
   DeleteRegKey HKCU "${APP_REGKEY}"
   DeleteRegKey HKCU "${APP_UNINSTKEY}"
+
+  ; Remove .bighat file association
+  DeleteRegKey HKCU "Software\Classes\.bighat"
+  DeleteRegKey HKCU "Software\Classes\BIGHat.bighatfile"
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'  ; SHCNE_ASSOCCHANGED
 
   DetailPrint "User data under $INSTDIR\backend\data was preserved."
   DetailPrint "Delete that folder manually if you want a full removal."

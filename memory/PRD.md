@@ -306,6 +306,41 @@ polished launch experience instead of "running a script". Components:
   `start_bighat.vbs` is kept on disk as a manual fallback only.
 - Resulting `BIGHat.exe` is 75 KB; total installer is 106 MB.
 
+### Phase 10.7 — `.bighat` portable round files + Windows file association (Feb 2026)
+Customers can now save a Round Maker round as a single `.bighat` file
+(zip archive: `manifest.json` + `round.json`), email it to a colleague,
+back it up to OneDrive, or just double-click in Explorer to re-open it
+in BIG Hat Entertainment. Round backups are now portable artifacts the
+customer owns, not opaque rows in a SQLite database.
+- `backend/routes/bighat_files.py` — three endpoints:
+  * `GET  /api/bighat-files/export/{round_id}` → ZIP download
+  * `POST /api/bighat-files/import` (multipart) → mints a fresh round id
+  * `POST /api/bighat-files/import-from-path` (form `path=`) → reads
+    a server-local file; restricted to native mode + loopback origin.
+  Manifest validates `format == "bighat/round"` and rejects future
+  versions with a "please update BIG Hat" upgrade hint.
+- Frontend `RoundMakerDashboard.js` — new "Save .bighat" action button
+  per round + "Open .bighat..." picker at the section header. On mount,
+  reads `?openFile=` query param (set by `BIGHat.exe` when a `.bighat`
+  is double-clicked), POSTs to `import-from-path`, then strips the
+  param via `history.replaceState` so refresh doesn't re-import.
+- `BIGHat.exe` (`bighat.c`) — accepts the file path as `argv[1]`,
+  URL-encodes it, builds `http://127.0.0.1:8001/roundmaker?openFile=<path>`,
+  and goes single-instance: if port 8001 is already listening, just
+  `ShellExecuteW` the URL into the user's default browser; else spawn
+  the launcher with `--no-browser`, wait for the port, then open the
+  URL ourselves (no double-tab).
+- NSIS installer registers `.bighat` under
+  `HKCU\Software\Classes\.bighat` → `BIGHat.bighatfile` (default icon =
+  `BIGHat.exe,0`; `shell\open\command` = `"BIGHat.exe" "%1"`), broadcasts
+  `SHCNE_ASSOCCHANGED` so Explorer picks it up immediately, and removes
+  both keys on uninstall.
+- New regression `backend/tests/test_phase10_7_bighat_files.py` — 9
+  tests: export-import round-trip, future-version rejection, corrupt
+  zip, missing manifest, wrong format, import-from-path success +
+  missing-file 404. **All passing.**
+- Installer size unchanged at 106 MB.
+
 ### Optional P3 backlog
 - **Phase 10.1**: Wire desktop SetupWizard to actually call
   `https://api.bighat.live/api/license/activate` in production (currently
