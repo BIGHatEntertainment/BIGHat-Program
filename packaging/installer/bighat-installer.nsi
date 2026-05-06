@@ -74,8 +74,8 @@ VIAddVersionKey "InternalName"     "${APP_INTERNAL}"
 VIAddVersionKey "OriginalFilename" "BIGHatStandalone-Setup.exe"
 
 ; ===== UI flow =====
-!define MUI_ICON   "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
-!define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
+!define MUI_ICON   "..\bighat.ico"
+!define MUI_UNICON "..\bighat.ico"
 !define MUI_ABORTWARNING
 
 !insertmacro MUI_PAGE_WELCOME
@@ -138,6 +138,7 @@ Section "Core (required)" SEC_CORE
 
   WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayName"     "${APP_NAME}"
   WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayVersion"  "${APP_VERSION}"
+  WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayIcon"     '"$INSTDIR\BIGHat.exe"'
   WriteRegStr HKCU "${APP_UNINSTKEY}" "Publisher"       "${APP_PUBLISHER}"
   WriteRegStr HKCU "${APP_UNINSTKEY}" "URLInfoAbout"    "${APP_URL}"
   WriteRegStr HKCU "${APP_UNINSTKEY}" "InstallLocation" "$INSTDIR"
@@ -157,18 +158,18 @@ SectionEnd
 Section "Desktop shortcut" SEC_DESKTOP
   SetShellVarContext current
   CreateShortCut "$DESKTOP\${APP_NAME}.lnk" \
-                 "wscript.exe" \
-                 '"$INSTDIR\packaging\start_bighat.vbs"' \
-                 "$INSTDIR\packaging\bighat.ico" 0
+                 "$INSTDIR\BIGHat.exe" \
+                 '' \
+                 "$INSTDIR\BIGHat.exe" 0
 SectionEnd
 
 Section "Start Menu shortcut" SEC_STARTMENU
   SetShellVarContext current
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
-                 "wscript.exe" \
-                 '"$INSTDIR\packaging\start_bighat.vbs"' \
-                 "$INSTDIR\packaging\bighat.ico" 0
+                 "$INSTDIR\BIGHat.exe" \
+                 '' \
+                 "$INSTDIR\BIGHat.exe" 0
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" \
                  "$INSTDIR\Uninstall.exe"
 SectionEnd
@@ -176,9 +177,9 @@ SectionEnd
 Section /o "Auto-start at login" SEC_AUTOSTART
   SetShellVarContext current
   CreateShortCut "$SMPROGRAMS\..\..\..\Microsoft\Windows\Start Menu\Programs\Startup\${APP_NAME}.lnk" \
-                 "wscript.exe" \
-                 '"$INSTDIR\packaging\start_bighat.vbs"' \
-                 "$INSTDIR\packaging\bighat.ico" 0
+                 "$INSTDIR\BIGHat.exe" \
+                 '' \
+                 "$INSTDIR\BIGHat.exe" 0
 SectionEnd
 
 ; ===== Section descriptions =====
@@ -195,7 +196,7 @@ LangString DESC_AUTOSTART ${LANG_ENGLISH} "Run BIG Hat Standalone in the backgro
 
 ; ===== Helper to launch the app from the Finish page =====
 Function LaunchApp
-  ExecShell "" "$INSTDIR\packaging\start_bighat.vbs"
+  ExecShell "" "$INSTDIR\BIGHat.exe"
 FunctionEnd
 
 ; ===== Uninstall =====
@@ -208,6 +209,7 @@ Section "Uninstall"
 
   ; Remove install root contents (preserve user data\ unless they tick the option)
   Delete "$INSTDIR\Uninstall.exe"
+  Delete "$INSTDIR\BIGHat.exe"
   Delete "$INSTDIR\VERSION.txt"
   RMDir /r "$INSTDIR\backend\static"
   RMDir /r "$INSTDIR\backend\__pycache__"

@@ -275,14 +275,36 @@ saw nothing. Fix:
 - `backend/launcher.py` wraps `main()` in a top-level try/except that
   shows a Win32 `MessageBoxW` (Windows) or `osascript display dialog`
   (macOS) on failure, pointing at a crash-log path. No more silent dies.
-- `packaging/start_bighat.vbs` polls `127.0.0.1:8001` for 12s after
-  spawning the launcher and surfaces a MsgBox with the crash-log path
-  if the server never binds.
 - NSIS shortcuts (Desktop / Start Menu / Auto-start) now route through
-  `wscript.exe start_bighat.vbs` so the health-check fires on every
-  launch, not just from the installer's Finish page.
-- Installer size grew from 34 MB → 105 MB (still well under
+  the new `BIGHat.exe` Win32 wrapper (Phase 10.6) so the health-check
+  fires on every launch, not just from the installer's Finish page.
+- Installer size grew from 34 MB → 106 MB (still well under
   Squarespace's 300 MB per-file limit).
+
+### Phase 10.6 — Native Win32 launcher wrapper (Feb 2026)
+Replaced the `wscript.exe + start_bighat.vbs` shortcut chain with a
+real, icon-bearing Win32 GUI executable so paying customers see a
+polished launch experience instead of "running a script". Components:
+- `packaging/win32_wrapper/bighat.c` — 200 LOC C source that resolves
+  the install root from `GetModuleFileNameW`, spawns
+  `python\pythonw.exe backend\launcher.py` with `CREATE_NO_WINDOW |
+  DETACHED_PROCESS` (no flashing console), polls TCP `127.0.0.1:8001`
+  with non-blocking `connect()`+`select()` for up to 12 s, and surfaces
+  `MessageBoxW` errors pointing at `backend\data\logs\launcher_crash.log`.
+- `packaging/win32_wrapper/bighat.rc` + `bighat.manifest` — embed the
+  multi-resolution `bighat.ico`, VERSIONINFO (so File Properties +
+  Task Manager show the right metadata), Common Controls v6, and
+  PerMonitorV2 DPI awareness.
+- `packaging/bighat.ico` — generated from `frontend/public/hat-logo.png`
+  at six sizes (16/32/48/64/128/256).
+- `scripts/build_win32_wrapper.py` — wraps the `x86_64-w64-mingw32-gcc`
+  +`windres` cross-compile (called automatically from
+  `build_installer.py`).
+- NSIS now uses `bighat.ico` for both installer and uninstaller, sets
+  `DisplayIcon` in `Programs and Features`, and points all shortcuts
+  + the Finish-page `LaunchApp` at `$INSTDIR\BIGHat.exe`. The
+  `start_bighat.vbs` is kept on disk as a manual fallback only.
+- Resulting `BIGHat.exe` is 75 KB; total installer is 106 MB.
 
 ### Optional P3 backlog
 - **Phase 10.1**: Wire desktop SetupWizard to actually call

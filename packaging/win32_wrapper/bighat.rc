@@ -1,0 +1,51 @@
+// BIG Hat Entertainment — Win32 wrapper resources
+//
+// Embeds the application icon and a VERSIONINFO block so Explorer's
+// Properties dialog and Task Manager show the right metadata.
+
+#include <windows.h>
+
+// Icon ID 1 — Windows Explorer + Taskbar pick the lowest-numbered icon
+// from a multi-resolution .ico, so this single line gives us all sizes.
+1 ICON "bighat.ico"
+
+// Embed an application manifest so:
+//  - The exe runs with asInvoker rights (no UAC prompt)
+//  - DPI scaling looks crisp on HiDPI displays
+//  - Common Controls v6 is enabled (correct visual style for MessageBox)
+1 RT_MANIFEST "bighat.manifest"
+
+// VERSIONINFO — populated at build time by the orchestrator via /D defines.
+#ifndef BIGHAT_VERSION_DOT
+#define BIGHAT_VERSION_DOT      0,0,0,0
+#define BIGHAT_VERSION_STR      "0.0.0.0"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    BIGHAT_VERSION_DOT
+ PRODUCTVERSION BIGHAT_VERSION_DOT
+ FILEFLAGSMASK  0x3fL
+ FILEFLAGS      0x0L
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "BIG Hat Entertainment\0"
+            VALUE "FileDescription",  "BIG Hat Entertainment launcher\0"
+            VALUE "FileVersion",      BIGHAT_VERSION_STR "\0"
+            VALUE "InternalName",     "BIGHat\0"
+            VALUE "OriginalFilename", "BIGHat.exe\0"
+            VALUE "ProductName",      "BIG Hat Entertainment\0"
+            VALUE "ProductVersion",   BIGHAT_VERSION_STR "\0"
+            VALUE "LegalCopyright",   "(c) BIG Hat Entertainment\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
