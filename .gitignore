@@ -1040,3 +1040,21 @@ frontend/public/downloads/*.zip
 frontend/public/downloads/*.dmg
 frontend/public/downloads/*.pkg
 frontend/public/downloads/*.app/
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

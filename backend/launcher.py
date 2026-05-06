@@ -225,12 +225,19 @@ def main(argv: list[str] | None = None) -> int:
             _open_browser_delayed(url)
 
         logger.info(f"Starting BIG Hat Standalone at {url}")
+        # log_config=None tells uvicorn to skip its own dictConfig and fall back
+        # to stdlib logging — avoids "ValueError: Unable to configure formatter
+        # 'default'" on the Windows embed where click/ANSI colour init can fail
+        # before the formatter resolves. We already called logging.basicConfig
+        # at the top of main(), so log output still works.
         uvicorn.run(
             "server:app",
             host=args.host,
             port=args.port,
             reload=args.reload,
             log_level="info",
+            log_config=None,
+            access_log=False,
         )
         return 0
     except SystemExit:
