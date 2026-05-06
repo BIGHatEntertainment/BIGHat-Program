@@ -175,15 +175,29 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow) {
     path_join(backend_dir, MAX_PATH, exe_path, L"backend");
     path_join(crashlog,    MAX_PATH, exe_path, L"backend\\data\\logs\\launcher_crash.log");
 
-    /* --- Build the URL up front so we can use it in both branches. --- */
+    /* --- Build the deep-link URL only used for file-association handoff
+     *     to an already-running instance. --- */
     wchar_t url[12 * 1024];
     build_target_url(url, sizeof(url) / sizeof(url[0]), open_file);
 
-    /* --- Single-instance: if launcher already listening, just hand off to browser. --- */
+    /* --- Single-instance handoff: if the launcher is already running and
+     *     the user double-clicked a .bighat file, just open the deep-link
+     *     in the user's default browser pointing at the existing window's
+     *     server. (Refining this to focus the existing pywebview window
+     *     would need an IPC channel — left as a Phase 10.9 polish.) --- */
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
-    if (port_is_listening(LAUNCHER_PORT)) {
+    if (port_is_listening(LAUNCHER_PORT) && open_file != NULL) {
         ShellExecuteW(NULL, L"open", url, NULL, NULL, SW_SHOWNORMAL);
+        WSACleanup();
+        if (argv) LocalFree(argv);
+        return 0;
+    }
+    /* If launcher is already running and there's no file argument, the user
+     * clicked the desktop shortcut while the app is open. Just bring focus
+     * by reopening — pywebview will no-op if its window is already the
+     * foreground. (Cheap polish; sufficient for v1.) */
+    if (port_is_listening(LAUNCHER_PORT)) {
         WSACleanup();
         if (argv) LocalFree(argv);
         return 0;
@@ -209,10 +223,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow) {
         return 1;
     }
 
-    /* --- Spawn launcher with --no-browser so we control browser open. --- */
+    /* --- Spawn the launcher. NO --no-browser: launcher.py owns the
+     *     pywebview native window now (chromeless, hat icon, no Chrome
+     *     tabs). --- */
     wchar_t cmdline[2 * MAX_PATH + 32];
     StringCchPrintfW(cmdline, sizeof(cmdline) / sizeof(cmdline[0]),
-                     L"\"%ls\" \"%ls\" --no-browser", python, launcher);
+                     L"\"%ls\" \"%ls\"", python, launcher);
 
     STARTUPINFOW si;
     ZeroMemory(&si, sizeof(si));
@@ -242,48 +258,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow) {
         return 1;
     }
 
-    Sleep(STARTUP_GRACE_MS);
-
-    int success = 0;
-    for (int i = 0; i < HEALTHCHECK_SECS; i++) {
-        if (port_is_listening(LAUNCHER_PORT)) {
-            success = 1;
-            break;
-        }
-        DWORD status = WaitForSingleObject(pi.hProcess, 1000);
-        if (status == WAIT_OBJECT_0) {
-            /* Child exited before port opened — definite crash. */
-            break;
-        }
-    }
-
+    /* The launcher process now owns the native window. We can detach
+     * immediately — no need to babysit the port. The user sees the
+     * window pop up within ~3-5 seconds (uvicorn boot + pywebview init).
+     * If the launcher fails to start, launcher.py's own MessageBoxW will
+     * surface the error. */
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     WSACleanup();
     if (argv) LocalFree(argv);
-
-    if (!success) {
-        wchar_t msg[1024];
-        if (GetFileAttributesW(crashlog) != INVALID_FILE_ATTRIBUTES) {
-            StringCchPrintfW(msg, 1024,
-                L"BIG Hat Entertainment didn't start within %d seconds.\n\n"
-                L"A crash log was written to:\n%ls\n\n"
-                L"Please email that file to support@bighat.live so we can help.",
-                HEALTHCHECK_SECS, crashlog);
-        } else {
-            StringCchPrintfW(msg, 1024,
-                L"BIG Hat Entertainment didn't start within %d seconds.\n\n"
-                L"No crash log was produced — Python may have failed to start "
-                L"(antivirus quarantine, missing files, or permissions).\n\n"
-                L"Try running the app once as Administrator, then email "
-                L"support@bighat.live if it still doesn't open.",
-                HEALTHCHECK_SECS);
-        }
-        show_error(msg);
-        return 1;
-    }
-
-    /* --- Open the user's default browser at the target URL. --- */
-    ShellExecuteW(NULL, L"open", url, NULL, NULL, SW_SHOWNORMAL);
     return 0;
 }

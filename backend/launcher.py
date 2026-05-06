@@ -24,6 +24,7 @@ import argparse
 import logging
 import os
 import sys
+import threading
 import webbrowser
 from pathlib import Path
 
@@ -97,7 +98,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="BIG Hat Standalone launcher")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--no-browser", action="store_true", help="don't open the browser")
+    p.add_argument("--no-browser", action="store_true", help="don't open any UI window")
+    p.add_argument("--browser-only", action="store_true",
+                   help="open the system default browser instead of the native window "
+                        "(fallback if the embedded webview backend isn't available)")
     p.add_argument("--reload", action="store_true", help="dev-only hot reload")
     p.add_argument("--check", action="store_true",
                    help="print config + exit (no server)")
@@ -141,9 +145,10 @@ def _print_check(port: int) -> None:
 
 
 def _open_browser_delayed(url: str, delay: float = 1.5) -> None:
-    """Open the user's default browser to `url` on a background timer."""
-    import threading
-
+    """[deprecated] Open the user's default browser to `url` on a background
+    timer. Kept only for explicit `--browser-only` mode; the default launch
+    path now uses a chromeless pywebview window via `_open_native_window()`.
+    """
     def _open():
         try:
             webbrowser.open_new(url)
@@ -199,6 +204,119 @@ def _write_crashlog(exc: BaseException) -> Path:
     return log_path
 
 
+def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
+    """Poll a TCP port until it accepts a connection. Returns True on success."""
+    import socket
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.25)
+    return False
+
+
+def _start_uvicorn_in_thread(host: str, port: int, *, reload: bool) -> threading.Thread:
+    """Start uvicorn on a daemon thread so the main thread can drive the
+    native window's event loop. Daemon = the server dies cleanly when the
+    customer closes the window."""
+    import uvicorn  # type: ignore
+
+    def _run():
+        try:
+            uvicorn.run(
+                "server:app",
+                host=host,
+                port=port,
+                reload=reload,
+                log_level="info",
+                log_config=None,
+                access_log=False,
+            )
+        except SystemExit:
+            pass
+        except BaseException as exc:  # noqa: BLE001 — surface in crash log
+            logger.exception("uvicorn thread failed: %s", exc)
+            _write_crashlog(exc)
+
+    t = threading.Thread(target=_run, name="uvicorn", daemon=True)
+    t.start()
+    return t
+
+
+def _open_native_window(url: str) -> bool:
+    """Open the app inside a chromeless OS-native window via pywebview.
+
+    Returns True if the window was created and event-looped to completion,
+    False if the webview backend isn't available (caller should fall back
+    to the system browser).
+
+    Window lifecycle:
+      * Title: "BIG Hat Entertainment"
+      * Min size 1024x720, default 1440x900 (laid out for the host UI)
+      * Closing the window terminates the process — the daemon uvicorn
+        thread dies automatically.
+    """
+    try:
+        import webview  # type: ignore
+    except ImportError as e:
+        logger.warning(f"pywebview not installed ({e}); falling back to browser")
+        return False
+
+    icon_path: str | None = None
+    # Prefer the install-root icon shipped by the NSIS payload, fall back to
+    # the React public dir (dev runs).
+    for candidate in (
+        BACKEND_DIR.parent / "packaging" / "bighat.ico",
+        BACKEND_DIR / "static" / "favicon.ico",
+        BACKEND_DIR / "static" / "hat-logo.png",
+    ):
+        if candidate.is_file():
+            icon_path = str(candidate)
+            break
+
+    try:
+        kwargs = dict(
+            title="BIG Hat Entertainment",
+            url=url,
+            width=1440,
+            height=900,
+            min_size=(1024, 720),
+            resizable=True,
+            text_select=True,
+            confirm_close=False,
+            background_color="#0B1020",  # match host login page so no white flash on load
+        )
+        webview.create_window(**kwargs)
+    except TypeError:
+        # Older pywebview builds use positional `title, url`
+        webview.create_window("BIG Hat Entertainment", url)
+
+    # `gui` selects the rendering backend. On Windows we want EdgeChromium
+    # (uses the WebView2 runtime preinstalled on Win 10 21H1+ / Win 11) for
+    # modern CSS/JS; on macOS pywebview auto-picks WKWebView; on Linux it
+    # uses GTK/QT. Falling back to the default if the named backend isn't
+    # available.
+    gui = None
+    if sys.platform == "win32":
+        gui = "edgechromium"
+    elif sys.platform == "darwin":
+        gui = "cocoa"
+
+    try:
+        webview.start(gui=gui, debug=False, icon=icon_path)
+    except Exception as e:  # noqa: BLE001 — gui kwarg may not be supported
+        logger.warning(f"webview.start({gui!r}) failed: {e}; retrying with default gui")
+        try:
+            webview.start(debug=False)
+        except Exception as e2:  # noqa: BLE001
+            logger.exception(f"webview.start() failed entirely: {e2}")
+            return False
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -217,28 +335,43 @@ def main(argv: list[str] | None = None) -> int:
             _print_check(args.port)
             return 0
 
-        # Import late — relies on env + sys.path above.
-        import uvicorn  # type: ignore
-
         url = f"http://{args.host}:{args.port}/"
-        if not args.no_browser:
-            _open_browser_delayed(url)
+        logger.info(f"Starting BIG Hat Entertainment — server at {url}")
 
-        logger.info(f"Starting BIG Hat Standalone at {url}")
-        # log_config=None tells uvicorn to skip its own dictConfig and fall back
-        # to stdlib logging — avoids "ValueError: Unable to configure formatter
-        # 'default'" on the Windows embed where click/ANSI colour init can fail
-        # before the formatter resolves. We already called logging.basicConfig
-        # at the top of main(), so log output still works.
-        uvicorn.run(
-            "server:app",
-            host=args.host,
-            port=args.port,
-            reload=args.reload,
-            log_level="info",
-            log_config=None,
-            access_log=False,
-        )
+        # 1. Boot uvicorn on a background thread.
+        _start_uvicorn_in_thread(args.host, args.port, reload=args.reload)
+
+        # 2. Wait for the port to come up before pointing the window at it
+        #    (otherwise the customer sees a "can't reach" page for 1-2s).
+        if not _wait_for_port(args.host, args.port, timeout=20.0):
+            raise RuntimeError(
+                f"Backend did not start listening on {args.host}:{args.port} within 20s. "
+                f"See data/logs/launcher_crash.log for the uvicorn traceback."
+            )
+
+        # 3. Headless mode (e.g. when launched from the Windows installer Auto-start
+        #    section) — never open a window.
+        if args.no_browser:
+            logger.info("--no-browser given; running headless. Press Ctrl+C to stop.")
+            try:
+                threading.Event().wait()  # block forever; uvicorn thread is daemon
+            except KeyboardInterrupt:
+                pass
+            return 0
+
+        # 4. Native chromeless window (default).
+        if not args.browser_only:
+            if _open_native_window(url):
+                return 0
+            logger.warning("Native window unavailable — falling back to browser.")
+
+        # 5. Last-resort: open the system default browser. Reload-friendly,
+        #    runs the server in the foreground until Ctrl+C.
+        webbrowser.open_new(url)
+        try:
+            threading.Event().wait()
+        except KeyboardInterrupt:
+            pass
         return 0
     except SystemExit:
         raise
