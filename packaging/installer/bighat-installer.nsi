@@ -132,6 +132,10 @@ Section "Core (required)" SEC_CORE
         CopyFiles /SILENT "$PreviousInstallDir\backend\data\*.*" "$INSTDIR\backend\data"
   skip_migrate:
 
+  ; ---- Pre-create the crash-log directory so launcher.py and BIGHat.exe
+  ;      can always write diagnostics, even on the very first run. ----
+  CreateDirectory "$INSTDIR\backend\data\logs"
+
   ; ---- Registry: install metadata + Uninstall entry ----
   WriteRegStr HKCU "${APP_REGKEY}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${APP_REGKEY}" "Version"    "${APP_VERSION}"

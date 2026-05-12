@@ -37,9 +37,22 @@ logger = logging.getLogger("bighat-launcher")
 def _ensure_data_dirs() -> None:
     """Create the standard data directory tree if missing.
 
-    Defers to `native.config.config_manager` which already owns the
-    canonical defaults, then mkdir's whatever paths are configured.
+    The `data/logs/` directory is created unconditionally and FIRST so that
+    `_write_crashlog()` always has somewhere to land — even if loading
+    native.config blows up or any later step crashes. This was added after
+    Phase 10.8 (pywebview migration) where a TypeError in the launcher
+    caused a silent process exit with nothing on disk to diagnose.
+
+    The remaining dirs (data_root / local_trivia / assets / generated) come
+    from `native.config.config_manager` which owns the canonical defaults.
     """
+    # 1. Crash-log destination — guaranteed-write before anything else.
+    try:
+        (BACKEND_DIR / "data" / "logs").mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning(f"Could not pre-create data/logs/: {e}")
+
+    # 2. Application data directories from system_config.json
     try:
         from native.config import config_manager  # type: ignore
     except Exception as e:
@@ -252,12 +265,6 @@ def _open_native_window(url: str) -> bool:
     Returns True if the window was created and event-looped to completion,
     False if the webview backend isn't available (caller should fall back
     to the system browser).
-
-    Window lifecycle:
-      * Title: "BIG Hat Entertainment"
-      * Min size 1024x720, default 1440x900 (laid out for the host UI)
-      * Closing the window terminates the process — the daemon uvicorn
-        thread dies automatically.
     """
     try:
         import webview  # type: ignore
@@ -265,20 +272,8 @@ def _open_native_window(url: str) -> bool:
         logger.warning(f"pywebview not installed ({e}); falling back to browser")
         return False
 
-    icon_path: str | None = None
-    # Prefer the install-root icon shipped by the NSIS payload, fall back to
-    # the React public dir (dev runs).
-    for candidate in (
-        BACKEND_DIR.parent / "packaging" / "bighat.ico",
-        BACKEND_DIR / "static" / "favicon.ico",
-        BACKEND_DIR / "static" / "hat-logo.png",
-    ):
-        if candidate.is_file():
-            icon_path = str(candidate)
-            break
-
     try:
-        kwargs = dict(
+        webview.create_window(
             title="BIG Hat Entertainment",
             url=url,
             width=1440,
@@ -289,32 +284,34 @@ def _open_native_window(url: str) -> bool:
             confirm_close=False,
             background_color="#0B1020",  # match host login page so no white flash on load
         )
-        webview.create_window(**kwargs)
     except TypeError:
-        # Older pywebview builds use positional `title, url`
+        # Older pywebview builds use positional `title, url` and reject newer kwargs.
         webview.create_window("BIG Hat Entertainment", url)
 
-    # `gui` selects the rendering backend. On Windows we want EdgeChromium
-    # (uses the WebView2 runtime preinstalled on Win 10 21H1+ / Win 11) for
-    # modern CSS/JS; on macOS pywebview auto-picks WKWebView; on Linux it
-    # uses GTK/QT. Falling back to the default if the named backend isn't
-    # available.
-    gui = None
-    if sys.platform == "win32":
-        gui = "edgechromium"
-    elif sys.platform == "darwin":
-        gui = "cocoa"
+    # On Windows EdgeChromium (Edge WebView2 runtime, preinstalled on Win 10
+    # 21H1+ / Win 11) gives us a modern chromeless window. macOS auto-picks
+    # WKWebView via Cocoa.
+    gui = "edgechromium" if sys.platform == "win32" else ("cocoa" if sys.platform == "darwin" else None)
 
+    # pywebview 3.4 .start() signature does NOT accept `icon` — that kwarg is
+    # new in 4.x. We pin to 3.4 deliberately, so don't pass it. The taskbar
+    # icon comes from the parent BIGHat.exe (or from python.exe in dev runs);
+    # there's no separate window-icon API in 3.4.
     try:
-        webview.start(gui=gui, debug=False, icon=icon_path)
-    except Exception as e:  # noqa: BLE001 — gui kwarg may not be supported
-        logger.warning(f"webview.start({gui!r}) failed: {e}; retrying with default gui")
+        webview.start(gui=gui, debug=False)
+        return True
+    except TypeError as e:
+        # Older 3.x sometimes rejects the gui kwarg name; retry positionally.
+        logger.warning(f"webview.start(gui={gui!r}) rejected kwarg ({e}); retrying positional")
         try:
-            webview.start(debug=False)
+            webview.start(False, None, False, False, gui)  # debug, http_server, http_port, _exposed
+            return True
         except Exception as e2:  # noqa: BLE001
-            logger.exception(f"webview.start() failed entirely: {e2}")
+            logger.exception(f"webview.start fallback also failed: {e2}")
             return False
-    return True
+    except Exception as e:  # noqa: BLE001 — backend may fail at runtime
+        logger.exception(f"webview.start({gui!r}) failed at runtime: {e}; will fall back to browser")
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:
