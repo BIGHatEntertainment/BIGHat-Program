@@ -519,6 +519,35 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"[build-installer] reusing existing payload at {PAYLOAD}")
 
+    # ALWAYS ensure BIGHat.exe (the Win32 launcher wrapper) is present in
+    # the payload, even when --skip-payload was used. The previous payload
+    # may have been assembled on a build box without mingw-w64 and silently
+    # skipped BIGHat.exe, which produces a "missing shortcut" install.
+    bighat_exe = PAYLOAD / "BIGHat.exe"
+    must_rebuild_bighat = (not bighat_exe.is_file()) or (not args.skip_payload)
+    if must_rebuild_bighat:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        try:
+            from importlib import import_module
+            wrapper_mod = import_module("build_win32_wrapper")
+            try:
+                wrapper_mod.build(version, bighat_exe)
+            except SystemExit as e:
+                # Cross-compiler missing — fatal. The .exe shortcut points
+                # here, so installing without it produces a broken install.
+                raise SystemExit(
+                    f"[build-installer] FATAL: BIGHat.exe could not be built: {e}\n"
+                    f"            Install mingw-w64 (apt-get install mingw-w64) or pass\n"
+                    f"            --skip-payload only on a build box where BIGHat.exe\n"
+                    f"            already exists at {bighat_exe}."
+                ) from None
+            except subprocess.CalledProcessError as e:
+                raise SystemExit(f"[build-installer] BIGHat.exe cross-compile failed: {e}") from None
+        except ImportError as e:
+            raise SystemExit(f"[build-installer] cannot import build_win32_wrapper: {e}") from None
+    else:
+        print(f"[build-installer] BIGHat.exe already present at {bighat_exe} ({bighat_exe.stat().st_size:,} bytes)")
+
     if args.skip_makensis:
         print("[build-installer] --skip-makensis set; payload ready, exiting.")
         return 0

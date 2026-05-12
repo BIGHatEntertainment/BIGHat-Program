@@ -260,57 +260,97 @@ def _start_uvicorn_in_thread(host: str, port: int, *, reload: bool) -> threading
 
 
 def _open_native_window(url: str) -> bool:
-    """Open the app inside a chromeless OS-native window via pywebview.
+    """Open the app in a chromeless native window.
 
-    Returns True if the window was created and event-looped to completion,
-    False if the webview backend isn't available (caller should fall back
-    to the system browser).
+    Strategy: launch Microsoft Edge (or Chrome) with the `--app=URL` flag.
+    Edge's "app mode" gives us a frameless window with no address bar, no
+    tabs, no menu, and no Chrome chrome — it looks indistinguishable from
+    a native window. We pass an isolated `--user-data-dir` so the launch
+    is independent of the user's normal browsing profile, and a custom
+    `--window-name` so the taskbar entry is labelled correctly.
+
+    This replaces the pywebview/pythonnet approach from Phase 10.8 which
+    was fragile — pywebview 3.4's EdgeChromium backend silently fell back
+    to WinForms when its WebView2 detection misfired, then crashed with
+    a System.NullReferenceException out of System.Windows.Forms.Control.
+
+    Returns True if the window was opened and the user closed it normally,
+    False if no Chromium-family browser could be found (caller should
+    fall back to opening the system default browser).
     """
-    try:
-        import webview  # type: ignore
-    except ImportError as e:
-        logger.warning(f"pywebview not installed ({e}); falling back to browser")
+    import subprocess
+
+    # Candidate Chromium-family browsers, preferring Edge (preinstalled on Win 11).
+    candidates: list[Path] = []
+    if sys.platform == "win32":
+        program_files = [
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("LOCALAPPDATA", ""),
+        ]
+        for pf in program_files:
+            if not pf:
+                continue
+            for sub in (
+                r"Microsoft\Edge\Application\msedge.exe",
+                r"Google\Chrome\Application\chrome.exe",
+                r"BraveSoftware\Brave-Browser\Application\brave.exe",
+                r"Chromium\Application\chrome.exe",
+            ):
+                p = Path(pf) / sub
+                if p.is_file():
+                    candidates.append(p)
+    elif sys.platform == "darwin":
+        for p in (
+            Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
+        ):
+            if p.is_file():
+                candidates.append(p)
+    else:
+        # Linux — chromium / google-chrome should be on PATH.
+        import shutil as _shutil
+        for name in ("microsoft-edge-stable", "microsoft-edge", "google-chrome",
+                     "chromium-browser", "chromium", "brave-browser"):
+            found = _shutil.which(name)
+            if found:
+                candidates.append(Path(found))
+
+    if not candidates:
+        logger.warning("No Chromium-family browser found; falling back to default browser")
         return False
 
-    try:
-        webview.create_window(
-            title="BIG Hat Entertainment",
-            url=url,
-            width=1440,
-            height=900,
-            min_size=(1024, 720),
-            resizable=True,
-            text_select=True,
-            confirm_close=False,
-            background_color="#0B1020",  # match host login page so no white flash on load
-        )
-    except TypeError:
-        # Older pywebview builds use positional `title, url` and reject newer kwargs.
-        webview.create_window("BIG Hat Entertainment", url)
+    browser = candidates[0]
+    logger.info(f"Launching chromeless window via {browser}")
 
-    # On Windows EdgeChromium (Edge WebView2 runtime, preinstalled on Win 10
-    # 21H1+ / Win 11) gives us a modern chromeless window. macOS auto-picks
-    # WKWebView via Cocoa.
-    gui = "edgechromium" if sys.platform == "win32" else ("cocoa" if sys.platform == "darwin" else None)
-
-    # pywebview 3.4 .start() signature does NOT accept `icon` — that kwarg is
-    # new in 4.x. We pin to 3.4 deliberately, so don't pass it. The taskbar
-    # icon comes from the parent BIGHat.exe (or from python.exe in dev runs);
-    # there's no separate window-icon API in 3.4.
+    # Isolated profile dir keeps cookies/storage scoped to this app, and
+    # lets us survive a `--remote-debugging-port` ever being added without
+    # touching the user's main browser profile.
+    profile_dir = BACKEND_DIR / "data" / "browser_profile"
     try:
-        webview.start(gui=gui, debug=False)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning(f"Could not create browser profile dir {profile_dir}: {e}")
+
+    args = [
+        str(browser),
+        f"--app={url}",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-features=Translate,MediaRouter",
+        "--window-size=1440,900",
+    ]
+    try:
+        # We DON'T capture stdout/stderr — let them go to the parent console
+        # if any. We block until the user closes the window; when this
+        # returns, the daemon uvicorn thread will be torn down with main.
+        proc = subprocess.Popen(args)
+        proc.wait()
         return True
-    except TypeError as e:
-        # Older 3.x sometimes rejects the gui kwarg name; retry positionally.
-        logger.warning(f"webview.start(gui={gui!r}) rejected kwarg ({e}); retrying positional")
-        try:
-            webview.start(False, None, False, False, gui)  # debug, http_server, http_port, _exposed
-            return True
-        except Exception as e2:  # noqa: BLE001
-            logger.exception(f"webview.start fallback also failed: {e2}")
-            return False
-    except Exception as e:  # noqa: BLE001 — backend may fail at runtime
-        logger.exception(f"webview.start({gui!r}) failed at runtime: {e}; will fall back to browser")
+    except OSError as e:
+        logger.exception(f"Failed to launch chromeless browser ({browser}): {e}")
         return False
 
 

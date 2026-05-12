@@ -158,15 +158,13 @@ watchfiles==1.1.1
 # --- Used by emergent integrations + telemetry ---
 emergentintegrations==0.1.0
 
-# --- Native window (Phase 10.8) ---
-# pywebview 3.4 + pythonnet wraps a real chromeless OS-native window
-# (Edge WebView2 on Windows / WKWebView on macOS) around our local UI so
-# customers see a desktop app, not Chrome with tabs. We pin to 3.4
-# because 4.x+ pulled in `proxy-tools`, which is sdist-only on PyPI and
-# breaks our cross-platform `--only-binary=:all:` wheel pipeline.
-pywebview==3.4
-pythonnet==3.0.5
-clr_loader==0.2.10
+# --- Native window: handled in launcher.py via Microsoft Edge --app= mode ---
+# We used to bundle pywebview + pythonnet + clr_loader here (Phase 10.8), but
+# pywebview 3.4's EdgeChromium backend silently falls back to WinForms and
+# crashes with System.NullReferenceException on some Win 11 installs. The
+# launcher now spawns msedge.exe / chrome.exe with --app=URL directly,
+# which gives us a chromeless Chromium window without any .NET binding.
+# Saves ~25 MB off the installer too.
 
 # --- pandas (used by some trivia analytics paths) ---
 pandas==3.0.1
