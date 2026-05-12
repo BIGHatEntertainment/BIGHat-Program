@@ -41,7 +41,7 @@
   !define PYTHON_DIRNAME "python"
 !endif
 
-!define APP_NAME       "BIG Hat Standalone"
+!define APP_NAME       "BIG Hat"
 !define APP_INTERNAL   "BIGHatStandalone"
 !define APP_REGKEY     "Software\${APP_PUBLISHER}\${APP_INTERNAL}"
 !define APP_UNINSTKEY  "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_INTERNAL}"
@@ -119,6 +119,13 @@ Section "Core (required)" SEC_CORE
       ; Same dir — let the file overwrite handle the upgrade.
       DetailPrint "Upgrading in-place at $INSTDIR"
   no_prev:
+
+  ; ---- Clean up legacy shortcuts/start-menu group from pre-31.0.2 builds
+  ;      (when APP_NAME was "BIG Hat Standalone"). Safe to run repeatedly. ----
+  SetShellVarContext current
+  Delete "$DESKTOP\BIG Hat Standalone.lnk"
+  RMDir /r "$SMPROGRAMS\BIG Hat Standalone"
+  Delete "$SMPROGRAMS\..\..\..\Microsoft\Windows\Start Menu\Programs\Startup\BIG Hat Standalone.lnk"
 
   SetOutPath "$INSTDIR"
   SetOverwrite on
