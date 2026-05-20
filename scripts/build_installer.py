@@ -323,31 +323,6 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_pyth
     version = _read_version(None)
     (PAYLOAD / "VERSION.txt").write_text(version + "\n", encoding="utf-8")
 
-    # BIGHat.exe — Win32 wrapper that replaces the wscript.exe + .vbs launcher
-    # chain with a polished, icon-bearing GUI executable. Cross-compiled with
-    # MinGW-w64 on the Linux dev box.
-    try:
-        from importlib import import_module
-        wrapper_mod = import_module("build_win32_wrapper")
-    except ImportError:
-        sys.path.insert(0, str(ROOT / "scripts"))
-        try:
-            from importlib import import_module as _im2
-            wrapper_mod = _im2("build_win32_wrapper")
-        except ImportError as e:
-            wrapper_mod = None
-            print(f"[build-installer] WARNING: cannot import build_win32_wrapper: {e}")
-    if wrapper_mod is not None:
-        try:
-            wrapper_mod.build(version, PAYLOAD / "BIGHat.exe")
-        except SystemExit as e:
-            print(f"[build-installer] WARNING: BIGHat.exe build skipped: {e}")
-        except subprocess.CalledProcessError as e:
-            print(f"[build-installer] WARNING: BIGHat.exe build failed: {e}")
-    else:
-        print("[build-installer] WARNING: BIGHat.exe wrapper not built — "
-              "install mingw-w64 to enable.")
-
     # SECURITY: ship the desktop-safe `.env.standalone` template in the place
     # where the launcher expects to find it on first run. The real `.env` is
     # generated per-install by `launcher.py` (with a unique JWT_SECRET).
@@ -519,34 +494,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"[build-installer] reusing existing payload at {PAYLOAD}")
 
-    # ALWAYS ensure BIGHat.exe (the Win32 launcher wrapper) is present in
-    # the payload, even when --skip-payload was used. The previous payload
-    # may have been assembled on a build box without mingw-w64 and silently
-    # skipped BIGHat.exe, which produces a "missing shortcut" install.
-    bighat_exe = PAYLOAD / "BIGHat.exe"
-    must_rebuild_bighat = (not bighat_exe.is_file()) or (not args.skip_payload)
-    if must_rebuild_bighat:
-        sys.path.insert(0, str(ROOT / "scripts"))
-        try:
-            from importlib import import_module
-            wrapper_mod = import_module("build_win32_wrapper")
-            try:
-                wrapper_mod.build(version, bighat_exe)
-            except SystemExit as e:
-                # Cross-compiler missing — fatal. The .exe shortcut points
-                # here, so installing without it produces a broken install.
-                raise SystemExit(
-                    f"[build-installer] FATAL: BIGHat.exe could not be built: {e}\n"
-                    f"            Install mingw-w64 (apt-get install mingw-w64) or pass\n"
-                    f"            --skip-payload only on a build box where BIGHat.exe\n"
-                    f"            already exists at {bighat_exe}."
-                ) from None
-            except subprocess.CalledProcessError as e:
-                raise SystemExit(f"[build-installer] BIGHat.exe cross-compile failed: {e}") from None
-        except ImportError as e:
-            raise SystemExit(f"[build-installer] cannot import build_win32_wrapper: {e}") from None
-    else:
-        print(f"[build-installer] BIGHat.exe already present at {bighat_exe} ({bighat_exe.stat().st_size:,} bytes)")
+    # Phase 10.9: BIGHat.exe has been removed from the launch chain — all
+    # shortcuts and the .bighat file-association handoff route through
+    # wscript.exe + packaging\start_bighat.vbs instead. If a stale
+    # BIGHat.exe from a previous build is still in the payload, clean it up
+    # so the installer doesn't ship dead weight.
+    stale_bighat = PAYLOAD / "BIGHat.exe"
+    if stale_bighat.is_file():
+        stale_bighat.unlink()
+        print(f"[build-installer] removed stale BIGHat.exe from payload")
 
     if args.skip_makensis:
         print("[build-installer] --skip-makensis set; payload ready, exiting.")

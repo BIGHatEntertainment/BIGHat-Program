@@ -232,9 +232,8 @@ def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
 
 
 def _start_uvicorn_in_thread(host: str, port: int, *, reload: bool) -> threading.Thread:
-    """Start uvicorn on a daemon thread so the main thread can drive the
-    native window's event loop. Daemon = the server dies cleanly when the
-    customer closes the window."""
+    """Start uvicorn on a daemon thread. Daemon = the server dies cleanly
+    when the parent process exits."""
     import uvicorn  # type: ignore
 
     def _run():
@@ -260,98 +259,11 @@ def _start_uvicorn_in_thread(host: str, port: int, *, reload: bool) -> threading
 
 
 def _open_native_window(url: str) -> bool:
-    """Open the app in a chromeless native window.
-
-    Strategy: launch Microsoft Edge (or Chrome) with the `--app=URL` flag.
-    Edge's "app mode" gives us a frameless window with no address bar, no
-    tabs, no menu, and no Chrome chrome — it looks indistinguishable from
-    a native window. We pass an isolated `--user-data-dir` so the launch
-    is independent of the user's normal browsing profile, and a custom
-    `--window-name` so the taskbar entry is labelled correctly.
-
-    This replaces the pywebview/pythonnet approach from Phase 10.8 which
-    was fragile — pywebview 3.4's EdgeChromium backend silently fell back
-    to WinForms when its WebView2 detection misfired, then crashed with
-    a System.NullReferenceException out of System.Windows.Forms.Control.
-
-    Returns True if the window was opened and the user closed it normally,
-    False if no Chromium-family browser could be found (caller should
-    fall back to opening the system default browser).
+    """[DEPRECATED Phase 10.9] Browser opening is now done by
+    `packaging/start_bighat.vbs` AFTER it confirms the port is listening.
+    Kept as a stub so external callers don't break.
     """
-    import subprocess
-
-    # Candidate Chromium-family browsers, preferring Edge (preinstalled on Win 11).
-    candidates: list[Path] = []
-    if sys.platform == "win32":
-        program_files = [
-            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-            os.environ.get("ProgramFiles", r"C:\Program Files"),
-            os.environ.get("LOCALAPPDATA", ""),
-        ]
-        for pf in program_files:
-            if not pf:
-                continue
-            for sub in (
-                r"Microsoft\Edge\Application\msedge.exe",
-                r"Google\Chrome\Application\chrome.exe",
-                r"BraveSoftware\Brave-Browser\Application\brave.exe",
-                r"Chromium\Application\chrome.exe",
-            ):
-                p = Path(pf) / sub
-                if p.is_file():
-                    candidates.append(p)
-    elif sys.platform == "darwin":
-        for p in (
-            Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            Path("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
-        ):
-            if p.is_file():
-                candidates.append(p)
-    else:
-        # Linux — chromium / google-chrome should be on PATH.
-        import shutil as _shutil
-        for name in ("microsoft-edge-stable", "microsoft-edge", "google-chrome",
-                     "chromium-browser", "chromium", "brave-browser"):
-            found = _shutil.which(name)
-            if found:
-                candidates.append(Path(found))
-
-    if not candidates:
-        logger.warning("No Chromium-family browser found; falling back to default browser")
-        return False
-
-    browser = candidates[0]
-    logger.info(f"Launching chromeless window via {browser}")
-
-    # Isolated profile dir keeps cookies/storage scoped to this app, and
-    # lets us survive a `--remote-debugging-port` ever being added without
-    # touching the user's main browser profile.
-    profile_dir = BACKEND_DIR / "data" / "browser_profile"
-    try:
-        profile_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        logger.warning(f"Could not create browser profile dir {profile_dir}: {e}")
-
-    args = [
-        str(browser),
-        f"--app={url}",
-        f"--user-data-dir={profile_dir}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-features=Translate,MediaRouter",
-        "--window-size=1440,900",
-    ]
-    try:
-        # We DON'T capture stdout/stderr — let them go to the parent console
-        # if any. We block until the user closes the window; when this
-        # returns, the daemon uvicorn thread will be torn down with main.
-        proc = subprocess.Popen(args)
-        proc.wait()
-        return True
-    except OSError as e:
-        logger.exception(f"Failed to launch chromeless browser ({browser}): {e}")
-        return False
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -378,33 +290,25 @@ def main(argv: list[str] | None = None) -> int:
         # 1. Boot uvicorn on a background thread.
         _start_uvicorn_in_thread(args.host, args.port, reload=args.reload)
 
-        # 2. Wait for the port to come up before pointing the window at it
-        #    (otherwise the customer sees a "can't reach" page for 1-2s).
-        if not _wait_for_port(args.host, args.port, timeout=20.0):
+        # 2. Wait for the port to come up.
+        if not _wait_for_port(args.host, args.port, timeout=25.0):
             raise RuntimeError(
-                f"Backend did not start listening on {args.host}:{args.port} within 20s. "
+                f"Backend did not start listening on {args.host}:{args.port} within 25s. "
                 f"See data/logs/launcher_crash.log for the uvicorn traceback."
             )
 
-        # 3. Headless mode (e.g. when launched from the Windows installer Auto-start
-        #    section) — never open a window.
-        if args.no_browser:
-            logger.info("--no-browser given; running headless. Press Ctrl+C to stop.")
-            try:
-                threading.Event().wait()  # block forever; uvicorn thread is daemon
-            except KeyboardInterrupt:
-                pass
-            return 0
+        # 3. Default mode for Windows/macOS installs: launched FROM `start_bighat.vbs`,
+        #    which passes --no-browser and opens the user's default browser AFTER we
+        #    confirm uvicorn is listening. We just keep the server alive here.
+        #    --browser-only is the dev/diagnostic equivalent and opens the browser
+        #    from Python directly.
+        if not args.no_browser:
+            webbrowser.open_new(url)
+        else:
+            logger.info("--no-browser given; VBS wrapper owns browser open. Running headless.")
 
-        # 4. Native chromeless window (default).
-        if not args.browser_only:
-            if _open_native_window(url):
-                return 0
-            logger.warning("Native window unavailable — falling back to browser.")
-
-        # 5. Last-resort: open the system default browser. Reload-friendly,
-        #    runs the server in the foreground until Ctrl+C.
-        webbrowser.open_new(url)
+        # 4. Block forever — uvicorn thread is daemon so it dies cleanly when
+        #    Python exits (e.g. parent VBS terminates, or Ctrl+C in a dev console).
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

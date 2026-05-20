@@ -127,6 +127,12 @@ Section "Core (required)" SEC_CORE
   RMDir /r "$SMPROGRAMS\BIG Hat Standalone"
   Delete "$SMPROGRAMS\..\..\..\Microsoft\Windows\Start Menu\Programs\Startup\BIG Hat Standalone.lnk"
 
+  ; ---- Phase 10.9 cleanup: drop stale BIGHat.exe wrapper from 31.0.2/31.0.3
+  ;      installs. The new shortcut chain uses wscript.exe + the VBS, so
+  ;      BIGHat.exe is no longer shipped. Leaving it around is harmless but
+  ;      confusing. ----
+  Delete "$INSTDIR\BIGHat.exe"
+
   SetOutPath "$INSTDIR"
   SetOverwrite on
   File /r "${SOURCE_ROOT}\*.*"
@@ -149,7 +155,7 @@ Section "Core (required)" SEC_CORE
 
   WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayName"     "${APP_NAME}"
   WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayVersion"  "${APP_VERSION}"
-  WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayIcon"     '"$INSTDIR\BIGHat.exe"'
+  WriteRegStr HKCU "${APP_UNINSTKEY}" "DisplayIcon"     '"$INSTDIR\packaging\bighat.ico"'
   WriteRegStr HKCU "${APP_UNINSTKEY}" "Publisher"       "${APP_PUBLISHER}"
   WriteRegStr HKCU "${APP_UNINSTKEY}" "URLInfoAbout"    "${APP_URL}"
   WriteRegStr HKCU "${APP_UNINSTKEY}" "InstallLocation" "$INSTDIR"
@@ -165,14 +171,15 @@ Section "Core (required)" SEC_CORE
   ; ---- File association: .bighat ----
   ; Customers can save trivia rounds as .bighat files (portable round
   ; archives) and double-click to re-open in BIG Hat Entertainment.
+  ; Double-click handoff: Explorer fires `wscript.exe start_bighat.vbs "%1"`.
   WriteRegStr HKCU "Software\Classes\.bighat" "" "BIGHat.bighatfile"
   WriteRegStr HKCU "Software\Classes\.bighat" "Content Type" "application/x-bighat"
   WriteRegStr HKCU "Software\Classes\.bighat\OpenWithProgids" "BIGHat.bighatfile" ""
 
   WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile" "" "BIG Hat round file"
   WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile" "FriendlyTypeName" "BIG Hat round file"
-  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile\DefaultIcon" "" '"$INSTDIR\BIGHat.exe",0'
-  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile\shell\open\command" "" '"$INSTDIR\BIGHat.exe" "%1"'
+  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile\DefaultIcon" "" '"$INSTDIR\packaging\bighat.ico",0'
+  WriteRegStr HKCU "Software\Classes\BIGHat.bighatfile\shell\open\command" "" '"$SYSDIR\wscript.exe" "$INSTDIR\packaging\start_bighat.vbs" "%1"'
 
   ; Notify Explorer so the new association takes effect immediately.
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'  ; SHCNE_ASSOCCHANGED
@@ -181,21 +188,27 @@ Section "Core (required)" SEC_CORE
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
 
+; All user-visible launches go through start_bighat.vbs (Phase 10.9).
+; We host it via wscript.exe (silent VBS host) and override the icon to
+; packaging\bighat.ico so the shortcut shows the hat, not the generic
+; VBS document icon.
 Section "Desktop shortcut" SEC_DESKTOP
   SetShellVarContext current
   CreateShortCut "$DESKTOP\${APP_NAME}.lnk" \
-                 "$INSTDIR\BIGHat.exe" \
-                 '' \
-                 "$INSTDIR\BIGHat.exe" 0
+                 "$SYSDIR\wscript.exe" \
+                 '"$INSTDIR\packaging\start_bighat.vbs"' \
+                 "$INSTDIR\packaging\bighat.ico" 0 \
+                 SW_SHOWNORMAL "" "Launch BIG Hat Entertainment"
 SectionEnd
 
 Section "Start Menu shortcut" SEC_STARTMENU
   SetShellVarContext current
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
-                 "$INSTDIR\BIGHat.exe" \
-                 '' \
-                 "$INSTDIR\BIGHat.exe" 0
+                 "$SYSDIR\wscript.exe" \
+                 '"$INSTDIR\packaging\start_bighat.vbs"' \
+                 "$INSTDIR\packaging\bighat.ico" 0 \
+                 SW_SHOWNORMAL "" "Launch BIG Hat Entertainment"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" \
                  "$INSTDIR\Uninstall.exe"
 SectionEnd
@@ -203,9 +216,9 @@ SectionEnd
 Section /o "Auto-start at login" SEC_AUTOSTART
   SetShellVarContext current
   CreateShortCut "$SMPROGRAMS\..\..\..\Microsoft\Windows\Start Menu\Programs\Startup\${APP_NAME}.lnk" \
-                 "$INSTDIR\BIGHat.exe" \
-                 '' \
-                 "$INSTDIR\BIGHat.exe" 0
+                 "$SYSDIR\wscript.exe" \
+                 '"$INSTDIR\packaging\start_bighat.vbs"' \
+                 "$INSTDIR\packaging\bighat.ico" 0
 SectionEnd
 
 ; ===== Section descriptions =====
@@ -222,7 +235,7 @@ LangString DESC_AUTOSTART ${LANG_ENGLISH} "Run BIG Hat Standalone in the backgro
 
 ; ===== Helper to launch the app from the Finish page =====
 Function LaunchApp
-  ExecShell "" "$INSTDIR\BIGHat.exe"
+  ExecShell "" "$SYSDIR\wscript.exe" '"$INSTDIR\packaging\start_bighat.vbs"'
 FunctionEnd
 
 ; ===== Uninstall =====
