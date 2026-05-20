@@ -1,120 +1,130 @@
 # BIG Hat Entertainment — CHANGELOG
 
-> **For the next agent:** treat this file as the authoritative log of what
-> launcher / installer / packaging strategy is currently in effect. The PRD
-> describes what the product is; the CHANGELOG describes how it actually
-> ships today. Read the **most recent** entry first — older entries may
-> describe approaches that have since been ripped out.
+> **For the next agent: READ THIS BEFORE TOUCHING THE LAUNCHER.**
+> The most recent entry describes how the app actually launches today.
+> Older entries describe approaches that have been ripped out — they
+> ARE NOT a fallback and must not be reinstated.
 
 ---
 
-## v31.0.4 — 2026-05-12 (Phase 10.9: VBS-only launch chain)
+## NEVER-DO RULES (locked in by user 2026-05-20)
 
-**TL;DR**: Removed BIGHat.exe Win32 wrapper AND the Edge `--app=` mode
-attempt. ALL launches now go through `packaging\start_bighat.vbs`.
+1. **THE APP MUST NEVER OPEN IN A REGULAR BROWSER TAB.** Not Chrome with
+   tabs, not Edge with tabs, not Firefox, not anything that shows a URL
+   bar / bookmarks bar / tab strip to the user. The user has been
+   explicit about this multiple times across multiple builds. If you
+   find yourself calling `webbrowser.open_new()` or `WshShell.Run
+   "http://..."` as the PRIMARY launch path, you are wrong.
 
-### What launches the app on Windows (canonical, 2026-05-12)
+2. **The ONLY acceptable window for the app on Windows is a chromeless
+   Chromium window via `msedge.exe --app=URL` (or Chrome / Brave with
+   the same flag).** This gives a frameless window with no tab bar, no
+   URL bar, no menu. It looks indistinguishable from a native window.
+   It's what Slack / Discord / Notion's desktop apps do. Default-browser
+   fallback is acceptable ONLY when no Chromium-family browser is
+   present on the machine (which is essentially never on Windows 11 —
+   Edge is preinstalled).
 
-Desktop shortcut, Start Menu shortcut, optional Auto-start, and the
-`.bighat` file association all resolve to:
+3. **The launch sequence MUST be: spawn backend → wait for port →
+   open the chromeless window.** Not "spawn backend AND open window
+   in parallel" — that's the race that broke v31.0.3.
+   `packaging\start_bighat.vbs` owns this sequencing today.
+
+4. **THE INSTALLER'S FINISH-PAGE CHECKBOX MUST AUTO-LAUNCH THE APP.**
+   v31.0.4 had the run-function defined but it didn't fire. Today it
+   uses the direct `MUI_FINISHPAGE_RUN` + `MUI_FINISHPAGE_RUN_PARAMETERS`
+   pattern, which is the reliable NSIS MUI 2 idiom. If you change the
+   wiring, smoke-test that the checkbox actually fires on install.
+
+---
+
+## v31.0.5 — 2026-05-20 (Phase 10.10: chromeless --app=, VBS-orchestrated)
+
+**TL;DR**: VBS still owns the launch sequence (boot pythonw, poll port),
+but instead of opening the user's default browser, it locates msedge.exe
+or chrome.exe and launches them with `--app=URL --user-data-dir=...`
+to get a chromeless window. Fixed the NSIS Finish-page auto-launch.
+
+### The canonical launch path on Windows
+
+1. Customer double-clicks the "BIG Hat" desktop shortcut, OR ticks the
+   "Launch BIG Hat now" box on the installer's Finish page, OR
+   double-clicks any `.bighat` file in Explorer.
+2. Shortcut target: `wscript.exe "<install>\packaging\start_bighat.vbs" [optional .bighat path]`.
+3. VBS:
+   a. Probes `127.0.0.1:8001`. If already up → single-instance handoff:
+      spawn a new chromeless `--app=` window pointing at the URL and exit.
+   b. Else: `WshShell.Run "pythonw.exe backend\launcher.py --no-browser", 0, False`.
+   c. Polls `127.0.0.1:8001` for up to 25 s.
+   d. When port is up, locates first available of: msedge / chrome /
+      brave in standard Program Files paths.
+   e. Spawns `<browser>.exe --app="http://127.0.0.1:8001..."
+      --user-data-dir="<install>\backend\data\browser_profile"
+      --no-first-run --no-default-browser-check`. Result: a frameless
+      Chromium window. Zero browser chrome visible to the user.
+   f. Falls back to default browser ONLY if no Chromium-family browser
+      is found (essentially never on Win 11).
+
+### NSIS Finish-page fix
+
+Replaced `MUI_FINISHPAGE_RUN_FUNCTION LaunchApp` (which silently no-op'd
+on some installs) with the direct pattern:
 
 ```
-C:\Windows\System32\wscript.exe "C:\BIG Hat\BIGHatStandalone\packaging\start_bighat.vbs" [optional_bighat_file]
+!define MUI_FINISHPAGE_RUN "$SYSDIR\wscript.exe"
+!define MUI_FINISHPAGE_RUN_PARAMETERS '"$INSTDIR\packaging\start_bighat.vbs"'
+!define MUI_FINISHPAGE_RUN_TEXT "Launch BIG Hat now"
 ```
 
-The shortcuts override the icon to `packaging\bighat.ico`, so they show
-the hat (not the generic VBS document icon).
+This is the NSIS MUI 2 idiom for "run this program with these args when
+the user ticks the checkbox". Reliably fires on every install.
 
-### The VBS does these five things in order
+### Why earlier attempts were wrong (don't re-litigate)
 
-1. Validates `python\pythonw.exe` + `backend\launcher.py` exist (errors via MsgBox if not).
-2. Probes `127.0.0.1:8001` — if a launcher is already running, just opens
-   the URL in the user's default browser and exits (single-instance UX).
-3. Otherwise: `WshShell.Run "pythonw.exe backend\launcher.py --no-browser", 0, False`
-   (hidden, fire-and-forget).
-4. Polls `127.0.0.1:8001` for up to 25 s.
-5. When the port is up, `WshShell.Run "http://127.0.0.1:8001..."` to open
-   the user's default browser. If a `.bighat` file path was passed as
-   `WScript.Arguments(0)`, it gets URL-encoded into a
-   `/roundmaker?openFile=<path>` query string.
-
-### What `launcher.py` does in v31.0.4
-
-* `--no-browser` is the default behaviour from VBS. Launcher just boots
-  uvicorn on a daemon thread and blocks on `threading.Event().wait()` so
-  the parent process stays alive.
-* When invoked directly (dev runs, diagnostic .bat), `webbrowser.open_new()`
-  opens the default browser — same end state.
-* `_open_native_window()` is a deprecated stub that returns False. Calls
-  to it are still safe; nothing in the launch chain calls it anymore.
-
-### What was REMOVED in this version
-
-* `BIGHat.exe` (Win32 cross-compiled launcher) — the install no longer
-  ships it. Builds before 31.0.4 had it; the new installer pre-deletes any
-  stale copy on upgrade. The MinGW cross-compile + `bighat.c` source +
-  `scripts/build_win32_wrapper.py` are kept on disk for reference but
-  no longer invoked.
-* All `pywebview`, `pythonnet`, `clr_loader` wheels — saved ~25 MB.
-* The `msedge --app=` mode code in `launcher.py` (it lost a race vs.
-  uvicorn binding 8001 on slow machines — see "Why this approach won"
-  below).
-
-### Why this approach won
-
-| Approach tried | What broke |
-|---|---|
-| Phase 10.5: VBS + pythonw + open browser delayed in Python | Worked but the launcher.py timer was racy on slow machines. |
-| Phase 10.6: Win32 BIGHat.exe spawning pythonw, polling port | Single-instance handoff was nice, but BIGHat.exe could fall out of the payload if the build box lacked MinGW. |
-| Phase 10.8: pywebview chromeless window via Edge WebView2 | `start(gui='edgechromium')` silently fell back to WinForms on some Win 11 installs, then died on a `System.NullReferenceException`. |
-| Phase 10.9: msedge --app=URL with isolated --user-data-dir | Edge launched before uvicorn finished binding port 8001 → `ERR_CONNECTION_REFUSED`. |
-| **Phase 10.9b (current): VBS as canonical launcher** | The VBS owns the port-poll AND the browser-open in sequence, so the race can't happen. User explicitly identified this approach as working. |
+| Phase | Approach | Why it broke |
+|---|---|---|
+| 10.8 | pywebview + pythonnet (EdgeChromium backend) | `webview.start(gui='edgechromium')` silently fell back to WinForms on some Win 11 installs, then died on `System.NullReferenceException`. |
+| 10.9-A | msedge --app= called from launcher.py | Python launched Edge in parallel with uvicorn → ERR_CONNECTION_REFUSED. |
+| 10.9-B (v31.0.4) | VBS polls port, then opens default browser | Worked, but opened a regular browser tab with the user's normal Chrome profile (full tab bar, all their open tabs visible). User rejected this. |
+| **10.10 (v31.0.5, current)** | VBS polls port, then spawns msedge --app=URL | VBS owns sequencing → no race. --app= mode → no chrome visible. Isolated --user-data-dir → no profile leakage. |
 
 ### Files of interest
 
 * `packaging/start_bighat.vbs` — the canonical launcher.
-* `packaging/installer/bighat-installer.nsi` — NSIS script; all shortcuts
-  + file association point at the VBS.
-* `backend/launcher.py` — uvicorn-only headless boot; `--no-browser` default.
-* `scripts/build_installer.py` — pre-deletes any stale BIGHat.exe from
-  the payload to keep `--skip-payload` reuses clean.
+  - Finds msedge / chrome / brave and spawns `--app=` mode.
+  - Handles `.bighat` file argv for file-association handoff.
+* `packaging/installer/bighat-installer.nsi`
+  - `MUI_FINISHPAGE_RUN` + `_PARAMETERS` for auto-launch on install.
+  - All shortcuts (Desktop / Start Menu / Auto-start) point at
+    `wscript.exe start_bighat.vbs` with the hat-icon override.
+  - `.bighat` file association → `wscript.exe start_bighat.vbs "%1"`.
+* `backend/launcher.py` — pure backend boot. Defaults to `--no-browser`
+  behaviour from VBS. Direct invocation (dev) falls through to
+  `webbrowser.open_new()` for convenience but THIS IS NOT THE
+  CUSTOMER PATH.
 
-### Lessons banked
-
-1. **Browser-in-an-app is a race.** Whoever opens the URL must poll the
-   port FIRST and open the URL AFTER. Splitting those two responsibilities
-   across processes (launcher in Python, window-open in Edge) made it
-   impossible to sequence reliably. VBS keeping both jobs in one place
-   is what fixed it.
-2. **--skip-payload is dangerous.** If MinGW (or any other dep) is
-   missing during one build, subsequent `--skip-payload` rebuilds happily
-   ship the missing-asset payload. The build script now hard-fails on
-   missing critical artifacts rather than warning + continuing.
-3. **CHANGELOG > internal memory.** Multiple prior phases relitigated
-   the same launcher question because no agent had a single canonical
-   reference for "what ships today". This file is that.
-
-### How to ship a new release going forward
+### How to ship a new release
 
 ```bash
 echo "31.0.X" > backend/VERSION.txt
-python scripts/build_installer.py            # rebuilds everything cleanly
+python scripts/build_installer.py            # full clean rebuild
 export GITHUB_TOKEN=<PAT with contents:write>
 export GITHUB_OWNER=BIGHatEntertainment
 export GITHUB_REPO=BIGHat-Program
 python scripts/publish_github_release.py --replace-existing
 ```
 
-Stable customer-facing download URL:
+Public stable URL:
 `https://github.com/BIGHatEntertainment/BIGHat-Program/releases/download/v31.0.X/BIGHatStandalone-Setup-31.0.X.exe`
 
 ---
 
-## v31.0.0 → v31.0.3 — pre-Phase-10.9 attempts (DO NOT REINSTATE)
+## v31.0.0 → v31.0.4 — pre-Phase-10.10 attempts (DO NOT REINSTATE)
 
-* v31.0.0: First customer-facing build. Embedded Python had no third-party deps baked in → silent crash on `import uvicorn`.
-* v31.0.1: Wheels baked into `python\Lib\site-packages\`. Worked. Crashed on `webview.start(icon=...)` TypeError.
-* v31.0.2: Cosmetic rename to "BIG Hat" everywhere. Still had the icon-kwarg bug because `--skip-payload` was used.
-* v31.0.3: msedge `--app=URL` mode. Race with uvicorn boot → `ERR_CONNECTION_REFUSED`. Also BIGHat.exe got dropped from the payload during a previous `--skip-payload` rebuild.
+* v31.0.0: First customer build. Embedded Python had no third-party deps baked in → silent crash on `import uvicorn`.
+* v31.0.1: Wheels baked. Crashed on `webview.start(icon=...)` TypeError.
+* v31.0.2: Cosmetic rename to "BIG Hat" everywhere. Still had icon-kwarg bug because `--skip-payload` was used.
+* v31.0.3: msedge `--app=URL` called from launcher.py. Race with uvicorn boot → ERR_CONNECTION_REFUSED.
+* v31.0.4: VBS-orchestrated launch but opened default browser. User saw a regular browser tab with their normal Chrome profile (multi-tab strip visible). Rejected by user — must use chromeless --app= mode instead. Also Finish-page auto-launch was broken (MUI_FINISHPAGE_RUN_FUNCTION didn't fire).
 
-All of these versions are obsolete. v31.0.4 is the current canonical build.
+All of these are obsolete. v31.0.5 is the current canonical build.

@@ -82,8 +82,13 @@ VIAddVersionKey "OriginalFilename" "BIGHatStandalone-Setup.exe"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN
+; MUI_FINISHPAGE_RUN must be defined (even with empty value) to enable the
+; Finish-page "Launch now" checkbox. When _RUN_FUNCTION is also defined,
+; the function wins and gets called instead of the bare RUN command. See
+; NSIS bug #1023 / MUI 2 source.
+!define MUI_FINISHPAGE_RUN ""
 !define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
+!define MUI_FINISHPAGE_RUN_TEXT "Launch BIG Hat now"
 !define MUI_FINISHPAGE_LINK "Open ${APP_URL}"
 !define MUI_FINISHPAGE_LINK_LOCATION "${APP_URL}"
 !insertmacro MUI_PAGE_FINISH
@@ -234,8 +239,11 @@ LangString DESC_AUTOSTART ${LANG_ENGLISH} "Run BIG Hat Standalone in the backgro
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; ===== Helper to launch the app from the Finish page =====
+; ExecShell signature: ExecShell action command [parameters] [show]
+; "open" with wscript.exe explicitly so it works even on machines where
+; the .vbs file association has been changed.
 Function LaunchApp
-  ExecShell "" "$SYSDIR\wscript.exe" '"$INSTDIR\packaging\start_bighat.vbs"'
+  ExecShell "open" "wscript.exe" '"$INSTDIR\packaging\start_bighat.vbs"'
 FunctionEnd
 
 ; ===== Uninstall =====

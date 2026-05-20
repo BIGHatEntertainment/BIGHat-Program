@@ -75,7 +75,31 @@ Err.Clear
 On Error Goto 0
 
 If alreadyUp Then
-    WshShell.Run "http://127.0.0.1:8001" & OPEN_QUERY, 1, False
+    ' Backend is already running - just spawn a new chromeless window
+    ' pointing at the (possibly deep-linked) URL. Falls back to default
+    ' browser if no Chromium-family browser is installed.
+    Dim handoffUrl, handoffExe, handoffPaths, j
+    handoffUrl = "http://127.0.0.1:8001" & OPEN_QUERY
+    handoffExe = ""
+    handoffPaths = Array( _
+        "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", _
+        "C:\Program Files\Microsoft\Edge\Application\msedge.exe", _
+        "C:\Program Files\Google\Chrome\Application\chrome.exe", _
+        "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" _
+    )
+    For j = 0 To UBound(handoffPaths)
+        If FSO.FileExists(handoffPaths(j)) Then
+            handoffExe = handoffPaths(j)
+            Exit For
+        End If
+    Next
+    If handoffExe <> "" Then
+        WshShell.Run """" & handoffExe & """ --app=""" & handoffUrl & """ " & _
+            "--user-data-dir=""" & INSTALL_ROOT & "\backend\data\browser_profile"" " & _
+            "--no-first-run --no-default-browser-check", 1, False
+    Else
+        WshShell.Run handoffUrl, 1, False
+    End If
     WScript.Quit 0
 End If
 
@@ -117,8 +141,53 @@ If Not ok Then
     WScript.Quit 1
 End If
 
-' --------- Open the user's default browser at the local app URL ---------
-' (1 = show normal window; False = don't wait for browser exit so this VBS
-' returns immediately and the user gets snappy feedback.)
-WshShell.Run "http://127.0.0.1:8001" & OPEN_QUERY, 1, False
+' --------- Open the app: prefer chromeless --app= mode, fall back to default browser ---------
+' Edge and Chrome both support --app=URL which opens a frameless window
+' with no tab bar, no URL bar, no menu - same end result as Slack/Discord/
+' Notion's desktop apps (which are all Chromium under the hood). We pass
+' --user-data-dir= so the launch is isolated from the user's normal
+' browser profile (no tabs leak in, no cookies leak out).
+
+Dim TARGET_URL
+TARGET_URL = "http://127.0.0.1:8001" & OPEN_QUERY
+
+Dim chromiumExe, profileDir
+chromiumExe = ""
+Dim candidatePaths : candidatePaths = Array( _
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", _
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe", _
+    "C:\Program Files\Google\Chrome\Application\chrome.exe", _
+    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", _
+    "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe", _
+    "C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe" _
+)
+Dim i
+For i = 0 To UBound(candidatePaths)
+    If FSO.FileExists(candidatePaths(i)) Then
+        chromiumExe = candidatePaths(i)
+        Exit For
+    End If
+Next
+
+If chromiumExe <> "" Then
+    profileDir = INSTALL_ROOT & "\backend\data\browser_profile"
+    On Error Resume Next
+    FSO.CreateFolder(profileDir)
+    On Error Goto 0
+
+    Dim appCmd
+    appCmd = """" & chromiumExe & """ " & _
+            "--app=""" & TARGET_URL & """ " & _
+            "--user-data-dir=""" & profileDir & """ " & _
+            "--no-first-run --no-default-browser-check " & _
+            "--disable-features=Translate,MediaRouter " & _
+            "--window-size=1440,900"
+    WshShell.Run appCmd, 1, False
+Else
+    ' No Chromium-family browser found - fall back to default browser.
+    ' (Will open a normal tab; user will see browser chrome but at least
+    ' it launches.)
+    WshShell.Run TARGET_URL, 1, False
+End If
+
 WScript.Quit 0
