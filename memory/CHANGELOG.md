@@ -38,7 +38,65 @@
 
 ---
 
-## v31.0.5 — 2026-05-20 (Phase 10.10: chromeless --app=, VBS-orchestrated)
+## v31.0.6 — 2026-05-23 (Bingo: music-video flow hidden, traditional only)
+
+**Product change**: Music-video bingo (with playlists, decade picker, song
+recognition) is temporarily removed from the user-facing UI. Traditional
+number bingo is the only mode shown. Music bingo will return as a paid
+add-on in a future release — the code is preserved behind a feature flag,
+NOT deleted.
+
+### Where the toggle lives
+
+* `frontend/src/pages/bingo/Lobby.jsx` — top-of-file `const
+  ENABLE_MUSIC_BINGO = false;`. Flip to `true` to bring music bingo back
+  with zero other file changes. Everything that's hidden is wrapped in
+  conditionals against that flag.
+
+### What the flag affects
+
+| Surface | When flag is `false` (today) | When flag is `true` (future) |
+|---|---|---|
+| Dashboard card title | "Bingo" | "Music Bingo" |
+| Dashboard card description | "Run traditional number bingo nights..." | "Run music bingo nights..." |
+| Dashboard card entitlement | Bundled with standalone (`story_generator_enabled`) | Add-on (`music_bingo_enabled`, $24.99 store path) |
+| Lobby page header | "Bingo" | "Music Bingo" |
+| Quick Play / Custom Setup mode select | Skipped — wizard starts in Custom mode | Shown |
+| Wizard step 0 ("Choose Bingo Type") | Skipped — initial step is 1 (Game Type) | Shown with both options |
+| Wizard step indicator dots | 3 dots (steps 1, 2, 3 visible) | 4 or 5 dots depending on selected type |
+| Wizard "Music Decade" step | Skipped | Shown when type=music |
+| `settings.bingoType` initial value | `"traditional"` | `"music"` |
+| Back button on first visible step | Returns to /home | Returns to mode-select |
+
+### What I did NOT change (intentional)
+
+* `backend/routes/bingo.py` is untouched. The backend can still service
+  music-bingo API calls (`/api/bingo/songs`, etc.); we just never offer
+  them in the UI. Keeping the routes mounted means re-enabling is a
+  one-line flag flip with no backend migration required.
+* The "music_bingo" entry stays in `LICENSE_FEATURE_MATRIX`. License
+  records keep their `owns_music_bingo` flag — customers who already paid
+  for the add-on won't lose anything when we re-enable the UI.
+* Music-related lobby strings (`Disc3` icon import, `"music"` id in
+  `allBingoTypes`, `musicDecade` setting in initial state) are preserved.
+  They're just filtered out or short-circuited.
+
+### Files of interest
+
+* `frontend/src/pages/bingo/Lobby.jsx` (top of file — feature flag)
+* `frontend/src/components/AppCards.js` (dashboard tile metadata)
+
+### Build + ship
+
+Bumped `backend/VERSION.txt` from 31.0.5 → 31.0.6. Built the React
+bundle (`yarn build` in `frontend/`), synced into `backend/static/`,
+then ran `makensis` directly because the wheel cache is intact and a
+full `build_installer.py` run would have re-baked all 248 wheels for
+no reason. Final installer: 106 MB, lint clean.
+
+---
+
+
 
 **TL;DR**: VBS still owns the launch sequence (boot pythonw, poll port),
 but instead of opening the user's default browser, it locates msedge.exe
@@ -120,6 +178,33 @@ Public stable URL:
 ---
 
 ## v31.0.0 → v31.0.4 — pre-Phase-10.10 attempts (DO NOT REINSTATE)
+
+(v31.0.5 details below this section — the launcher infrastructure they
+fixed is still in effect today. Read v31.0.5 before touching any
+launcher / installer / packaging files.)
+
+### v31.0.5 — 2026-05-20 (Phase 10.10: chromeless --app=, VBS-orchestrated)
+
+**TL;DR**: VBS owns the launch sequence (boot pythonw, poll port), then
+locates msedge.exe or chrome.exe and launches them with `--app=URL
+--user-data-dir=...` for a chromeless window. NSIS Finish-page wired
+with both `MUI_FINISHPAGE_RUN ""` + `MUI_FINISHPAGE_RUN_FUNCTION LaunchApp`
+(both required — MUI silently no-ops if only the function is defined).
+
+**Launch path** (still current under v31.0.6):
+1. Shortcut → `wscript.exe start_bighat.vbs [optional .bighat path]`.
+2. VBS probes 127.0.0.1:8001 — if up, single-instance handoff: spawn a
+   new chromeless `--app=` window at the URL.
+3. Else: `WshShell.Run "pythonw.exe backend\launcher.py --no-browser"`.
+4. Polls port for up to 25 s.
+5. When port is up, locates first available of msedge / chrome / brave
+   in standard Program Files paths and spawns
+   `<browser>.exe --app="http://127.0.0.1:8001/..."
+    --user-data-dir="<install>\backend\data\browser_profile"
+    --no-first-run --no-default-browser-check`.
+6. Falls back to default browser only if no Chromium-family browser exists.
+
+---
 
 * v31.0.0: First customer build. Embedded Python had no third-party deps baked in → silent crash on `import uvicorn`.
 * v31.0.1: Wheels baked. Crashed on `webview.start(icon=...)` TypeError.

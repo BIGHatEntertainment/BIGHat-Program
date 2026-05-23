@@ -21,16 +21,20 @@ const apps = [
   },
   {
     id: 'bingo',
-    title: 'Music Bingo',
+    title: 'Bingo',
     description:
-      'Run music bingo nights with auto-generated cards and live tracking.',
+      'Run traditional number bingo nights with auto-generated cards and live tracking.',
     icon: Music,
     color: '#5973F7',
-    feature: 'music_bingo_enabled',
+    // v31.0.6: while the music-video bingo flow is on ice, Bingo is offered
+    // to anyone who owns the standalone package. When music bingo ships as
+    // a paid add-on again, flip this back to 'music_bingo_enabled' and
+    // restore the upsell on the lobby's "Music Bingo" option.
+    feature: 'story_generator_enabled',
     route: '/bingo',
-    storePath: '/music-bingo',
-    storePrice: '$24.99',
-    ownershipLabel: 'Add-on',
+    storePath: '',                       // bundled with standalone for now
+    storePrice: null,
+    ownershipLabel: 'Included with BIG Hat Entertainment',
   },
   {
     id: 'karaoke',

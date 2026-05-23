@@ -26,23 +26,36 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// v31.0.6 — Music Bingo is on ice until we rebuild the music-video pipeline
+// as a paid add-on. While false: lobby only offers traditional bingo, the
+// "Bingo Type" / "Music Decade" steps are skipped, the "Quick Play" preset
+// (loads a 30-min music video) is hidden, and the page title says "Bingo".
+// Flip this to `true` to bring the music flow back without touching anything
+// else in the file.
+const ENABLE_MUSIC_BINGO = false;
+
 export default function Lobby() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState(null); // 'preset' or 'custom'
-  const [step, setStep] = useState(0);
+  // When music bingo is disabled, jump straight into the custom wizard —
+  // the "Quick Play" preset-video mode is meaningless without songs.
+  const [mode, setMode] = useState(ENABLE_MUSIC_BINGO ? null : 'custom');
+  // Start the wizard at step 1 (Game Type) when music is disabled — step 0
+  // is the Bingo Type picker which has only one option in that build.
+  const [step, setStep] = useState(ENABLE_MUSIC_BINGO ? 0 : 1);
   const [isLoading, setIsLoading] = useState(false);
   
   // Game settings
   const [settings, setSettings] = useState({
-    bingoType: "music", // NEW: "traditional" or "music"
+    bingoType: ENABLE_MUSIC_BINGO ? "music" : "traditional",
     gameType: "regular",
     roundType: "traditional",
     callInterval: 30,
     musicDecade: "1980s"
   });
 
-  // Bingo Types (NEW)
-  const bingoTypes = [
+  // Bingo Types - filtered to the traditional-only set when the music flow
+  // is disabled. The "type selection" step is also short-circuited below.
+  const allBingoTypes = [
     { 
       id: "music", 
       name: "Music Bingo", 
@@ -58,6 +71,9 @@ export default function Lobby() {
       color: "text-cyan-500"
     }
   ];
+  const bingoTypes = ENABLE_MUSIC_BINGO
+    ? allBingoTypes
+    : allBingoTypes.filter(t => t.id === "traditional");
 
   const roundTypes = [
     { id: "traditional", name: "Traditional", icon: Grid3X3, description: "5 in a row (any direction)" },
@@ -139,16 +155,24 @@ export default function Lobby() {
     createGame(false);
   };
 
-  // Determine total steps based on bingo type
+  // Determine total steps based on bingo type. Note: with music disabled
+  // we skip step 0 (bingo-type select), so the visible wizard runs from
+  // step 1 → step 3 (Game Type → Round Type → Call Interval).
   const getTotalSteps = () => {
+    if (!ENABLE_MUSIC_BINGO) {
+      return 4; // total slots, indices 0..3 — step 0 is just skipped
+    }
     if (settings.bingoType === "music") {
       return 5; // Bingo Type -> Music Decade -> Game Speed -> Round Type -> Interval
     }
     return 4; // Bingo Type -> Game Type -> Round Type -> Interval
   };
 
+  // The first visible step when music is disabled is step 1, not step 0.
+  const firstStep = ENABLE_MUSIC_BINGO ? 0 : 1;
+
   const nextStep = () => setStep(s => Math.min(s + 1, getTotalSteps() - 1));
-  const prevStep = () => setStep(s => Math.max(s - 1, 0));
+  const prevStep = () => setStep(s => Math.max(s - 1, firstStep));
 
   return (
     <div className="min-h-screen bg-gradient-radial flex flex-col items-center justify-center p-8 relative">
@@ -164,7 +188,7 @@ export default function Lobby() {
         className="text-center mb-12"
       >
         <h1 className="font-display text-6xl md:text-8xl neon-text mb-4">
-          Music Bingo
+          {ENABLE_MUSIC_BINGO ? "Music Bingo" : "Bingo"}
         </h1>
         <p className="text-zinc-400 text-lg md:text-xl font-medium tracking-wide">
           BIG Hat Entertainment
@@ -173,7 +197,9 @@ export default function Lobby() {
 
       <AnimatePresence mode="wait">
         {!mode ? (
-          /* Mode Selection */
+          /* Mode Selection (only shown when music bingo is enabled — the
+             "Quick Play" card loads a pre-edited 30-min music video, which
+             doesn't apply to traditional bingo). */
           <motion.div
             key="mode-select"
             initial={{ opacity: 0, y: 20 }}
@@ -303,14 +329,16 @@ export default function Lobby() {
                     Game Setup
                   </CardTitle>
                   <div className="flex gap-2">
-                    {Array.from({ length: getTotalSteps() }, (_, s) => (
-                      <div
-                        key={s}
-                        className={`w-3 h-3 rounded-full transition-colors duration-300 ${
-                          s === step ? "bg-fuchsia-500" : s < step ? "bg-fuchsia-500/50" : "bg-zinc-700"
-                        }`}
-                      />
-                    ))}
+                    {Array.from({ length: getTotalSteps() }, (_, s) => s)
+                      .filter(s => s >= firstStep)
+                      .map((s) => (
+                        <div
+                          key={s}
+                          className={`w-3 h-3 rounded-full transition-colors duration-300 ${
+                            s === step ? "bg-fuchsia-500" : s < step ? "bg-fuchsia-500/50" : "bg-zinc-700"
+                          }`}
+                        />
+                      ))}
                   </div>
                 </div>
               </CardHeader>
@@ -647,7 +675,9 @@ export default function Lobby() {
                 <div className="flex gap-4 mt-8">
                   <Button
                     variant="outline"
-                    onClick={step === 0 ? () => setMode(null) : prevStep}
+                    onClick={step === firstStep
+                      ? (ENABLE_MUSIC_BINGO ? () => setMode(null) : () => navigate('/'))
+                      : prevStep}
                     data-testid="wizard-back-btn"
                   >
                     <ArrowLeft className="mr-2" size={20} />
