@@ -8,6 +8,7 @@ touch MongoDB; they only operate on `system_config.json`.
 from __future__ import annotations
 
 import bcrypt
+import logging
 import re as _re
 import uuid
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from .subscription import get_subscription, set_subscription
 from . import cloud_client
 
 router = APIRouter(prefix="/api/native", tags=["native"])
+logger = logging.getLogger("bighat-native-router")
 
 
 # ---------- Models ----------
@@ -141,29 +143,69 @@ async def get_setup_status():
 
 @router.post("/setup/initialize")
 async def initialize_setup(payload: SetupInitRequest):
-    """First-run setup wizard — creates master admin, sets license, registers seat."""
+    """First-run setup wizard — creates master admin, sets license, registers seat.
+
+    Also calls the cloud license authority at `api.bighat.live` to bind this
+    machine's HWID to the supplied key. The cloud is authoritative on
+    `owns_standalone` / `cloud_library_active` / seat counts — we mirror its
+    response into local state. Offline-tolerant: if the cloud is unreachable
+    (timeout / network error), setup still completes and the licence is
+    flagged `pending_cloud_activation`; a background job retries activation
+    every few hours until it succeeds. **A 4xx from the cloud** (unknown key,
+    revoked, seat limit) rejects the setup so fake keys cannot be used.
+    """
     if config_manager.config.get("setup_complete"):
         raise HTTPException(status_code=409, detail="setup_already_complete")
 
     if not is_well_formed_license(payload.license_key):
         raise HTTPException(status_code=400, detail="invalid_license_format")
 
-    # Persist license
-    set_license_key(payload.license_key.upper(), payload.master_admin.email)
+    key = payload.license_key.strip().upper()
+    admin_email = payload.master_admin.email.lower().strip()
+    hwid = generate_hwid()
 
-    # Persist settings
+    # 1. Cloud activation (authoritative). Do this BEFORE writing local state
+    #    so a 4xx from the cloud doesn't leave a half-finished config behind.
+    cloud_resp = await cloud_client.activate(
+        license_key=key,
+        hwid=hwid,
+        machine_name=f"Setup Wizard — {payload.master_admin.first_name}",
+        email=admin_email,
+    )
+    pending_cloud = False
+    if not cloud_resp.get("ok"):
+        if cloud_resp.get("error") in ("timeout", "network_error", "server_error"):
+            # Offline-tolerant: accept setup, retry later.
+            pending_cloud = True
+            logger.info(
+                "[setup] cloud activation deferred (%s); will retry in background",
+                cloud_resp.get("error"),
+            )
+        else:
+            # Authoritative rejection — unknown key, revoked, seat limit, etc.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error":       cloud_resp.get("error", "license_rejected"),
+                    "message":     cloud_resp.get("message", "License could not be activated."),
+                    "status_code": cloud_resp.get("status_code"),
+                },
+            )
+
+    # 2. Persist license + settings + master admin.
+    set_license_key(key, admin_email)
+
     cfg = config_manager.config
     cfg["settings"].update(payload.settings.model_dump(exclude_none=True))
     if payload.paths:
         cfg["paths"].update(payload.paths.model_dump(exclude_none=True))
 
-    # Create master admin
     pwd_hash = bcrypt.hashpw(
         payload.master_admin.password.encode("utf-8"), bcrypt.gensalt()
     ).decode("utf-8")
     master_user = {
         "id": str(uuid.uuid4()),
-        "email": payload.master_admin.email.lower().strip(),
+        "email": admin_email,
         "password_hash": pwd_hash,
         "first_name": payload.master_admin.first_name,
         "last_name": payload.master_admin.last_name or "",
@@ -183,14 +225,26 @@ async def initialize_setup(payload: SetupInitRequest):
     cfg["setup_complete"] = True
     config_manager.save_config()
 
-    # Register this machine as the first seat
-    register_seat(label=f"Master Admin — {master_user['display_name']}")
+    # 3. Mirror cloud response (subscription flags, seats) OR flag pending.
+    if pending_cloud:
+        lic = config_manager.config.setdefault("license_status", {})
+        lic["pending_cloud_activation"] = True
+        config_manager.save_config()
+        # Local seat so the customer can use the app offline immediately.
+        register_seat(label=f"Master Admin — {master_user['display_name']}")
+    else:
+        _apply_cloud_response_to_local_state(cloud_resp, license_key=key, email=admin_email)
+        register_seat(label=f"Master Admin — {master_user['display_name']}")
 
     return {
         "status": "ok",
         "master_admin_email": master_user["email"],
-        "hwid": generate_hwid(),
+        "hwid": hwid,
         "license": get_license_status(),
+        "subscription": get_subscription(),
+        "cloud": cloud_resp if not pending_cloud else {
+            "ok": False, "pending": True, "error": cloud_resp.get("error"),
+        },
     }
 
 

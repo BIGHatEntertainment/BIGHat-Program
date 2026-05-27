@@ -341,6 +341,18 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.8 — Cloud license wired into setup (2026-05-27)
+- `/api/native/setup/initialize` now calls `cloud_client.activate()`
+  against `https://api.bighat.live/api/license/activate` server-side.
+  Cloud is authoritative: 4xx rejects setup, 2xx mirrors flags, transport
+  error proceeds offline with `pending_cloud_activation=true`.
+- New `retry_pending_cloud_activation` APScheduler job (every 4 hours)
+  picks up offline-completed setups and finishes activation when the
+  network returns.
+- 4 new pytest cases in `tests/test_setup_cloud_activation.py` cover the
+  four cloud-response branches (88/88 license-suite green).
+- Closes PRD Phase 10.1.
+
 ### v31.0.7 — Fresh-install fixes (2026-05-27)
 - **Setup Wizard now actually runs on first install.** Builds before
   31.0.7 shipped the dev `backend/native/system_config.json` to
@@ -360,9 +372,6 @@ customer owns, not opaque rows in a SQLite database.
   `useNative().nativeMode`).
 
 ### Optional P3 backlog
-- **Phase 10.1**: Wire desktop SetupWizard to actually call
-  `https://api.bighat.live/api/license/activate` in production (currently
-  the desktop license code is local-stub; payloads/contracts already align).
 - **Phase 10.2**: Move installer hosting off Squarespace to Cloudflare R2
   (free egress) or S3 + CloudFront with signed URLs (better analytics +
   per-user audit) — only if Squarespace's 24h / 5-attempt download links

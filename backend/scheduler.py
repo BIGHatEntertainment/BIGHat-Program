@@ -69,6 +69,67 @@ async def cleanup_generated_assets():
         logger.error(f"[Cleanup] Error cleaning assets: {e}")
 
 
+async def retry_pending_cloud_activation():
+    """If the SetupWizard completed offline, retry cloud-license activation
+    until it succeeds. On success, mirror the cloud response into local
+    state and clear the `pending_cloud_activation` flag.
+
+    Safe to run even when not in native mode — the flag will simply never
+    be set."""
+    try:
+        from native.config import config_manager
+        from native.hwid import generate_hwid
+        from native import cloud_client
+        # Avoid circular import by re-implementing the apply logic inline.
+        from native.router import _apply_cloud_response_to_local_state
+    except ImportError as e:
+        logger.warning(f"[CloudRetry] native modules unavailable: {e}")
+        return
+
+    cfg = config_manager.config
+    lic = cfg.get("license_status", {}) or {}
+    if not lic.get("pending_cloud_activation"):
+        return
+    key = lic.get("key")
+    if not key:
+        return
+    hwid = generate_hwid()
+    label = None
+    seats = lic.get("active_seats", []) or []
+    for s in seats:
+        if s.get("hwid") == hwid:
+            label = s.get("label")
+            break
+    resp = await cloud_client.activate(
+        license_key=key, hwid=hwid,
+        machine_name=label or "BIG Hat",
+        email=lic.get("master_admin_email"),
+    )
+    if not resp.get("ok"):
+        if resp.get("error") in ("timeout", "network_error", "server_error"):
+            logger.info(f"[CloudRetry] still offline ({resp.get('error')}); will retry next tick")
+        else:
+            # Authoritative failure — log it but don't keep retrying.
+            logger.warning(
+                f"[CloudRetry] cloud rejected pending activation: {resp.get('error')}: {resp.get('message')}"
+            )
+            lic2 = config_manager.config.setdefault("license_status", {})
+            lic2["pending_cloud_activation"] = False
+            lic2["cloud_activation_error"] = resp.get("error")
+            config_manager.save_config()
+        return
+    _apply_cloud_response_to_local_state(resp, license_key=key, email=lic.get("master_admin_email"))
+    lic2 = config_manager.config.setdefault("license_status", {})
+    lic2["pending_cloud_activation"] = False
+    lic2.pop("cloud_activation_error", None)
+    config_manager.save_config()
+    logger.info(
+        "[CloudRetry] cloud activation succeeded; cleared pending flag "
+        f"(owns_standalone={resp.get('owns_standalone')}, "
+        f"cloud_library={resp.get('cloud_library_active')})"
+    )
+
+
 async def cleanup_old_events():
     """Hide events older than 10 days by marking them as archived. Preserves payment data."""
     try:
@@ -131,6 +192,17 @@ def start_scheduler():
         name='Cleanup Generated Assets (24h)',
         replace_existing=True
     )
+
+    # Every 4 hours: retry cloud-license activation for installs that
+    # completed setup while offline.
+    scheduler.add_job(
+        retry_pending_cloud_activation,
+        trigger=IntervalTrigger(hours=4),
+        id='retry_pending_cloud_activation',
+        name='Retry Pending Cloud Activation',
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=2),
+    )
     
     # Daily at 3 AM: archive events older than 10 days
     scheduler.add_job(
@@ -187,7 +259,7 @@ def start_scheduler():
     
     scheduler.start()
     
-    for job_id in ['cleanup_assets', 'cleanup_events', 'monthly_archive', 'primary_friday_report', 'secondary_monday_availability']:
+    for job_id in ['cleanup_assets', 'retry_pending_cloud_activation', 'cleanup_events', 'monthly_archive', 'primary_friday_report', 'secondary_monday_availability']:
         try:
             job = scheduler.get_job(job_id)
             if job:

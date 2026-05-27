@@ -38,7 +38,72 @@
 
 ---
 
-## v31.0.7 — 2026-05-27 (Setup Wizard runs on first install + Google login hidden in native)
+## v31.0.8 — 2026-05-27 (Setup wizard → cloud license activation in production)
+
+**What changed**: the desktop SetupWizard's `/api/native/setup/initialize`
+endpoint now talks to the production cloud license authority at
+`https://api.bighat.live/api/license/activate` directly, server-side,
+during first-run setup. Previously the cloud call was issued only by
+the wizard frontend (Step 1) and could be bypassed by anyone POSTing
+to `setup/initialize` with a well-formed-but-fake key.
+
+### Why
+
+PRD backlog Phase 10.1: "Wire desktop SetupWizard to actually call
+`https://api.bighat.live/api/license/activate` in production (currently
+the desktop license code is local-stub; payloads/contracts already
+align)." The wiring existed in the frontend Step 1 + the
+`/api/native/license/cloud/activate` endpoint, but `setup/initialize`
+didn't enforce the cloud's authoritative answer — so a malicious or
+offline customer could finish setup with no real license bound to the
+cloud.
+
+### Behaviour matrix (now)
+
+| Cloud response                              | Setup result | Local state |
+|---------------------------------------------|--------------|-------------|
+| 2xx — `owns_standalone:true`                | 200 OK       | subscription mirrored; `pending_cloud_activation=false` |
+| 2xx — `owns_standalone:false`               | 200 OK       | free tier; user can still log in |
+| 4xx — `unknown_key` / `revoked` / `seat_limit` | 400        | NO master admin written; setup remains incomplete |
+| Transport error (timeout / network / 5xx)   | 200 OK       | master admin written; `pending_cloud_activation=true`; background retry every 4h |
+
+### Files of interest
+
+* `backend/native/router.py` — `initialize_setup`:
+  - Calls `cloud_client.activate()` BEFORE writing any local state.
+  - 4xx from cloud → `HTTPException(400, …)`, no master admin created.
+  - Transport error → setup proceeds with `pending_cloud_activation` flag.
+  - 2xx → `_apply_cloud_response_to_local_state` mirrors flags (same path
+    the existing `/api/native/license/cloud/activate` endpoint uses).
+* `backend/scheduler.py` — new APScheduler job
+  `retry_pending_cloud_activation` runs every 4 hours (first run +2 min
+  after boot). When the flag is set it re-attempts cloud activation;
+  clears the flag on success, records `cloud_activation_error` on
+  authoritative rejection, leaves alone on transient transport errors.
+* `backend/tests/test_setup_cloud_activation.py` — 4 new pytest cases
+  covering the four behaviour-matrix rows. All passing alongside the
+  existing 84 license/cloud-wireup tests (88/88).
+
+### Network requirements (customer-facing)
+
+The desktop install now needs **outbound HTTPS to `api.bighat.live`**
+the first time a customer runs the Setup Wizard. Corporate firewalls
+that block this still get a working install (offline path) but premium
+features stay locked until the retry job lands a successful activation.
+Document this in the bighat.live FAQ.
+
+### Build + ship
+
+```bash
+echo "31.0.8" > backend/VERSION.txt
+yarn --cwd frontend build
+python scripts/build_installer.py
+python scripts/publish_github_release.py --replace-existing
+```
+
+---
+
+
 
 **Customer-reported bugs**:
 1. Brand new install lands the user on `/login` immediately. No matter what
