@@ -268,6 +268,11 @@ def _copy_tree(src: Path, dst: Path, *, exclude_dirs: set[str], exclude_names: s
             # OAuth client secrets etc) to customer machines.
             if f == ".env" or f.startswith(".env."):
                 continue
+            # FRESH-INSTALL: never ship the dev system_config.json (which
+            # marks setup_complete=true with a stale master admin + HWID).
+            # The customer's first launch must run the Setup Wizard.
+            if f in ("system_config.json",) or f.endswith(".corrupt.json"):
+                continue
             shutil.copy2(Path(root) / f, target_dir / f)
             n += 1
     return n

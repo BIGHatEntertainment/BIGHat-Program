@@ -68,6 +68,53 @@ def _ensure_data_dirs() -> None:
                 logger.warning(f"Could not create {key}={p!r}: {e}")
 
 
+def _quarantine_dev_seed_if_present() -> None:
+    """v31.0.7 fix: builds before 31.0.7 shipped the dev `system_config.json`
+    to customers (instance_id 75d181a8-…, master@bighat.local). On those
+    installs the Setup Wizard never runs and login is unrecoverable. If we
+    detect the well-known dev seed here, rename it to
+    `system_config.dev-seed.json` so the ConfigManager falls back to
+    defaults (setup_complete=False) and the wizard appears.
+
+    Idempotent: once quarantined, the bad file is gone and this is a no-op.
+    """
+    # The config path matches `native.config.DEFAULT_CONFIG_PATH`.
+    cfg_path = Path(
+        os.environ.get(
+            "BIGHAT_CONFIG_PATH",
+            str(BACKEND_DIR / "native" / "system_config.json"),
+        )
+    )
+    if not cfg_path.is_file():
+        return
+    try:
+        import json as _json
+        data = _json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"[launcher] could not parse {cfg_path} (leaving alone): {e}")
+        return
+    # Signatures of the dev seed checked into the repo for builds <= 31.0.6.
+    # We match on either the instance_id OR the master_admin_email to be
+    # robust to either being copy-edited.
+    DEV_INSTANCE_ID = "75d181a8-50f3-4032-90d4-7ecfd7cf44a7"
+    is_dev_seed = (
+        data.get("instance_id") == DEV_INSTANCE_ID
+        or data.get("license_status", {}).get("master_admin_email") == "master@bighat.local"
+    )
+    if not is_dev_seed:
+        return
+    quarantine = cfg_path.with_name("system_config.dev-seed.json")
+    try:
+        cfg_path.rename(quarantine)
+        logger.warning(
+            "[launcher] quarantined dev-seed system_config.json -> %s. "
+            "Setup Wizard will run on first request.",
+            quarantine,
+        )
+    except OSError as e:
+        logger.error(f"[launcher] could not quarantine dev seed at {cfg_path}: {e}")
+
+
 def _bootstrap_env_from_template() -> Path | None:
     """First-run safety: if no `.env` exists but `.env.standalone` was
     shipped by the installer, copy it into place and replace the
@@ -94,6 +141,7 @@ def _bootstrap_env_from_template() -> Path | None:
 def _load_env() -> None:
     """Load backend/.env if present, then force native mode."""
     _bootstrap_env_from_template()
+    _quarantine_dev_seed_if_present()
     try:
         from dotenv import load_dotenv  # type: ignore
         load_dotenv(BACKEND_DIR / ".env")

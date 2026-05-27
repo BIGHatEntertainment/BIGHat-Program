@@ -341,6 +341,24 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.7 — Fresh-install fixes (2026-05-27)
+- **Setup Wizard now actually runs on first install.** Builds before
+  31.0.7 shipped the dev `backend/native/system_config.json` to
+  customers (setup_complete=true, stale master admin + HWID), which
+  short-circuited the wizard and caused unrecoverable login lockout.
+  Fixed in `scripts/build_installer.py` + `scripts/build_dmg.py`
+  (file-level exclusion in `_copy_tree`) and a one-shot launcher-side
+  quarantine in `backend/launcher.py` so existing v31.0.6 installs
+  auto-recover on next launch.
+- **Google sign-in is hidden in native mode.** The chromeless `--app=`
+  window would otherwise leave the BIG Hat origin and land on
+  `auth.emergentagent.com` (showing "LOG IN TO 127" because the redirect
+  hostname is `127.0.0.1`) with the OS window title flipping to
+  "Emergent". Native standalone provisions the master admin offline via
+  the wizard; Google OAuth stays available in webapp / cloud mode only.
+  Fix in `frontend/src/pages/LoginPage.js` (gated on
+  `useNative().nativeMode`).
+
 ### Optional P3 backlog
 - **Phase 10.1**: Wire desktop SetupWizard to actually call
   `https://api.bighat.live/api/license/activate` in production (currently
@@ -373,7 +391,7 @@ See `/app/memory/test_credentials.md`. Native master admin:
 `master@bighat.local` / `BigHat2024!`. Test license: `BHE-TEST-1234-ABCD-WXYZ`.
 
 ## Next agent — start here
-1. Read `/app/STATE.md` for the most recent in-flight context.
-2. Pick the next phase from the roadmap (currently **Phase 3 — Round Maker**).
-3. Follow `/app/CHANGELOG.md` for the as-shipped record of every prior phase.
-4. Open issues / known gaps live in `/app/ERRORS.md`.
+1. Read `/app/memory/CHANGELOG.md` for the most recent in-flight context
+   and the canonical Windows-launcher rules (NEVER-DO RULES at the top).
+2. Pick the next item from the **Pending / Backlog** section above.
+3. `/app/memory/PRD.md` (this file) is the long-form spec.
