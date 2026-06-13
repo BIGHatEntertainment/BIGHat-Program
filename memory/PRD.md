@@ -341,6 +341,22 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.9 — OS-aware download landing (2026-05-27)
+- Squarespace store + bighat.live used to link directly at a stale
+  Windows .exe on GitHub. Mac buyers got a Windows installer for a
+  release that no longer existed.
+- New `/api/downloads/auto` (UA-detected 302), `/api/downloads/latest`
+  (JSON manifest), and `/download` (branded HTML landing page) on the
+  cloud server. All three resolve from `releases/latest` on GitHub at
+  request time so the link never goes stale.
+- Asset matching covers Windows .exe, macOS Apple Silicon zip, and
+  macOS Intel zip. 5-min in-memory cache. Env-var override path
+  preserved.
+- 11 new pytest cases (99/99 cloud tests green).
+- Action required: change the Squarespace store button to
+  `https://api.bighat.live/download` and set `GITHUB_OWNER` /
+  `GITHUB_REPO` env vars on production. See CHANGELOG for details.
+
 ### v31.0.8 — Cloud license wired into setup (2026-05-27)
 - `/api/native/setup/initialize` now calls `cloud_client.activate()`
   against `https://api.bighat.live/api/license/activate` server-side.

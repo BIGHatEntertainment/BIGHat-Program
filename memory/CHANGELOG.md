@@ -38,7 +38,119 @@
 
 ---
 
-## v31.0.8 — 2026-05-27 (Setup wizard → cloud license activation in production)
+## v31.0.9 — 2026-05-27 (OS-aware download landing page + dynamic GitHub release lookup)
+
+**Customer-reported bug**: A developer bought BIG Hat from the Squarespace
+store on a Mac and was sent to a hardcoded GitHub asset URL for
+`BIGHatStandalone-Setup-31.0.5.exe` — a Windows installer, for a stale
+version (v31.0.5 was superseded), via a signed/private asset link
+(`release-assets.githubusercontent.com/.../?expires=...&signature=...`)
+that 404'd because the asset had been replaced.
+
+### Root cause
+
+The store's "Download" button was a hardcoded URL pointing at a
+specific .exe asset on a specific GitHub release. That URL:
+  1. Was OS-blind — every customer got the same Windows installer
+     regardless of what machine they were on.
+  2. Was version-pinned to a release that no longer exists.
+  3. Was a signed CDN URL (not the stable `/releases/download/...` form)
+     so it expired even while v31.0.5 was current.
+
+`/api/downloads/{platform}` existed in the cloud API but returned 404
+in production because `DOWNLOAD_URL_WINDOWS` / `DOWNLOAD_URL_MACOS` env
+vars were never set.
+
+### Fixes
+
+* **New `backend/cloud/downloads_resolver.py`** — two-layer resolver:
+  1. Env-var override (`DOWNLOAD_URL_WINDOWS`, `DOWNLOAD_URL_MACOS`,
+     `DOWNLOAD_URL_MACOS_INTEL`) if ops needs to pin a specific build.
+  2. Live `GET /repos/{owner}/{repo}/releases/latest` lookup against
+     `GITHUB_OWNER` / `GITHUB_REPO`, cached 5 min. Reads the stable
+     `browser_download_url` (NOT the signed CDN form), so the link
+     remains valid as long as the asset exists. Asset-name matching
+     handles all three artifacts: Windows `.exe`, macOS Apple Silicon,
+     macOS Intel.
+
+* **New endpoint `GET /api/downloads/auto`** (cloud router) — sniffs
+  `User-Agent`, picks the platform, 302-redirects to the latest asset.
+  Optional `?platform=…` for explicit override (`windows`, `mac`,
+  `intel`, `applesilicon`, etc.). Unknown UA / missing asset → 302 to
+  the friendly landing page instead of a hard 404.
+
+* **New endpoint `GET /api/downloads/latest`** (cloud router) — JSON
+  manifest of all platform URLs at the latest version. Used by the
+  landing page and by support tooling.
+
+* **New endpoint `GET /download`** (cloud-only, HTML) —
+  `backend/cloud/download_landing.py`. Self-contained, server-side
+  rendered. Detects OS from UA, renders a large primary button for the
+  detected platform + secondary "Other platforms" panel for the other
+  two. Branded BIG Hat theme, zero external assets. If
+  `/api/downloads/auto` couldn't resolve an asset, it redirects here
+  with `?missing=…` so the page can show "X not yet available, email
+  support" instead of 404.
+
+* **`cloud/license_router.py`** — existing `/api/downloads/{platform}`
+  endpoint now also goes through the resolver, so the desktop updater
+  always sees the current release. Accepts `windows`, `macos`,
+  `macos_apple`, `macos_intel` aliases.
+
+* **`cloud/license_models.py`** — widened `DownloadInfo.platform`
+  Literal to include the macos-arch variants.
+
+* **`tests/test_cloud_downloads.py`** — 11 new pytest cases covering
+  UA detection (Windows + Mac + unknown), explicit platform override,
+  env-var override beats GitHub lookup, missing-asset → landing-page
+  redirect, and the landing page itself. All 99 cloud tests green.
+
+### Action items for the store / production ops
+
+These changes ship in `v31.0.9` but the Squarespace store + bighat.live
+still point at the old hardcoded GitHub URL. You need to:
+
+1. **Update Squarespace store**: change the "Download" button URL from
+   the GitHub assets URL to **`https://api.bighat.live/api/downloads/auto`**
+   (direct redirect) or **`https://api.bighat.live/download`** (branded
+   page with explicit platform choice). The branded page is the better
+   default because Mac users can pick Apple Silicon vs Intel — the
+   `auto` endpoint defaults to Apple Silicon for Macs which is correct
+   ~95% of the time but isn't bulletproof for the few customers on
+   pre-2020 Intel hardware.
+
+2. **Set the production env vars on `api.bighat.live`**:
+     - `GITHUB_OWNER=BIGHatEntertainment`
+     - `GITHUB_REPO=BIGHat-Program`
+     - `GITHUB_RELEASES_TOKEN=<a PAT with the `public_repo` scope only>`
+       (optional — pushes rate-limit from 60/h to 5000/h, important if
+       you're getting any kind of store traffic).
+3. **Publish v31.0.9 with all three artifacts on the same release**:
+   ```bash
+   python scripts/build_installer.py            # Windows .exe
+   python scripts/build_dmg.py                  # macOS Apple Silicon
+   python scripts/build_dmg.py --arch x86_64    # macOS Intel
+   python scripts/publish_github_release.py --replace-existing
+   ```
+   The publish script already uploads all three asset filenames the
+   resolver knows how to match.
+
+### Why this fixes it for every future buyer
+
+* Store button → `bighat.live/download` (or `/api/downloads/auto`).
+* `/download` renders Mac primary button for Mac UA, Windows primary
+  for Windows UA, both for unknown.
+* Each button links to the **current** release's asset, resolved live
+  from GitHub at request time. No store config change required when
+  shipping v31.1.0 / v31.1.1 / etc — as long as the new release has
+  the three expected asset filenames, the page auto-updates.
+* Customer on Apple Silicon → gets `…AppleSilicon.zip`.
+* Customer on Intel Mac → clicks the Intel card → gets `…Intel.zip`.
+* Customer on Windows → gets `BIGHatStandalone-Setup-…exe`.
+
+---
+
+
 
 **What changed**: the desktop SetupWizard's `/api/native/setup/initialize`
 endpoint now talks to the production cloud license authority at

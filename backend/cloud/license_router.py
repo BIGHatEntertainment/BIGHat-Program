@@ -19,8 +19,10 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from . import config
+from . import downloads_resolver
 from .license_models import (
     ActivateRequest, ActivateResponse,
     DeactivateRequest,
@@ -140,14 +142,101 @@ async def status(key: str = Path(..., min_length=8, max_length=64)) -> StatusRes
     )
 
 
-# ---------- /api/downloads/{platform} ----------
+# ---------- /api/downloads/* ----------
+# Three entry points:
+#   - GET /api/downloads/auto              → 302 redirect to the right installer for the requester's OS
+#   - GET /api/downloads/latest            → JSON: latest version + all platform URLs
+#   - GET /api/downloads/{platform}        → JSON for one platform (legacy; kept for the desktop updater)
+#
+# All three first honour the `DOWNLOAD_URL_*` env vars, then fall back to
+# a live `releases/latest` lookup on GitHub. That means the Squarespace
+# store link, the bighat.live download page, and the in-app updater all
+# stay current automatically when a new release ships.
+
+
+_PLATFORM_ALIASES = {
+    "windows":      "windows",
+    "win":          "windows",
+    "win64":        "windows",
+    "macos":        "macos_apple",     # default Mac = Apple Silicon
+    "mac":          "macos_apple",
+    "osx":          "macos_apple",
+    "macos_apple":  "macos_apple",
+    "macos-apple":  "macos_apple",
+    "applesilicon": "macos_apple",
+    "arm64":        "macos_apple",
+    "macos_intel":  "macos_intel",
+    "macos-intel":  "macos_intel",
+    "intel":        "macos_intel",
+    "x86_64":       "macos_intel",
+}
+
+
+@router.get("/downloads/auto")
+async def download_auto(request: Request, platform: Optional[str] = None):
+    """OS-aware redirect. Squarespace store buttons + `bighat.live/download`
+    should point here so customers always get the right binary for their
+    machine and always get the latest published release.
+
+    Optional `?platform=…` override lets the landing page send the user
+    to a specific build (Mac Intel for older Macs, etc.).
+    """
+    requested = (platform or "").lower().strip()
+    if requested in _PLATFORM_ALIASES:
+        key = _PLATFORM_ALIASES[requested]
+    else:
+        key = downloads_resolver.detect_platform(request.headers.get("user-agent", ""))
+    if key == "unknown":
+        # Send anything we can't detect to the friendly landing page so
+        # they can pick manually instead of a hard 404.
+        return RedirectResponse(url="/download", status_code=302)
+
+    info = downloads_resolver.resolve(key)
+    if not info.get("url"):
+        # No artifact for that OS yet — also send to landing page so the
+        # user can fall back to the other platform or contact support.
+        return RedirectResponse(url=f"/download?missing={key}", status_code=302)
+    logger.info(
+        "[downloads/auto] %s → %s (source=%s, version=%s)",
+        key, info["filename"], info["source"], info["version"],
+    )
+    return RedirectResponse(url=info["url"], status_code=302)
+
+
+@router.get("/downloads/latest")
+async def download_latest() -> dict:
+    """JSON manifest of the latest published installers across all
+    platforms. Used by the bighat.live landing page (client-side OS
+    detection) and by support tooling."""
+    win  = downloads_resolver.resolve("windows")
+    macA = downloads_resolver.resolve("macos_apple")
+    macI = downloads_resolver.resolve("macos_intel")
+    version = (
+        win.get("version") or macA.get("version") or macI.get("version")
+        or config.current_release_version()
+    )
+    return {
+        "version": version,
+        "platforms": {
+            "windows":      {k: v for k, v in win.items() if k != "platform"},
+            "macos_apple":  {k: v for k, v in macA.items() if k != "platform"},
+            "macos_intel":  {k: v for k, v in macI.items() if k != "platform"},
+        },
+    }
+
+
+# ---------- /api/downloads/{platform} (legacy JSON) ----------
 @router.get("/downloads/{platform}", response_model=DownloadInfo)
-async def download(platform: str = Path(..., pattern="^(windows|macos)$")) -> DownloadInfo:
-    url = (config.download_url_windows() if platform == "windows"
-           else config.download_url_macos())
-    if not url:
+async def download(platform: str = Path(..., pattern="^(windows|macos|macos_apple|macos_intel)$")) -> DownloadInfo:
+    key = _PLATFORM_ALIASES.get(platform, platform)
+    info = downloads_resolver.resolve(key)
+    if not info.get("url"):
         raise HTTPException(status_code=404, detail=f"no download configured for {platform}")
-    return DownloadInfo(platform=platform, url=url, version=config.current_release_version())
+    return DownloadInfo(
+        platform=platform,
+        url=info["url"],
+        version=info.get("version") or config.current_release_version(),
+    )
 
 
 # ---------- /api/squarespace/webhook ----------

@@ -1939,6 +1939,7 @@ try:
         from cloud.squarespace_webhook import WebhookHandler
         from cloud.license_router import router as cloud_router, set_runtime as cloud_set_runtime
         from cloud.admin_router import router as cloud_admin_router, set_service as cloud_admin_set_service
+        from cloud.download_landing import router as cloud_download_landing_router
 
         _license_store = LicenseStore(db)
         _license_email = ResendEmailSender()
@@ -1952,6 +1953,7 @@ try:
         cloud_admin_set_service(_license_service)
         app.include_router(cloud_router)
         app.include_router(cloud_admin_router)
+        app.include_router(cloud_download_landing_router)
         logger.info("Cloud licensing router registered at /api/license/* + /api/squarespace/webhook "
                     "(Resend %s)", "enabled" if _license_email.enabled else "DISABLED (no RESEND_API_KEY)")
     else:

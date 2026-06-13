@@ -111,7 +111,7 @@ class StatusResponse(BaseModel):
 
 
 class DownloadInfo(BaseModel):
-    platform: Literal["windows", "macos"]
+    platform: Literal["windows", "macos", "macos_apple", "macos_intel"]
     url: str
     version: str
     sha256: Optional[str] = None
