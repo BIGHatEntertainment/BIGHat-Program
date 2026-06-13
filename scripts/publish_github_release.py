@@ -133,13 +133,28 @@ def main(argv=None):
     version = _read_version(args.version)
     tag = f"{args.tag_prefix}{version}"
     name = args.name or f"BIG Hat Entertainment {version}"
+
+    # Release body — includes per-release highlights when available, else a
+    # generic line. Highlights live at scripts/release_notes/<version>.md so
+    # CI / authors can drop a markdown file there next to the build.
+    notes_path = ROOT / "scripts" / "release_notes" / f"{version}.md"
+    if notes_path.is_file():
+        highlights = notes_path.read_text(encoding="utf-8").rstrip() + "\n\n"
+    else:
+        highlights = (
+            f"Embedded Python + all deps — no internet required after install.\n\n"
+        )
     body = (
-        f"BIG Hat Entertainment {version}\n\n"
-        f"Embedded Python + all deps - no internet required after install.\n\n"
-        f"### Installers\n"
+        f"# BIG Hat Entertainment {version}\n\n"
+        + highlights
+        + "### Installers\n"
         f"- **Windows**: `BIGHatStandalone-Setup-{version}.exe`\n"
-        f"- **macOS Apple Silicon**: `BIGHatEntertainment-{version}-macOS-AppleSilicon.zip`\n"
-        f"- **macOS Intel**: `BIGHatEntertainment-{version}-macOS-Intel.zip`\n"
+        f"- **macOS Apple Silicon (M1/M2/M3)**: "
+        f"`BIGHatEntertainment-{version}-macOS-AppleSilicon.zip`\n"
+        f"- **macOS Intel (pre-2020 Macs)**: "
+        f"`BIGHatEntertainment-{version}-macOS-Intel.zip`\n"
+        f"- Windows portable (no installer): "
+        f"`BIGHatEntertainment-{version}-Windows.zip`\n"
     )
 
     artifacts = list_artifacts(version)
