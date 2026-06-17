@@ -341,6 +341,16 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.11 — Setup wizard guaranteed before first login (2026-05-27)
+- `NativeContext.refresh()` no longer fail-opens to `native_mode=false,
+  setup_complete=true` when `/api/native/info` is unreachable. On a
+  native install build it retries 5x with backoff, then renders a
+  dedicated "BIG Hat can't reach its background service" screen with
+  a Retry button. Customers can never be silently funneled past Setup
+  to a doomed login form anymore.
+- `App.js — NativeGate` renders the connection-error screen ahead of
+  the loading state.
+
 ### v31.0.10 — CRITICAL: installed apps couldn't authenticate + credential leak fix (2026-05-27)
 - Two production-blocking bugs found by user:
   1. Every installed v31.0.5–v31.0.9 app talked to OUR preview env, not

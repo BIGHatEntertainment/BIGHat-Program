@@ -70,8 +70,42 @@ function PublicRoute({ children }) {
  * native mode is off, behaviour is identical to the original webapp.
  */
 function NativeGate({ children }) {
-  const { loading, nativeMode, setupComplete } = useNative();
+  const { loading, error, isNativeBuild, nativeMode, setupComplete, refresh } = useNative();
   const location = useLocation();
+
+  // v31.0.10 hardening: a native install whose backend isn't reachable must
+  // NEVER fall through to /login (where the user would face cryptic auth
+  // errors). Show a clear "can't reach backend" screen with a retry.
+  if (loading && isNativeBuild && error) {
+    return (
+      <div data-testid="backend-unreachable"
+           style={{ minHeight: '100vh', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', background: '#0a1428', color: '#e5edff',
+                    fontFamily: 'system-ui, -apple-system, sans-serif', padding: 24 }}>
+        <div style={{ maxWidth: 480, textAlign: 'center' }}>
+          <h1 style={{ color: '#fbdd68', margin: 0, fontSize: 28 }}>BIG Hat</h1>
+          <p style={{ color: '#8892b0', marginTop: 8, fontSize: 14 }}>can't reach its background service</p>
+          <p style={{ marginTop: 32, fontSize: 15, lineHeight: 1.5 }}>
+            The app's backend isn't responding yet. This usually clears up
+            in a few seconds. If it persists, close BIG Hat completely and
+            relaunch it from your Start Menu / Applications folder.
+          </p>
+          <button onClick={() => refresh()} data-testid="backend-retry-btn"
+                  style={{ marginTop: 24, padding: '12px 24px', borderRadius: 10,
+                           background: '#fbdd68', color: '#1a1a1a', border: 0,
+                           fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+            Try again
+          </button>
+          <p style={{ marginTop: 24, fontSize: 12, color: '#8892b0' }}>
+            Still stuck? Email support@bighat.live with this code:
+            <code style={{ marginLeft: 6, padding: '2px 8px', background: '#0f1d3a',
+                            borderRadius: 4, fontSize: 11 }}>NET-{error?.slice(0, 24) || 'UNKNOWN'}</code>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) return <LoadingScreen label="Initializing..." />;
 
   if (nativeMode && !setupComplete && location.pathname !== '/setup') {

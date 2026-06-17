@@ -3,6 +3,11 @@ import axios from 'axios';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
+// Native install builds compile with REACT_APP_BACKEND_URL="" so all API
+// calls are relative to the page origin (127.0.0.1:8001). When this is
+// empty we KNOW we're inside a desktop install — see v31.0.10 fix.
+const IS_NATIVE_BUILD = !API;
+
 const NativeContext = createContext(null);
 
 /**
@@ -21,19 +26,39 @@ export function NativeProvider({ children }) {
   const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const { data } = await axios.get(`${API}/api/native/info`);
-      setInfo(data);
-      setError(null);
-      return data;
-    } catch (e) {
-      setError(e.message || 'Failed to load native info');
-      // Fail-open: behave as non-native webapp if endpoint is unreachable.
+    // Retry up to 5x with linear backoff. Desktop launcher takes ~2-3s to
+    // start the backend so the first React fetch can race the listener.
+    let lastErr = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const { data } = await axios.get(`${API}/api/native/info`, { timeout: 4000 });
+        setInfo(data);
+        setError(null);
+        setLoading(false);
+        return data;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < 4) {
+          await new Promise((res) => setTimeout(res, 500 + attempt * 500));
+        }
+      }
+    }
+    // v31.0.10 hardening: never fail-open in a way that skips Setup.
+    // Two distinct failure modes:
+    //  1. Native install (relative-URL build) and backend really is down →
+    //     user MUST see a connection error, not be dropped at /login.
+    //  2. Webapp build hitting the cloud API → fall back to non-native mode
+    //     (this is the original cloud-only behaviour for api.bighat.live).
+    setError(lastErr?.message || 'Failed to load native info');
+    if (IS_NATIVE_BUILD) {
+      // Stay in `loading: true` + `error: set`. NativeGate will render the
+      // backend-connection error screen instead of redirecting anywhere.
+      setLoading(true);
+    } else {
       setInfo({ native_mode: false, setup_complete: true, license: {}, subscription: {} });
-      return null;
-    } finally {
       setLoading(false);
     }
+    return null;
   }, []);
 
   useEffect(() => {
@@ -62,6 +87,9 @@ export function NativeProvider({ children }) {
     subscription: info?.subscription || {},
     settings: info?.settings || {},
     currentHwid: info?.current_hwid || '',
+    // Exposed so NativeGate can render a connection-error screen distinct
+    // from the normal "starting up" loading state.
+    isNativeBuild: IS_NATIVE_BUILD,
   };
 
   return <NativeContext.Provider value={value}>{children}</NativeContext.Provider>;

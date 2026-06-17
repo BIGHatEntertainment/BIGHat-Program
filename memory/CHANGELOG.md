@@ -38,7 +38,77 @@
 
 ---
 
-## v31.0.10 — 2026-05-27 (CRITICAL: installed app couldn't authenticate; credentials leak fix)
+## v31.0.11 — 2026-05-27 (Setup wizard guaranteed before first login)
+
+**User report**: "I thought the first thing that should happen upon
+first open is the Setup Wizard. It's hard for the master admin to log
+in with any credentials if setup has been skipped."
+
+### Why this kept happening
+
+The gate logic in `App.js — NativeGate` was correct:
+```js
+if (nativeMode && !setupComplete && location.pathname !== '/setup') {
+  return <Navigate to="/setup" replace />;
+}
+```
+
+But it depended on `nativeMode` being truthful. `NativeContext.refresh()`
+fail-opened with `native_mode: false, setup_complete: true` whenever
+`/api/native/info` failed for *any* reason — broken baked URL (the
+v31.0.10 root cause), slow backend startup, network blip, anything.
+The fail-open lied to the gate, the gate did nothing, and the customer
+landed on `/login` with no master admin to log in as.
+
+### Fix
+
+* `NativeContext.refresh()` now retries up to 5 times with linear
+  backoff (500ms → 2500ms). The desktop launcher takes 2-3 seconds to
+  start the backend, so the first React fetch frequently races the
+  listener. Five attempts covers up to ~7s of startup lag.
+* New `IS_NATIVE_BUILD = !process.env.REACT_APP_BACKEND_URL` constant
+  — a native-build asset bundle always has an empty `REACT_APP_BACKEND_URL`
+  (per v31.0.10's `build_installer.py` / `build_dmg.py` change). The
+  webapp deploy at `standalone-tools.preview.emergentagent.com` has it
+  set, so `IS_NATIVE_BUILD === false` there.
+* On terminal failure:
+  * If `IS_NATIVE_BUILD`: do NOT fail-open to `{native_mode: false}`.
+    Instead stay in `loading: true, error: <msg>` so the gate renders
+    a dedicated "Backend Unreachable" screen with a Retry button and a
+    support code. Customer never gets dropped at `/login`.
+  * If webapp build (cloud): keep the original fail-open behaviour —
+    api.bighat.live doesn't have `/api/native/*` routes by design and
+    the webapp should still work.
+* `App.js — NativeGate` adds a new branch above the normal loading
+  state that renders the connection-error screen when
+  `loading && isNativeBuild && error`.
+
+### Result
+
+* On a fresh v31.0.11 install: launcher boots → backend listens →
+  React loads → `/api/native/info` returns `native_mode: true,
+  setup_complete: false` → gate redirects to `/setup` → wizard runs →
+  master admin creates credentials → login works.
+* On a v31.0.11 install where the backend is genuinely down or slow:
+  retry loop covers most startup races. If the backend is hard down,
+  customer sees the friendly error screen with a Retry button and is
+  told to relaunch from the Start Menu. They never see a misleading
+  "Authentication failed" error.
+
+### Files of interest
+
+* `frontend/src/context/NativeContext.js` — retry loop + fail-closed
+  for native builds + new `isNativeBuild` exposed in context value.
+* `frontend/src/App.js` — `NativeGate` renders the connection-error
+  screen ahead of the normal loading state.
+
+### Build + ship
+
+Same as v31.0.10. All four artifacts in this release.
+
+---
+
+
 
 **Two production-blocking issues reported by the user**:
 
