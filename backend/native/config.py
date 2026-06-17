@@ -77,7 +77,8 @@ def _default_config() -> Dict[str, Any]:
             "last_check": None,
             "sharepoint_enabled": False,
             "story_generator_enabled": False,
-            "cloud_sync_enabled": False,
+            # cloud_sync_enabled removed in v31.0.13 — file-cloud distribution
+            # retired in favour of .bighat file packs sold via Squarespace.
         },
         "updates": {
             "channel_url": None,  # null disables auto-update checks; set per-deployment
@@ -102,6 +103,11 @@ class ConfigManager:
                 try:
                     with open(self.config_path, "r", encoding="utf-8") as f:
                         cfg = json.load(f)
+                    # v31.0.13: scrub the retired `cloud_sync_enabled` flag if a
+                    # pre-v31.0.13 config is being loaded.
+                    sub = cfg.get("subscription") or {}
+                    if "cloud_sync_enabled" in sub:
+                        sub.pop("cloud_sync_enabled", None)
                     # Forward-compatible: merge missing keys from defaults
                     defaults = _default_config()
                     return _deep_merge(defaults, cfg)

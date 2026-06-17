@@ -5,8 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  Cloud,
-  CloudOff,
   Eye,
   EyeOff,
   Hash,
@@ -51,17 +49,6 @@ function formatLicenseInput(v) {
     }
   }
   return out;
-}
-
-function formatExpiry(iso) {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric',
-    });
-  } catch {
-    return null;
-  }
 }
 
 function Stepper({ step }) {
@@ -150,7 +137,6 @@ function VerificationPanel({ verify }) {
   }
 
   if (verify.state === 'success') {
-    const expiry = formatExpiry(verify.cloudLibraryExpiresAt);
     return (
       <div
         data-testid="license-verify-status-success"
@@ -165,20 +151,6 @@ function VerificationPanel({ verify }) {
             <div className="flex items-center gap-2 text-emerald-300">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>BIG Hat Entertainment <span className="text-[#8892b0]">— lifetime</span></span>
-            </div>
-          )}
-          {verify.cloudLibraryActive ? (
-            <div className="flex items-center gap-2 text-emerald-300">
-              <Cloud className="w-3.5 h-3.5" />
-              <span>
-                Cloud Library subscription
-                {expiry && <span className="text-[#8892b0]"> — active until {expiry}</span>}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-[#8892b0]">
-              <CloudOff className="w-3.5 h-3.5" />
-              <span>Cloud Library — not subscribed (you can add this later for $5/mo)</span>
             </div>
           )}
           <div className="flex items-center gap-2 text-[#8892b0] pt-1">
@@ -312,8 +284,6 @@ export default function SetupWizard() {
       setVerify({
         state: 'success',
         ownsStandalone: Boolean(cloud.owns_standalone),
-        cloudLibraryActive: Boolean(cloud.cloud_library_active),
-        cloudLibraryExpiresAt: cloud.cloud_library_expires_at,
         activeSeats: cloud.active_seats ?? 1,
         maxSeats: cloud.max_seats ?? 5,
       });
@@ -396,7 +366,6 @@ export default function SetupWizard() {
   // ===== Success screen =====
   if (success) {
     const v = success.verify || {};
-    const expiry = formatExpiry(v.cloudLibraryExpiresAt);
     return (
       <div
         className="min-h-screen flex items-center justify-center relative overflow-hidden"
@@ -428,20 +397,6 @@ export default function SetupWizard() {
                   <div className="flex items-center gap-2 text-sm text-emerald-300">
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>BIG Hat Entertainment — lifetime</span>
-                  </div>
-                )}
-                {v.cloudLibraryActive ? (
-                  <div className="flex items-center gap-2 text-sm text-emerald-300">
-                    <Cloud className="w-4 h-4 shrink-0" />
-                    <span>
-                      Cloud Library
-                      {expiry && <span className="text-[#8892b0]"> — until {expiry}</span>}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-[#8892b0]">
-                    <CloudOff className="w-4 h-4 shrink-0" />
-                    <span>Cloud Library — not subscribed</span>
                   </div>
                 )}
               </div>
@@ -794,21 +749,16 @@ export default function SetupWizard() {
               </div>
               <Field
                 label="Trivia Content Source"
-                hint="Local = bundled rounds only. Cloud = pull from BIG Hat library (requires Cloud Library subscription)."
+                hint="All trivia content is local — bundled rounds plus any .bighat packs you import."
               >
                 <select
                   className={inputCls()}
-                  value={settings.trivia_source}
-                  onChange={(e) =>
-                    setSettings({ ...settings, trivia_source: e.target.value })
-                  }
+                  value="local"
+                  disabled
                   data-testid="trivia-source-select"
                 >
                   <option value="local" className="bg-[#000e2a]">
-                    Local-only (offline)
-                  </option>
-                  <option value="cloud" className="bg-[#000e2a]">
-                    Cloud Library ($5/mo subscription)
+                    Local (offline)
                   </option>
                 </select>
               </Field>

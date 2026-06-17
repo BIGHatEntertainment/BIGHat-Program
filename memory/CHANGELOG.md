@@ -38,7 +38,96 @@
 
 ---
 
-## v31.0.12 — 2026-05-27 (.bighat file format v2 — multi-content + signing + import dialog)
+## v31.0.13 — 2026-05-27 (Cloud Library / file-cloud sync retired)
+
+**User decision**: premium content packs will be sold as `.bighat`
+files on Squarespace going forward, so the SharePoint-backed file-cloud
+distribution feature is no longer needed and is being removed entirely.
+
+### What was deleted
+
+* `backend/native/sync_router.py` — the `/api/native/sync/*` endpoints
+  (pull, push, plan, status, manifest).
+* `backend/native/sync_service.py` — the SharePoint pull/push manifest
+  walker.
+* `backend/tests/test_phase7_sync_native.py` — sync test suite.
+
+### What was simplified
+
+* `backend/native/asset_factory.py` rewritten as a thin shim that
+  always returns `LocalAssetService`. `can_use_cloud()` always returns
+  `False`. The 12 route files that import it continue to compile
+  unchanged — they now silently take the local branch instead of the
+  SharePoint branch when their gate flag is on. The HOST's own
+  internal SharePoint integration (Round Maker upload, Slide Fetcher,
+  Story Builds) is NOT touched — those use `sharepoint_service.py`
+  directly via their own env-driven setup.
+* `backend/native/subscription.py` — `cloud_sync_enabled` removed
+  from `ALL_FEATURES`.
+* `backend/native/config.py` — `cloud_sync_enabled` removed from the
+  default config; `load_config()` scrubs the dead key from existing
+  `system_config.json` on load so customers upgrading from v31.0.12
+  get a clean state automatically.
+* `backend/native/router.py` — removed `cloud_sync_enabled` from
+  the `SubscriptionUpdateRequest` body, from the cloud-response
+  mirror logic, and from the `/subscription` POST allow-list.
+* `backend/server.py` — sync router mount commented out.
+* `frontend/src/context/NativeContext.js` — docstring updated.
+* `frontend/src/pages/SetupWizard.jsx` — "Cloud Library" tier badge
+  removed from license-verify success view AND the all-set-up screen.
+  Trivia-source picker collapsed from `local | cloud` to local-only
+  (disabled). Removed unused `Cloud`, `CloudOff`, `formatExpiry`
+  helpers.
+
+### What was preserved (Option B from the user's choice menu)
+
+* `api.bighat.live/api/license/activate` — still required for purchases.
+* `/api/squarespace/webhook` — still mints license keys on purchase.
+* Resend email integration — still emails license keys.
+* HWID + seat-binding logic — still prevents over-deployment.
+* `/api/downloads/auto` + `/download` landing page — still routes
+  buyers to the right installer.
+* `cloud_library_active` flag in the cloud's `/license/activate`
+  response — still mirrors into `tier` and `sharepoint_enabled`
+  for the host's own SharePoint feature gate.
+* Setup wizard cloud-activation retry job (every 4h).
+
+### Tests updated
+
+* `tests/test_phase10_2_desktop_cloud_wireup.py` — removed
+  `cloud_sync_enabled` assertions, replaced with
+  `sharepoint_enabled` checks. 18/18 still green.
+* All 112 license/cloud/credential/.bighat tests green.
+
+### Customer-facing changes
+
+Existing customers upgrading from v31.0.12 → v31.0.13:
+
+* If they had no premium subscription: nothing changes.
+* If they had `cloud_sync_enabled` premium: the flag is scrubbed on
+  next boot. No content disappears from their local install — content
+  was already mirrored locally by the sync system. Future cloud
+  content (the unfilmed feature) won't arrive; .bighat packs from
+  Squarespace replace it.
+
+### Operator action items
+
+1. **Stop accepting purchases on Squarespace for Cloud Library
+   subscriptions** (if any were ever set up). Set the SKU to
+   `unavailable` or repurpose for the new .bighat pack store.
+2. If you had `BIGHAT_SHAREPOINT_*` env vars set on api.bighat.live
+   purely for cloud-library content delivery, you can unset them.
+   Keep them set if the host (you) still uses SharePoint for your
+   own asset library.
+
+### Build + ship
+
+Same as before. All four artifacts at
+`https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v31.0.13`.
+
+---
+
+
 
 **Feature**: Customers can now export Round Maker rounds, full trivia
 presentations, bingo cards, and scoreboard themes as portable

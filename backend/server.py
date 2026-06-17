@@ -1944,14 +1944,10 @@ except Exception as e:
     logger.warning(f"Could not load Native-Standalone router: {e}")
 
 
-# SharePoint Hybrid Sync router (Phase 7). Premium-gated by `cloud_sync_enabled`.
-try:
-    from native.sync_router import router as sync_router, set_database as sync_set_database
-    sync_set_database(db)
-    app.include_router(sync_router, prefix="/api")
-    logger.info("Native sync router registered at /api/native/sync/*")
-except Exception as e:
-    logger.warning(f"Could not load Native sync router: {e}")
+# v31.0.13: SharePoint Hybrid Sync router removed.
+# The /api/native/sync/* endpoints (cloud library pull/push/plan) and the
+# `cloud_sync_enabled` subscription flag were retired in favour of selling
+# premium content packs as .bighat files via Squarespace.
 
 
 # Native admin router (Phase 8). Master-admin-only user + seat management.

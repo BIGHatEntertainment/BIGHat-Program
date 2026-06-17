@@ -220,7 +220,11 @@ class TestCloudActivateEndpoint:
         assert sub["active"] is True
         assert sub["tier"] == "premium"
         assert sub["sharepoint_enabled"] is True
-        assert sub["cloud_sync_enabled"] is True
+        # v31.0.13: cloud_sync_enabled removed entirely. The cloud's
+        # cloud_library_active flag still drives the `premium` tier label
+        # (kept for the host's own SharePoint feature), but the file-cloud
+        # sync feature it used to gate is gone.
+        assert "cloud_sync_enabled" not in sub
         # Cloud was called with correct payload
         assert cloud.last_activate_payload["license_key"] == "BHE-AAAA-BBBB-CCCC-DDDD"
 
@@ -286,7 +290,7 @@ class TestCloudValidateEndpoint:
         assert r.status_code == 200, r.text
         sub = r.json()["subscription"]
         # Cloud-only feature off, but standalone tier preserved
-        assert sub["cloud_sync_enabled"] is False
+        assert "cloud_sync_enabled" not in sub      # retired in v31.0.13
         assert sub["sharepoint_enabled"] is False
         assert sub["story_generator_enabled"] is True
 
@@ -298,8 +302,10 @@ class TestCloudValidateEndpoint:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["status"] == "offline"
-        # Subscription still reflects the last successful cloud snapshot
-        assert body["subscription"]["cloud_sync_enabled"] is True
+        # Subscription still reflects the last successful cloud snapshot.
+        # v31.0.13: cloud_sync_enabled was retired — verify sharepoint_enabled
+        # (which the same cloud_library_active flag still drives) instead.
+        assert body["subscription"]["sharepoint_enabled"] is True
 
     def test_validate_400_when_no_key_set(self, app_client_simple):
         client, _ = app_client_simple
@@ -345,26 +351,25 @@ class TestOfflineGrace:
         sub_mod.set_subscription(active=True, tier="premium",
                                  expires_at=(datetime.now(timezone.utc)
                                               + timedelta(days=30)).isoformat(),
-                                 feature_flags={"cloud_sync_enabled": True,
-                                                "sharepoint_enabled": True})
+                                 feature_flags={"sharepoint_enabled": True})
         # Stamp a recent cloud validation
         c = isolated_config.config.setdefault("subscription", {})
         c["last_cloud_validated_at"] = datetime.now(timezone.utc).isoformat()
         isolated_config.save_config()
-        assert sub_mod.is_premium_active("cloud_sync_enabled") is True
+        assert sub_mod.is_premium_active("sharepoint_enabled") is True
 
     def test_stale_validation_degrades_premium(self, isolated_config, monkeypatch):
         from native import subscription as sub_mod
         sub_mod.set_subscription(active=True, tier="premium",
                                  expires_at=(datetime.now(timezone.utc)
                                               + timedelta(days=30)).isoformat(),
-                                 feature_flags={"cloud_sync_enabled": True})
+                                 feature_flags={"sharepoint_enabled": True})
         # Stamp a 60-day-old cloud validation (well past 30-day grace)
         c = isolated_config.config.setdefault("subscription", {})
         c["last_cloud_validated_at"] = (datetime.now(timezone.utc)
                                         - timedelta(days=60)).isoformat()
         isolated_config.save_config()
-        assert sub_mod.is_premium_active("cloud_sync_enabled") is False
+        assert sub_mod.is_premium_active("sharepoint_enabled") is False
 
     def test_standalone_tier_immune_to_offline_grace(self, isolated_config):
         """One-time-purchase features must NEVER lock out — even after

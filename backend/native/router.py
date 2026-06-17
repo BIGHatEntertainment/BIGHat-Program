@@ -86,7 +86,7 @@ class SubscriptionUpdateRequest(BaseModel):
     expires_at: Optional[str] = None
     sharepoint_enabled: Optional[bool] = None
     story_generator_enabled: Optional[bool] = None
-    cloud_sync_enabled: Optional[bool] = None
+    # cloud_sync_enabled removed in v31.0.13.
 
 
 class SeatRegisterRequest(BaseModel):
@@ -299,7 +299,7 @@ def _apply_cloud_response_to_local_state(resp: dict, *, license_key: str, email:
     flags = {
         "sharepoint_enabled":      bool(resp.get("cloud_library_active")),
         "story_generator_enabled": bool(resp.get("owns_standalone")),
-        "cloud_sync_enabled":      bool(resp.get("cloud_library_active")),
+        # cloud_sync_enabled removed in v31.0.13.
         "music_bingo_enabled":     bool(resp.get("owns_standalone") and resp.get("owns_music_bingo")),
         "karaoke_enabled":         bool(resp.get("owns_standalone") and resp.get("owns_karaoke")),
         "bingo_story_enabled":     bool(resp.get("owns_standalone") and resp.get("owns_music_bingo")),
@@ -424,7 +424,7 @@ async def update_sub(payload: SubscriptionUpdateRequest):
         k: v
         for k, v in payload.model_dump().items()
         if k
-        in ("sharepoint_enabled", "story_generator_enabled", "cloud_sync_enabled")
+        in ("sharepoint_enabled", "story_generator_enabled")
         and v is not None
     }
     sub = set_subscription(

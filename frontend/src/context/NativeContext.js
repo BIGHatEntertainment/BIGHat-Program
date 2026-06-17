@@ -15,7 +15,7 @@ const NativeContext = createContext(null);
  *  - native_mode: env-flagged on the backend
  *  - setup_complete: false on first boot → forces SetupWizard
  *  - license: { is_active, used_seats, seats_remaining, current_hwid_registered, key_masked }
- *  - subscription: { active, tier, sharepoint_enabled, story_generator_enabled, cloud_sync_enabled }
+ *  - subscription: { active, tier, sharepoint_enabled, story_generator_enabled }
  *  - settings, paths, current_hwid, instance_id
  *
  * `refresh()` re-fetches /api/native/info; call after setup-init or subscription change.

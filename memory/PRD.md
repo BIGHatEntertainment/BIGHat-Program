@@ -341,6 +341,21 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.13 — Cloud Library / file-cloud sync removed (2026-05-27)
+- The SharePoint-backed file-cloud content distribution feature has
+  been retired. Premium content packs are now sold as `.bighat` files
+  on Squarespace.
+- Deleted: `backend/native/sync_router.py`, `sync_service.py`, and
+  the matching test suite. `/api/native/sync/*` endpoints are gone.
+- Simplified: `asset_factory.py` always returns LocalAssetService.
+  `cloud_sync_enabled` flag scrubbed from subscription model + config
+  defaults + Setup Wizard UI + cloud-response mirror logic. Existing
+  configs auto-scrub the dead key on next load.
+- Preserved (Option B from user's choice): license activation,
+  Squarespace webhook, Resend emails, HWID + seat tracking, OS-aware
+  download page, host's own SharePoint pipeline.
+- 112 cloud/license/.bighat tests green.
+
 ### v31.0.12 — .bighat file format v2 (2026-05-27)
 - Customers can now export/import Round Maker rounds, full trivia
   presentations, bingo cards, and scoreboard themes as portable

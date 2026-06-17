@@ -14,11 +14,14 @@ Or inline:
         raise HTTPException(402, detail="premium_required")
 
 Feature flags:
-  - sharepoint_enabled
-  - story_generator_enabled
-  - cloud_sync_enabled
+  - sharepoint_enabled        (host's internal asset library — Round Maker)
+  - story_generator_enabled   (AI story add-on)
+  - music_bingo_enabled       (Music Bingo add-on)
+  - karaoke_enabled           (Karaoke add-on)
 If any one flag is True the user has *some* premium access, but each route
-can require a specific flag.
+can require a specific flag. (v31.0.13 removed `cloud_sync_enabled` — the
+customer-facing file-cloud / SharePoint sync feature has been retired.
+Premium content packs are now distributed as .bighat files via Squarespace.)
 
 Phase 10.2 — Offline grace:
   When the desktop has previously seen a successful cloud activation
@@ -41,7 +44,6 @@ from .config import config_manager
 ALL_FEATURES = (
     "sharepoint_enabled",
     "story_generator_enabled",
-    "cloud_sync_enabled",
     "music_bingo_enabled",
     "karaoke_enabled",
     "bingo_story_enabled",
