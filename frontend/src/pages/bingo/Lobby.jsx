@@ -22,6 +22,7 @@ import { RadioGroup, RadioGroupItem } from "../../components/ui/radio-group";
 import { Label } from "../../components/ui/label";
 import { toast } from "sonner";
 import axios from "axios";
+import BIGHatFileButtons from "../../components/BIGHatFileButtons";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -193,6 +194,11 @@ export default function Lobby() {
         <p className="text-zinc-400 text-lg md:text-xl font-medium tracking-wide">
           BIG Hat Entertainment
         </p>
+        {/* .bighat import lives right under the page title so anyone can drop in
+            a shared bingo card without first creating an empty game. */}
+        <div className="mt-6 flex justify-center">
+          <BIGHatFileButtons type="bingo" />
+        </div>
       </motion.div>
 
       <AnimatePresence mode="wait">

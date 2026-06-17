@@ -38,7 +38,99 @@
 
 ---
 
-## v31.0.11 — 2026-05-27 (Setup wizard guaranteed before first login)
+## v31.0.12 — 2026-05-27 (.bighat file format v2 — multi-content + signing + import dialog)
+
+**Feature**: Customers can now export Round Maker rounds, full trivia
+presentations, bingo cards, and scoreboard themes as portable
+`.bighat` files. Email them, back them up, sell them, double-click
+to re-import. The Phase 10.7 v1 round-only format is now v2 with
+multi-type support and HMAC signing for paid round packs.
+
+### Backend (`backend/routes/bighat_files.py`)
+
+* `BIGHAT_TYPES` registry maps a content-type string to its MongoDB
+  collection + asset fields. Adding a new exportable type is one
+  registry entry + (optionally) one helper. Today: `round`,
+  `presentation`, `bingo`, `scoreboard`.
+* `GET /api/bighat-files/types` — frontend introspection.
+* `GET /api/bighat-files/export/{id}` — legacy v1 path (Round Maker
+  uses this).
+* `GET /api/bighat-files/export/{type}/{id}` — new v2 type-aware path.
+* `POST /api/bighat-files/import` — multipart upload; rehydrates the
+  document under a fresh UUID and marks `imported_from: ".bighat"`.
+* `POST /api/bighat-files/inspect` — preview a `.bighat` before
+  committing. Lets the frontend show "you're about to import 'X' —
+  Y rounds, signed by BIG Hat Entertainment" before any DB write.
+* `POST /api/bighat-files/import-from-path` — local-loopback only;
+  used by Windows file association so double-clicking a `.bighat`
+  in Explorer hands it off to the running app.
+* HMAC-SHA256 signing under `BIGHAT_SIGNING_KEY` env var. When a
+  signing key is set on the publisher side, every exported file
+  includes `signature.txt` covering `manifest + payload + asset hashes`.
+  When set on the importer side, signed files are verified before
+  ingest — mismatched signatures get a 400 with "signature mismatch
+  — file may be tampered or signed by a different publisher".
+  Customers don't have the publisher key, so they can verify packs
+  they bought from bighat.live but can't forge them.
+* `MAX_BIGHAT_BYTES = 50 MB` hard cap.
+* `BIGHAT_VERSION = 2` — v1 files (`format: bighat/round`, `round.json`
+  payload) are still importable. v3+ files from a future release
+  fail with a clear "update the app" message instead of partial
+  import.
+
+### Frontend (`frontend/src/components/BIGHatFileButtons.jsx`)
+
+* Single reusable component. Pass `type` (one of 4) and optionally
+  `itemId` + `itemName`. Renders an Export button (only when itemId
+  is set) and an Import button. Import flow:
+  1. User picks a `.bighat` file from disk.
+  2. Frontend POSTs to `/inspect` and shows a confirmation modal
+     with name, type, asset count, signed/unsigned badge, source
+     version, and file size.
+  3. User confirms → POST to `/import` → toast success → optional
+     `onImported(result)` callback so the parent can refresh its list.
+* Wired into:
+  * `pages/trivia/TriviaDashboard.jsx` — header (import only — for
+    bulk re-importing shared presentations).
+  * `pages/bingo/Lobby.jsx` — under the page title.
+  * `pages/scoreboard/ScoreboardDashboard.js` — top bar next to the
+    SYNCED indicator.
+  * Round Maker Dashboard already had per-row Export/Import buttons
+    from the v1 Phase 10.7 release — those keep working unchanged.
+
+### Tests (`backend/tests/test_bighat_files_v2.py`)
+
+10 cases — round-trip for all four content types, `/inspect`
+preview, signed-import-with-matching-key, signed-rejected-with-key-
+mismatch, forward-compatibility future-version error, oversize file
+rejection, types registry. All 13 file-format + credential tests
+green alongside the other 102 suite tests.
+
+### Cleanup (related)
+
+* Removed the obsolete `frontend/public/downloads/` mirror step from
+  `scripts/build_dmg.py` (already removed from `build_installer.py`
+  in v31.0.10). Another process was depositing v31.0.11 zips here,
+  inflating every subsequent build by 180MB. Now gitignored.
+
+### Build + ship
+
+Same as previous versions. All 4 artifacts at
+`https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v31.0.12`.
+
+### Future hooks
+
+The file-association infrastructure exists in
+`packaging/installer/bighat-installer.nsi` for `.bighat`. Wiring the
+double-click handoff to the running app via
+`/api/bighat-files/import-from-path` is a half-day follow-up. The
+`/bighat-files/types` endpoint is the foundation for a future
+"Browse premium packs" tab in the dashboard that pulls a catalog
+from `api.bighat.live`.
+
+---
+
+
 
 **User report**: "I thought the first thing that should happen upon
 first open is the Setup Wizard. It's hard for the master admin to log

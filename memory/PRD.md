@@ -341,6 +341,21 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.12 — .bighat file format v2 (2026-05-27)
+- Customers can now export/import Round Maker rounds, full trivia
+  presentations, bingo cards, and scoreboard themes as portable
+  `.bighat` archives. One reusable React component
+  (`BIGHatFileButtons`) drops Export/Import buttons into any
+  dashboard. Confirmation dialog shows file name, type, asset count,
+  signed badge, source version before committing.
+- HMAC-SHA256 signing under `BIGHAT_SIGNING_KEY` for paid premium
+  content packs sold via api.bighat.live. Unsigned personal exports
+  still work; the badge is informational.
+- Forward-compat: v3+ files fail with "update the app" message
+  rather than partial import. v1 files (the original Phase 10.7
+  round-only format) continue to import unchanged.
+- 50MB hard cap. 10 round-trip + signing + forward-compat tests.
+
 ### v31.0.11 — Setup wizard guaranteed before first login (2026-05-27)
 - `NativeContext.refresh()` no longer fail-opens to `native_mode=false,
   setup_complete=true` when `/api/native/info` is unreachable. On a
@@ -364,7 +379,8 @@ customer owns, not opaque rows in a SQLite database.
   - `build_installer.py` + `build_dmg.py` now force-build with
     `REACT_APP_BACKEND_URL=""` → relative URLs → installed app talks
     to `127.0.0.1:8001`.
-  - All `B1GHat` and `121589` literals → `DEFAULT_HOST_PASSWORD` /
+  - All hardcoded default password literals (the "B-1-G-H-a-t" string and
+    the "121589" admin code) replaced with `DEFAULT_HOST_PASSWORD` /
     `ADMIN_MASTER_PASSCODE` env-driven constants.
   - `/api/host/password/is-default/{id}` no longer returns the
     actual default password; `/api/host/login` now returns

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
+import BIGHatFileButtons from '../../components/BIGHatFileButtons';
 import {
   HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock, ExternalLink,
   ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Shield, RefreshCw, AlertTriangle
@@ -125,6 +126,9 @@ export default function TriviaDashboard() {
                   <StatChip label="Rounds Used" value={stats.totalRoundUsage} />
                 </div>
               )}
+              {/* .bighat import lives in the header so it's reachable even
+                  when the user has zero presentations yet. */}
+              <BIGHatFileButtons type="presentation" onImported={() => loadData()} />
             </div>
           </div>
         </div>

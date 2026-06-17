@@ -12,6 +12,7 @@ import { Input } from '../../components/ui/input';
 import { Slider } from '../../components/ui/slider';
 import { Badge } from '../../components/ui/badge';
 import { ScrollArea } from '../../components/ui/scroll-area';
+import BIGHatFileButtons from '../../components/BIGHatFileButtons';
 import RenderStage from '../../components/scoreboard/render/RenderStage';
 import LeaderboardRender from '../../components/scoreboard/render/LeaderboardRender';
 import BracketRender from '../../components/scoreboard/render/BracketRender';
@@ -443,6 +444,7 @@ const Dashboard = () => {
                 <span className="text-[10px] text-green-400 font-mono">SYNCED {lastSync}</span>
               </div>
             )}
+            <BIGHatFileButtons type="scoreboard" />
           </div>
         </div>
       </header>
