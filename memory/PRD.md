@@ -341,6 +341,31 @@ customer owns, not opaque rows in a SQLite database.
   missing-file 404. **All passing.**
 - Installer size unchanged at 106 MB.
 
+### v31.0.10 — CRITICAL: installed apps couldn't authenticate + credential leak fix (2026-05-27)
+- Two production-blocking bugs found by user:
+  1. Every installed v31.0.5–v31.0.9 app talked to OUR preview env, not
+     to its own embedded backend, because the React bundle had
+     `REACT_APP_BACKEND_URL=https://standalone-tools.preview.emergentagent.com`
+     baked in. Resulted in "LOG IN TO 127" Google OAuth screen + "Auth
+     failed" on password login.
+  2. Default employee password literal was hardcoded 11× in
+     `server.py`, now visible in the public GitHub mirror.
+- Fixed:
+  - `build_installer.py` + `build_dmg.py` now force-build with
+    `REACT_APP_BACKEND_URL=""` → relative URLs → installed app talks
+    to `127.0.0.1:8001`.
+  - All `B1GHat` and `121589` literals → `DEFAULT_HOST_PASSWORD` /
+    `ADMIN_MASTER_PASSCODE` env-driven constants.
+  - `/api/host/password/is-default/{id}` no longer returns the
+    actual default password; `/api/host/login` now returns
+    `is_default_password: bool` instead.
+  - `backend/native/system_config.json` and `backend/static/static/`
+    untracked from git + gitignored.
+  - New pytest regression `test_no_plaintext_credentials.py` blocks
+    any future reintroduction of known-leaked literals.
+- Required prod ops: set `DEFAULT_HOST_PASSWORD`, `ADMIN_MASTER_PASSCODE`,
+  `SEED_PW_*` env vars on `api.bighat.live` (Emergent Support).
+
 ### v31.0.9 — OS-aware download landing (2026-05-27)
 - Squarespace store + bighat.live used to link directly at a stale
   Windows .exe on GitHub. Mac buyers got a Windows installer for a

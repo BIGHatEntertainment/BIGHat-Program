@@ -339,14 +339,22 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_pyth
         print(f"[build-installer] WARNING: {env_template_src} missing; "
               "first-run env bootstrap will fall back to defaults")
 
-    # Frontend bundle (re-uses the existing build orchestrator)
+    # Frontend bundle (re-uses the existing build orchestrator). We force
+    # REACT_APP_BACKEND_URL="" so axios calls compile to relative paths
+    # (`/api/...`) instead of being hard-baked to the dev preview origin —
+    # otherwise the installed app on a customer machine talks to OUR preview
+    # env, login fails, and the Setup Wizard never appears. See CHANGELOG
+    # v31.0.10 for the post-mortem.
     if not skip_frontend:
         bundle = BACKEND / "static"
-        if not (bundle / "index.html").is_file():
-            print("[build-installer] frontend bundle missing — running scripts/build_standalone.py")
+        always_rebuild_for_release = True  # ensure baked URL is always relative
+        if always_rebuild_for_release or not (bundle / "index.html").is_file():
+            print("[build-installer] rebuilding frontend bundle (REACT_APP_BACKEND_URL='' for relative URLs)")
+            env = os.environ.copy()
+            env["REACT_APP_BACKEND_URL"] = ""
             subprocess.check_call(
-                [sys.executable, str(ROOT / "scripts" / "build_standalone.py"), "--skip-install"],
-                cwd=ROOT,
+                [sys.executable, str(ROOT / "scripts" / "build_standalone.py"), "--skip-install", "--clean"],
+                cwd=ROOT, env=env,
             )
         if (bundle / "index.html").is_file():
             target = PAYLOAD / "backend" / "static"
@@ -534,17 +542,11 @@ def main(argv: list[str] | None = None) -> int:
         print("[build-installer] no --cert provided; producing UNSIGNED installer.")
         print("                  Set BIGHAT_SIGNING_CERT_PFX + BIGHAT_SIGNING_PASSWORD on CI to enable signing.")
 
-    # Mirror the artifact + the zipped fallback into frontend/public/downloads/
-    # so the dev-preview download page always serves the freshly-built binary.
-    # Without this step the public folder bit-rots and customers redownload the
-    # last successfully copied build forever.
-    public_downloads = ROOT / "frontend" / "public" / "downloads"
-    public_downloads.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(exe, public_downloads / exe.name)
-    zip_fallback = DIST / f"BIGHatEntertainment-{version}-Windows.zip"
-    if zip_fallback.is_file():
-        shutil.copy2(zip_fallback, public_downloads / zip_fallback.name)
-    print(f"[build-installer] mirrored installer + zip to {public_downloads}")
+    # Note: v31.0.10 removed the obsolete frontend/public/downloads/ mirror.
+    # Customer-facing downloads now resolve via /api/downloads/auto +
+    # /download landing page against GitHub Releases. Mirroring stale
+    # installers into the static bundle was inflating the next macOS build
+    # by 280MB+ per cycle.
 
     print(f"[build-installer] DONE  -> {exe}")
     return 0

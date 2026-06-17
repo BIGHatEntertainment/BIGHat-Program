@@ -350,12 +350,16 @@ def assemble_app_bundle(
         shutil.copy2(env_template_src, res / "backend" / ".env.standalone")
         print("[build-dmg] resources .env.standalone shipped (desktop-safe template)")
 
-    # 6. Frontend bundle (already lives at backend/static/, copied as part of backend/)
-    if not skip_frontend and not (res / "backend" / "static" / "index.html").is_file():
-        print("[build-dmg] frontend bundle missing — running scripts/build_standalone.py")
+    # 6. Frontend bundle (always rebuild with REACT_APP_BACKEND_URL="" so the
+    # installed .app talks to its own embedded backend at 127.0.0.1:8001 via
+    # relative URLs — NOT to whatever dev preview origin was baked at CI time).
+    if not skip_frontend:
+        print("[build-dmg] rebuilding frontend bundle (REACT_APP_BACKEND_URL='' for relative URLs)")
+        env = os.environ.copy()
+        env["REACT_APP_BACKEND_URL"] = ""
         subprocess.check_call(
-            [sys.executable, str(ROOT / "scripts" / "build_standalone.py"), "--skip-install"],
-            cwd=ROOT,
+            [sys.executable, str(ROOT / "scripts" / "build_standalone.py"), "--skip-install", "--clean"],
+            cwd=ROOT, env=env,
         )
         bundle = BACKEND / "static"
         if (bundle / "index.html").is_file():

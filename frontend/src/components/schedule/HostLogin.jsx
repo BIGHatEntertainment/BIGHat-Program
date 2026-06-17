@@ -52,8 +52,9 @@ const HostLogin = ({ employees, onLoginSuccess }) => {
       
       setLoggedInEmployee(response.data.employee);
       
-      // Ask if they want to change password on first login (if using default password)
-      if (password === 'B1GHat') {
+      // Server tells us whether the host is still on the default password —
+      // we don't compare against a baked-in literal (v31.0.10 leak fix).
+      if (response.data?.is_default_password) {
         toast.success('Login successful!');
         setShowPasswordChange(true);
       } else {

@@ -38,7 +38,140 @@
 
 ---
 
-## v31.0.9 — 2026-05-27 (OS-aware download landing page + dynamic GitHub release lookup)
+## v31.0.10 — 2026-05-27 (CRITICAL: installed app couldn't authenticate; credentials leak fix)
+
+**Two production-blocking issues reported by the user**:
+
+1. Customer's installed Windows app shows "LOG IN TO 127" on the Google
+   sign-in screen + "Authentication failed. Please try again." on the
+   password form, even with the correct credentials.
+2. Default password (`B1GHat`) for 5 employee accounts was hardcoded in
+   `server.py` and visible in the now-public GitHub mirror.
+
+### Root cause of Issues 1 & 2 (same bug)
+
+The frontend build orchestrator was running `yarn build` with the
+preview environment's `REACT_APP_BACKEND_URL` baked into the JS bundle
+(`https://standalone-tools.preview.emergentagent.com`). On a customer
+machine:
+
+* `axios.get('https://standalone-tools.preview.emergentagent.com/api/native/info')`
+  — they have no access to our preview env. `NativeContext.refresh()`
+  failed → fail-open path set `native_mode=false`. The LoginPage
+  `!nativeMode` gate (added in v31.0.7 to hide the Google button on
+  desktop installs) then rendered the Google button anyway, sending
+  the user to the Emergent OAuth page that titles itself "LOG IN TO
+  127" (the redirect hostname `127.0.0.1` is truncated visually).
+* `axios.post('https://standalone-tools.preview.emergentagent.com/api/auth/login')`
+  — same target. Our preview server has no user named
+  `sellards@bighat.live`, so it returned 401. The customer's actual
+  `sellards@bighat.live` lives in their LOCAL Mongo / MontyDB, which
+  the bundle never tried to talk to.
+
+The previous v31.0.7 fix for "Google login should be hidden on native"
+was correct in code — but invisible behind this baked-URL bug.
+
+### Root cause of Issue 3
+
+The public repo had eleven hardcoded literals of the default password
+in `backend/server.py`, plus a hardcoded admin master passcode, plus
+the dev `backend/native/system_config.json` (with a bcrypt hash of the
+test password) committed to git, plus the compiled
+`backend/static/static/js/main.*.js` bundle which baked the default
+password literal from the JSX placeholder strings.
+
+### Fixes (v31.0.10)
+
+**Customer-blocking build fix**
+
+* `scripts/build_installer.py` + `scripts/build_dmg.py` now set
+  `REACT_APP_BACKEND_URL=""` explicitly when invoking the frontend
+  build orchestrator. CRA picks up the empty string from the shell
+  env → all axios calls compile to relative paths (`/api/...`) →
+  installed app talks to its own embedded backend at `127.0.0.1:8001`.
+* Both scripts now do `--clean` rebuilds of `backend/static` so a
+  stale bundle (with a bad baked URL) can never sneak through.
+* Removed the obsolete `frontend/public/downloads/` mirror step that
+  was inflating every subsequent macOS build by 280MB of stale
+  installer copies AND was the channel by which the bad baked URL
+  got preserved across builds. Customer-facing downloads now resolve
+  via `/api/downloads/auto` against GitHub Releases (added in v31.0.9).
+
+**Security hardening**
+
+* `backend/server.py` — replaced all eleven `"B1GHat"` and three
+  `"121589"` literals with `DEFAULT_HOST_PASSWORD` and
+  `ADMIN_MASTER_PASSCODE` module-level constants. Both read from env
+  vars (`DEFAULT_HOST_PASSWORD`, `ADMIN_MASTER_PASSCODE`,
+  `SEED_PW_SELLARDS|ALEX|JORDAN|CASEY|TAYLOR`). When env values are
+  missing the server generates a random `secrets.token_urlsafe(12)`
+  per boot and logs it ONCE so the operator can rotate.
+* `GET /api/host/password/is-default/{id}` no longer returns the
+  default password in its response — only the `is_default: bool` flag.
+* `POST /api/host/login` now includes `is_default_password: bool` in
+  its response so the client can show the "change your default
+  password" prompt without comparing against a baked literal.
+* `frontend/src/components/schedule/HostLogin.jsx` — removed the
+  `password === 'B1GHat'` literal compare; reads
+  `is_default_password` from the login response instead.
+* `git rm --cached backend/native/system_config.json` +
+  `git rm --cached -r backend/static/static/` — both now in
+  `.gitignore`. They contain per-install secrets / build artifacts
+  that should never have been tracked.
+* New `memory/test_credentials.md` is gitignored, references no
+  literal passwords, and documents the env-var contract.
+* New regression test `backend/tests/test_no_plaintext_credentials.py`
+  scans every tracked file for known-leaked literals (`B1GHat`,
+  `BigHat2024!`), bcrypt hash signatures, GitHub PATs, OpenAI keys,
+  Resend keys. Also enforces that `system_config.json` and
+  `backend/static/static/` stay untracked. Run on every CI / pre-push.
+
+### Customer remediation
+
+* All v31.0.9 and earlier installed customers are dead in the water
+  (login fails). Push them to `v31.0.10`. The Setup Wizard's
+  pending-cloud-activation retry job (every 4h) will continue to
+  try, so when the new build talks to the cloud the existing license
+  state should pick up automatically.
+* **Operator action items on `api.bighat.live`**: set environment
+  variables before next deploy:
+  ```
+  DEFAULT_HOST_PASSWORD=<strong, ≥16 chars, rotate quarterly>
+  ADMIN_MASTER_PASSCODE=<strong, ≥10 chars, distinct from above>
+  SEED_PW_SELLARDS=<per-host>
+  SEED_PW_ALEX=<per-host>
+  SEED_PW_JORDAN=<per-host>
+  SEED_PW_CASEY=<per-host>
+  SEED_PW_TAYLOR=<per-host>
+  ```
+  Missing env vars → random fallback (logged once).
+
+### Build + ship
+
+```bash
+echo "31.0.10" > backend/VERSION.txt
+yarn --cwd frontend build  # rebuilds with REACT_APP_BACKEND_URL=""
+python scripts/build_installer.py --no-sign
+python scripts/build_dmg.py --arch aarch64 --skip-pkg --skip-dmg
+python scripts/build_dmg.py --arch x86_64 --skip-pkg --skip-dmg
+python scripts/publish_github_release.py --replace-existing
+```
+
+### Lessons-learned guardrails (so it doesn't happen again)
+
+1. `test_no_plaintext_credentials.py` catches any reintroduction of
+   the known-leaked literals OR any bcrypt hash in tracked source.
+2. The compiled frontend bundle and the dev system_config are now
+   gitignored — they will NEVER be re-tracked unless someone manually
+   `git add -f`s them.
+3. `build_installer.py` / `build_dmg.py` always rebuild the frontend
+   bundle with `REACT_APP_BACKEND_URL=""` — preserves a single,
+   blessed baked URL value (empty = relative) per release. No way to
+   accidentally bake a dev preview URL into a customer build.
+
+---
+
+
 
 **Customer-reported bug**: A developer bought BIG Hat from the Squarespace
 store on a Mac and was sent to a hardcoded GitHub asset URL for

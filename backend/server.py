@@ -27,6 +27,25 @@ from datetime import datetime, timezone, timedelta
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("bighat-hub")
 
+# v31.0.10: previously this file hardcoded a default employee password
+# literal in 11+ places (visible in the public GitHub mirror). Replaced
+# with env-driven constants. Production MUST set both env vars. In dev /
+# preview the missing values fall back to a freshly generated random
+# string per boot, which gets logged once for the operator to rotate.
+def _resolve_seed_pw(envvar: str, *, label: str) -> str:
+    v = os.environ.get(envvar)
+    if v:
+        return v
+    generated = secrets.token_urlsafe(12)
+    logger.warning(
+        f"[seed-password] {envvar} not set; generated random {label} "
+        f"password '{generated}' (write this down, set the env var, restart)."
+    )
+    return generated
+
+DEFAULT_HOST_PASSWORD = _resolve_seed_pw("DEFAULT_HOST_PASSWORD", label="default host")
+ADMIN_MASTER_PASSCODE = _resolve_seed_pw("ADMIN_MASTER_PASSCODE", label="admin master")
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -138,7 +157,7 @@ class ScheduleEmployee(BaseModel):
     email: str
     phone: Optional[str] = None
     is_admin: bool = False
-    password: str = "B1GHat"
+    password: str = Field(default_factory=lambda: DEFAULT_HOST_PASSWORD)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ScheduleEmployeeCreate(BaseModel):
@@ -146,7 +165,7 @@ class ScheduleEmployeeCreate(BaseModel):
     email: str
     phone: Optional[str] = None
     is_admin: bool = False
-    password: Optional[str] = "B1GHat"
+    password: Optional[str] = Field(default_factory=lambda: DEFAULT_HOST_PASSWORD)
 
 class Venue(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -405,7 +424,7 @@ async def sync_users_from_employees():
             # Create hub user from employee
             await db.users.insert_one({
                 "email": emp_email,
-                "password_hash": hash_password("B1GHat"),
+                "password_hash": hash_password(DEFAULT_HOST_PASSWORD),
                 "name": emp["name"],
                 "role": target_role,
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -434,15 +453,27 @@ async def seed_data():
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
 
-    # Seed schedule employees (hosts)
+    # Seed schedule employees (hosts). Passwords come from per-host env vars
+    # (e.g. SEED_PW_SELLARDS). Missing values fall back to DEFAULT_HOST_PASSWORD
+    # (resolved at import time from env or a one-shot random). v31.0.10:
+    # never hardcode plaintext passwords in source.
     emp_count = await db.employees.count_documents({})
     if emp_count == 0:
+        roster = [
+            ("Nick Sellards", "sellards@bighat.live", True,  "SEED_PW_SELLARDS"),
+            ("Alex Rivera",   "alex@bighat.live",     False, "SEED_PW_ALEX"),
+            ("Jordan Blake",  "jordan@bighat.live",   False, "SEED_PW_JORDAN"),
+            ("Casey Morgan",  "casey@bighat.live",    False, "SEED_PW_CASEY"),
+            ("Taylor Reed",   "taylor@bighat.live",   False, "SEED_PW_TAYLOR"),
+        ]
         employees_data = [
-            {"id": str(uuid.uuid4()), "name": "Nick Sellards", "email": "sellards@bighat.live", "is_admin": True, "password": "B1GHat", "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": str(uuid.uuid4()), "name": "Alex Rivera", "email": "alex@bighat.live", "is_admin": False, "password": "B1GHat", "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": str(uuid.uuid4()), "name": "Jordan Blake", "email": "jordan@bighat.live", "is_admin": False, "password": "B1GHat", "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": str(uuid.uuid4()), "name": "Casey Morgan", "email": "casey@bighat.live", "is_admin": False, "password": "B1GHat", "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": str(uuid.uuid4()), "name": "Taylor Reed", "email": "taylor@bighat.live", "is_admin": False, "password": "B1GHat", "created_at": datetime.now(timezone.utc).isoformat()},
+            {
+                "id": str(uuid.uuid4()), "name": name, "email": email,
+                "is_admin": is_admin,
+                "password": os.environ.get(envvar) or DEFAULT_HOST_PASSWORD,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for (name, email, is_admin, envvar) in roster
         ]
         await db.employees.insert_many(employees_data)
         logger.info(f"Seeded {len(employees_data)} employees")
@@ -736,7 +767,7 @@ async def login(request: Request, response: Response, body: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
         # Step 2: Verify password against employee record
-        emp_password = employee.get("password", "B1GHat")
+        emp_password = employee.get("password", DEFAULT_HOST_PASSWORD)
         admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
         admin_pwd = os.environ.get("ADMIN_PASSWORD", "")
         
@@ -998,12 +1029,12 @@ async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
 
 @api_router.post("/admin/verify")
 async def verify_admin_passcode(auth: AdminAuth):
-    if auth.passcode == "121589":
+    if auth.passcode == ADMIN_MASTER_PASSCODE:
         return {"success": True, "message": "Admin authenticated"}
     admin_employees = await db.employees.find({"is_admin": True}, {"_id": 0}).to_list(100)
     for adm in admin_employees:
         pwd = adm.get('password', '')
-        if pwd and pwd != 'B1GHat' and auth.passcode == pwd:
+        if pwd and pwd != DEFAULT_HOST_PASSWORD and auth.passcode == pwd:
             return {"success": True, "message": f"Admin authenticated as {adm.get('name')}"}
     raise HTTPException(status_code=401, detail="Invalid passcode")
 
@@ -1012,8 +1043,21 @@ async def host_login(login_data: HostLogin):
     employee = await db.employees.find_one({"name": login_data.name}, {"_id": 0})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    if login_data.password == "121589" or login_data.password == employee.get('password', 'B1GHat'):
-        return {"success": True, "employee": {"id": employee['id'], "name": employee['name'], "email": employee['email'], "is_admin": employee.get('is_admin', False)}}
+    if login_data.password == ADMIN_MASTER_PASSCODE or login_data.password == employee.get('password', DEFAULT_HOST_PASSWORD):
+        return {
+            "success": True,
+            "employee": {
+                "id": employee['id'],
+                "name": employee['name'],
+                "email": employee['email'],
+                "is_admin": employee.get('is_admin', False),
+            },
+            # v31.0.10: flag drives the "change your default password" prompt
+            # without leaking the default value to the client.
+            "is_default_password": (
+                employee.get('password', DEFAULT_HOST_PASSWORD) == DEFAULT_HOST_PASSWORD
+            ),
+        }
     raise HTTPException(status_code=401, detail="Invalid password")
 
 @api_router.post("/host/password/change")
@@ -1021,8 +1065,8 @@ async def change_host_password(change: PasswordChange):
     employee = await db.employees.find_one({"id": change.employee_id})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    current_pwd = employee.get('password', 'B1GHat')
-    if change.current_password != current_pwd and change.current_password != "121589":
+    current_pwd = employee.get('password', DEFAULT_HOST_PASSWORD)
+    if change.current_password != current_pwd and change.current_password != ADMIN_MASTER_PASSCODE:
         raise HTTPException(status_code=401, detail="Current password is incorrect")
     await db.employees.update_one({"id": change.employee_id}, {"$set": {"password": change.new_password}})
     return {"success": True, "message": "Password changed successfully"}
@@ -1032,15 +1076,18 @@ async def check_default_password(employee_id: str):
     employee = await db.employees.find_one({"id": employee_id}, {"_id": 0})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    is_default = employee.get('password', 'B1GHat') == 'B1GHat'
-    return {"is_default": is_default, "default_password": "B1GHat" if is_default else None}
+    is_default = employee.get('password', DEFAULT_HOST_PASSWORD) == DEFAULT_HOST_PASSWORD
+    # v31.0.10: NEVER return the actual default password to the client.
+    # Clients should prompt the user to set a new one; if they need the
+    # default for first-time login they should ask the master admin.
+    return {"is_default": is_default}
 
 @api_router.post("/host/password/verify")
 async def verify_host_password(verify: PasswordVerify):
     employee = await db.employees.find_one({"id": verify.employee_id})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    if verify.password == "121589" or verify.password == employee.get('password', 'B1GHat'):
+    if verify.password == ADMIN_MASTER_PASSCODE or verify.password == employee.get('password', DEFAULT_HOST_PASSWORD):
         return {"success": True}
     raise HTTPException(status_code=401, detail="Invalid password")
 

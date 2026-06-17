@@ -28,6 +28,28 @@ next-env.d.ts
 # Production builds
 /build
 dist/
+
+# v31.0.10 security hardening — these contain or could contain credentials,
+# bcrypt hashes, license keys, or HWIDs and MUST NEVER be tracked in git
+# (the repo is public).
+backend/native/system_config.json
+backend/native/system_config.dev-seed.json
+backend/native/system_config.*.json
+# Pre-compiled frontend bundle is a build artifact reproducible from
+# `scripts/build_standalone.py` — no reason to commit it.
+backend/static/static/
+backend/static/asset-manifest.json
+backend/static/index.html
+backend/static/build_manifest.json
+backend/static/*.png
+backend/static/*.ico
+backend/static/*.txt
+backend/static/*.json
+backend/static/*.mp3
+backend/static/*.mp4
+backend/static/*.jpg
+
+
 dist
 
 # Environment files (comprehensive coverage)
