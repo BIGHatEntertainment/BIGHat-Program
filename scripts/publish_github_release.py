@@ -7,6 +7,9 @@ import json
 import logging
 import mimetypes
 import os
+import pathlib
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -82,6 +85,38 @@ def list_artifacts(version):
         f"BIGHatEntertainment-{version}-macOS-Intel.zip",
     ]
     return [DIST / pat for pat in patterns if (DIST / pat).is_file()]
+
+
+def _verify_artifact(path: pathlib.Path) -> None:
+    """v31.0.13 lessons learned: refuse to upload a truncated NSIS installer
+    or zip. The integrity check failed on a customer machine because makensis
+    got killed mid-write last time. Run a structural sanity check before any
+    HTTP PUT."""
+    if path.suffix.lower() == ".exe":
+        # Minimum acceptable NSIS installer size. Anything smaller than the
+        # baseline Python embeddable is by definition truncated.
+        MIN_EXE = 40 * 1024 * 1024
+        size = path.stat().st_size
+        if size < MIN_EXE:
+            raise SystemExit(f"[release] {path.name} is suspiciously small ({size/1e6:.1f}MB) — refusing to upload.")
+        # 7z is normally present on macOS/Linux CI runners. If absent, skip;
+        # otherwise verify the NSIS structure end-to-end.
+        sevenz = shutil.which("7z")
+        if sevenz:
+            result = subprocess.run(
+                [sevenz, "t", str(path)], capture_output=True, text=True, timeout=120,
+            )
+            if "Everything is Ok" not in result.stdout:
+                raise SystemExit(
+                    f"[release] {path.name} failed NSIS integrity check (7z t):\n"
+                    f"--- stdout ---\n{result.stdout[-800:]}\n--- stderr ---\n{result.stderr[-400:]}"
+                )
+    elif path.suffix.lower() == ".zip":
+        # zipfile.is_zipfile only checks the EOCD marker — sufficient to
+        # detect a mid-write truncation since EOCD is the last record.
+        import zipfile
+        if not zipfile.is_zipfile(path):
+            raise SystemExit(f"[release] {path.name} is not a valid zip — refusing to upload.")
 
 
 def upload_asset(*, owner, repo, release_id, path, token, replace_existing):
@@ -163,6 +198,14 @@ def main(argv=None):
     print(f"[release] target: {args.owner}/{args.repo} tag={tag}")
     for a in artifacts:
         print(f"           - {a.name} ({a.stat().st_size:,} bytes)")
+
+    # Pre-flight integrity verification (added v31.0.13). Bails out early
+    # rather than half-uploading a truncated installer that a customer would
+    # later see as 'NSIS integrity check failed'.
+    print("[release] verifying artifact integrity...")
+    for a in artifacts:
+        _verify_artifact(a)
+        print(f"[release]   OK {a.name}")
 
     release = find_or_create_release(
         owner=args.owner, repo=args.repo,
