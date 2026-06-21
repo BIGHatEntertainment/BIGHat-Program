@@ -177,16 +177,53 @@ pub fn run() {
     let open_file = extract_open_file_arg();
     log_line("info", format!("chose port={port}, open_file={open_file:?}"));
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_dialog::init())
-        .manage(BackendState {
-            child: Mutex::new(None),
-            port: Mutex::new(port),
-        })
-        .invoke_handler(tauri::generate_handler![quit_app, get_backend_port, get_log_path])
-        .setup(move |app| {
+    // Surface any Tauri-side panic into the log. Without this, panics
+    // from plugin init / generate_context! / capability validation kill
+    // the windows-subsystem process silently — exactly what bit us in
+    // alpha.1 and alpha.2 first launches.
+    std::panic::set_hook(Box::new(|info| {
+        log_line("panic", format!("{info}"));
+    }));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_inner(port, open_file)
+    }));
+    if let Err(panic_payload) = result {
+        let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<non-string panic payload>".to_string()
+        };
+        log_line("fatal", format!("run_inner panicked: {msg}"));
+    }
+    log_line("info", "=== BIG Hat shell exit ===");
+}
+
+fn run_inner(port: u16, open_file: Option<String>) {
+    log_line("info", "creating tauri::Builder");
+    let builder = tauri::Builder::default();
+    log_line("info", "+ plugin: shell");
+    let builder = builder.plugin(tauri_plugin_shell::init());
+    log_line("info", "+ plugin: process");
+    let builder = builder.plugin(tauri_plugin_process::init());
+    log_line("info", "+ plugin: dialog");
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    log_line("info", "+ state managed");
+    let builder = builder.manage(BackendState {
+        child: Mutex::new(None),
+        port: Mutex::new(port),
+    });
+    log_line("info", "+ invoke_handler wired");
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        quit_app,
+        get_backend_port,
+        get_log_path
+    ]);
+
+    log_line("info", "registering setup() callback");
+    let builder = builder.setup(move |app| {
             log_line("info", "tauri setup() entered");
 
             // 1. Build the main window with the splash page.
@@ -306,19 +343,31 @@ pub fn run() {
             });
 
             Ok(())
-        })
-        .build(tauri::generate_context!())
-        .expect("tauri build failed")
-        .run(|app, event| {
-            if let RunEvent::ExitRequested { .. } = event {
-                log_line("info", "ExitRequested — killing sidecar");
-                if let Some(state) = app.try_state::<BackendState>() {
-                    if let Some(child) = state.child.lock().unwrap().take() {
-                        let _ = child.kill();
-                    }
+        });
+
+    log_line("info", "calling Builder::build() (generate_context + capability validation)");
+    let app = match builder.build(tauri::generate_context!()) {
+        Ok(app) => {
+            log_line("info", "Builder::build() OK");
+            app
+        }
+        Err(e) => {
+            log_line("fatal", format!("Builder::build() failed: {e}"));
+            return;
+        }
+    };
+
+    log_line("info", "entering event loop (App::run)");
+    app.run(|app, event| {
+        if let RunEvent::ExitRequested { .. } = event {
+            log_line("info", "ExitRequested — killing sidecar");
+            if let Some(state) = app.try_state::<BackendState>() {
+                if let Some(child) = state.child.lock().unwrap().take() {
+                    let _ = child.kill();
                 }
             }
-        });
+        }
+    });
 }
 
 // Silence unused warnings if cross-compiling without the Path import.

@@ -1,22 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for the BIG Hat Entertainment shell.",
+  "description": "Default capabilities for the BIG Hat Entertainment shell. Intentionally minimal — we only add fine-grained perms when a real-world feature needs them. See lib.rs alpha.3 incident: invalid perm names panic the Builder before setup() runs, killing the windows-subsystem process silently.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "core:window:allow-set-title",
-    "core:window:allow-set-fullscreen",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-start-dragging",
-    "core:webview:allow-internal-toggle-devtools",
-    "core:app:allow-version",
+    "shell:default",
     "process:default",
-    "process:allow-restart",
-    "process:allow-exit",
-    "dialog:default",
-    "shell:allow-execute"
+    "dialog:default"
   ]
 }
