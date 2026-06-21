@@ -29,7 +29,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
@@ -226,22 +226,14 @@ fn run_inner(port: u16, open_file: Option<String>) {
     let builder = builder.setup(move |app| {
             log_line("info", "tauri setup() entered");
 
-            // 1. Build the main window with the splash page.
-            let splash_url = WebviewUrl::App(PathBuf::from("splash.html"));
-            let window = WebviewWindowBuilder::new(app, "main", splash_url)
-                .title("BIG Hat Entertainment")
-                .inner_size(1400.0, 900.0)
-                .min_inner_size(1100.0, 720.0)
-                .center()
-                .decorations(false)
-                .resizable(true)
-                .visible(true)
-                .build()
-                .map_err(|e| {
-                    log_line("fatal", format!("failed to build main window: {e}"));
-                    e
-                })?;
-            log_line("info", "main window built ok");
+            // The window is declared in tauri.conf.json (label="main"). Just
+            // fetch it — DON'T re-create it, that panics with
+            // "a webview with label `main` already exists" (see alpha.4 log).
+            let window = app.get_webview_window("main").ok_or_else(|| {
+                log_line("fatal", "main window not found (tauri.conf.json windows[] missing?)");
+                std::io::Error::new(std::io::ErrorKind::Other, "main window missing")
+            })?;
+            log_line("info", "main window resolved ok");
 
             // 2. Spawn the Python backend sidecar.
             let shell = app.shell();
