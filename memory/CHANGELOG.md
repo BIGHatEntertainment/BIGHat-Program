@@ -38,7 +38,80 @@
 
 ---
 
-## v31.0.13 — 2026-05-27 (Cloud Library / file-cloud sync retired)
+## v31.0.14 — 2026-05-27 (Critical: blank window on launch — Edge `--app=` mode regression)
+
+**User report**: "Just redownloaded the newest version. Loaded the
+files and launched the window but the window displayed nothing." —
+screenshot showed a chromeless "BIG Hat | Host" window with a solid
+deep-blue background and no content.
+
+### Root cause
+
+Two contributing failures:
+
+1. **`packaging/start_bighat.vbs` was using Microsoft Edge's `--app=URL`
+   chromeless mode again.** The v31.0.6 CHANGELOG explicitly listed
+   this as a NEVER-DO RULE after an ERR_CONNECTION_REFUSED race +
+   the user's hand-tested "no more browser windows (Edge/Chrome)"
+   approval of the default-browser path. Some intervening change
+   re-introduced `--app=` and the canonical-launch rule was never
+   enforced in CI, so it slipped through.
+
+2. **The `--app=` window suppresses the JavaScript console by default**
+   (no F12 in chrome `--app=` mode), so any runtime issue in the
+   chromeless window renders as a blank page with no visible
+   diagnostic for the customer. The user has no way to report what
+   actually went wrong.
+
+### Fix
+
+* `packaging/start_bighat.vbs` reverted to the v31.0.5/v31.0.6
+  user-approved path: `WshShell.Run TARGET_URL, 1, False`. The app
+  now opens in the user's default browser (Chrome / Edge / Safari /
+  Firefox) as a regular tab with the URL bar and DevTools accessible.
+* The deep-link handoff branch (when a second launch happens while
+  the backend is already running) was also using `--app=` plumbing.
+  Same fix: just hand off to the default browser.
+
+### Guardrail (NEW)
+
+`backend/tests/test_launcher_vbs_contract.py` — four assertions that
+fail if anyone reintroduces `--app=`, `msedge.exe` path lookup,
+`chromiumExe` plumbing, or `pywebview` references into the VBS, OR
+if the canonical default-browser launch line is removed. The test
+strips VBS comments before scanning, so the NEVER-DO commentary in
+the file itself doesn't trigger a false positive.
+
+### Slack/Discord-style native window — what would it actually take?
+
+A truly chromeless BIG Hat window (Slack/Discord aesthetic) is NOT
+the same thing as `--app=` mode. The user-approved future path for
+that is **Tauri** (or Electron) — a real native window wrapping the
+existing React + FastAPI stack, +15 MB binary, ~2-3 days of work.
+The `--app=` mode tried to be Tauri-on-the-cheap and the result is
+the chromeless window appearing but being functionally broken
+(invisible JS errors, AppData quirks). Tauri remains in the backlog
+as an explicit P2 task — see `memory/PRD.md`.
+
+### Verified
+
+* `pytest tests/test_launcher_vbs_contract.py -v` — 4/4 green
+* `7z t BIGHatStandalone-Setup-31.0.14.exe` — `Everything is Ok`,
+  13,245 files
+* Anonymous public download tested — same SHA256 as the local exe
+* All 4 v31.0.14 artifacts pass the new pre-flight integrity gate
+  in `publish_github_release.py`
+
+### Customer remediation
+
+Anyone on v31.0.13 should redownload v31.0.14 from
+`https://github.com/BIGHatEntertainment/BIGHat-Program/releases/latest`.
+Their license / setup state on disk is preserved across the
+reinstall — no need to re-run the Setup Wizard.
+
+---
+
+
 
 **User decision**: premium content packs will be sold as `.bighat`
 files on Squarespace going forward, so the SharePoint-backed file-cloud

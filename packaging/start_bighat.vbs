@@ -75,31 +75,13 @@ Err.Clear
 On Error Goto 0
 
 If alreadyUp Then
-    ' Backend is already running - just spawn a new chromeless window
-    ' pointing at the (possibly deep-linked) URL. Falls back to default
-    ' browser if no Chromium-family browser is installed.
-    Dim handoffUrl, handoffExe, handoffPaths, j
+    ' Backend is already running - just open the user's default browser
+    ' to the (possibly deep-linked) URL. v31.0.6 NEVER-DO RULE:
+    ' no --app= chromeless mode here either. The user explicitly approved
+    ' the default-browser handoff in the v31.0.5 incident.
+    Dim handoffUrl
     handoffUrl = "http://127.0.0.1:8001" & OPEN_QUERY
-    handoffExe = ""
-    handoffPaths = Array( _
-        "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", _
-        "C:\Program Files\Microsoft\Edge\Application\msedge.exe", _
-        "C:\Program Files\Google\Chrome\Application\chrome.exe", _
-        "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" _
-    )
-    For j = 0 To UBound(handoffPaths)
-        If FSO.FileExists(handoffPaths(j)) Then
-            handoffExe = handoffPaths(j)
-            Exit For
-        End If
-    Next
-    If handoffExe <> "" Then
-        WshShell.Run """" & handoffExe & """ --app=""" & handoffUrl & """ " & _
-            "--user-data-dir=""" & INSTALL_ROOT & "\backend\data\browser_profile"" " & _
-            "--no-first-run --no-default-browser-check", 1, False
-    Else
-        WshShell.Run handoffUrl, 1, False
-    End If
+    WshShell.Run handoffUrl, 1, False
     WScript.Quit 0
 End If
 
@@ -141,53 +123,20 @@ If Not ok Then
     WScript.Quit 1
 End If
 
-' --------- Open the app: prefer chromeless --app= mode, fall back to default browser ---------
-' Edge and Chrome both support --app=URL which opens a frameless window
-' with no tab bar, no URL bar, no menu - same end result as Slack/Discord/
-' Notion's desktop apps (which are all Chromium under the hood). We pass
-' --user-data-dir= so the launch is isolated from the user's normal
-' browser profile (no tabs leak in, no cookies leak out).
+' --------- Open the app in the user's default browser ---------
+'
+' v31.0.6 NEVER-DO RULE: do not use msedge --app= / chrome --app= / pywebview.
+' Locked back in at v31.0.14 after a regression: an --app= window was found
+' to render blank on a customer machine (Edge AppData state quirk), with no
+' visible JS console because --app= mode hides DevTools by default.
+'
+' The user explicitly approved this VBS-opens-default-browser approach in
+' the v31.0.5 incident. See /app/memory/CHANGELOG.md for the post-mortem.
+' Slack/Discord-style chromeless windows would require Electron/Tauri, which
+' is a separate project from this VBS-based shim.
 
 Dim TARGET_URL
 TARGET_URL = "http://127.0.0.1:8001" & OPEN_QUERY
-
-Dim chromiumExe, profileDir
-chromiumExe = ""
-Dim candidatePaths : candidatePaths = Array( _
-    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", _
-    "C:\Program Files\Microsoft\Edge\Application\msedge.exe", _
-    "C:\Program Files\Google\Chrome\Application\chrome.exe", _
-    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", _
-    "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe", _
-    "C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe" _
-)
-Dim i
-For i = 0 To UBound(candidatePaths)
-    If FSO.FileExists(candidatePaths(i)) Then
-        chromiumExe = candidatePaths(i)
-        Exit For
-    End If
-Next
-
-If chromiumExe <> "" Then
-    profileDir = INSTALL_ROOT & "\backend\data\browser_profile"
-    On Error Resume Next
-    FSO.CreateFolder(profileDir)
-    On Error Goto 0
-
-    Dim appCmd
-    appCmd = """" & chromiumExe & """ " & _
-            "--app=""" & TARGET_URL & """ " & _
-            "--user-data-dir=""" & profileDir & """ " & _
-            "--no-first-run --no-default-browser-check " & _
-            "--disable-features=Translate,MediaRouter " & _
-            "--window-size=1440,900"
-    WshShell.Run appCmd, 1, False
-Else
-    ' No Chromium-family browser found - fall back to default browser.
-    ' (Will open a normal tab; user will see browser chrome but at least
-    ' it launches.)
-    WshShell.Run TARGET_URL, 1, False
-End If
+WshShell.Run TARGET_URL, 1, False
 
 WScript.Quit 0
