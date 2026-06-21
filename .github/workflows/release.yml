@@ -130,9 +130,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Skip macOS code signing in CI for now; we'll wire in
-          # APPLE_CERTIFICATE / APPLE_ID secrets in a later iteration.
-          APPLE_SIGNING_IDENTITY: ''
+          # No Apple Developer ID cert yet — `-` triggers ad-hoc signing,
+          # which lets the .app + .dmg bundle without erroring. Users will
+          # still see the Gatekeeper warning on first launch (right-click
+          # → Open). Real signing + notarization is a future task; needs
+          # APPLE_CERTIFICATE / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # secrets to land in repo Actions settings first.
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           tagName: v${{ steps.ver.outputs.version }}
           releaseName: 'BIG Hat Entertainment v${{ steps.ver.outputs.version }}'
