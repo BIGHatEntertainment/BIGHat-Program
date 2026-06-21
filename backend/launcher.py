@@ -284,13 +284,27 @@ def _start_uvicorn_in_thread(host: str, port: int, *, reload: bool) -> threading
     when the parent process exits."""
     import uvicorn  # type: ignore
 
+    # IMPORTANT: PyInstaller-frozen sidecars don't have `server.py` sitting
+    # on disk for uvicorn to import by string. Import the ASGI app object
+    # ourselves and hand uvicorn the live object instead. This works in
+    # both dev (python launcher.py) AND in the v32 Tauri PyInstaller
+    # sidecar. See CHANGELOG v32.0.0-alpha.6.
+    # reload= requires a string import target, so we only support reload
+    # when not frozen.
+    if reload and not getattr(sys, "frozen", False):
+        target: object = "server:app"
+    else:
+        if reload:
+            logger.warning("--reload ignored: not supported inside a PyInstaller-frozen sidecar")
+        from server import app as target  # type: ignore[no-redef]
+
     def _run():
         try:
             uvicorn.run(
-                "server:app",
+                target,  # type: ignore[arg-type]
                 host=host,
                 port=port,
-                reload=reload,
+                reload=reload and not getattr(sys, "frozen", False),
                 log_level="info",
                 log_config=None,
                 access_log=False,
