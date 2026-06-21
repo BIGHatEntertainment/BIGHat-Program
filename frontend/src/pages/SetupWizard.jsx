@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Cloud,
   Eye,
   EyeOff,
   Hash,

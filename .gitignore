@@ -1152,3 +1152,10 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Tauri (v32.0.0)
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/binaries/bighat-backend-*
+src-tauri/gen/
+!src-tauri/binaries/README.md

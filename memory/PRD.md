@@ -54,6 +54,31 @@ features behind an active subscription.
   in a `slides_files` MontyDB collection; metadata in `slides_metadata`.
 
 ## Implemented (with dates)
+- **2026-06-21** — **v31.0.15: Blank-window root cause + ESLint guardrails**
+  (`<Cloud />` icon referenced in `SetupWizard.jsx` without being
+  imported → `Uncaught ReferenceError` on React mount, fully blanking
+  the customer window). Root cause was deeper: `frontend/craco.config.js`
+  had overridden CRA's ESLint to ONLY load `react-hooks/recommended`,
+  silently dropping `no-undef` and `react/jsx-no-undef`. Fixed the
+  import, hoisted a same-class `locationName` bug in
+  `PresentationMode.jsx`, pinned `no-undef` + `react/jsx-no-undef` as
+  hard ESLint errors in `craco.config.js`, and added
+  `backend/tests/test_frontend_no_undef.py` regression guard that
+  self-verifies on a missing import. NSIS installer now wipes
+  `backend/static/` before laying down the new bundle so stale hashed
+  JS files no longer accumulate across upgrades.
+- **2026-06-21** — **v32.0.0 scaffold (in progress): Tauri native shell**
+  User direction: LYRX-style fully chromeless desktop window, no
+  browser, no tabs. Scaffold landed: `src-tauri/` Rust+Tauri 2.x
+  project (Cargo.toml, tauri.conf.json, src/lib.rs + main.rs,
+  capabilities/default.json, icon set), `splash.html` in
+  `frontend/public/`, `.github/workflows/release.yml` builds on
+  `windows-latest` + `macos-13` (Intel) + `macos-14` (Apple Silicon)
+  via `tauri-apps/tauri-action`, and `scripts/build_sidecar.py`
+  freezes `backend/launcher.py` into a PyInstaller sidecar per
+  Rust target triple. Drops the VBS launcher entirely in v32.0.0.
+
+## Implemented (earlier)
 - **2025-07** — Phase 0 (Foundation): `/api/native/*` router, license/HWID,
   subscription, atomic `system_config.json`.
 - **2025-07** — Phase 0.5 (Frontend SetupWizard + Auth Bridge).
@@ -250,7 +275,48 @@ features behind an active subscription.
 .app/.pkg/.dmg) + 10.0 (cloud licensing / SaaS storefront) shipped — full
 product-to-customer pipeline operational.**
 
-### Storefront delivery — Squarespace Commerce Digital Products (chosen Feb 2026)
+### v32.0.0 — Tauri native shell (CURRENT FOCUS, 2026-06-21)
+
+**User direction (locked):** the app must launch from a desktop icon
+into a single chromeless window with NO browser chrome, NO tabs, NO
+URL bar — LYRX karaoke software is the visual reference. The browser
++ VBS launcher era ends with v32.0.0.
+
+**Status:**
+- ✅ Scaffold landed: `src-tauri/` (Tauri 2.x Rust project), icons,
+  capabilities, splash.html, sidecar packaging spec.
+- ✅ GitHub Actions workflow `.github/workflows/release.yml` builds on
+  `windows-latest`, `macos-13` (Intel), `macos-14` (Apple Silicon).
+  Trigger: push tag `v32.*` OR manual `workflow_dispatch`.
+- ✅ `scripts/build_sidecar.py` — PyInstaller freezer for the backend.
+- ⏳ First end-to-end CI build (requires user to push to GitHub +
+  enable Actions).
+- ⏳ Apple Developer ID signing + notarization for the macOS DMG
+  (avoids Gatekeeper warning). Secrets `APPLE_CERTIFICATE`,
+  `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` need to land in the
+  repo's Actions secrets.
+- ⏳ Code-sign the Windows NSIS installer (`BIGHAT_SIGNING_CERT_PFX` +
+  `BIGHAT_SIGNING_PASSWORD` already supported by the legacy script;
+  needs wiring into the Tauri Actions workflow).
+- ⏳ Custom title bar (LYRX-style, fully chromeless) — Phase 2 polish
+  after the basic shell works. Current Tauri scaffold uses
+  `decorations: true` (clean Windows chrome) to keep the first build
+  predictable.
+- ⏳ `.bighat` file association registers `BIGHatEntertainment.exe %1`
+  with the Tauri shell argv-forwarding logic (already present in
+  `src-tauri/src/lib.rs::extract_open_file_arg`).
+- ⏳ Migrator: detect v31.x install dir on first v32.0.0 launch,
+  prompt to uninstall v31.x cleanly, copy `backend/data/` over.
+
+### v31.x maintenance (stable line until v32.0.0 ships)
+
+- 🟢 P3 — Customer / License Admin Dashboard (manage licenses, HWIDs,
+  revocations) — UI work blocks on Tauri shell decisions.
+- 🟢 P4 — Re-enable Music Bingo as paid add-on (flip
+  `ENABLE_MUSIC_BINGO=true`, gate on `owns_music_bingo`).
+- 🟢 P4 — Audit log for admin actions.
+
+### Storefront delivery — Squarespace Commerce Digital Products (Feb 2026)
 After friction with the unlinked `/download` page workflow, the user
 chose to attach all three installers (`BIGHatStandalone-Setup-31.0.0.exe`,
 `BIGHatEntertainment-31.0.0-macOS-AppleSilicon.zip`,

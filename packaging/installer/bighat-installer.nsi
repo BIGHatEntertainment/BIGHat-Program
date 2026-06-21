@@ -138,6 +138,16 @@ Section "Core (required)" SEC_CORE
   ;      confusing. ----
   Delete "$INSTDIR\BIGHat.exe"
 
+  ; ---- Clean stale frontend bundle BEFORE writing new files. ----
+  ; CRA produces hashed JS filenames (main.<hash>.js). If a prior install
+  ; left `backend/static/static/js/main.<oldhash>.js`, NSIS's File /r
+  ; doesn't delete it — it just lays the new one alongside. The new
+  ; index.html points to the NEW hash, so functionally fine, but it
+  ; wastes ~3MB per upgrade AND historically caused a different bug
+  ; class: stale source maps confusing customer-side debugging. Nuke
+  ; the static subtree so each install is byte-clean.
+  RMDir /r "$INSTDIR\backend\static"
+
   SetOutPath "$INSTDIR"
   SetOverwrite on
   File /r "${SOURCE_ROOT}\*.*"

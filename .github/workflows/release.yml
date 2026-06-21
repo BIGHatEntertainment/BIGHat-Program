@@ -1,0 +1,137 @@
+name: Release Tauri builds
+
+# Triggers on:
+#   - Any tag starting with v32, e.g. v32.0.0
+#   - Manual dispatch from the Actions UI (handy for dry-running the workflow
+#     against a branch without cutting a real release)
+on:
+  push:
+    tags:
+      - 'v32.*'
+      - 'v33.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to tag the release (e.g. 32.0.0)'
+        required: true
+        type: string
+      draft:
+        description: 'Create the release as a draft'
+        required: false
+        default: 'true'
+        type: string
+
+permissions:
+  contents: write   # required to create/update GitHub Releases
+
+jobs:
+  build-tauri:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows (x86_64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - label: macOS (Apple Silicon)
+            os: macos-14
+            target: aarch64-apple-darwin
+            bundles: dmg,app
+          - label: macOS (Intel)
+            os: macos-13
+            target: x86_64-apple-darwin
+            bundles: dmg,app
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            V="${{ inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V"
+
+      - name: Sync VERSION.txt and tauri.conf.json
+        shell: bash
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          echo "$V" > backend/VERSION.txt
+          # Patch the Tauri config so the bundle metadata matches the tag.
+          python -c "
+          import json, pathlib
+          p = pathlib.Path('src-tauri/tauri.conf.json')
+          c = json.loads(p.read_text())
+          c['version'] = '$V'
+          p.write_text(json.dumps(c, indent=2))
+          "
+          cat backend/VERSION.txt
+          python -c "import json; print('tauri version:', json.load(open('src-tauri/tauri.conf.json'))['version'])"
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ${{ matrix.target }}
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build frontend (relative URLs)
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: ''
+        run: yarn build
+
+      - name: Freeze Python sidecar via PyInstaller
+        run: python scripts/build_sidecar.py --target ${{ matrix.target }}
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip macOS code signing in CI for now; we'll wire in
+          # APPLE_CERTIFICATE / APPLE_ID secrets in a later iteration.
+          APPLE_SIGNING_IDENTITY: ''
+        with:
+          tagName: v${{ steps.ver.outputs.version }}
+          releaseName: 'BIG Hat Entertainment v${{ steps.ver.outputs.version }}'
+          releaseBody: |
+            Native Tauri desktop builds.
+
+            - Windows: `BIGHatEntertainment-Setup-${{ steps.ver.outputs.version }}.exe`
+            - macOS (Apple Silicon): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_aarch64.dmg`
+            - macOS (Intel): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_x64.dmg`
+
+            See CHANGELOG.md for the full notes.
+          releaseDraft: ${{ inputs.draft == 'true' || github.event_name == 'workflow_dispatch' }}
+          prerelease: false
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

@@ -7,36 +7,133 @@
 
 ---
 
-## NEVER-DO RULES (locked in by user 2026-05-20)
+## NEW DIRECTION (locked in by user 2026-06-21) — Tauri native shell
 
-1. **THE APP MUST NEVER OPEN IN A REGULAR BROWSER TAB.** Not Chrome with
-   tabs, not Edge with tabs, not Firefox, not anything that shows a URL
-   bar / bookmarks bar / tab strip to the user. The user has been
-   explicit about this multiple times across multiple builds. If you
-   find yourself calling `webbrowser.open_new()` or `WshShell.Run
-   "http://..."` as the PRIMARY launch path, you are wrong.
+The browser-tab + VBS launcher model is being retired. The user's
+target experience is **LYRX-style**: a single chromeless desktop
+window with no browser chrome whatsoever, launched from a desktop
+icon. v32.0.0 ships the **Tauri** shell that replaces the VBS launcher
+and `webbrowser.open_new()` entirely.
 
-2. **The ONLY acceptable window for the app on Windows is a chromeless
-   Chromium window via `msedge.exe --app=URL` (or Chrome / Brave with
-   the same flag).** This gives a frameless window with no tab bar, no
-   URL bar, no menu. It looks indistinguishable from a native window.
-   It's what Slack / Discord / Notion's desktop apps do. Default-browser
-   fallback is acceptable ONLY when no Chromium-family browser is
-   present on the machine (which is essentially never on Windows 11 —
-   Edge is preinstalled).
+Until v32.0.0 lands, **v31.x continues to ship the VBS → default-browser
+launcher** and must remain stable. All NEVER-DO RULES below still apply
+to v31.x; v32.0.0 supersedes them by replacing the launcher entirely.
+
+---
+
+## NEVER-DO RULES (locked in by user 2026-05-20, scoped to v31.x)
+
+1. **THE v31.x APP MUST NEVER OPEN IN A REGULAR BROWSER TAB without
+   the user's default-browser approval.** This was relaxed in v31.0.6
+   to "default-browser handoff IS acceptable" because the chromeless
+   `--app=` mode caused two customer-blocking blank-screen incidents
+   (v31.0.3 and v31.0.13). v32.0.0 (Tauri) is the long-term answer.
+
+2. **DO NOT REINSTATE `msedge.exe --app=URL`, Chrome `--app=`, or
+   `pywebview` ANYWHERE in the v31.x launcher chain.** Guarded by
+   `backend/tests/test_launcher_vbs_contract.py`.
 
 3. **The launch sequence MUST be: spawn backend → wait for port →
-   open the chromeless window.** Not "spawn backend AND open window
-   in parallel" — that's the race that broke v31.0.3.
-   `packaging\start_bighat.vbs` owns this sequencing today.
+   open browser/window.** Not "spawn backend AND open in parallel" —
+   that's the race that broke v31.0.3. `packaging\start_bighat.vbs`
+   owns this sequencing in v31.x; the Tauri shell will own it in
+   v32.0.0.
 
 4. **THE INSTALLER'S FINISH-PAGE CHECKBOX MUST AUTO-LAUNCH THE APP.**
    v31.0.4 had the run-function defined but it didn't fire. Today it
    uses the direct `MUI_FINISHPAGE_RUN` + `MUI_FINISHPAGE_RUN_PARAMETERS`
-   pattern, which is the reliable NSIS MUI 2 idiom. If you change the
-   wiring, smoke-test that the checkbox actually fires on install.
+   pattern, which is the reliable NSIS MUI 2 idiom.
 
 ---
+
+## v31.0.15 — 2026-06-21 (Critical: blank window — undefined `<Cloud />` icon)
+
+**User report**: "the newest release still shows up blank in the window.
+there's a blue background and then absolutely nothing." Console
+screenshot exposed the true root cause that v31.0.14 missed:
+
+```
+Uncaught ReferenceError: Cloud is not defined
+    at $Q (SetupWizard.jsx:573:24)
+```
+
+### Root cause
+
+`SetupWizard.jsx` line 573 rendered `<Cloud />` (a lucide-react icon)
+but never imported `Cloud`. React threw immediately on mount → blank
+page (the deep-blue background is `body { background-color: #000e2a }`
+from `index.css`, painted before React errors out).
+
+Why didn't the previous build catch it? **`frontend/craco.config.js`
+overrode the eslint config to ONLY enable `react-hooks/recommended`,
+silently dropping `react/jsx-no-undef` and `no-undef` from the
+release-build's lint pass.** A second instance of the same bug
+(`locationName` referenced in a `catch` after being declared in `try`
+at `PresentationMode.jsx:271`) was hiding in the same blind spot.
+
+### Fix
+
+1. `frontend/src/pages/SetupWizard.jsx` — added `Cloud` to the
+   `lucide-react` imports.
+2. `frontend/src/components/trivia/editor/PresentationMode.jsx` —
+   hoisted `locationName` out of the `try` block so the `catch`
+   branch can reference it.
+3. `frontend/craco.config.js` — pinned `no-undef` and
+   `react/jsx-no-undef` as hard ESLint errors for the build, plus
+   declared the browser/node/jest globals the codebase actually uses.
+   A missing import now FAILS the build, not the customer's machine.
+4. `backend/tests/test_frontend_no_undef.py` — new pytest that runs
+   ESLint 9 in flat-config mode and fails on any `no-undef` /
+   `react/jsx-no-undef` violation. Self-verified: when `Cloud` is
+   removed, the test fails with the exact line that caused this
+   incident.
+
+### Release
+
+- VERSION bumped to 31.0.15.
+- Frontend bundle rebuilt with `REACT_APP_BACKEND_URL=""` (new hash
+  `main.8333f78f.js`) — verified the JS now contains an import for
+  `Cloud` and renders the SetupWizard without throwing.
+- v32.0.0 (Tauri) work begins in parallel — see next section.
+
+---
+
+## v32.0.0 — IN PROGRESS — Tauri native shell
+
+User reference image: LYRX karaoke software (provided 2026-06-21). The
+target is a fully chromeless, single-window native app launched from a
+desktop icon — no browser, no tabs, no URL bar.
+
+### Architecture
+
+- `src-tauri/` — Rust + Tauri 2.x project. Spawns the Python backend
+  as a sidecar, polls `127.0.0.1:8001`, then loads the React app in a
+  borderless WebView2 (Windows) / WKWebView (macOS) window.
+- Frontend (React) is unchanged — the same `frontend/build/` bundle
+  is loaded over `http://127.0.0.1:8001/` so all FastAPI routes work
+  identically to v31.x.
+- VBS launcher is retired in v32.0.0. The `.bighat` file association
+  rewires to `BIGHatTauri.exe %1` instead of `wscript.exe ... %1`.
+- Build pipeline: GitHub Actions on Windows + macOS runners produce
+  `BIGHatEntertainment-Setup-{version}.exe` (MSI/NSIS via Tauri
+  bundler) and `BIGHatEntertainment-{version}.dmg`. Local
+  `publish_github_release.py` is replaced by the Actions
+  `release.yml` workflow.
+
+### Status (2026-06-21)
+
+- [x] User approved Path A (GitHub Actions builds)
+- [ ] `src-tauri/` scaffold (Cargo.toml, tauri.conf.json, main.rs)
+- [ ] `.github/workflows/release.yml` (build + release on tag push)
+- [ ] Sidecar bundling: ship the embedded CPython tree as a Tauri
+      sidecar so the backend boots without an external Python install
+- [ ] File-association handoff (`.bighat` double-click)
+- [ ] Migration installer that uninstalls v31.x cleanly before placing
+      the Tauri build
+
+---
+
+
 
 ## v31.0.14 — 2026-05-27 (Critical: blank window on launch — Edge `--app=` mode regression)
 

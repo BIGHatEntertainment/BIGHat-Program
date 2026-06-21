@@ -25,10 +25,67 @@ if (config.enableHealthCheck) {
 let webpackConfig = {
   eslint: {
     configure: {
+      // IMPORTANT: keep `no-undef` and `react/jsx-no-undef` as ERRORS.
+      // Without these, a missing icon import (e.g. <Cloud />) compiles
+      // silently into a ReferenceError at runtime — which is what
+      // happened in v31.0.14 and caused the blank-window incident.
+      // See CHANGELOG 31.0.15.
       extends: ["plugin:react-hooks/recommended"],
+      plugins: ["react"],
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+      env: { browser: true, node: true, es2022: true, jest: true },
       rules: {
         "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",
+        "no-undef": "error",
+        "react/jsx-no-undef": "error",
+      },
+      globals: {
+        // Browser globals that ESLint env=browser already covers, but pin
+        // the ones our codebase touches in case the env preset shifts.
+        window: "readonly",
+        document: "readonly",
+        navigator: "readonly",
+        WebSocket: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        FormData: "readonly",
+        Blob: "readonly",
+        File: "readonly",
+        FileReader: "readonly",
+        XMLHttpRequest: "readonly",
+        fetch: "readonly",
+        localStorage: "readonly",
+        sessionStorage: "readonly",
+        atob: "readonly",
+        btoa: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        requestAnimationFrame: "readonly",
+        cancelAnimationFrame: "readonly",
+        console: "readonly",
+        alert: "readonly",
+        confirm: "readonly",
+        prompt: "readonly",
+        process: "readonly",
+        crypto: "readonly",
+        AbortController: "readonly",
+        IntersectionObserver: "readonly",
+        ResizeObserver: "readonly",
+        MutationObserver: "readonly",
+        AudioContext: "readonly",
+        Audio: "readonly",
+        Image: "readonly",
+        HTMLElement: "readonly",
+        HTMLAudioElement: "readonly",
+        HTMLVideoElement: "readonly",
+        HTMLInputElement: "readonly",
       },
     },
   },

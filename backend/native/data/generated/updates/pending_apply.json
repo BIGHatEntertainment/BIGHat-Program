@@ -2,6 +2,6 @@
   "version": "31.1.0",
   "bundle_path": "/app/backend/native/data/generated/updates/bighat-31.1.0.zip",
   "unpacked_path": "/app/backend/native/data/generated/updates/31.1.0",
-  "scheduled_at": "2026-05-06T12:55:15.926104+00:00",
-  "previous_version": "31.0.0"
+  "scheduled_at": "2026-06-21T12:52:30.712836+00:00",
+  "previous_version": "31.0.15"
 }

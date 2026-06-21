@@ -227,9 +227,10 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     }
 
     setIsSavingScores(true);
+    let locationName = 'Unknown';
     try {
       // Get location name — try multiple sources
-      const locationName = (() => {
+      locationName = (() => {
         // Source 1: Presentation name pattern (e.g., "WP Gilbert - 2/5/2026" or "Monkey Pants - 2/9/2026")
         const presName = localStorage.getItem('currentPresentationName') || '';
         const nameMatch = presName.match(/^(.+?)\s*-\s*\d/);

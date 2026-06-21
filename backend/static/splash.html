@@ -1,0 +1,108 @@
+<!doctype html>
+<!--
+  BIG Hat Entertainment — Tauri splash screen.
+
+  Shown while the Rust shell waits for the bundled Python backend's
+  /health endpoint to start responding. The Rust setup() block calls
+  `window.location.replace('http://127.0.0.1:<port>/')` once the
+  backend is healthy, replacing this splash with the full React app.
+
+  Keep this file SELF-CONTAINED — no external scripts, no fetches, no
+  axios. If the backend never starts, this page is the user's last
+  diagnostic surface.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BIG Hat Entertainment</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000e2a;
+      color: #efe8d9;
+      font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      overflow: hidden;
+    }
+    .stage {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 32px;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(251,221,104,0.06), transparent 60%),
+        radial-gradient(circle at 80% 80%, rgba(89,115,247,0.10), transparent 55%),
+        #000e2a;
+    }
+    .logo {
+      width: 140px;
+      height: 140px;
+      filter: drop-shadow(0 8px 24px rgba(251,221,104,0.25));
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    .wordmark {
+      font-family: 'Anton', 'Impact', sans-serif;
+      font-size: 56px;
+      letter-spacing: 4px;
+      color: #fbdd68;
+      margin: 0;
+      text-shadow: 0 4px 18px rgba(0,0,0,0.45);
+    }
+    .tagline {
+      font-size: 13px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: #8892b0;
+      margin: 0;
+    }
+    .progress {
+      width: 260px;
+      height: 4px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      width: 40%;
+      background: linear-gradient(90deg, transparent, #fbdd68, transparent);
+      animation: slide 1.6s ease-in-out infinite;
+      border-radius: 999px;
+    }
+    #splash-status {
+      font-size: 12px;
+      color: #8892b0;
+      letter-spacing: 1px;
+      min-height: 16px;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.05); opacity: 0.85; }
+    }
+    @keyframes slide {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage" role="status" aria-live="polite">
+    <img class="logo" src="/hat-logo.png" alt="BIG Hat" />
+    <div>
+      <p class="wordmark">BIG HAT</p>
+      <p class="tagline">Entertainment Host Console</p>
+    </div>
+    <div class="progress" aria-hidden="true"></div>
+    <p id="splash-status">Starting up…</p>
+  </div>
+</body>
+</html>
