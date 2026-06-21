@@ -109,6 +109,12 @@ jobs:
         working-directory: frontend
         env:
           REACT_APP_BACKEND_URL: ''
+          # GitHub Actions sets CI=true, which makes CRA treat ALL warnings
+          # (including react-hooks/exhaustive-deps, which we've intentionally
+          # downgraded to warnings) as errors. Unset it for the build step
+          # only. Real undefined-reference bugs are still pinned as hard
+          # errors by frontend/craco.config.js — see CHANGELOG v31.0.15.
+          CI: ''
         run: yarn build
 
       - name: Freeze Python sidecar via PyInstaller
