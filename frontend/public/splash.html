@@ -27,8 +27,64 @@
       font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       overflow: hidden;
     }
-    .stage {
+
+    /* ----- Chromeless title bar (matches React TitleBar.jsx contract) ----- */
+    .titlebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(180deg, #0a1428 0%, #07112a 100%);
+      border-bottom: 1px solid rgba(251, 221, 104, 0.18);
+      z-index: 10;
+      user-select: none;
+      -webkit-app-region: drag;
+      app-region: drag;
+    }
+    .titlebar__brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      pointer-events: none;
+    }
+    .titlebar__brand img { width: 20px; height: 20px; }
+    .titlebar__brand span {
+      font-family: 'Anton', 'Impact', sans-serif;
+      font-size: 12px;
+      letter-spacing: 2.5px;
+      color: #fbdd68;
+      text-transform: uppercase;
+    }
+    .titlebar__controls {
+      display: flex;
       height: 100%;
+      -webkit-app-region: no-drag;
+      app-region: no-drag;
+    }
+    .titlebar__btn {
+      width: 46px;
+      height: 36px;
+      background: transparent;
+      border: 0;
+      color: #cfd6e8;
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .titlebar__btn:hover { background: rgba(251, 221, 104, 0.12); color: #fbdd68; }
+    .titlebar__btn--close:hover { background: #d92638; color: #fff; }
+
+    /* ----- Stage ----- */
+    .stage {
+      position: absolute;
+      inset: 36px 0 0 0;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -95,6 +151,23 @@
   </style>
 </head>
 <body>
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="titlebar__brand" data-tauri-drag-region>
+      <img src="/hat-logo.png" alt="" draggable="false" />
+      <span>BIG HAT ENTERTAINMENT</span>
+    </div>
+    <div class="titlebar__controls">
+      <button class="titlebar__btn" id="btn-min" aria-label="Minimize" title="Minimize">
+        <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1" fill="currentColor"/></svg>
+      </button>
+      <button class="titlebar__btn" id="btn-max" aria-label="Maximize" title="Maximize">
+        <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg>
+      </button>
+      <button class="titlebar__btn titlebar__btn--close" id="btn-close" aria-label="Close" title="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+    </div>
+  </div>
   <div class="stage" role="status" aria-live="polite">
     <img class="logo" src="/hat-logo.png" alt="BIG Hat" />
     <div>
@@ -104,5 +177,27 @@
     <div class="progress" aria-hidden="true"></div>
     <p id="splash-status">Starting up…</p>
   </div>
+  <script>
+    // Wire window controls — uses the Tauri 2.x global exposed by withGlobalTauri=true.
+    (function() {
+      function getWin() {
+        const w = window.__TAURI__;
+        if (!w) return null;
+        return (w.window && w.window.getCurrentWindow && w.window.getCurrentWindow())
+            || (w.getCurrentWindow && w.getCurrentWindow())
+            || null;
+      }
+      function safe(fn) {
+        return function() {
+          const win = getWin();
+          if (!win) return;
+          try { fn(win); } catch (e) { /* swallow */ }
+        };
+      }
+      document.getElementById('btn-min').addEventListener('click', safe(w => w.minimize()));
+      document.getElementById('btn-max').addEventListener('click', safe(w => w.toggleMaximize()));
+      document.getElementById('btn-close').addEventListener('click', safe(w => w.close()));
+    })();
+  </script>
 </body>
 </html>

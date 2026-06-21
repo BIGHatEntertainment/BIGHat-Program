@@ -22,7 +22,7 @@
         "resizable": true,
         "maximized": false,
         "fullscreen": false,
-        "decorations": true,
+        "decorations": false,
         "transparent": false,
         "alwaysOnTop": false,
         "visible": true,

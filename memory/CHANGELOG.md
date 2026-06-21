@@ -123,13 +123,43 @@ desktop icon — no browser, no tabs, no URL bar.
 ### Status (2026-06-21)
 
 - [x] User approved Path A (GitHub Actions builds)
-- [ ] `src-tauri/` scaffold (Cargo.toml, tauri.conf.json, main.rs)
-- [ ] `.github/workflows/release.yml` (build + release on tag push)
-- [ ] Sidecar bundling: ship the embedded CPython tree as a Tauri
-      sidecar so the backend boots without an external Python install
-- [ ] File-association handoff (`.bighat` double-click)
+- [x] `src-tauri/` scaffold (Cargo.toml, tauri.conf.json, main.rs)
+- [x] `.github/workflows/release.yml` (build + release on tag push)
+- [x] Sidecar builder (`scripts/build_sidecar.py`) — PyInstaller freezes
+      `backend/launcher.py` per Rust target triple
+- [x] **Phase 2 (2026-06-21): Chromeless title bar.** `tauri.conf.json`
+      now has `decorations: false` on the main window. New
+      `frontend/src/components/TitleBar.jsx` renders a 36px slim dark
+      navy bar with hat logo + "BIG HAT ENTERTAINMENT" wordmark on the
+      left, and minimize/maximize/close buttons on the right. Whole bar
+      is `data-tauri-drag-region` except the buttons. Auto-detects
+      Tauri runtime so dev-preview browsers stay clean. `splash.html`
+      mirrors the same chrome with vanilla JS+CSS. Self-tested via
+      Playwright with a fake `window.__TAURI__` global — title bar
+      renders, body padding pushes routes down, all three controls
+      expose the right `data-testid` hooks. Locked by
+      `backend/tests/test_tauri_titlebar_contract.py` (4 checks).
+- [ ] File-association handoff (`.bighat` double-click) — Rust
+      `extract_open_file_arg()` already in place; needs end-to-end test.
 - [ ] Migration installer that uninstalls v31.x cleanly before placing
-      the Tauri build
+      the Tauri build.
+
+### Pending issue from v31.0.15 customer test (deferred to v32 cycle)
+
+After installing v31.0.15 on a clean Windows machine, the user's React
+app mounted (verifying the `Cloud is not defined` fix) but axios calls
+to `/api/native/info` returned `Network Error` (no response from
+127.0.0.1:8001 after 5 retries). Crash log was EMPTY → uvicorn didn't
+raise an exception. Likely causes: (1) uvicorn cold-start race where
+the VBS launcher's port-bound check passes before all routes finish
+registering, (2) Windows Defender / firewall intercepting localhost
+connections to embedded Python on first run, (3) some
+process-tree-related quirk specific to `wscript.exe + pythonw.exe`
+spawning. The user chose to deprioritise this and skip ahead to v32.0.0
+since the Tauri shell will spawn the backend differently (PyInstaller
+single-binary sidecar via Rust, not pythonw.exe via VBS), making the
+underlying cause moot for the v32 release. Re-investigate ONLY if v32
+Phase 1 (first end-to-end CI build) hits the same Network Error.
 
 ---
 
