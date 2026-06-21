@@ -226,7 +226,7 @@ pub fn run() {
                         .title("BIG Hat — backend failed to start")
                         .buttons(MessageDialogButtons::Ok)
                         .blocking_show();
-                    app.exit(1);
+                    app.handle().exit(1);
                     return Err(Box::new(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         format!("sidecar spawn failed: {e}"),
