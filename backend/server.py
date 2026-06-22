@@ -1973,6 +1973,17 @@ except Exception as e:
 # Cloud licensing service (Phase 10.0). Gated by BIGHAT_CLOUD_MODE=1; this is
 # ONLY enabled when the container is deployed as `api.bighat.live`, never when
 # the same codebase runs inside a desktop installer (BIGHAT_NATIVE_MODE=1).
+#
+# The diagnostic /api/license/health endpoint is registered UNCONDITIONALLY
+# below so operators can curl-check the prod pod and see immediately why the
+# webhook → email pipeline is or isn't ready (Phase 10.5 / 2026-06-22 hotfix).
+try:
+    from cloud.health_router import router as cloud_health_router
+    app.include_router(cloud_health_router)
+    logger.info("Cloud licensing diagnostic registered at /api/license/health (always on)")
+except Exception as e:
+    logger.error("FATAL: could not load Cloud licensing diagnostic router: %s", e)
+
 try:
     from cloud.config import is_cloud_mode
     if is_cloud_mode():
@@ -1997,12 +2008,42 @@ try:
         app.include_router(cloud_router)
         app.include_router(cloud_admin_router)
         app.include_router(cloud_download_landing_router)
-        logger.info("Cloud licensing router registered at /api/license/* + /api/squarespace/webhook "
-                    "(Resend %s)", "enabled" if _license_email.enabled else "DISABLED (no RESEND_API_KEY)")
+
+        # LOUD startup banner — single curl-able place to confirm prod is wired.
+        from cloud import config as _cloud_config
+        _resend_state = "ENABLED" if _license_email.enabled else "DISABLED (no RESEND_API_KEY — license emails will NOT send)"
+        _wh_secret = "SET" if _cloud_config.squarespace_webhook_secret() else "MISSING (webhook will accept unsigned requests — DEV ONLY)"
+        logger.info("=" * 70)
+        logger.info("CLOUD LICENSING SERVICE: ONLINE")
+        logger.info("  Routes:               /api/license/* + /api/squarespace/webhook")
+        logger.info("  Resend (emails):      %s", _resend_state)
+        logger.info("  Webhook signature:    %s", _wh_secret)
+        logger.info("  Sender:               %s", _cloud_config.sender_email())
+        logger.info("  Brand URL:            %s", _cloud_config.brand_base_url())
+        logger.info("  SKUs: standalone=%s cloud=%s music_bingo=%s karaoke=%s",
+                    _cloud_config.SKU_STANDALONE, _cloud_config.SKU_CLOUD_LIBRARY,
+                    _cloud_config.SKU_MUSIC_BINGO, _cloud_config.SKU_KARAOKE)
+        logger.info("  Diagnostic:           GET /api/license/health")
+        logger.info("=" * 70)
     else:
-        logger.info("BIGHAT_CLOUD_MODE != 1; cloud licensing routes NOT registered")
+        # Loud warning: in any deployment where BIGHAT_CLOUD_MODE is NOT '1',
+        # the license email pipeline is silently off. Spell this out instead
+        # of a single info line, because it's the #1 production foot-gun.
+        logger.warning("=" * 70)
+        logger.warning("CLOUD LICENSING SERVICE: OFFLINE (BIGHAT_CLOUD_MODE != 1)")
+        logger.warning("  /api/license/*               will return 404/405")
+        logger.warning("  /api/squarespace/webhook     will return 404/405")
+        logger.warning("  License emails:               WILL NOT SEND")
+        logger.warning("  Diagnostic:                   GET /api/license/health")
+        logger.warning("  If this is api.bighat.live → set BIGHAT_CLOUD_MODE=1")
+        logger.warning("=" * 70)
 except Exception as e:
-    logger.warning(f"Could not load Cloud licensing router: {e}")
+    # In cloud mode this MUST surface — silent warnings are how prod broke.
+    if os.environ.get("BIGHAT_CLOUD_MODE") == "1":
+        logger.error("FATAL: cloud mode is enabled but cloud router FAILED to load: %s", e)
+        logger.exception("Cloud router import traceback:")
+    else:
+        logger.warning(f"Could not load Cloud licensing router: {e}")
 
 
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
