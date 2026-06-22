@@ -115,6 +115,21 @@ def main(argv: list[str] | None = None) -> int:
         "--collect-all", "passlib",
         "--collect-all", "jose",
         "--collect-all", "montydb",
+        # Hidden imports the native router needs (PyInstaller often misses
+        # these — they're the usual cause of "Setup Wizard 405 Method Not
+        # Allowed" because native/router.py fails to import inside the bundle).
+        "--collect-all", "bcrypt",
+        "--collect-all", "email_validator",
+        "--collect-all", "dns",                  # dnspython (used by email_validator)
+        "--collect-all", "httpx",                # used by cloud_client.py
+        "--collect-all", "httpcore",
+        "--collect-all", "h11",
+        "--collect-all", "anyio",
+        "--collect-all", "sniffio",
+        "--collect-all", "idna",
+        "--hidden-import", "email_validator",
+        "--hidden-import", "bcrypt",
+        "--hidden-import", "httpx",
         "--collect-submodules", "native",
         "--collect-submodules", "routes",
         "--collect-submodules", "cloud",

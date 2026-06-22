@@ -1936,12 +1936,26 @@ app.include_router(api_router)
 # ===== NATIVE-STANDALONE module (Phase 0) =====
 # Mounts /api/native/* endpoints (setup wizard, license, HWID, subscription).
 # Additive only \u2014 does not modify any existing webapp behaviour.
+#
+# CRITICAL: this router contains the Setup Wizard's /setup/initialize and
+# /license/cloud/activate endpoints. If it fails to import in a PyInstaller
+# bundle (a missing hidden import is the usual cause), the desktop app's
+# Setup Wizard hits "Method Not Allowed" (the SPA fallback catches the URL
+# as GET-only). We MUST surface that traceback so the next build can fix it.
+_native_router_loaded = False
+_native_router_error: str = ""
 try:
     from native.router import router as native_router
     app.include_router(native_router)
+    _native_router_loaded = True
     logger.info("Native-Standalone router registered at /api/native/*")
 except Exception as e:
-    logger.warning(f"Could not load Native-Standalone router: {e}")
+    _native_router_error = repr(e)
+    if os.environ.get("BIGHAT_NATIVE_MODE") == "1":
+        logger.error("FATAL: BIGHAT_NATIVE_MODE=1 but Native-Standalone router FAILED to load: %s", e)
+        logger.exception("Native router import traceback (Setup Wizard will 405 until fixed):")
+    else:
+        logger.warning(f"Could not load Native-Standalone router: {e}")
 
 
 # v31.0.13: SharePoint Hybrid Sync router removed.
@@ -2072,6 +2086,53 @@ except Exception as e:
 @app.get("/health")
 async def root_health():
     return {"status": "healthy"}
+
+
+# Always-on diagnostic for the Setup Wizard. Mirrors /api/license/health.
+# When the desktop app's native router fails to import inside a PyInstaller
+# bundle, the Setup Wizard renders "Method Not Allowed" because the SPA
+# fallback catches /api/native/setup/initialize as GET-only. This endpoint
+# always exists, so the user can curl http://127.0.0.1:8001/api/native/__status
+# to confirm in one step whether the routes are mounted.
+@app.get("/api/native/__status", include_in_schema=False)
+async def _native_status():
+    return {
+        "ok": True,
+        "native_router_loaded": _native_router_loaded,
+        "native_router_error": _native_router_error,
+        "native_mode_enabled": os.environ.get("BIGHAT_NATIVE_MODE") == "1",
+        "hint": (
+            "Routes mounted. Setup Wizard should work."
+            if _native_router_loaded
+            else "Native router failed to import — Setup Wizard will 405. "
+                 "Check backend logs for traceback (likely a missing PyInstaller "
+                 "hidden import: bcrypt, email_validator, dnspython, or httpx)."
+        ),
+    }
+
+# Catch-all for /api/* POST/PUT/DELETE/PATCH that aren't matched by any router.
+# Without this, the SPA GET-only fallback (below) produces a `405 Method Not
+# Allowed` for missing API endpoints — exactly the cryptic error the Setup
+# Wizard rendered when the native router failed to load.
+@app.api_route("/api/{full_path:path}",
+               methods=["POST", "PUT", "DELETE", "PATCH"],
+               include_in_schema=False)
+async def _api_not_found(full_path: str):
+    detail = {
+        "error": "api_route_not_found",
+        "path": f"/api/{full_path}",
+        "native_router_loaded": _native_router_loaded,
+        "hint": (
+            "This endpoint exists in the source code but isn't mounted in "
+            "this build. Most common cause: PyInstaller-bundled sidecar failed "
+            "to import a router. Run `curl http://127.0.0.1:8001/api/native/__status` "
+            "for the traceback."
+            if not _native_router_loaded
+            else "Endpoint does not exist on this server."
+        ),
+    }
+    raise HTTPException(status_code=503 if not _native_router_loaded else 404,
+                        detail=detail)
 
 
 # ===== Phase 9: SPA static bundle =====
