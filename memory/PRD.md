@@ -54,6 +54,29 @@ features behind an active subscription.
   in a `slides_files` MontyDB collection; metadata in `slides_metadata`.
 
 ## Implemented (with dates)
+- **2026-06-22** — **Phase 10.5: production webhook → email pipeline hardening.**
+  Production `api.bighat.live` was returning `405 Method Not Allowed` on
+  `POST /api/license/activate` and the Squarespace webhook never fired
+  Resend emails. Root cause confirmed via `curl`: prod was running with
+  `BIGHAT_NATIVE_MODE=1` and `BIGHAT_CLOUD_MODE` unset, so the entire
+  `/api/license/*` + `/api/squarespace/webhook` router never mounted.
+  The `LicenseService.mint_*` → email path was correct; only the routes
+  hosting it were absent. Fixes: (a) new always-on
+  `backend/cloud/health_router.py` exposing `GET /api/license/health` —
+  returns `ready: bool` + `blockers: [str]` so an operator can curl-diagnose
+  prod without pod shell access; (b) loud startup banner in `server.py`
+  (`CLOUD LICENSING SERVICE: ONLINE/OFFLINE`); cloud-router import
+  failures now `logger.error` + `logger.exception` instead of silent
+  warnings; (c) `packaging/PRODUCTION_DEPLOY_CHECKLIST.md` — single
+  source of truth for env vars Squarespace setup + post-deploy smoke
+  tests; (d) `backend/tests/test_phase10_5_webhook_email_pipeline.py`
+  — **8 new tests** locking the contract: signed webhook → mint + 1
+  Resend email, replay idempotency (no second email), bad signature
+  → 401, multi-SKU cart → all tiers + one email, RESEND_API_KEY missing
+  → mint succeeds with loud warning. **107/107 cloud + license tests
+  pass.** Deployment_agent re-checked → no blockers (the previous
+  "missing supervisor.conf" alert was a false positive — Emergent
+  auto-generates it).
 - **2026-06-21** — **v31.0.15: Blank-window root cause + ESLint guardrails**
   (`<Cloud />` icon referenced in `SetupWizard.jsx` without being
   imported → `Uncaught ReferenceError` on React mount, fully blanking
