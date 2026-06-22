@@ -193,17 +193,26 @@ def _load_env() -> None:
         os.environ["BIGHAT_CLOUD_MODE"] = "0"
 
     # ---- Defaults for env vars server.py reads via os.environ['...'] ----
-    # These MUST be set before `from server import app` runs. server.py
-    # currently reads `os.environ['MONGO_URL']` (raises KeyError on miss);
-    # the auth/seed module reads DEFAULT_HOST_PASSWORD and
-    # ADMIN_MASTER_PASSCODE (warns + generates random on miss, which means
-    # every relaunch invalidates the host password — broken UX).
+    # These MUST be set before `from server import app` runs.
+    #
+    # server.py line ~51 calls `AsyncIOMotorClient(MONGO_URL)` BEFORE native
+    # mode swaps the client for MontyDB — so MONGO_URL must be a syntactically
+    # valid `mongodb://...` URI even though the connection is never made.
+    # alpha.7 set it to a Windows path, which made pymongo's URI parser
+    # interpret `C:\Users\...` as a host with a garbage port and crash:
+    #   ValueError: Port must be an integer between 0 and 65535:
+    #                '\\Users\\sella\\AppData\\Local\\BIGHat\\data\\montydb'
     USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
     montydb_dir = USER_DATA_DIR / "montydb"
     montydb_dir.mkdir(parents=True, exist_ok=True)
-    # MontyDB accepts a filesystem path as MONGO_URL; the existing native
-    # build was already using this scheme in dev. See backend/native/db.py.
-    os.environ.setdefault("MONGO_URL", str(montydb_dir))
+    # Overwrite a malformed MONGO_URL (e.g. alpha.7 persisted a raw Windows
+    # path instead of a URI, which crashed pymongo's parser).
+    existing_mongo = os.environ.get("MONGO_URL", "")
+    if not existing_mongo.startswith(("mongodb://", "mongodb+srv://")):
+        if existing_mongo:
+            logger.info("[launcher] overwriting non-URI MONGO_URL=%r with placeholder URI", existing_mongo)
+        os.environ["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+    os.environ.setdefault("MONTYDB_DATA_DIR", str(montydb_dir))
     os.environ.setdefault("DB_NAME", "bighat")
 
     # Per-install random secrets — generated on first run, persisted to the
@@ -228,8 +237,9 @@ def _load_env() -> None:
             existing = persisted_env.read_text(encoding="utf-8") if persisted_env.is_file() else ""
             keys_present = {line.split("=", 1)[0] for line in existing.splitlines() if "=" in line}
             new_lines = []
-            for k in ("MONGO_URL", "DB_NAME", "DEFAULT_HOST_PASSWORD",
-                      "ADMIN_MASTER_PASSCODE", "JWT_SECRET"):
+            for k in ("MONGO_URL", "MONTYDB_DATA_DIR", "DB_NAME",
+                      "DEFAULT_HOST_PASSWORD", "ADMIN_MASTER_PASSCODE",
+                      "JWT_SECRET"):
                 if k not in keys_present:
                     new_lines.append(f"{k}={os.environ[k]}")
             if new_lines:
