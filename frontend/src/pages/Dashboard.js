@@ -115,7 +115,13 @@ export default function Dashboard() {
         navigate('/story-generator');
         break;
       case 'sponsor-portal':
-        window.open('https://sponsor.bighat.live', '_blank');
+        // (legacy id kept as no-op for safety with cached resource cards)
+        break;
+      case 'update':
+        navigate('/update');
+        break;
+      case 'files':
+        navigate('/files');
         break;
       case 'schedule':
         navigate('/schedule');

@@ -7,6 +7,47 @@
 
 ---
 
+## 2026-06-23 — Phase 10.11: Sponsor Portal removed + Update/Files tools added
+
+**Customer-visible changes in the Business section of the dashboard:**
+
+1. **Removed** the "Sponsor Portal" tile — no longer needed for this product.
+2. **New "Update" tile** (`/update`) — manual update checker. Shows the
+   installed version + latest available, fetches the manifest from the
+   cloud, surfaces "What's new" release notes as a plain bulleted list,
+   and lets the user click "Download update" to pre-stage it. The actual
+   install step still routes to Admin → Updates (master-admin gated) so
+   non-admins can't apply updates by accident. Works offline-tolerant:
+   any network error renders a friendly "make sure you're connected"
+   message instead of a stack trace.
+3. **New "Files" tile** (`/files`) — `.bighat` file manager. Lists, uploads,
+   downloads, and deletes files in the user's local store. The store
+   lives at:
+     - Windows: `%USERPROFILE%\Documents\BIGHat Entertainment\Files`
+     - macOS:   `~/Documents/BIGHat Entertainment/Files`
+     - Linux:   `~/Documents/BIGHat Entertainment/Files` (or `~/BIGHat Entertainment/Files` fallback)
+   The folder is auto-created on first access; the UI shows the absolute
+   path so the customer knows where to look. Filename validation rejects
+   path traversal and non-`.bighat` extensions; uploads cap at 50 MB.
+
+### Files changed
+- `frontend/src/components/ResourcesSection.js` — removed sponsor-portal, added update + files tiles
+- `frontend/src/pages/Dashboard.js` — routing dispatch for the two new tiles
+- `frontend/src/pages/UpdateTool.jsx` (NEW)
+- `frontend/src/pages/FilesTool.jsx` (NEW)
+- `frontend/src/App.js` — new `/update` and `/files` routes inside `<ProtectedRoute>`
+- `backend/native/files_router.py` (NEW) — 5 endpoints: GET /folder, GET /, POST /upload, GET /download/{name}, DELETE /{name}
+- `backend/server.py` — mounts the new files router
+
+### Live-verified backend
+```
+$ curl /api/native/files/folder → {ok:true, folder:"<homedir>/BIGHat Entertainment/Files", platform:"Linux"}
+$ curl -F file=@test.bighat /api/native/files/upload → {ok:true, name:"test.bighat", size_bytes:13}
+$ curl /api/native/files → {ok:true, count:1, files:[{name:"test.bighat", ...}]}
+```
+
+
+
 ## 2026-06-23 — Phase 10.10: alpha.10 rebuild from minimal diff
 
 **The first alpha.10 crashed on launch.** I had over-synced this session's changes into the installer bundle — cloud server changes (squarespace_poller, email URL fix, cloud-mode-wins, admin mint email, downloads resolver) got bundled into the PyInstaller sidecar where they don't belong AND aren't needed. On top of that, the `Main-Tauri-Updates` branch HEAD also had post-alpha.9 changes to `backend/launcher.py` (138 LOC diff) + `src-tauri/src/lib.rs` (346 LOC diff) + `tauri.conf.json` (31 LOC diff) + a stray `backend/pptx_parser.so` from someone's local Linux dev environment. Any one of those alone could crash the Tauri shell at sidecar spawn time.

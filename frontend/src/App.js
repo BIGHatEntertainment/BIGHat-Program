@@ -22,6 +22,8 @@ import ScoreboardLiveRender from './pages/scoreboard/LiveRender';
 import StoryGeneratorPage from './pages/story/StoryGeneratorPage';
 import SetupWizard from './pages/SetupWizard';
 import LicenseApiLanding from './pages/LicenseApiLanding';
+import UpdateTool from './pages/UpdateTool';
+import FilesTool from './pages/FilesTool';
 import { Toaster } from './components/ui/sonner';
 import { TitleBar } from './components/TitleBar';
 import './index.css';
@@ -132,6 +134,8 @@ function AppRoutes() {
         <Route path="/setup" element={<SetupWizard />} />
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/update" element={<ProtectedRoute><UpdateTool /></ProtectedRoute>} />
+        <Route path="/files" element={<ProtectedRoute><FilesTool /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
         <Route path="/schedule" element={<ProtectedRoute><SchedulingPage /></ProtectedRoute>} />
         <Route path="/schedule/admin" element={<ProtectedRoute><ScheduleAdminPage /></ProtectedRoute>} />

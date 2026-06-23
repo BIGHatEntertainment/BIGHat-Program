@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shuffle, Wand2, Zap, Grid3X3, Calendar, Instagram, Trophy, GraduationCap, Handshake } from 'lucide-react';
+import { Shuffle, Wand2, Zap, Grid3X3, Calendar, Instagram, Trophy, GraduationCap, Download, FolderOpen } from 'lucide-react';
 
 const resourceCategories = [
   {
@@ -33,7 +33,8 @@ const resourceCategories = [
     title: 'Business',
     color: '#FFC107',
     tools: [
-      { id: 'sponsor-portal', name: 'Sponsor Portal', description: 'Manage sponsors and partnerships', icon: Handshake },
+      { id: 'update', name: 'Update', description: 'Check for new features and updates', icon: Download },
+      { id: 'files', name: 'Files', description: 'Manage your saved .bighat files', icon: FolderOpen },
     ]
   }
 ];

@@ -2005,6 +2005,15 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Native updates router: {e}")
 
+# Native .bighat files router (Phase 10.11). Lets the user save/load .bighat
+# files in a folder on their machine (Documents/BIGHat Entertainment/Files).
+try:
+    from native.files_router import router as files_router
+    app.include_router(files_router)
+    logger.info("Native files router registered at /api/native/files/*")
+except Exception as e:
+    logger.warning(f"Could not load Native files router: {e}")
+
 
 # Cloud licensing service (Phase 10.0). Gated by BIGHAT_CLOUD_MODE=1; this is
 # ONLY enabled when the container is deployed as `api.bighat.live`, never when
