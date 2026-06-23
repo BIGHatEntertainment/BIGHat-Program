@@ -166,26 +166,8 @@ async def mint_key(
         owns_karaoke=req.owns_karaoke,
         cloud_library_months=req.cloud_library_months,
         note=req.note,
-        send_email=req.send_email,
     )
     return _to_view(lic)
-
-
-@router.post("/keys/{key}/resend-email")
-async def resend_email(
-    key: str = Path(..., min_length=8, max_length=64),
-    _admin: str = Depends(_require_admin),
-) -> dict:
-    """Re-send the standard license-key email for an existing key.
-    Used by support when a customer reports they didn't receive (or lost)
-    the original email — turns a 30-second ticket into a single curl /
-    button click."""
-    svc = _require_service()
-    ok, message = await svc.resend_license_email(key=key)
-    if not ok:
-        raise HTTPException(status_code=404 if message == "unknown_key" else 500,
-                            detail=message)
-    return {"ok": True, "key": key, "message": message}
 
 
 @router.post("/keys/{key}/revoke", response_model=AdminKeyView)

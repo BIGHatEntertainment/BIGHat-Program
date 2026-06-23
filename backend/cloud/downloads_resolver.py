@@ -92,76 +92,20 @@ def _fetch_latest_release() -> dict:
     return data
 
 
-# Asset-name matchers (case-insensitive). Each entry is
-# (required_extensions, required_substrings, forbidden_substrings).
-# An asset is picked only if its lowered filename ends with one of the
-# extensions AND contains at least one required substring AND contains
-# none of the forbidden substrings.
-#
-# This precision is important: real release filenames like
-# `BIG.Hat.Entertainment_32.0.0-alpha.9_x64-setup.exe` contain BOTH
-# "x64" (which we want for Intel Mac) and ".exe" (Windows). A naive
-# substring match would route Intel Mac users to the Windows installer.
-# Likewise, `..._aarch64.app.tar.gz` (Tauri auto-updater bundle) and
-# `..._aarch64.dmg` (user installer) both contain "aarch64" — we must
-# prefer the .dmg.
-_MATCHERS: dict[str, dict[str, tuple[str, ...]]] = {
-    "windows": {
-        "ext":      (".exe", ".msi", ".zip"),
-        "needles":  ("windows", "win", "x64", "x86_64", "amd64"),
-        "forbids":  (".dmg", ".tar.gz", ".pkg", "macos", "darwin", "applesilicon"),
-    },
-    "macos_apple": {
-        "ext":      (".dmg", ".pkg", ".zip"),
-        "needles":  ("aarch64", "arm64", "applesilicon", "apple-silicon", "apple_silicon"),
-        "forbids":  (".tar.gz", ".exe", ".msi", "windows"),
-    },
-    "macos_intel": {
-        "ext":      (".dmg", ".pkg", ".zip"),
-        # "x64" alone is dangerous — it appears in Windows filenames like
-        # `app_x64-setup.exe`. We rely on `forbids` to filter out Windows
-        # binaries and on `.ext` to filter out the wrong file format.
-        "needles":  ("intel", "x86_64"),
-        "forbids":  (".tar.gz", ".exe", ".msi", "aarch64", "arm64", "applesilicon", "windows"),
-    },
+# Asset-name matchers (case-insensitive substring).
+_MATCHERS: dict[str, tuple[str, ...]] = {
+    "windows":     ("windows", ".exe"),
+    "macos_apple": ("macos-applesilicon", "applesilicon", "arm64", "aarch64"),
+    "macos_intel": ("macos-intel", "-intel", "x86_64", "x64"),
 }
 
 
 def _pick_asset(assets: list[dict], platform_key: str) -> Optional[dict]:
-    rules = _MATCHERS.get(platform_key)
-    if not rules:
-        return None
-
-    # Self-identifying extensions: a `.exe` is ALWAYS Windows; a `.dmg` is
-    # ALWAYS macOS. Ambiguous extensions like `.zip` need a needle match.
-    unambiguous_ext: dict[str, set[str]] = {
-        "windows":     {".exe", ".msi"},
-        "macos_apple": {".dmg", ".pkg"},
-        "macos_intel": {".dmg", ".pkg"},
-    }
-    self_id = unambiguous_ext.get(platform_key, set())
-
-    def _passes_forbids(name: str) -> bool:
-        return not (rules["forbids"] and any(f in name for f in rules["forbids"]))
-
-    # Iterate by EXTENSION PRIORITY — first listed wins. For each extension,
-    # accept the first asset that (a) passes forbids and (b) either is a
-    # self-identifying extension OR has a positive arch needle.
-    #
-    # This is what makes `.exe` win for Windows even when its filename
-    # lacks the word "windows" (e.g. `BIGHatStandalone-Setup.exe`), while
-    # also making `.zip` only win when it carries a positive needle.
-    for ext in rules["ext"]:
-        for a in assets:
-            name = (a.get("name") or "").lower()
-            if not name.endswith(ext):
-                continue
-            if not _passes_forbids(name):
-                continue
-            if ext in self_id:
-                return a
-            if any(n in name for n in rules["needles"]):
-                return a
+    needles = _MATCHERS.get(platform_key, ())
+    for a in assets:
+        name = (a.get("name") or "").lower()
+        if any(n in name for n in needles):
+            return a
     return None
 
 

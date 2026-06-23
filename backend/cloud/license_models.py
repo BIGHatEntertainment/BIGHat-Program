@@ -125,10 +125,6 @@ class MintKeyRequest(BaseModel):
     owns_karaoke: bool = False
     cloud_library_months: int = 0         # grants N months of subscription
     note: str = ""
-    # When True (default), the customer receives the standard license-key
-    # email — same template as the Squarespace poller path. Pass False
-    # for comp keys you intend to hand-deliver out of band.
-    send_email: bool = True
 
 
 class AdminKeyView(BaseModel):

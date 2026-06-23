@@ -31,6 +31,27 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent
 DEFAULT_PORT = int(os.environ.get("BIGHAT_PORT", "8001"))
 
+
+def _user_data_dir() -> Path:
+    """Per-user writable data dir. Used in BOTH dev and PyInstaller-frozen
+    modes so the embedded sqlite / .env / logs survive across upgrades and
+    don't try to write into Program Files (which is read-only for
+    non-elevated processes).
+
+    Layout:
+      • Windows: %LOCALAPPDATA%\\BIGHat\\data
+      • macOS:   ~/Library/Application Support/BIGHat/data
+      • Linux:   ~/.local/share/BIGHat/data  (dev container)
+    """
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "BIGHat" / "data"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "BIGHat" / "data"
+    return Path.home() / ".local" / "share" / "BIGHat" / "data"
+
+
+USER_DATA_DIR = _user_data_dir()
 logger = logging.getLogger("bighat-launcher")
 
 
@@ -47,10 +68,17 @@ def _ensure_data_dirs() -> None:
     from `native.config.config_manager` which owns the canonical defaults.
     """
     # 1. Crash-log destination — guaranteed-write before anything else.
-    try:
-        (BACKEND_DIR / "data" / "logs").mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        logger.warning(f"Could not pre-create data/logs/: {e}")
+    # In frozen mode BACKEND_DIR is read-only (_MEIxxxx temp dir), so we
+    # fall back to USER_DATA_DIR. In dev BACKEND_DIR is writable and
+    # mirrors the legacy layout, so we still create that one too.
+    crash_dirs = [USER_DATA_DIR / "logs"]
+    if not getattr(sys, "frozen", False):
+        crash_dirs.append(BACKEND_DIR / "data" / "logs")
+    for d in crash_dirs:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.warning(f"Could not pre-create {d}: {e}")
 
     # 2. Application data directories from system_config.json
     try:
@@ -139,12 +167,22 @@ def _bootstrap_env_from_template() -> Path | None:
 
 
 def _load_env() -> None:
-    """Load backend/.env if present, then force native mode."""
+    """Load backend/.env if present, then force native mode + ensure every
+    env var server.py reads has a sane writable default.
+
+    In a PyInstaller-frozen sidecar `BACKEND_DIR` points at a read-only
+    `_MEIxxxxxx` temp dir, so `.env` can't live there. We set defaults
+    that point at the user-writable data dir instead — this is exactly
+    what alpha.6 was missing (KeyError: 'MONGO_URL' on server.py:50).
+    """
     _bootstrap_env_from_template()
     _quarantine_dev_seed_if_present()
     try:
         from dotenv import load_dotenv  # type: ignore
         load_dotenv(BACKEND_DIR / ".env")
+        # Also look in the per-user data dir — that's where the .env lives
+        # for frozen installs (BACKEND_DIR is _MEI temp).
+        load_dotenv(USER_DATA_DIR / ".env")
     except Exception as e:
         logger.warning(f"dotenv not loaded: {e}")
     os.environ.setdefault("BIGHAT_NATIVE_MODE", "1")
@@ -153,6 +191,69 @@ def _load_env() -> None:
     # always wins on a desktop install.
     if os.environ.get("BIGHAT_NATIVE_MODE") == "1":
         os.environ["BIGHAT_CLOUD_MODE"] = "0"
+
+    # ---- Defaults for env vars server.py reads via os.environ['...'] ----
+    # These MUST be set before `from server import app` runs.
+    #
+    # server.py line ~51 calls `AsyncIOMotorClient(MONGO_URL)` BEFORE native
+    # mode swaps the client for MontyDB — so MONGO_URL must be a syntactically
+    # valid `mongodb://...` URI even though the connection is never made.
+    # alpha.7 set it to a Windows path, which made pymongo's URI parser
+    # interpret `C:\Users\...` as a host with a garbage port and crash:
+    #   ValueError: Port must be an integer between 0 and 65535:
+    #                '\\Users\\sella\\AppData\\Local\\BIGHat\\data\\montydb'
+    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    montydb_dir = USER_DATA_DIR / "montydb"
+    montydb_dir.mkdir(parents=True, exist_ok=True)
+    # Overwrite a malformed MONGO_URL (e.g. alpha.7 persisted a raw Windows
+    # path instead of a URI, which crashed pymongo's parser).
+    existing_mongo = os.environ.get("MONGO_URL", "")
+    if not existing_mongo.startswith(("mongodb://", "mongodb+srv://")):
+        if existing_mongo:
+            logger.info("[launcher] overwriting non-URI MONGO_URL=%r with placeholder URI", existing_mongo)
+        os.environ["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+    os.environ.setdefault("MONTYDB_DATA_DIR", str(montydb_dir))
+    os.environ.setdefault("DB_NAME", "bighat")
+
+    # Per-install random secrets — generated on first run, persisted to the
+    # per-user .env so reinstalls / upgrades don't invalidate the master
+    # admin password.
+    persisted_env = USER_DATA_DIR / ".env"
+    needs_persist = False
+    if not os.environ.get("DEFAULT_HOST_PASSWORD"):
+        import secrets as _s
+        os.environ["DEFAULT_HOST_PASSWORD"] = _s.token_urlsafe(12)
+        needs_persist = True
+    if not os.environ.get("ADMIN_MASTER_PASSCODE"):
+        import secrets as _s
+        os.environ["ADMIN_MASTER_PASSCODE"] = _s.token_urlsafe(12)
+        needs_persist = True
+    if not os.environ.get("JWT_SECRET"):
+        import secrets as _s
+        os.environ["JWT_SECRET"] = _s.token_hex(32)
+        needs_persist = True
+    if needs_persist:
+        try:
+            existing = persisted_env.read_text(encoding="utf-8") if persisted_env.is_file() else ""
+            keys_present = {line.split("=", 1)[0] for line in existing.splitlines() if "=" in line}
+            new_lines = []
+            for k in ("MONGO_URL", "MONTYDB_DATA_DIR", "DB_NAME",
+                      "DEFAULT_HOST_PASSWORD", "ADMIN_MASTER_PASSCODE",
+                      "JWT_SECRET"):
+                if k not in keys_present:
+                    new_lines.append(f"{k}={os.environ[k]}")
+            if new_lines:
+                with persisted_env.open("a", encoding="utf-8") as f:
+                    if existing and not existing.endswith("\n"):
+                        f.write("\n")
+                    f.write("\n".join(new_lines) + "\n")
+                try:
+                    persisted_env.chmod(0o600)
+                except OSError:
+                    pass
+                logger.info("[launcher] persisted generated secrets to %s", persisted_env)
+        except OSError as e:
+            logger.warning("[launcher] could not persist env to %s: %s", persisted_env, e)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -252,8 +353,13 @@ def _write_crashlog(exc: BaseException) -> Path:
     """Write the current exception traceback to a stable log location and
     return that path so the dialog can point the customer at it."""
     import traceback
-    log_dir = BACKEND_DIR / "data" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    # Prefer the user-writable data dir; fall back to BACKEND_DIR for dev.
+    log_dir = USER_DATA_DIR / "logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        log_dir = BACKEND_DIR / "data" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "launcher_crash.log"
     try:
         with log_path.open("a", encoding="utf-8") as f:
@@ -284,13 +390,27 @@ def _start_uvicorn_in_thread(host: str, port: int, *, reload: bool) -> threading
     when the parent process exits."""
     import uvicorn  # type: ignore
 
+    # IMPORTANT: PyInstaller-frozen sidecars don't have `server.py` sitting
+    # on disk for uvicorn to import by string. Import the ASGI app object
+    # ourselves and hand uvicorn the live object instead. This works in
+    # both dev (python launcher.py) AND in the v32 Tauri PyInstaller
+    # sidecar. See CHANGELOG v32.0.0-alpha.6.
+    # reload= requires a string import target, so we only support reload
+    # when not frozen.
+    if reload and not getattr(sys, "frozen", False):
+        target: object = "server:app"
+    else:
+        if reload:
+            logger.warning("--reload ignored: not supported inside a PyInstaller-frozen sidecar")
+        from server import app as target  # type: ignore[no-redef]
+
     def _run():
         try:
             uvicorn.run(
-                "server:app",
+                target,  # type: ignore[arg-type]
                 host=host,
                 port=port,
-                reload=reload,
+                reload=reload and not getattr(sys, "frozen", False),
                 log_level="info",
                 log_config=None,
                 access_log=False,

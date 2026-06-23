@@ -39,7 +39,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "dmg", "app"],
+    "targets": [
+      "nsis",
+      "msi",
+      "dmg",
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -53,15 +58,17 @@
     "externalBin": [
       "binaries/bighat-backend"
     ],
-    "copyright": "© BH Entertainment",
+    "copyright": "\u00a9 BH Entertainment",
     "category": "Productivity",
-    "shortDescription": "BIG Hat Entertainment — Host Command Center",
+    "shortDescription": "BIG Hat Entertainment \u2014 Host Command Center",
     "longDescription": "Trivia, Bingo, and Scoreboard tools for live event hosts. Fully offline-capable with optional cloud sync.",
     "publisher": "BH Entertainment",
     "homepage": "https://bighat.live",
     "fileAssociations": [
       {
-        "ext": ["bighat"],
+        "ext": [
+          "bighat"
+        ],
         "name": "BIG Hat round file",
         "description": "Portable BIG Hat round / bingo / scoreboard archive",
         "role": "Editor",
@@ -76,10 +83,14 @@
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installMode": "perMachine",
-        "languages": ["English"]
+        "languages": [
+          "English"
+        ]
       },
       "wix": {
-        "language": ["en-US"]
+        "language": [
+          "en-US"
+        ]
       }
     },
     "macOS": {
@@ -90,7 +101,9 @@
       "entitlements": null
     },
     "linux": {
-      "deb": { "depends": [] }
+      "deb": {
+        "depends": []
+      }
     }
   },
   "plugins": {
