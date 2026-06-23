@@ -1,0 +1,75 @@
+name: Auto-tag on VERSION.txt change
+
+# Whenever a commit lands on main (or master) that bumps `backend/VERSION.txt`,
+# automatically create and push a matching `v<version>` git tag. That tag
+# push then triggers `release.yml` which builds Windows + Mac installers and
+# publishes them to GitHub Releases.
+#
+# Net result: the merchant only has to click "Save to GitHub" in Emergent
+# after a version bump — no CLI, no manual tag creation, no GitHub Actions
+# UI dance. The whole release pipeline is one click away.
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'backend/VERSION.txt'
+
+permissions:
+  contents: write   # required to push tags
+
+jobs:
+  tag-and-release:
+    name: Auto-tag from VERSION.txt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # need full history so we can inspect tags
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: |
+          V="$(cat backend/VERSION.txt | tr -d ' \t\n\r')"
+          if [ -z "$V" ]; then
+            echo "::error::backend/VERSION.txt is empty"
+            exit 1
+          fi
+          # Reject anything that doesn't look like a semver-ish version
+          # (e.g. random junk in the file shouldn't try to cut a release).
+          if ! echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::backend/VERSION.txt content '$V' is not a valid semver"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V"  >> "$GITHUB_OUTPUT"
+          echo "Will tag: v$V"
+
+      - name: Skip if tag already exists
+        id: skip
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::warning::Tag $TAG already exists; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "::warning::Tag $TAG already exists on origin; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.skip.outputs.skip != 'true'
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG (auto-tagged from backend/VERSION.txt)"
+          git push origin "$TAG"
+          echo "Pushed $TAG — release.yml will pick it up and build installers."
