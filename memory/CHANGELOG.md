@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-06-23 — Phase 10.8: download-link fix + asset-resolver hardening
+
+**P0 customer-facing bug:** First real Squarespace buyer (sellards@bighat.live,
+license `BHE-E7GX-VGTT-TGGP-8S2G`) received the license email — pipeline
+end-to-end works! — but the "Download BIG Hat Entertainment" button linked
+to `https://bighat.live/download`, which is the Squarespace marketing
+site and returns a 404 page. The actual download landing + smart redirect
+live on `api.bighat.live`, not on the marketing domain.
+
+### Fixes
+1. **`backend/cloud/email_service.py`** — the license-key email's HTML
+   button + text body now point to
+   `{LICENSE_API_BASE_URL}/api/downloads/auto?key={key}` (smart OS-aware
+   redirect to the right GitHub Releases artifact). The manual-pick
+   fallback link goes to `{LICENSE_API_BASE_URL}/download`. The
+   Squarespace `bighat.live/download` 404 URL is now permanently banned
+   from email templates by regression test.
+
+2. **`backend/.env`** — added `GITHUB_OWNER=BIGHatEntertainment` and
+   `GITHUB_REPO=BIGHat-Program`. Before this, the resolver fell back to
+   default version "31.0.0" with null artifact URLs, so the email's
+   download link would have bounced to `/download?missing=windows`.
+
+3. **`backend/cloud/downloads_resolver.py`** — full rewrite of the
+   asset-name matcher. The old naive substring match conflated:
+   * Windows `_x64-setup.exe` ↔ macOS Intel (both contain "x64")
+   * macOS Apple `_aarch64.dmg` ↔ Tauri updater `_aarch64.app.tar.gz`
+     (both contain "aarch64")
+   New rules are extension-aware + forbid-list-aware + needle-aware
+   with self-identifying-extension fallback:
+   * `.exe`/`.msi` is ALWAYS Windows (no arch needle required)
+   * `.dmg`/`.pkg` is ALWAYS macOS (arch needle disambiguates aarch64 vs intel)
+   * `.zip` is ambiguous — needle required to disambiguate
+   * `.tar.gz` is FORBIDDEN for end-user downloads (Tauri updater format)
+
+4. **Tests:**
+   * `backend/tests/test_phase10_8_email_download_links.py` (6 tests) —
+     locks in the email URL contract. `bighat.live/download` is now
+     a banned substring; CI will fail any future refactor that
+     reintroduces it.
+   * `backend/tests/test_phase10_8b_downloads_precision.py` (8 tests) —
+     uses real v32.0.0-alpha.9 asset names as fixtures. Asserts that:
+       - Windows UA never gets the `.dmg`
+       - macOS UA never gets the Windows `.exe`
+       - macOS Apple never gets the Tauri `.app.tar.gz` updater
+       - `?platform=macos_intel` returns missing (no false fallback to .exe)
+   * **93/93 cloud + setup + downloads + poller tests green.**
+
+### Live verification (preview pod against real GitHub release)
+```
+$ curl /api/downloads/auto -A "Windows" → .../v32.0.0-alpha.9_x64-setup.exe  ✓
+$ curl /api/downloads/auto -A "Apple Silicon Mac" → .../v32.0.0-alpha.9_aarch64.dmg  ✓
+$ curl /api/downloads/auto?platform=macos_intel → /download?missing=macos_intel  ✓
+```
+
+### Lifetime-key activation guarantee
+Verified end-to-end that a `owns_standalone=true` license is permanent:
+* No expiration date on the LicenseKey model for standalone tier
+* `activate()` and `validate()` have NO expiry checks for standalone
+* 30-day offline grace covers transient network failures
+* Standalone features (`story_generator_enabled`) are hard-coded as
+  never-network-gated in `subscription.is_premium_active()`
+* Phase 10.7's cloud-mode-wins-over-native-mode fix prevents the
+  redeploy-wipes-license-DB bug from recurring.
+
+### What customers experience now
+1. Buy on Squarespace → poller picks up the order within 120s
+2. Resend emails the key + a working download button
+3. Click the button → auto-redirects to the right binary for their OS
+4. Install + activate → key is bound (lifetime) + features unlocked
+5. Future redeploys preserve all keys (MongoDB persistence)
+
+
+
 ## 2026-06-23 — Phase 10.7: production data-loss + offline-setup hot-fix
 
 **P0 production-data-loss bug.** User installed v32.0.0-alpha.9, entered
