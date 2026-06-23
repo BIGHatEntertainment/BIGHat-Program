@@ -109,18 +109,34 @@ jobs:
         working-directory: frontend
         env:
           REACT_APP_BACKEND_URL: ''
+          # GitHub Actions sets CI=true, which makes CRA treat ALL warnings
+          # (including react-hooks/exhaustive-deps, which we've intentionally
+          # downgraded to warnings) as errors. Unset it for the build step
+          # only. Real undefined-reference bugs are still pinned as hard
+          # errors by frontend/craco.config.js — see CHANGELOG v31.0.15.
+          CI: ''
         run: yarn build
 
       - name: Freeze Python sidecar via PyInstaller
+        env:
+          # `emergentintegrations` (Emergent's LLM SDK used by the Story
+          # Generator) is hosted on a private CDN — not on public PyPI.
+          # The dev container has this URL pinned in pip.conf; GitHub
+          # runners don't, so set it explicitly here.
+          PIP_EXTRA_INDEX_URL: https://d33sy5i8bnduwe.cloudfront.net/simple/
         run: python scripts/build_sidecar.py --target ${{ matrix.target }}
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Skip macOS code signing in CI for now; we'll wire in
-          # APPLE_CERTIFICATE / APPLE_ID secrets in a later iteration.
-          APPLE_SIGNING_IDENTITY: ''
+          # No Apple Developer ID cert yet — `-` triggers ad-hoc signing,
+          # which lets the .app + .dmg bundle without erroring. Users will
+          # still see the Gatekeeper warning on first launch (right-click
+          # → Open). Real signing + notarization is a future task; needs
+          # APPLE_CERTIFICATE / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # secrets to land in repo Actions settings first.
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           tagName: v${{ steps.ver.outputs.version }}
           releaseName: 'BIG Hat Entertainment v${{ steps.ver.outputs.version }}'
