@@ -74,6 +74,13 @@ class SetupInitRequest(BaseModel):
     master_admin: SetupMasterAdmin
     settings: SetupSettings
     paths: Optional[SetupPaths] = None
+    # When true, skip the authoritative cloud activate call entirely and
+    # complete setup with the license flagged as `pending_cloud_activation`.
+    # The 4-hour background refresh job will retry activation later. This
+    # is the only safe response when the cloud reports `unknown_key` for a
+    # key the user knows is valid (e.g. they just bought it and a DB-wipe
+    # redeploy lost the record, or the user is genuinely offline).
+    offline_mode: bool = False
 
 
 class LicenseSetRequest(BaseModel):
@@ -166,31 +173,42 @@ async def initialize_setup(payload: SetupInitRequest):
 
     # 1. Cloud activation (authoritative). Do this BEFORE writing local state
     #    so a 4xx from the cloud doesn't leave a half-finished config behind.
-    cloud_resp = await cloud_client.activate(
-        license_key=key,
-        hwid=hwid,
-        machine_name=f"Setup Wizard — {payload.master_admin.first_name}",
-        email=admin_email,
-    )
-    pending_cloud = False
-    if not cloud_resp.get("ok"):
-        if cloud_resp.get("error") in ("timeout", "network_error", "server_error"):
-            # Offline-tolerant: accept setup, retry later.
-            pending_cloud = True
-            logger.info(
-                "[setup] cloud activation deferred (%s); will retry in background",
-                cloud_resp.get("error"),
-            )
-        else:
-            # Authoritative rejection — unknown key, revoked, seat limit, etc.
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error":       cloud_resp.get("error", "license_rejected"),
-                    "message":     cloud_resp.get("message", "License could not be activated."),
-                    "status_code": cloud_resp.get("status_code"),
-                },
-            )
+    #
+    # `offline_mode=True` skips this entirely — the wizard's "Continue offline"
+    # button sends this flag so an authoritative cloud rejection (e.g.
+    # `unknown_key` from a wiped DB) doesn't trap the user. The local copy
+    # is marked `pending_cloud_activation` and retried by the 4-hour refresh
+    # job once the cloud is reachable + the key has been (re-)minted.
+    if payload.offline_mode:
+        cloud_resp = {"ok": False, "error": "offline_mode_requested", "skipped": True}
+        pending_cloud = True
+        logger.info("[setup] offline_mode requested by client; skipping cloud activate")
+    else:
+        cloud_resp = await cloud_client.activate(
+            license_key=key,
+            hwid=hwid,
+            machine_name=f"Setup Wizard — {payload.master_admin.first_name}",
+            email=admin_email,
+        )
+        pending_cloud = False
+        if not cloud_resp.get("ok"):
+            if cloud_resp.get("error") in ("timeout", "network_error", "server_error"):
+                # Offline-tolerant: accept setup, retry later.
+                pending_cloud = True
+                logger.info(
+                    "[setup] cloud activation deferred (%s); will retry in background",
+                    cloud_resp.get("error"),
+                )
+            else:
+                # Authoritative rejection — unknown key, revoked, seat limit, etc.
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error":       cloud_resp.get("error", "license_rejected"),
+                        "message":     cloud_resp.get("message", "License could not be activated."),
+                        "status_code": cloud_resp.get("status_code"),
+                    },
+                )
 
     # 2. Persist license + settings + master admin.
     set_license_key(key, admin_email)

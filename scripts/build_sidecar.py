@@ -73,6 +73,22 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"[sidecar] WARNING: {desktop_reqs} missing — sidecar may lack runtime deps")
 
+    # The CI workflow builds the React frontend into `frontend/build/`.
+    # The standalone server expects to serve those files from
+    # `<sidecar_root>/static/`. Copy them across right before freezing so
+    # the SPA mount in server.py finds them at runtime.
+    react_build = ROOT / "frontend" / "build"
+    backend_static = BACKEND / "static"
+    if react_build.is_dir():
+        # Mirror frontend/build/ -> backend/static/ (overwriting stale files)
+        if backend_static.exists():
+            shutil.rmtree(backend_static)
+        shutil.copytree(react_build, backend_static)
+        print(f"[sidecar] mirrored {react_build} -> {backend_static} "
+              f"({sum(1 for _ in backend_static.rglob('*') if _.is_file())} files)")
+    else:
+        print(f"[sidecar] WARNING: {react_build} not found — SPA bundle will be empty")
+
     work_dir = ROOT / "dist" / "sidecar-build"
     dist_dir = ROOT / "dist" / "sidecar-dist"
     spec_dir = ROOT / "dist" / "sidecar-spec"
@@ -99,6 +115,21 @@ def main(argv: list[str] | None = None) -> int:
         "--collect-all", "passlib",
         "--collect-all", "jose",
         "--collect-all", "montydb",
+        # Hidden imports the native router needs (PyInstaller often misses
+        # these — they're the usual cause of "Setup Wizard 405 Method Not
+        # Allowed" because native/router.py fails to import inside the bundle).
+        "--collect-all", "bcrypt",
+        "--collect-all", "email_validator",
+        "--collect-all", "dns",                  # dnspython (used by email_validator)
+        "--collect-all", "httpx",                # used by cloud_client.py
+        "--collect-all", "httpcore",
+        "--collect-all", "h11",
+        "--collect-all", "anyio",
+        "--collect-all", "sniffio",
+        "--collect-all", "idna",
+        "--hidden-import", "email_validator",
+        "--hidden-import", "bcrypt",
+        "--hidden-import", "httpx",
         "--collect-submodules", "native",
         "--collect-submodules", "routes",
         "--collect-submodules", "cloud",

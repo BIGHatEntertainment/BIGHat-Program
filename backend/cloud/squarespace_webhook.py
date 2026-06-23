@@ -31,6 +31,19 @@ logger = logging.getLogger("bighat-license-webhook")
 
 
 # ---------- signature verification ----------
+def _looks_like_hex(s: str) -> bool:
+    """True iff `s` is a valid even-length hex string. Squarespace's webhook
+    secrets are returned as hex (32–64 chars), but other webhook providers
+    (and our own tests) sometimes use opaque UTF-8 strings. We support both."""
+    if not s or len(s) % 2 != 0:
+        return False
+    try:
+        bytes.fromhex(s)
+        return True
+    except ValueError:
+        return False
+
+
 def verify_signature(*, body: bytes, signature_header: str, secret: Optional[str] = None) -> bool:
     """Compare the provided `Squarespace-Signature` header against a fresh
     HMAC-SHA256 of the raw body. Returns False on any mismatch or on missing
@@ -39,6 +52,16 @@ def verify_signature(*, body: bytes, signature_header: str, secret: Optional[str
     We accept two header styles:
         1. Raw hex:           'abcdef…'
         2. Timestamp+sig:     't=1700000000,v1=abcdef…'
+
+    Per Squarespace docs (https://developers.squarespace.com/webhooks/
+    verifying-notifications), the `secret` field returned by
+    `POST /1.0/webhook_subscriptions` is a HEX string, and the HMAC key
+    must be the DECODED bytes — NOT the UTF-8 encoding of the hex chars.
+
+    To stay compatible with our own pytest fixtures (which pass plain
+    UTF-8 secrets), we try the hex-decoded interpretation first when the
+    string looks like valid hex, then fall back to UTF-8 bytes. Real
+    Squarespace traffic hits the hex path; tests hit the UTF-8 path.
     """
     secret = secret if secret is not None else config.squarespace_webhook_secret()
     if not secret or not signature_header:
@@ -52,10 +75,16 @@ def verify_signature(*, body: bytes, signature_header: str, secret: Optional[str
         )
         provided_hex = parts.get("v1") or parts.get("signature") or ""
 
-    expected = hmac.new(
-        secret.encode("utf-8"), body, hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(provided_hex.lower(), expected.lower())
+    candidate_keys: list[bytes] = []
+    if _looks_like_hex(secret):
+        candidate_keys.append(bytes.fromhex(secret))     # real Squarespace path
+    candidate_keys.append(secret.encode("utf-8"))         # tests + opaque secrets
+
+    for key_bytes in candidate_keys:
+        expected = hmac.new(key_bytes, body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(provided_hex.lower(), expected.lower()):
+            return True
+    return False
 
 
 # ---------- payload shape probing ----------

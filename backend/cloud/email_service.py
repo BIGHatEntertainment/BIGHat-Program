@@ -40,8 +40,19 @@ _STYLE = """
 
 def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: bool,
                       owns_music_bingo: bool = False, owns_karaoke: bool = False) -> str:
+    # IMPORTANT: download links MUST point at api.bighat.live (the FastAPI
+    # pod that owns /api/downloads/auto and /download), NOT bighat.live
+    # (the Squarespace marketing site, which has no /download route and
+    # returns a 404 page).
+    #
+    # Encoding the customer's key into the download URL lets the landing
+    # page deep-link straight into the Setup Wizard via the
+    # `bighat://activate?key=…` protocol handler when the desktop app is
+    # installed — eliminates a copy-paste step.
+    api = config.api_base_url()
     brand = config.brand_base_url()
     support = config.support_email()
+    download_url = f"{api}/api/downloads/auto?key={key}"
     tier_line = []
     if owns_standalone:
         tier_line.append("✓ BIG Hat Entertainment (lifetime)")
@@ -62,7 +73,10 @@ def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: 
   <p class="small">{tier_html}</p>
   <hr class="divider"/>
   <p><strong>Get the app</strong></p>
-  <p><a class="btn" href="{brand}/download">Download BIG Hat Entertainment</a></p>
+  <p><a class="btn" href="{download_url}">Download BIG Hat Entertainment</a></p>
+  <p class="small">The button above auto-detects your OS and serves the latest installer
+     (Windows .exe or macOS .dmg). If it doesn't open the right one, pick manually at
+     <a href="{api}/download">{api.replace('https://','').replace('http://','')}/download</a>.</p>
   <p>On first launch, paste the key above into the Setup Wizard. The key binds
      to up to 3 machines (5 with an active Cloud Library subscription). All
      add-ons you've purchased unlock on every machine bound to this key. If
@@ -91,7 +105,8 @@ def _license_key_text(key: str, *, owns_standalone: bool, cloud_library_active: 
         f"Thanks for your purchase. Your license key is:\n\n"
         f"    {key}\n\n"
         f"Tier:\n{tier_s}\n\n"
-        f"Download the app at {config.brand_base_url()}/download\n"
+        f"Download the app at {config.api_base_url()}/api/downloads/auto?key={key}\n"
+        f"(or pick manually at {config.api_base_url()}/download)\n"
         f"Paste the key into the Setup Wizard on first launch.\n\n"
         f"The key binds to up to 3 machines (5 with an active Cloud Library\n"
         f"subscription). All add-ons unlock on every bound machine.\n"

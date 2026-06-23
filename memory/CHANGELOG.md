@@ -7,6 +7,393 @@
 
 ---
 
+## 2026-06-23 — v32.0.0-alpha.10 version bump
+
+- `backend/VERSION.txt`: `32.0.0-alpha.9` → `32.0.0-alpha.10`
+- `src-tauri/tauri.conf.json`: `32.0.0-alpha.9` → `32.0.0-alpha.10`
+- `packaging/RELEASE_NOTES_v32.0.0-alpha.10.md` — customer-facing release notes
+- `src-tauri/Cargo.toml` left at `32.0.0` (Cargo crate version is decoupled
+  from the Tauri bundle version; this matches the v32.0.0-alpha.9 setup)
+- CI `release.yml` auto-syncs both `VERSION.txt` and `tauri.conf.json` from
+  the git tag at build time, so these manual bumps are belt-and-suspenders
+  for local dev only.
+
+### What ships in alpha.10 (customer-visible)
+- Setup Wizard's **"Continue offline"** button actually works (Phase 10.7
+  `offline_mode: true` payload field)
+- Updated frontend that sends `offline_mode` to its bundled sidecar
+- (Server-side fixes from Phase 10.5 — 10.9 are already live on prod;
+  the installer doesn't need them — but customers downloading fresh get
+  the latest bundle hash anyway)
+
+### To publish
+```bash
+git tag v32.0.0-alpha.10
+git push origin v32.0.0-alpha.10
+```
+The release.yml workflow will build Windows + Apple Silicon Mac + Intel
+Mac artifacts and publish them to GitHub Releases. The prod download
+resolver picks up the new release within 5 minutes (cache TTL); customers
+clicking the email Download button after that point get the new installer.
+
+
+
+## 2026-06-23 — Phase 10.9: admin mint email bug + resend endpoint
+
+**P0 customer-impact bug:** When the merchant tried to test the pipeline
+by minting a comp key via `POST /api/license/admin/keys/mint`, the key
+was created in the DB but **no email was sent**. The Squarespace-poller
+mint path (`mint_standalone_purchase`) correctly emails — so paying
+customers ARE getting their licenses. But the admin/support mint path
+was silent. This is also why every "send me a comp key" support ticket
+in the future would have been a follow-up support ticket asking where
+the email went.
+
+### Root cause
+`mint_manual()` was the ONLY mint path in `license_service.py` that
+didn't call `self.email.send_license_key_email()`. Every other path
+(standalone, cloud subscription, add-on) emails correctly.
+
+### Fixes
+1. **`backend/cloud/license_service.py`** — `mint_manual()` now sends the
+   email by default. Added `send_email: bool = True` parameter so support
+   can opt out for hand-delivered comp keys (e.g., friends-and-family).
+   Both the fresh-mint branch and the upgrade-existing branch fire the
+   email when the flag is true.
+
+2. **`backend/cloud/license_service.py`** — new `resend_license_email(key)`
+   method. Looks up an existing license and re-fires the standard email.
+   Turns "I lost my license email" support tickets into a single-button
+   action.
+
+3. **`backend/cloud/admin_router.py`** — new endpoint
+   `POST /api/license/admin/keys/{key}/resend-email` calling the new
+   service method. JWT-gated like the rest of `/admin/*`.
+
+4. **`backend/cloud/license_models.py`** — `MintKeyRequest` now exposes
+   `send_email: bool = True`.
+
+5. **`backend/tests/test_phase10_9_admin_mint_email.py`** — 6 new tests:
+   * Fresh mint sends email by default
+   * Upgrade-existing path also sends email
+   * `send_email=False` skips the email
+   * `resend_license_email` for an existing key sends one email
+   * `resend_license_email` for unknown key returns False
+   * Resent email carries the full tier set (Cloud Library, all add-ons)
+
+   **88/88 cloud + setup + downloads + poller + admin tests green.**
+
+### Live recovery for the customer who hit this
+While the fix was being written, I sent the missing license email for
+`sellards@bighat.live` / key `BHE-BQNR-CUQG-AV5G-AGCY` directly via
+the Resend API from the preview pod — confirmed delivered.
+
+### Alpha-10 bump guidance
+Phase 10.7 added the `offline_mode: true` field to the Setup Wizard's
+POST. That code is bundled INSIDE the installer (React frontend +
+Python sidecar), so getting it to customers requires publishing a new
+GitHub release. Recommendation: cut `v32.0.0-alpha.10` whenever
+convenient; not blocking for online activation (which alpha.9 handles
+correctly), only for the "Continue offline" fallback path.
+
+
+
+## 2026-06-23 — Phase 10.8: download-link fix + asset-resolver hardening
+
+**P0 customer-facing bug:** First real Squarespace buyer (sellards@bighat.live,
+license `BHE-E7GX-VGTT-TGGP-8S2G`) received the license email — pipeline
+end-to-end works! — but the "Download BIG Hat Entertainment" button linked
+to `https://bighat.live/download`, which is the Squarespace marketing
+site and returns a 404 page. The actual download landing + smart redirect
+live on `api.bighat.live`, not on the marketing domain.
+
+### Fixes
+1. **`backend/cloud/email_service.py`** — the license-key email's HTML
+   button + text body now point to
+   `{LICENSE_API_BASE_URL}/api/downloads/auto?key={key}` (smart OS-aware
+   redirect to the right GitHub Releases artifact). The manual-pick
+   fallback link goes to `{LICENSE_API_BASE_URL}/download`. The
+   Squarespace `bighat.live/download` 404 URL is now permanently banned
+   from email templates by regression test.
+
+2. **`backend/.env`** — added `GITHUB_OWNER=BIGHatEntertainment` and
+   `GITHUB_REPO=BIGHat-Program`. Before this, the resolver fell back to
+   default version "31.0.0" with null artifact URLs, so the email's
+   download link would have bounced to `/download?missing=windows`.
+
+3. **`backend/cloud/downloads_resolver.py`** — full rewrite of the
+   asset-name matcher. The old naive substring match conflated:
+   * Windows `_x64-setup.exe` ↔ macOS Intel (both contain "x64")
+   * macOS Apple `_aarch64.dmg` ↔ Tauri updater `_aarch64.app.tar.gz`
+     (both contain "aarch64")
+   New rules are extension-aware + forbid-list-aware + needle-aware
+   with self-identifying-extension fallback:
+   * `.exe`/`.msi` is ALWAYS Windows (no arch needle required)
+   * `.dmg`/`.pkg` is ALWAYS macOS (arch needle disambiguates aarch64 vs intel)
+   * `.zip` is ambiguous — needle required to disambiguate
+   * `.tar.gz` is FORBIDDEN for end-user downloads (Tauri updater format)
+
+4. **Tests:**
+   * `backend/tests/test_phase10_8_email_download_links.py` (6 tests) —
+     locks in the email URL contract. `bighat.live/download` is now
+     a banned substring; CI will fail any future refactor that
+     reintroduces it.
+   * `backend/tests/test_phase10_8b_downloads_precision.py` (8 tests) —
+     uses real v32.0.0-alpha.9 asset names as fixtures. Asserts that:
+       - Windows UA never gets the `.dmg`
+       - macOS UA never gets the Windows `.exe`
+       - macOS Apple never gets the Tauri `.app.tar.gz` updater
+       - `?platform=macos_intel` returns missing (no false fallback to .exe)
+   * **93/93 cloud + setup + downloads + poller tests green.**
+
+### Live verification (preview pod against real GitHub release)
+```
+$ curl /api/downloads/auto -A "Windows" → .../v32.0.0-alpha.9_x64-setup.exe  ✓
+$ curl /api/downloads/auto -A "Apple Silicon Mac" → .../v32.0.0-alpha.9_aarch64.dmg  ✓
+$ curl /api/downloads/auto?platform=macos_intel → /download?missing=macos_intel  ✓
+```
+
+### Lifetime-key activation guarantee
+Verified end-to-end that a `owns_standalone=true` license is permanent:
+* No expiration date on the LicenseKey model for standalone tier
+* `activate()` and `validate()` have NO expiry checks for standalone
+* 30-day offline grace covers transient network failures
+* Standalone features (`story_generator_enabled`) are hard-coded as
+  never-network-gated in `subscription.is_premium_active()`
+* Phase 10.7's cloud-mode-wins-over-native-mode fix prevents the
+  redeploy-wipes-license-DB bug from recurring.
+
+### What customers experience now
+1. Buy on Squarespace → poller picks up the order within 120s
+2. Resend emails the key + a working download button
+3. Click the button → auto-redirects to the right binary for their OS
+4. Install + activate → key is bound (lifetime) + features unlocked
+5. Future redeploys preserve all keys (MongoDB persistence)
+
+
+
+## 2026-06-23 — Phase 10.7: production data-loss + offline-setup hot-fix
+
+**P0 production-data-loss bug.** User installed v32.0.0-alpha.9, entered
+the real license key `BHE-D6P3-8UM2-VS3E-AK69` I had minted on prod just
+30 min earlier, and got **"We don't recognise that license key."** Then
+the "Continue offline" path also failed with `unknown_key` at the very
+end of setup.
+
+### Root causes (two distinct bugs)
+1. **Prod was running with BOTH `BIGHAT_CLOUD_MODE=1` AND
+   `BIGHAT_NATIVE_MODE=1`.** The DB-factory check at server.py:62
+   prioritised native mode, so prod's license database was a **MontyDB
+   SQLite file inside the Kubernetes container's ephemeral filesystem.**
+   Every redeploy → new container → SQLite file destroyed → every
+   minted license vanishes. The user's redeploy to push the poller
+   wiped the key I had minted earlier in the same session.
+2. **"Continue offline" wasn't actually offline.** The Setup Wizard's
+   `/api/native/setup/initialize` endpoint always called the cloud's
+   authoritative `activate` path. Only `timeout` / `network_error` /
+   `server_error` were tolerated as offline-deferrable. An authoritative
+   `unknown_key` (e.g. from a wiped DB) was treated as a hard 400 reject,
+   even when the user explicitly clicked the WifiOff button.
+
+### Fixes shipped
+1. **`backend/native/db_factory.py`** — added `_is_cloud_mode()` and made
+   cloud mode ALWAYS win over native mode for DB selection. When both
+   env vars are set, MongoDB is used (persistent across redeploys) and
+   a loud `DB MODE: BIGHAT_NATIVE_MODE=1 IGNORED because BIGHAT_CLOUD_MODE=1`
+   banner is logged at boot. The cloud pod can now safely have either or
+   both env vars set and still persist licenses correctly.
+
+2. **`backend/native/router.py`** — added `offline_mode: bool = False`
+   to `SetupInitRequest`. When true, `/setup/initialize` skips the
+   cloud activate call entirely, persists locally, and marks
+   `pending_cloud_activation=True` so the 4-hour background refresh
+   job retries activation once the cloud is reachable.
+
+3. **`frontend/src/pages/SetupWizard.jsx`** — the "Continue offline"
+   button now sets `verify.state = 'offline'`, and the submit handler
+   passes `offline_mode: (verify.state === 'offline')` to the backend.
+
+4. **`backend/cloud/health_router.py`** — `/api/license/health` now
+   reports `effective_db_mode: "mongodb" | "montydb-sqlite"` and
+   `native_mode_override_active: bool` so the operator can verify the
+   cloud-wins-override took effect with a single curl. The
+   `BIGHAT_NATIVE_MODE+CLOUD_MODE` conflict is no longer a `blocker`
+   (the override handles it safely) but still surfaces in `modes`.
+
+5. **`backend/server.py`** — cloud-mode server pods now skip mounting
+   `/api/native/*` entirely (those endpoints exist for the desktop
+   installer to call its OWN local sidecar, not for end users to hit
+   api.bighat.live with).
+
+6. **`backend/tests/test_phase10_7_offline_setup_and_db_mode.py`** —
+   **7 new tests** locking in:
+   * `offline_mode=true` skips cloud_client.activate entirely
+   * `offline_mode` overrides authoritative `unknown_key` rejection
+   * `offline_mode=false` (default) still surfaces `unknown_key` as 400
+   * Network errors still auto-fall-back to offline-tolerant even
+     without the explicit flag
+   * `BIGHAT_CLOUD_MODE=1` overrides `BIGHAT_NATIVE_MODE=1` for DB
+   * Native mode alone still uses MontyDB
+   * Cloud mode alone uses MongoDB
+
+### Result
+**112/112 cloud + setup + poller tests green.** After the next prod
+redeploy, license keys will persist across redeploys (in MongoDB) AND
+the desktop's "Continue offline" button will actually let the customer
+through even when the cloud is rejecting the key.
+
+
+
+## 2026-06-22 — Phase 10.6: Squarespace Orders poller (webhooks → polling)
+
+**Decision:** Webhooks are dead, polling is in.
+
+Squarespace's static API key (the kind a merchant generates via Settings →
+Developer Tools → API Keys) is NOT allowed to create webhook subscriptions.
+The `POST /1.0/webhook_subscriptions` endpoint requires an OAuth access
+token, which in turn requires building a full Squarespace Extension and
+shipping it through the Developer Platform — heavy overhead for a single-
+merchant setup. Polling the Orders API every 2 minutes using the existing
+static API key is more reliable anyway:
+
+  * Naturally idempotent on `order.id`
+  * Catches orders made while the service was down
+  * No HMAC signature verification needed
+  * No "missed webhook" failure modes
+  * Works retroactively (just widen the time window to replay history)
+
+### What shipped
+- **`backend/cloud/squarespace_poller.py`** — the poller:
+  * `resolve_tier(product_id, product_name)`: maps Squarespace line items
+    to license tiers via `LICENSE_PRODUCT_MAP` env (productId→tier) with
+    productName substring fallback. Default map includes the live
+    standalone productId `69f95125f691fe20c13aef37`.
+  * `process_order(order)`: idempotent on `order.id`, multi-SKU aware,
+    routes to `mint_standalone_purchase`, `mint_addon_purchase`, or
+    `mint_cloud_subscription`.
+  * `fetch_orders()`: paginated Squarespace `/commerce/orders` client.
+  * `run_once()`: full cycle with persisted high-water mark
+    (`license_poll_state` collection).
+  * `poll_forever()`: background `asyncio.create_task` started at app
+    boot when `BIGHAT_CLOUD_MODE=1` + `SQUARESPACE_API_KEY` is set.
+
+- **`backend/cloud/poller_router.py`** — JWT-gated admin endpoints:
+  * `GET /api/license/admin/poller/status`
+  * `POST /api/license/admin/poller/run`         (trigger run-once)
+  * `POST /api/license/admin/poller/replay/{order_id}`  (force re-mint)
+
+- **`backend/cloud/config.py`** — new env vars:
+  * `SQUARESPACE_POLL_INTERVAL_SECONDS` (default 120)
+  * `SQUARESPACE_POLL_LOOKBACK_HOURS` (default 168 = 7d backfill)
+  * `LICENSE_PRODUCT_MAP` (JSON: `{"<productId>":"<tier>"}`)
+  * `SQUARESPACE_API_BASE` (overridable for tests)
+
+- **`backend/cloud/squarespace_webhook.py`** — fixed HMAC signature
+  verification: Squarespace's secret is HEX, must be `bytes.fromhex(secret)`
+  not `secret.encode("utf-8")`. (Only matters if you ever do switch back
+  to webhooks via an Extension.)
+
+- **`backend/tests/test_phase10_6_squarespace_poller.py`** — 12 tests:
+  productId-map precedence, productName fallback, merch-skipping,
+  mixed-cart routing, real-shape order #38 fixture, high-water mark
+  advancement, HTTP-error resilience, MontyDB `_id` immutability fix.
+
+### Manual mint hot-fix for order #38
+Order #38 (`sellards@bighat.live`, $49.99, 2026-06-22) was minted manually
+via `/api/license/admin/keys/mint` while polling was being built →
+key `BHE-D6P3-8UM2-VS3E-AK69` emailed via Resend from production.
+
+### Result
+**83/83 cloud + license + setup-wizard tests green.** Every future
+Squarespace purchase is automatically minted within 2 minutes and the
+license email is sent via Resend. Idempotency is locked-in: no order
+will ever be double-minted no matter how many times the poller restarts
+or how many times Squarespace returns the same order in subsequent polls.
+
+
+
+## 2026-06-22 — Phase 10.5: production webhook → email pipeline hardening
+
+**P0 prod bug:** Squarespace buyers were not receiving license-key emails.
+Root cause confirmed by curl-probing `api.bighat.live`:
+
+```
+$ curl -X POST https://api.bighat.live/api/license/activate -d '{}'
+HTTP 405  (Allow: GET)
+$ curl https://api.bighat.live/api/health
+{"status":"unhealthy","database":"'MontyCollection' object is not callable"}
+$ curl https://api.bighat.live/api/downloads/latest
+{"detail":"not_found"}
+```
+
+Prod was running with `BIGHAT_NATIVE_MODE=1` (the desktop env file) and
+`BIGHAT_CLOUD_MODE` unset, so the entire `/api/license/*` and
+`/api/squarespace/webhook` router never mounted, and the DB was the
+local MontyDB SQLite shim instead of MongoDB. Every customer purchase
+fired the Squarespace webhook into a `405 Method Not Allowed`.
+
+**The mistake was operational, not architectural** — `LicenseService.mint_*`
+already calls `email.send_license_key_email` on the success path, with
+idempotency and multi-SKU support. But the routes hosting that code
+weren't loaded.
+
+### Fixes shipped
+1. **`backend/cloud/health_router.py`** — new always-on `/api/license/health`
+   diagnostic. Registered UNCONDITIONALLY in `server.py` so an operator
+   can `curl` the prod pod and see, in one JSON response, which env
+   var is missing. Returns `ready: bool` rollup + human-readable
+   `blockers` array + redacted prefixes of Resend / Squarespace keys.
+
+2. **Loud startup banner in `backend/server.py`** — prints a 5-line
+   `CLOUD LICENSING SERVICE: ONLINE/OFFLINE` block at boot. The
+   OFFLINE variant tells the operator exactly what to set. The router
+   mount `try/except` now `logger.error` + `logger.exception` when
+   cloud mode is on but the import fails — silent warnings are how
+   this bit prod.
+
+3. **`packaging/PRODUCTION_DEPLOY_CHECKLIST.md`** — single source of
+   truth for what `api.bighat.live` needs (env vars, Squarespace
+   webhook config, Resend domain verification, post-deploy smoke
+   tests).
+
+4. **`backend/tests/test_phase10_5_webhook_email_pipeline.py`** — 8 new
+   tests, all green:
+   * `/api/license/health` returns 200 with blockers when cloud is off
+   * `/api/license/health` returns `ready:true` only with every secret
+   * Resend key prefix is redacted in the diagnostic response
+   * Signed Squarespace `order.create` → mint + 1 email fired
+   * Replay is idempotent (no second email)
+   * Bad signature → 401, no mint
+   * Multi-SKU cart (standalone + music_bingo + karaoke + cloud library
+     in one order) → all tiers persisted, one summary email
+   * Missing `RESEND_API_KEY` → mint succeeds, no-op email logs warning
+
+5. **Full regression**: 107/107 cloud + license tests pass.
+
+### Next action for the user
+Set the following env vars on the Emergent prod pod for `api.bighat.live`
+and redeploy:
+
+```
+BIGHAT_CLOUD_MODE=1
+# unset BIGHAT_NATIVE_MODE
+SQUARESPACE_WEBHOOK_SECRET=<from Squarespace admin>
+RESEND_API_KEY=re_<prod key>
+JWT_SECRET=<256-bit hex>
+ADMIN_EMAIL=sellards@bighat.live
+ADMIN_PASSWORD=<strong>
+```
+
+Then verify with `curl https://api.bighat.live/api/license/health | jq .ready`
+— must be `true`.
+
+Deployment_agent re-ran on 2026-06-22 and reports **PASS** — no remaining
+blockers, supervisor.conf is auto-generated by Emergent (the previous
+"missing supervisor config" alert was a false positive on the desktop-
+codebase scan).
+
+
+
 ## NEW DIRECTION (locked in by user 2026-06-21) — Tauri native shell
 
 The browser-tab + VBS launcher model is being retired. The user's
@@ -123,13 +510,43 @@ desktop icon — no browser, no tabs, no URL bar.
 ### Status (2026-06-21)
 
 - [x] User approved Path A (GitHub Actions builds)
-- [ ] `src-tauri/` scaffold (Cargo.toml, tauri.conf.json, main.rs)
-- [ ] `.github/workflows/release.yml` (build + release on tag push)
-- [ ] Sidecar bundling: ship the embedded CPython tree as a Tauri
-      sidecar so the backend boots without an external Python install
-- [ ] File-association handoff (`.bighat` double-click)
+- [x] `src-tauri/` scaffold (Cargo.toml, tauri.conf.json, main.rs)
+- [x] `.github/workflows/release.yml` (build + release on tag push)
+- [x] Sidecar builder (`scripts/build_sidecar.py`) — PyInstaller freezes
+      `backend/launcher.py` per Rust target triple
+- [x] **Phase 2 (2026-06-21): Chromeless title bar.** `tauri.conf.json`
+      now has `decorations: false` on the main window. New
+      `frontend/src/components/TitleBar.jsx` renders a 36px slim dark
+      navy bar with hat logo + "BIG HAT ENTERTAINMENT" wordmark on the
+      left, and minimize/maximize/close buttons on the right. Whole bar
+      is `data-tauri-drag-region` except the buttons. Auto-detects
+      Tauri runtime so dev-preview browsers stay clean. `splash.html`
+      mirrors the same chrome with vanilla JS+CSS. Self-tested via
+      Playwright with a fake `window.__TAURI__` global — title bar
+      renders, body padding pushes routes down, all three controls
+      expose the right `data-testid` hooks. Locked by
+      `backend/tests/test_tauri_titlebar_contract.py` (4 checks).
+- [ ] File-association handoff (`.bighat` double-click) — Rust
+      `extract_open_file_arg()` already in place; needs end-to-end test.
 - [ ] Migration installer that uninstalls v31.x cleanly before placing
-      the Tauri build
+      the Tauri build.
+
+### Pending issue from v31.0.15 customer test (deferred to v32 cycle)
+
+After installing v31.0.15 on a clean Windows machine, the user's React
+app mounted (verifying the `Cloud is not defined` fix) but axios calls
+to `/api/native/info` returned `Network Error` (no response from
+127.0.0.1:8001 after 5 retries). Crash log was EMPTY → uvicorn didn't
+raise an exception. Likely causes: (1) uvicorn cold-start race where
+the VBS launcher's port-bound check passes before all routes finish
+registering, (2) Windows Defender / firewall intercepting localhost
+connections to embedded Python on first run, (3) some
+process-tree-related quirk specific to `wscript.exe + pythonw.exe`
+spawning. The user chose to deprioritise this and skip ahead to v32.0.0
+since the Tauri shell will spawn the backend differently (PyInstaller
+single-binary sidecar via Rust, not pythonw.exe via VBS), making the
+underlying cause moot for the v32 release. Re-investigate ONLY if v32
+Phase 1 (first end-to-end CI build) hits the same Network Error.
 
 ---
 

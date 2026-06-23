@@ -54,6 +54,29 @@ features behind an active subscription.
   in a `slides_files` MontyDB collection; metadata in `slides_metadata`.
 
 ## Implemented (with dates)
+- **2026-06-22** — **Phase 10.5: production webhook → email pipeline hardening.**
+  Production `api.bighat.live` was returning `405 Method Not Allowed` on
+  `POST /api/license/activate` and the Squarespace webhook never fired
+  Resend emails. Root cause confirmed via `curl`: prod was running with
+  `BIGHAT_NATIVE_MODE=1` and `BIGHAT_CLOUD_MODE` unset, so the entire
+  `/api/license/*` + `/api/squarespace/webhook` router never mounted.
+  The `LicenseService.mint_*` → email path was correct; only the routes
+  hosting it were absent. Fixes: (a) new always-on
+  `backend/cloud/health_router.py` exposing `GET /api/license/health` —
+  returns `ready: bool` + `blockers: [str]` so an operator can curl-diagnose
+  prod without pod shell access; (b) loud startup banner in `server.py`
+  (`CLOUD LICENSING SERVICE: ONLINE/OFFLINE`); cloud-router import
+  failures now `logger.error` + `logger.exception` instead of silent
+  warnings; (c) `packaging/PRODUCTION_DEPLOY_CHECKLIST.md` — single
+  source of truth for env vars Squarespace setup + post-deploy smoke
+  tests; (d) `backend/tests/test_phase10_5_webhook_email_pipeline.py`
+  — **8 new tests** locking the contract: signed webhook → mint + 1
+  Resend email, replay idempotency (no second email), bad signature
+  → 401, multi-SKU cart → all tiers + one email, RESEND_API_KEY missing
+  → mint succeeds with loud warning. **107/107 cloud + license tests
+  pass.** Deployment_agent re-checked → no blockers (the previous
+  "missing supervisor.conf" alert was a false positive — Emergent
+  auto-generates it).
 - **2026-06-21** — **v31.0.15: Blank-window root cause + ESLint guardrails**
   (`<Cloud />` icon referenced in `SetupWizard.jsx` without being
   imported → `Uncaught ReferenceError` on React mount, fully blanking
@@ -289,6 +312,10 @@ URL bar — LYRX karaoke software is the visual reference. The browser
   `windows-latest`, `macos-13` (Intel), `macos-14` (Apple Silicon).
   Trigger: push tag `v32.*` OR manual `workflow_dispatch`.
 - ✅ `scripts/build_sidecar.py` — PyInstaller freezer for the backend.
+- ✅ **Phase 2 (2026-06-21): Chromeless title bar.** Decorations off,
+  custom React `<TitleBar />` component with hat logo + wordmark + window
+  controls. LYRX-aesthetic dark/gold. Auto-hides in browser dev preview.
+  Locked by `backend/tests/test_tauri_titlebar_contract.py` (4 checks).
 - ⏳ First end-to-end CI build (requires user to push to GitHub +
   enable Actions).
 - ⏳ Apple Developer ID signing + notarization for the macOS DMG
@@ -298,10 +325,10 @@ URL bar — LYRX karaoke software is the visual reference. The browser
 - ⏳ Code-sign the Windows NSIS installer (`BIGHAT_SIGNING_CERT_PFX` +
   `BIGHAT_SIGNING_PASSWORD` already supported by the legacy script;
   needs wiring into the Tauri Actions workflow).
-- ⏳ Custom title bar (LYRX-style, fully chromeless) — Phase 2 polish
-  after the basic shell works. Current Tauri scaffold uses
-  `decorations: true` (clean Windows chrome) to keep the first build
-  predictable.
+- ⏳ Custom title bar — DONE in Phase 2 above. Next polish ideas:
+  optional dark/light theme toggle in the title bar, OS-native traffic
+  lights on macOS via `titleBarStyle: Overlay`, system tray icon for
+  quick relaunch.
 - ⏳ `.bighat` file association registers `BIGHatEntertainment.exe %1`
   with the Tauri shell argv-forwarding logic (already present in
   `src-tauri/src/lib.rs::extract_open_file_arg`).
