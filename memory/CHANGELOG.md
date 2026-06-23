@@ -7,6 +7,66 @@
 
 ---
 
+## 2026-06-23 — Phase 10.9: admin mint email bug + resend endpoint
+
+**P0 customer-impact bug:** When the merchant tried to test the pipeline
+by minting a comp key via `POST /api/license/admin/keys/mint`, the key
+was created in the DB but **no email was sent**. The Squarespace-poller
+mint path (`mint_standalone_purchase`) correctly emails — so paying
+customers ARE getting their licenses. But the admin/support mint path
+was silent. This is also why every "send me a comp key" support ticket
+in the future would have been a follow-up support ticket asking where
+the email went.
+
+### Root cause
+`mint_manual()` was the ONLY mint path in `license_service.py` that
+didn't call `self.email.send_license_key_email()`. Every other path
+(standalone, cloud subscription, add-on) emails correctly.
+
+### Fixes
+1. **`backend/cloud/license_service.py`** — `mint_manual()` now sends the
+   email by default. Added `send_email: bool = True` parameter so support
+   can opt out for hand-delivered comp keys (e.g., friends-and-family).
+   Both the fresh-mint branch and the upgrade-existing branch fire the
+   email when the flag is true.
+
+2. **`backend/cloud/license_service.py`** — new `resend_license_email(key)`
+   method. Looks up an existing license and re-fires the standard email.
+   Turns "I lost my license email" support tickets into a single-button
+   action.
+
+3. **`backend/cloud/admin_router.py`** — new endpoint
+   `POST /api/license/admin/keys/{key}/resend-email` calling the new
+   service method. JWT-gated like the rest of `/admin/*`.
+
+4. **`backend/cloud/license_models.py`** — `MintKeyRequest` now exposes
+   `send_email: bool = True`.
+
+5. **`backend/tests/test_phase10_9_admin_mint_email.py`** — 6 new tests:
+   * Fresh mint sends email by default
+   * Upgrade-existing path also sends email
+   * `send_email=False` skips the email
+   * `resend_license_email` for an existing key sends one email
+   * `resend_license_email` for unknown key returns False
+   * Resent email carries the full tier set (Cloud Library, all add-ons)
+
+   **88/88 cloud + setup + downloads + poller + admin tests green.**
+
+### Live recovery for the customer who hit this
+While the fix was being written, I sent the missing license email for
+`sellards@bighat.live` / key `BHE-BQNR-CUQG-AV5G-AGCY` directly via
+the Resend API from the preview pod — confirmed delivered.
+
+### Alpha-10 bump guidance
+Phase 10.7 added the `offline_mode: true` field to the Setup Wizard's
+POST. That code is bundled INSIDE the installer (React frontend +
+Python sidecar), so getting it to customers requires publishing a new
+GitHub release. Recommendation: cut `v32.0.0-alpha.10` whenever
+convenient; not blocking for online activation (which alpha.9 handles
+correctly), only for the "Continue offline" fallback path.
+
+
+
 ## 2026-06-23 — Phase 10.8: download-link fix + asset-resolver hardening
 
 **P0 customer-facing bug:** First real Squarespace buyer (sellards@bighat.live,
