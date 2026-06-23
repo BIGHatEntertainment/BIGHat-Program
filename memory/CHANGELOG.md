@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-06-23 — v32.0.0-alpha.10 version bump
+
+- `backend/VERSION.txt`: `32.0.0-alpha.9` → `32.0.0-alpha.10`
+- `src-tauri/tauri.conf.json`: `32.0.0-alpha.9` → `32.0.0-alpha.10`
+- `packaging/RELEASE_NOTES_v32.0.0-alpha.10.md` — customer-facing release notes
+- `src-tauri/Cargo.toml` left at `32.0.0` (Cargo crate version is decoupled
+  from the Tauri bundle version; this matches the v32.0.0-alpha.9 setup)
+- CI `release.yml` auto-syncs both `VERSION.txt` and `tauri.conf.json` from
+  the git tag at build time, so these manual bumps are belt-and-suspenders
+  for local dev only.
+
+### What ships in alpha.10 (customer-visible)
+- Setup Wizard's **"Continue offline"** button actually works (Phase 10.7
+  `offline_mode: true` payload field)
+- Updated frontend that sends `offline_mode` to its bundled sidecar
+- (Server-side fixes from Phase 10.5 — 10.9 are already live on prod;
+  the installer doesn't need them — but customers downloading fresh get
+  the latest bundle hash anyway)
+
+### To publish
+```bash
+git tag v32.0.0-alpha.10
+git push origin v32.0.0-alpha.10
+```
+The release.yml workflow will build Windows + Apple Silicon Mac + Intel
+Mac artifacts and publish them to GitHub Releases. The prod download
+resolver picks up the new release within 5 minutes (cache TTL); customers
+clicking the email Download button after that point get the new installer.
+
+
+
 ## 2026-06-23 — Phase 10.9: admin mint email bug + resend endpoint
 
 **P0 customer-impact bug:** When the merchant tried to test the pipeline
