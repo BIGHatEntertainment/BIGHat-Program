@@ -7,6 +7,74 @@
 
 ---
 
+## 2026-06-23 — Phase 10.12: robust .bighat OS-association + trivia summary parser
+
+### Two enhancements per merchant request
+
+#### 1. Robust `.bighat` file-association (Windows + macOS + Linux)
+
+When a customer double-clicks a `.bighat` file in Explorer / Finder /
+their file manager, the desktop app now opens the file in the **correct
+in-app tool** based on the file's content type:
+
+| `manifest.type` in archive | Routes to                       |
+|----------------------------|---------------------------------|
+| `round` / `presentation` / `pack` | `/roundmaker?openFile=…`  |
+| `bingo`                    | `/bingo-card-generator?openFile=…` |
+| anything else / unreadable | `/roundmaker?openFile=…` (default) |
+
+Implementation in `src-tauri/src/lib.rs`:
+- New `route_for_bighat(path)` reads the archive's `manifest.json` (using
+  the `zip` crate, default-features=false to keep bundle size lean) and
+  returns the correct in-app route.
+- The Windows/Linux argv path (`extract_open_file_arg`) was already there
+  but always sent users to `/roundmaker`. Now it consults the new router.
+- **macOS Apple Event support** added via `RunEvent::Opened { urls }` in
+  the run loop — Finder double-clicks fire this event instead of argv, so
+  without this branch macOS users would have to drag the file onto the
+  Dock icon. When an event fires while the app is already running, we
+  navigate the existing window + focus it rather than opening a duplicate.
+
+New Cargo dep in `src-tauri/Cargo.toml`:
+```toml
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+```
+
+#### 2. Trivia-only structured summary in the Files tool
+
+The Files tool list now shows a **one-line description** of every
+`.bighat` file. The descriptions are RICH for trivia content (the
+merchant's flagship IP) and minimal for bingo (which has a flat,
+self-explanatory format).
+
+Examples (live-verified against real archives):
+
+```
+Round · "Pop Culture Lightning" · 4 questions · 3 categories ·
+        tiebreaker · cover image · type: speed
+Presentation · 4 rounds · 47 questions
+Pack · 5 rounds · by Sellards · signed
+Bingo content
+Unreadable archive    ← graceful for corrupt files
+```
+
+Implementation:
+- `backend/native/files_router.py`: `_summarise_bighat(path)` opens the
+  ZIP, reads `manifest.json` + `payload.json`, and dispatches to
+  `_trivia_summary()` for round / presentation / pack types. Bingo and
+  unknown types get a minimal label. Wrapped in a single try/except so
+  unreadable archives never crash the list endpoint.
+- `frontend/src/pages/FilesTool.jsx`: new **Summary** column in the table
+  + `data-testid="summary-<name>"` for each row.
+
+### Files changed
+- `backend/native/files_router.py` — added `_summarise_bighat()` + `_trivia_summary()`
+- `frontend/src/pages/FilesTool.jsx` — Summary column
+- `src-tauri/src/lib.rs` — `route_for_bighat()` + macOS `RunEvent::Opened` branch
+- `src-tauri/Cargo.toml` — adds `zip` 0.6 (default-features off, +deflate)
+
+
+
 ## 2026-06-23 — Phase 10.11: Sponsor Portal removed + Update/Files tools added
 
 **Customer-visible changes in the Business section of the dashboard:**

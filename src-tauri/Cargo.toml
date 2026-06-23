@@ -20,6 +20,12 @@ tauri-plugin-process = "2.0"
 tauri-plugin-dialog = "2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Used to peek inside .bighat archives (which are ZIPs) so we can route a
+# double-clicked file to the right in-app tool by reading its manifest.
+# Disable default features (bzip2, deflate64, …) — we only ever need the
+# raw `stored` + `deflate` readers, and stripping the rest shaves ~1 MB
+# off the bundle.
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 log = "0.4"
 env_logger = "0.11"

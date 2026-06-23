@@ -66,20 +66,119 @@ async def files_folder() -> dict[str, Any]:
 
 @router.get("")
 async def files_list() -> dict[str, Any]:
-    """List every .bighat file in the store with size + mtime."""
+    """List every .bighat file in the store with size, mtime, and (for
+    trivia content) a one-line summary parsed from the file's manifest."""
     root = _store_root()
     items: list[dict[str, Any]] = []
     for p in sorted(root.glob("*.bighat"), key=lambda x: x.stat().st_mtime, reverse=True):
         try:
             st = p.stat()
-            items.append({
+            entry = {
                 "name": p.name,
                 "size_bytes": st.st_size,
                 "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
-            })
+            }
+            entry.update(_summarise_bighat(p))
+            items.append(entry)
         except OSError:
             continue
     return {"ok": True, "folder": str(root), "count": len(items), "files": items}
+
+
+def _summarise_bighat(path: Path) -> dict[str, Any]:
+    """Read manifest.json + payload.json from the .bighat archive and
+    surface a human-readable one-line summary. Trivia content gets a
+    rich summary (rounds, questions, categories). Other content types
+    just get a type label — they have flatter formats that don't benefit
+    from custom parsing.
+
+    Always returns a dict (`type`, optional `summary`); never raises.
+    """
+    import json
+    import zipfile
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = set(zf.namelist())
+            if "manifest.json" not in names:
+                return {"type": "unknown"}
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            content_type = str(manifest.get("type") or "unknown")
+            out: dict[str, Any] = {"type": content_type}
+
+            # Trivia gets the deep parse. Bingo + karaoke fall through with
+            # just the type label — both have straightforward flat formats
+            # where a custom summary line would add no real value.
+            if content_type in ("round", "presentation", "pack") and "payload.json" in names:
+                payload = json.loads(zf.read("payload.json").decode("utf-8"))
+                out["summary"] = _trivia_summary(content_type, manifest, payload)
+            elif content_type == "bingo":
+                out["summary"] = "Bingo content"
+            else:
+                out["summary"] = content_type.replace("_", " ").capitalize() or "BIG Hat file"
+            return out
+    except (zipfile.BadZipFile, json.JSONDecodeError, KeyError, UnicodeDecodeError):
+        return {"type": "unknown", "summary": "Unreadable archive"}
+
+
+def _trivia_summary(content_type: str, manifest: dict, payload: dict) -> str:
+    """Build a one-line description for trivia archives.
+
+    Examples:
+      "Round · 12 questions · 4 categories · tiebreaker · cover image"
+      "Presentation · 4 rounds · 47 questions"
+      "Pack · 5 rounds · author: Trivia Mafia"
+    """
+    bits: list[str] = []
+
+    if content_type == "round":
+        bits.append("Round")
+        name = manifest.get("round_name") or payload.get("name") or payload.get("title")
+        if name:
+            bits.append(f'"{name}"')
+        qs = payload.get("questions") or payload.get("items") or []
+        if isinstance(qs, list) and qs:
+            bits.append(f"{len(qs)} question{'s' if len(qs) != 1 else ''}")
+        cats = set()
+        for q in qs if isinstance(qs, list) else []:
+            cat = (q or {}).get("category") or (q or {}).get("topic")
+            if cat:
+                cats.add(str(cat).strip())
+        if len(cats) > 1:
+            bits.append(f"{len(cats)} categories")
+        elif len(cats) == 1:
+            bits.append(f"category: {next(iter(cats))}")
+        if payload.get("tiebreaker"):
+            bits.append("tiebreaker")
+        if payload.get("cover_image") or payload.get("cover_asset"):
+            bits.append("cover image")
+        rt = manifest.get("round_type") or payload.get("round_type")
+        if rt:
+            bits.append(f"type: {rt}")
+
+    elif content_type == "presentation":
+        bits.append("Presentation")
+        rounds = payload.get("rounds") or []
+        if isinstance(rounds, list):
+            n_rounds = len(rounds)
+            n_qs = sum(len(r.get("questions") or []) for r in rounds if isinstance(r, dict))
+            if n_rounds:
+                bits.append(f"{n_rounds} round{'s' if n_rounds != 1 else ''}")
+            if n_qs:
+                bits.append(f"{n_qs} questions")
+
+    elif content_type == "pack":
+        bits.append("Pack")
+        items = payload.get("items") or payload.get("rounds") or []
+        if isinstance(items, list) and items:
+            bits.append(f"{len(items)} round{'s' if len(items) != 1 else ''}")
+        author = manifest.get("author") or payload.get("author")
+        if author:
+            bits.append(f"by {author}")
+
+    if manifest.get("signature"):
+        bits.append("signed")
+
+    return " · ".join(bits) if bits else "Trivia content"
 
 
 @router.post("/upload")

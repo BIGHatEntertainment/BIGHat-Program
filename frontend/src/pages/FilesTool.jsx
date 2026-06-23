@@ -144,6 +144,7 @@ export default function FilesTool() {
                 <thead className="bg-gray-50 text-left text-gray-600">
                   <tr>
                     <th className="px-4 py-2 font-medium">Name</th>
+                    <th className="px-4 py-2 font-medium">Summary</th>
                     <th className="px-4 py-2 font-medium">Size</th>
                     <th className="px-4 py-2 font-medium">Modified</th>
                     <th className="px-4 py-2 font-medium text-right">Actions</th>
@@ -153,6 +154,11 @@ export default function FilesTool() {
                   {files.map((f) => (
                     <tr key={f.name} data-testid={`file-row-${f.name}`} className="hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono text-gray-900">{f.name}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {f.summary
+                          ? <span data-testid={`summary-${f.name}`}>{f.summary}</span>
+                          : <span className="text-gray-400 italic">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{formatSize(f.size_bytes)}</td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(f.modified_at)}</td>
                       <td className="px-4 py-3 text-right space-x-2">

@@ -142,9 +142,52 @@ fn wait_for_health(port: u16, status_cb: impl Fn(&str)) -> bool {
 }
 
 fn extract_open_file_arg() -> Option<String> {
+    // Windows + Linux: file path comes through argv when the OS launches us
+    // from a double-clicked .bighat (Explorer / Files / xdg-open).
+    // macOS uses Apple Events instead — handled in the event loop below.
     env::args()
         .skip(1)
         .find(|a| a.to_lowercase().ends_with(".bighat"))
+}
+
+// Best-effort: peek at the .bighat manifest to pick the right route.
+// Falls back to `/roundmaker?openFile=…` (the historical default) when we
+// can't read the file or its type is unknown.
+fn route_for_bighat(path: &str) -> String {
+    use std::io::Read;
+    let safe = path.replace('\\', "/");
+    let encoded = safe.replace(' ', "%20");
+    let default_url = format!("/roundmaker?openFile={encoded}");
+
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            log_line("warn", format!("route_for_bighat: open failed {e}"));
+            return default_url;
+        }
+    };
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(_) => return default_url,
+    };
+    let mut manifest_str = String::new();
+    if let Ok(mut entry) = archive.by_name("manifest.json") {
+        let _ = entry.read_to_string(&mut manifest_str);
+    } else {
+        return default_url;
+    }
+    let manifest: serde_json::Value = match serde_json::from_str(&manifest_str) {
+        Ok(v) => v,
+        Err(_) => return default_url,
+    };
+    let kind = manifest.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match kind {
+        "round" | "presentation" | "pack" =>
+            format!("/roundmaker?openFile={encoded}"),
+        "bingo" =>
+            format!("/bingo-card-generator?openFile={encoded}"),
+        _ => default_url,
+    }
 }
 
 // --- Tauri commands ----------------------------------------------------------
@@ -326,8 +369,8 @@ fn run_inner(port: u16, open_file: Option<String>) {
                 }
                 let mut url = format!("http://127.0.0.1:{port}/");
                 if let Some(path) = open_file_clone {
-                    let safe = path.replace('\\', "/").replace(' ', "%20");
-                    url = format!("http://127.0.0.1:{port}/roundmaker?openFile={safe}");
+                    let route = route_for_bighat(&path);
+                    url = format!("http://127.0.0.1:{port}{route}");
                 }
                 log_line("info", format!("navigating to {url}"));
                 let _ = window_for_thread
@@ -351,13 +394,39 @@ fn run_inner(port: u16, open_file: Option<String>) {
 
     log_line("info", "entering event loop (App::run)");
     app.run(|app, event| {
-        if let RunEvent::ExitRequested { .. } = event {
-            log_line("info", "ExitRequested — killing sidecar");
-            if let Some(state) = app.try_state::<BackendState>() {
-                if let Some(child) = state.child.lock().unwrap().take() {
-                    let _ = child.kill();
+        match event {
+            RunEvent::ExitRequested { .. } => {
+                log_line("info", "ExitRequested — killing sidecar");
+                if let Some(state) = app.try_state::<BackendState>() {
+                    if let Some(child) = state.child.lock().unwrap().take() {
+                        let _ = child.kill();
+                    }
                 }
             }
+            // macOS Apple Event when the user double-clicks a .bighat in
+            // Finder while the app is running. Windows + Linux don't fire
+            // this — they re-launch the binary with the path in argv (handled
+            // at startup). For a fully robust multi-instance story we'd add
+            // tauri_plugin_single_instance to forward the new argv into the
+            // already-running window; today that path opens a second window.
+            #[cfg(target_os = "macos")]
+            RunEvent::Opened { urls } => {
+                for u in urls {
+                    let path = u.to_file_path().ok().and_then(|p| p.to_str().map(String::from));
+                    if let Some(path) = path {
+                        if !path.to_lowercase().ends_with(".bighat") { continue; }
+                        log_line("info", format!("Finder Opened: {path}"));
+                        let route = route_for_bighat(&path);
+                        let port = app.state::<BackendState>().port.lock().unwrap().clone();
+                        let url = format!("http://127.0.0.1:{port}{route}");
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.eval(&format!("window.location.replace('{url}');"));
+                            let _ = w.set_focus();
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     });
 }
