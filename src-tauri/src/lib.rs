@@ -81,6 +81,30 @@ fn log_line(level: &str, msg: impl AsRef<str>) {
     eprintln!("{}", line.trim_end());
 }
 
+}
+
+fn log_path() -> PathBuf {
+    log_dir().join("tauri-shell.log")
+}
+
+fn log_line(level: &str, msg: impl AsRef<str>) {
+    let line = format!(
+        "[{}] {} {}\n",
+        chrono_now(),
+        level,
+        msg.as_ref()
+    );
+    let _ = fs::create_dir_all(log_dir());
+    if let Ok(mut f) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+    eprintln!("{}", line.trim_end());
+}
+
 // minimal ISO-ish timestamp without pulling chrono
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -219,6 +243,52 @@ pub fn run() {
     let port = pick_free_port();
     let open_file = extract_open_file_arg();
     log_line("info", format!("chose port={port}, open_file={open_file:?}"));
+
+    // Surface any Tauri-side panic into the log. Without this, panics
+    // from plugin init / generate_context! / capability validation kill
+    // the windows-subsystem process silently — exactly what bit us in
+    // alpha.1 and alpha.2 first launches.
+    std::panic::set_hook(Box::new(|info| {
+        log_line("panic", format!("{info}"));
+    }));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_inner(port, open_file)
+    }));
+    if let Err(panic_payload) = result {
+        let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<non-string panic payload>".to_string()
+        };
+        log_line("fatal", format!("run_inner panicked: {msg}"));
+    }
+    log_line("info", "=== BIG Hat shell exit ===");
+}
+
+fn run_inner(port: u16, open_file: Option<String>) {
+    log_line("info", "creating tauri::Builder");
+    let builder = tauri::Builder::default();
+    log_line("info", "+ plugin: shell");
+    let builder = builder.plugin(tauri_plugin_shell::init());
+    log_line("info", "+ plugin: process");
+    let builder = builder.plugin(tauri_plugin_process::init());
+    log_line("info", "+ plugin: dialog");
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    log_line("info", "+ state managed");
+    let builder = builder.manage(BackendState {
+        child: Mutex::new(None),
+        port: Mutex::new(port),
+    });
+    log_line("info", "+ invoke_handler wired");
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        quit_app,
+        get_backend_port,
+        get_log_path
+    ]);
+
 
     // Surface any Tauri-side panic into the log. Without this, panics
     // from plugin init / generate_context! / capability validation kill
@@ -427,6 +497,13 @@ fn run_inner(port: u16, open_file: Option<String>) {
                 }
             }
             _ => {}
+        if let RunEvent::ExitRequested { .. } = event {
+            log_line("info", "ExitRequested — killing sidecar");
+            if let Some(state) = app.try_state::<BackendState>() {
+                if let Some(child) = state.child.lock().unwrap().take() {
+                    let _ = child.kill();
+                }
+            }
         }
     });
 }

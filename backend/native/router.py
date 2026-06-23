@@ -74,6 +74,10 @@ class SetupInitRequest(BaseModel):
     master_admin: SetupMasterAdmin
     settings: SetupSettings
     paths: Optional[SetupPaths] = None
+    # v32.0.0-alpha.10 — Setup Wizard 'Continue offline' sends true
+    # so we skip the authoritative cloud activate call and mark
+    # pending_cloud_activation=True for the 4-hour retry job.
+    offline_mode: bool = False
     # When true, skip the authoritative cloud activate call entirely and
     # complete setup with the license flagged as `pending_cloud_activation`.
     # The 4-hour background refresh job will retry activation later. This
@@ -192,23 +196,23 @@ async def initialize_setup(payload: SetupInitRequest):
         )
         pending_cloud = False
         if not cloud_resp.get("ok"):
-            if cloud_resp.get("error") in ("timeout", "network_error", "server_error"):
-                # Offline-tolerant: accept setup, retry later.
-                pending_cloud = True
-                logger.info(
-                    "[setup] cloud activation deferred (%s); will retry in background",
-                    cloud_resp.get("error"),
-                )
-            else:
-                # Authoritative rejection — unknown key, revoked, seat limit, etc.
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error":       cloud_resp.get("error", "license_rejected"),
-                        "message":     cloud_resp.get("message", "License could not be activated."),
-                        "status_code": cloud_resp.get("status_code"),
-                    },
-                )
+                if cloud_resp.get("error") in ("timeout", "network_error", "server_error"):
+                    # Offline-tolerant: accept setup, retry later.
+                    pending_cloud = True
+                    logger.info(
+                        "[setup] cloud activation deferred (%s); will retry in background",
+                        cloud_resp.get("error"),
+                    )
+                else:
+                    # Authoritative rejection — unknown key, revoked, seat limit, etc.
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error":       cloud_resp.get("error", "license_rejected"),
+                            "message":     cloud_resp.get("message", "License could not be activated."),
+                            "status_code": cloud_resp.get("status_code"),
+                        },
+                    )
 
     # 2. Persist license + settings + master admin.
     set_license_key(key, admin_email)
