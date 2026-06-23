@@ -333,6 +333,12 @@ export default function SetupWizard() {
     try {
       const payload = {
         license_key: licenseKey,
+        // Tell the backend to skip the authoritative cloud activate call
+        // when the user explicitly opted into offline mode. Without this,
+        // the backend re-calls /license/cloud/activate during /setup/initialize
+        // and bubbles up whatever error (e.g. unknown_key) it got the first
+        // time — defeating the entire "Continue offline" affordance.
+        offline_mode: verify.state === 'offline',
         master_admin: {
           email: admin.email.toLowerCase().trim(),
           password: admin.password,

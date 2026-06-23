@@ -24,7 +24,20 @@ from typing import Optional
 from .async_monty import AsyncMontyClient, AsyncMontyDatabase
 
 
+def _is_cloud_mode() -> bool:
+    """Cloud mode always wins over native mode. Set on the cloud server pod
+    (api.bighat.live) where MongoDB must be used for license persistence."""
+    return os.environ.get("BIGHAT_CLOUD_MODE", "0") in ("1", "true", "True", "yes")
+
+
 def _is_native_mode() -> bool:
+    # If cloud mode is on, native mode is ignored — even when its env var is
+    # set, the server uses MongoDB. This protects against an operator
+    # accidentally leaving BIGHAT_NATIVE_MODE=1 on the cloud pod, which would
+    # otherwise route every license through the container's ephemeral SQLite
+    # file and lose every customer key on each Kubernetes redeploy.
+    if _is_cloud_mode():
+        return False
     return os.environ.get("BIGHAT_NATIVE_MODE", "0") in ("1", "true", "True", "yes")
 
 

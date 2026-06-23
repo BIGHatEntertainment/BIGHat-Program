@@ -13,6 +13,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from contextlib import asynccontextmanager
 import os
+import asyncio
 import re
 import logging
 import bcrypt
@@ -52,14 +53,27 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # ===== NATIVE-MODE DB SWITCH (Phase 1) =====
-# When BIGHAT_NATIVE_MODE=1, replace the global `db` with a MontyDB-backed
-# SQLite client that exposes the same async API (find_one, insert_one, etc.).
-# Webapp mode keeps the original motor.AsyncIOMotorClient unchanged.
+# When BIGHAT_NATIVE_MODE=1 AND BIGHAT_CLOUD_MODE is not set, replace the
+# global `db` with a MontyDB-backed SQLite client that exposes the same async
+# API (find_one, insert_one, etc.).  Webapp / cloud mode keeps the original
+# motor.AsyncIOMotorClient unchanged.
+#
+# CRITICAL: cloud mode ALWAYS wins. If BIGHAT_CLOUD_MODE=1 is set on the
+# server, BIGHAT_NATIVE_MODE is ignored even when also set — otherwise the
+# license database would be the container's ephemeral SQLite file and every
+# customer key would vanish on every redeploy. (Fix landed 2026-06-23 after
+# v32.0.0-alpha.9 customers reported "unknown_key" on a freshly-minted key.)
 try:
     from native.db_factory import get_db as _get_native_db, is_native as _is_native_mode
     if _is_native_mode():
         db = _get_native_db()
         logger.info("[NATIVE-MODE] Using MontyDB SQLite backend instead of MongoDB")
+    elif os.environ.get("BIGHAT_NATIVE_MODE") == "1" and os.environ.get("BIGHAT_CLOUD_MODE") == "1":
+        logger.warning("=" * 70)
+        logger.warning("DB MODE: BIGHAT_NATIVE_MODE=1 IGNORED because BIGHAT_CLOUD_MODE=1")
+        logger.warning("  → Using MongoDB (persisted across redeploys). This is the")
+        logger.warning("    correct behaviour for a cloud server pod.")
+        logger.warning("=" * 70)
 except Exception as _e:
     logger.warning(f"[NATIVE-MODE] db_factory unavailable, sticking with MongoDB: {_e}")
 # ===== END NATIVE-MODE DB SWITCH =====
@@ -1942,20 +1956,28 @@ app.include_router(api_router)
 # bundle (a missing hidden import is the usual cause), the desktop app's
 # Setup Wizard hits "Method Not Allowed" (the SPA fallback catches the URL
 # as GET-only). We MUST surface that traceback so the next build can fix it.
+#
+# On the CLOUD server (BIGHAT_CLOUD_MODE=1) the native router is skipped
+# entirely — those endpoints exist for the desktop installer to call its
+# OWN local sidecar, not for end users to hit api.bighat.live with.
 _native_router_loaded = False
 _native_router_error: str = ""
-try:
-    from native.router import router as native_router
-    app.include_router(native_router)
-    _native_router_loaded = True
-    logger.info("Native-Standalone router registered at /api/native/*")
-except Exception as e:
-    _native_router_error = repr(e)
-    if os.environ.get("BIGHAT_NATIVE_MODE") == "1":
-        logger.error("FATAL: BIGHAT_NATIVE_MODE=1 but Native-Standalone router FAILED to load: %s", e)
-        logger.exception("Native router import traceback (Setup Wizard will 405 until fixed):")
-    else:
-        logger.warning(f"Could not load Native-Standalone router: {e}")
+_native_router_skipped_cloud = os.environ.get("BIGHAT_CLOUD_MODE") == "1" and os.environ.get("BIGHAT_NATIVE_MODE") != "1"
+if _native_router_skipped_cloud:
+    logger.info("Native-Standalone router NOT mounted (cloud server mode)")
+else:
+    try:
+        from native.router import router as native_router
+        app.include_router(native_router)
+        _native_router_loaded = True
+        logger.info("Native-Standalone router registered at /api/native/*")
+    except Exception as e:
+        _native_router_error = repr(e)
+        if os.environ.get("BIGHAT_NATIVE_MODE") == "1":
+            logger.error("FATAL: BIGHAT_NATIVE_MODE=1 but Native-Standalone router FAILED to load: %s", e)
+            logger.exception("Native router import traceback (Setup Wizard will 405 until fixed):")
+        else:
+            logger.warning(f"Could not load Native-Standalone router: {e}")
 
 
 # v31.0.13: SharePoint Hybrid Sync router removed.
@@ -2022,6 +2044,45 @@ try:
         app.include_router(cloud_router)
         app.include_router(cloud_admin_router)
         app.include_router(cloud_download_landing_router)
+
+        # Phase 10.6: Squarespace Orders poller — replaces webhooks because
+        # Squarespace's webhook subscriptions API requires an OAuth Extension.
+        # Polls /commerce/orders every N seconds, mints + emails licenses for
+        # new orders. Idempotent on order_id via the existing webhook_events
+        # collection. Started as a background task; cancelled on shutdown.
+        from cloud.squarespace_poller import poll_forever as _poller_loop
+        from cloud.poller_router import router as _poller_router, set_runtime as _poller_set_runtime
+        _poller_shutdown = asyncio.Event()
+        _poller_task = None
+
+        @app.on_event("startup")
+        async def _start_squarespace_poller():
+            global _poller_task
+            if _cloud_config.squarespace_api_key():
+                _poller_task = asyncio.create_task(
+                    _poller_loop(
+                        service=_license_service,
+                        store=_license_store,
+                        shutdown=_poller_shutdown,
+                    )
+                )
+                logger.info("Squarespace orders poller scheduled (interval=%ss)",
+                            _cloud_config.squarespace_poll_interval_seconds())
+            else:
+                logger.warning("Squarespace orders poller NOT started — "
+                               "SQUARESPACE_API_KEY env var is empty")
+
+        @app.on_event("shutdown")
+        async def _stop_squarespace_poller():
+            _poller_shutdown.set()
+            if _poller_task:
+                try:
+                    await asyncio.wait_for(_poller_task, timeout=5.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+
+        _poller_set_runtime(service=_license_service, store=_license_store)
+        app.include_router(_poller_router)
 
         # LOUD startup banner — single curl-able place to confirm prod is wired.
         from cloud import config as _cloud_config

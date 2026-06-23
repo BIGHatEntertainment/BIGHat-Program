@@ -7,6 +7,146 @@
 
 ---
 
+## 2026-06-23 — Phase 10.7: production data-loss + offline-setup hot-fix
+
+**P0 production-data-loss bug.** User installed v32.0.0-alpha.9, entered
+the real license key `BHE-D6P3-8UM2-VS3E-AK69` I had minted on prod just
+30 min earlier, and got **"We don't recognise that license key."** Then
+the "Continue offline" path also failed with `unknown_key` at the very
+end of setup.
+
+### Root causes (two distinct bugs)
+1. **Prod was running with BOTH `BIGHAT_CLOUD_MODE=1` AND
+   `BIGHAT_NATIVE_MODE=1`.** The DB-factory check at server.py:62
+   prioritised native mode, so prod's license database was a **MontyDB
+   SQLite file inside the Kubernetes container's ephemeral filesystem.**
+   Every redeploy → new container → SQLite file destroyed → every
+   minted license vanishes. The user's redeploy to push the poller
+   wiped the key I had minted earlier in the same session.
+2. **"Continue offline" wasn't actually offline.** The Setup Wizard's
+   `/api/native/setup/initialize` endpoint always called the cloud's
+   authoritative `activate` path. Only `timeout` / `network_error` /
+   `server_error` were tolerated as offline-deferrable. An authoritative
+   `unknown_key` (e.g. from a wiped DB) was treated as a hard 400 reject,
+   even when the user explicitly clicked the WifiOff button.
+
+### Fixes shipped
+1. **`backend/native/db_factory.py`** — added `_is_cloud_mode()` and made
+   cloud mode ALWAYS win over native mode for DB selection. When both
+   env vars are set, MongoDB is used (persistent across redeploys) and
+   a loud `DB MODE: BIGHAT_NATIVE_MODE=1 IGNORED because BIGHAT_CLOUD_MODE=1`
+   banner is logged at boot. The cloud pod can now safely have either or
+   both env vars set and still persist licenses correctly.
+
+2. **`backend/native/router.py`** — added `offline_mode: bool = False`
+   to `SetupInitRequest`. When true, `/setup/initialize` skips the
+   cloud activate call entirely, persists locally, and marks
+   `pending_cloud_activation=True` so the 4-hour background refresh
+   job retries activation once the cloud is reachable.
+
+3. **`frontend/src/pages/SetupWizard.jsx`** — the "Continue offline"
+   button now sets `verify.state = 'offline'`, and the submit handler
+   passes `offline_mode: (verify.state === 'offline')` to the backend.
+
+4. **`backend/cloud/health_router.py`** — `/api/license/health` now
+   reports `effective_db_mode: "mongodb" | "montydb-sqlite"` and
+   `native_mode_override_active: bool` so the operator can verify the
+   cloud-wins-override took effect with a single curl. The
+   `BIGHAT_NATIVE_MODE+CLOUD_MODE` conflict is no longer a `blocker`
+   (the override handles it safely) but still surfaces in `modes`.
+
+5. **`backend/server.py`** — cloud-mode server pods now skip mounting
+   `/api/native/*` entirely (those endpoints exist for the desktop
+   installer to call its OWN local sidecar, not for end users to hit
+   api.bighat.live with).
+
+6. **`backend/tests/test_phase10_7_offline_setup_and_db_mode.py`** —
+   **7 new tests** locking in:
+   * `offline_mode=true` skips cloud_client.activate entirely
+   * `offline_mode` overrides authoritative `unknown_key` rejection
+   * `offline_mode=false` (default) still surfaces `unknown_key` as 400
+   * Network errors still auto-fall-back to offline-tolerant even
+     without the explicit flag
+   * `BIGHAT_CLOUD_MODE=1` overrides `BIGHAT_NATIVE_MODE=1` for DB
+   * Native mode alone still uses MontyDB
+   * Cloud mode alone uses MongoDB
+
+### Result
+**112/112 cloud + setup + poller tests green.** After the next prod
+redeploy, license keys will persist across redeploys (in MongoDB) AND
+the desktop's "Continue offline" button will actually let the customer
+through even when the cloud is rejecting the key.
+
+
+
+## 2026-06-22 — Phase 10.6: Squarespace Orders poller (webhooks → polling)
+
+**Decision:** Webhooks are dead, polling is in.
+
+Squarespace's static API key (the kind a merchant generates via Settings →
+Developer Tools → API Keys) is NOT allowed to create webhook subscriptions.
+The `POST /1.0/webhook_subscriptions` endpoint requires an OAuth access
+token, which in turn requires building a full Squarespace Extension and
+shipping it through the Developer Platform — heavy overhead for a single-
+merchant setup. Polling the Orders API every 2 minutes using the existing
+static API key is more reliable anyway:
+
+  * Naturally idempotent on `order.id`
+  * Catches orders made while the service was down
+  * No HMAC signature verification needed
+  * No "missed webhook" failure modes
+  * Works retroactively (just widen the time window to replay history)
+
+### What shipped
+- **`backend/cloud/squarespace_poller.py`** — the poller:
+  * `resolve_tier(product_id, product_name)`: maps Squarespace line items
+    to license tiers via `LICENSE_PRODUCT_MAP` env (productId→tier) with
+    productName substring fallback. Default map includes the live
+    standalone productId `69f95125f691fe20c13aef37`.
+  * `process_order(order)`: idempotent on `order.id`, multi-SKU aware,
+    routes to `mint_standalone_purchase`, `mint_addon_purchase`, or
+    `mint_cloud_subscription`.
+  * `fetch_orders()`: paginated Squarespace `/commerce/orders` client.
+  * `run_once()`: full cycle with persisted high-water mark
+    (`license_poll_state` collection).
+  * `poll_forever()`: background `asyncio.create_task` started at app
+    boot when `BIGHAT_CLOUD_MODE=1` + `SQUARESPACE_API_KEY` is set.
+
+- **`backend/cloud/poller_router.py`** — JWT-gated admin endpoints:
+  * `GET /api/license/admin/poller/status`
+  * `POST /api/license/admin/poller/run`         (trigger run-once)
+  * `POST /api/license/admin/poller/replay/{order_id}`  (force re-mint)
+
+- **`backend/cloud/config.py`** — new env vars:
+  * `SQUARESPACE_POLL_INTERVAL_SECONDS` (default 120)
+  * `SQUARESPACE_POLL_LOOKBACK_HOURS` (default 168 = 7d backfill)
+  * `LICENSE_PRODUCT_MAP` (JSON: `{"<productId>":"<tier>"}`)
+  * `SQUARESPACE_API_BASE` (overridable for tests)
+
+- **`backend/cloud/squarespace_webhook.py`** — fixed HMAC signature
+  verification: Squarespace's secret is HEX, must be `bytes.fromhex(secret)`
+  not `secret.encode("utf-8")`. (Only matters if you ever do switch back
+  to webhooks via an Extension.)
+
+- **`backend/tests/test_phase10_6_squarespace_poller.py`** — 12 tests:
+  productId-map precedence, productName fallback, merch-skipping,
+  mixed-cart routing, real-shape order #38 fixture, high-water mark
+  advancement, HTTP-error resilience, MontyDB `_id` immutability fix.
+
+### Manual mint hot-fix for order #38
+Order #38 (`sellards@bighat.live`, $49.99, 2026-06-22) was minted manually
+via `/api/license/admin/keys/mint` while polling was being built →
+key `BHE-D6P3-8UM2-VS3E-AK69` emailed via Resend from production.
+
+### Result
+**83/83 cloud + license + setup-wizard tests green.** Every future
+Squarespace purchase is automatically minted within 2 minutes and the
+license email is sent via Resend. Idempotency is locked-in: no order
+will ever be double-minted no matter how many times the poller restarts
+or how many times Squarespace returns the same order in subsequent polls.
+
+
+
 ## 2026-06-22 — Phase 10.5: production webhook → email pipeline hardening
 
 **P0 prod bug:** Squarespace buyers were not receiving license-key emails.

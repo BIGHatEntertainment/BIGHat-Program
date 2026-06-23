@@ -41,7 +41,11 @@ async def license_health() -> dict:
     required to mint + email a license key is present.
     """
     cloud_mode = config.is_cloud_mode()
-    native_mode = os.environ.get("BIGHAT_NATIVE_MODE") == "1"
+    native_mode_env = os.environ.get("BIGHAT_NATIVE_MODE") == "1"
+    # Effective DB mode reflects which storage backend is ACTUALLY in use,
+    # accounting for the cloud-wins-over-native override. This is the field
+    # to trust post-deploy.
+    effective_db_mode = "mongodb" if cloud_mode else ("montydb-sqlite" if native_mode_env else "mongodb")
 
     resend_key = config.resend_api_key()
     webhook_secret = config.squarespace_webhook_secret()
@@ -60,11 +64,10 @@ async def license_health() -> dict:
     blockers: list[str] = []
     if not cloud_mode:
         blockers.append("BIGHAT_CLOUD_MODE must be set to '1' (currently unset/0)")
-    if native_mode and cloud_mode:
-        blockers.append(
-            "BIGHAT_CLOUD_MODE and BIGHAT_NATIVE_MODE are both set; cloud "
-            "deployments must unset BIGHAT_NATIVE_MODE"
-        )
+    if native_mode_env and cloud_mode:
+        # Not a blocker anymore — cloud-wins-override handles this safely
+        # — but still surface as INFO so the operator knows about the override.
+        pass
     if not resend_key:
         blockers.append("RESEND_API_KEY missing — license emails will NOT be sent")
     if not webhook_secret:
@@ -81,7 +84,9 @@ async def license_health() -> dict:
         "blockers": blockers,
         "modes": {
             "cloud_mode_enabled": cloud_mode,
-            "native_mode_enabled": native_mode,
+            "native_mode_env_var_set": native_mode_env,
+            "effective_db_mode": effective_db_mode,
+            "native_mode_override_active": cloud_mode and native_mode_env,
         },
         "integrations": {
             "resend_configured": bool(resend_key),
