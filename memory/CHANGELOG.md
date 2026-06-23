@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-06-23 — Phase 10.10: alpha.10 rebuild from minimal diff
+
+**The first alpha.10 crashed on launch.** I had over-synced this session's changes into the installer bundle — cloud server changes (squarespace_poller, email URL fix, cloud-mode-wins, admin mint email, downloads resolver) got bundled into the PyInstaller sidecar where they don't belong AND aren't needed. On top of that, the `Main-Tauri-Updates` branch HEAD also had post-alpha.9 changes to `backend/launcher.py` (138 LOC diff) + `src-tauri/src/lib.rs` (346 LOC diff) + `tauri.conf.json` (31 LOC diff) + a stray `backend/pptx_parser.so` from someone's local Linux dev environment. Any one of those alone could crash the Tauri shell at sidecar spawn time.
+
+### Recovery action
+Reverted ALL of the following back to v32.0.0-alpha.9's working tree:
+- `backend/server.py` + every file in `backend/cloud/`
+- `backend/native/db_factory.py`
+- `backend/launcher.py`
+- `src-tauri/src/lib.rs`
+- `src-tauri/capabilities/default.json`
+- `src-tauri/tauri.conf.json` (then re-bumped only the version field)
+- `scripts/build_sidecar.py`
+- Removed stray `backend/pptx_parser.so`
+
+Re-applied ONLY the two changes that v32.0.0-alpha.10 actually needs:
+1. `backend/native/router.py`: `SetupInitRequest` gains
+   `offline_mode: bool = False`. When true, the endpoint skips the
+   authoritative cloud activate call entirely and marks the license
+   `pending_cloud_activation` for the 4-hour retry job. This is the
+   "Continue offline" fix.
+2. `frontend/src/pages/SetupWizard.jsx`: sends
+   `offline_mode: (verify.state === 'offline')` in the submit payload.
+
+Plus version bumps in `backend/VERSION.txt` and `src-tauri/tauri.conf.json`.
+
+### Server-side fixes are unaffected
+The Squarespace poller, email URL fix, cloud-mode-wins, admin mint
+email, downloads resolver — all of those are already live on
+`api.bighat.live` and don't need to ship in the installer. They were
+deployed independently to the cloud pod.
+
+### Build outcome
+- `_x64-setup.exe`: 132.5 MB ✅ (matches alpha.9's 132 MB — full sidecar bundled)
+- `_aarch64.dmg`: 115.2 MB ✅ (matches alpha.9's 115 MB)
+- `_aarch64.app.tar.gz`: 114.9 MB ✅
+- Intel Mac: still queued waiting for runner
+
+**Key lesson for me to lock in**: future bumps must touch ONLY the
+files that actually need to change for that bump. Random rebases /
+syncs that pull in unrelated `Main-Tauri-Updates` HEAD changes
+introduce regressions that take hours to find. Pin the diff at the
+moment of tag creation, not at the moment of branch HEAD.
+
+
+
 ## 2026-06-23 — v32.0.0-alpha.10 version bump
 
 - `backend/VERSION.txt`: `32.0.0-alpha.9` → `32.0.0-alpha.10`
