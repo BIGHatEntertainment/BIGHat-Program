@@ -1,0 +1,39 @@
+{
+  "summary": "Post-merge verification (user resolved a GitHub conflict via PR). Created /app/backend/tests/test_post_merge_verification_iter14.py with 25 tests narrowly scoped to the review request: backend health, VERSION sanity (VERSION.txt + tauri.conf.json + /api/native/info all agree on 32.0.0-alpha.11), Files tool (folder + list + upload + list-includes + download + delete + 404-after-delete + extension validation + path-traversal rejection), Downloads resolver (/api/downloads/latest shape + GH-release URLs + version sanity), Native setup (/setup/status + /setup/initialize offline_mode:true is idempotent 409 since this environment already has setup_complete=true), and reference-file existence (squarespace_poller.py, auto-tag.yml watching backend/VERSION.txt, files_router.py helpers + routes, lib.rs route_for_bighat + Apple Event handling, FilesTool.jsx + UpdateTool.jsx present, SponsorPortal.jsx absent). ALL 25/25 GREEN. The recent session work is fully intact post-merge.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_post_merge_verification_iter14.py",
+    "/app/test_reports/pytest/post_merge_iter14.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "downloads_resolver: /api/downloads/latest returned version 32.0.0-alpha.10 even though VERSION.txt + tauri.conf.json both report 32.0.0-alpha.11. This is by-design per the review note (alpha.11 GH release may not be published yet, resolver falls back to the latest published asset), but worth surfacing a `latest_published_version` vs `latest_repo_version` distinction in the payload so the UI can show 'an update is being prepared' without confusing customers. Not a regression.",
+    "downloads_resolver: platforms.macos_intel.url is currently `null` because no Intel .dmg exists in v32.0.0-alpha.10. This is the correct, safe behaviour (mis-routing to .exe is prevented per test_phase10_8b_downloads_precision.py). UI should explicitly handle the null and show 'Intel build unavailable for this release' rather than rendering a broken link.",
+    "files_router.py: /upload reads in 1MB chunks but holds the destination file open while reading. A client that uploads a 49MB file and then drops the connection mid-stream leaves the partial file on disk (the 50MB cap unlinks, but a network drop does not). Consider writing to a `.partial` tempfile and atomic-renaming on success.",
+    "files_router.py: /download/{name} streams via FileResponse but does not set Cache-Control. For a Tauri desktop bundle this is harmless; if these endpoints are ever exposed through the cloud (api.bighat.live), add `Cache-Control: private, no-store` to stop accidental shared-cache leaks.",
+    "files_router.py: _safe_name() requires .bighat extension and rejects path components, but does not lower-case the stored filename. `Foo.bighat` and `foo.bighat` are treated as distinct on case-sensitive filesystems (Linux) but collide on Windows/macOS-default. Consider normalising at write time so the experience is consistent across the three OSes the Tauri shell targets.",
+    "router.py /setup/initialize: SetupSettings requires `location_name` (min_length=1) but `company_name` defaults to 'BIG Hat Entertainment'. The wizard UI surfaces both as required — confirm the UI doesn't silently submit empty location_name and get a 422. (Test had to add location_name to even reach the 409 idempotent check.)",
+    "Out of scope for this iteration but observed: /app/backend/tests/test_bighat_files_v2.py has 7 pre-existing failures (round/presentation/bingo/scoreboard export+import round-trips and signed-archive flow). These are cloud `/api/bighat-files/*` endpoints, NOT the native `/api/native/files/*` endpoints under review. Flagged for visibility only — not caused by the merge."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_post_merge_verification_iter14.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% — 25/25 post-merge verification tests pass",
+    "frontend": "n/a (backend-only request)"
+  },
+  "test_credentials": "n/a — none required for these endpoints (Files tool + downloads + setup status are all unauthenticated in native mode).",
+  "seed_data_creation": "Test uploads a TEST_postmerge_<uuid>.bighat archive and deletes it within the same test class. No persistent seed left behind. The 4 pre-existing seed files in /root/BIGHat Entertainment/Files (birthday-bingo, show-night, pop-culture, etc.) are untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Post-merge state is clean. New regression file is /app/backend/tests/test_post_merge_verification_iter14.py — re-run with `pytest backend/tests/test_post_merge_verification_iter14.py` from /app. Note two naming nuances: (a) downloads resolver returns platforms.macos_apple / macos_intel (NOT mac_apple/mac_intel as worded in the review request — review wording was informal); (b) /api/downloads/latest.version may legitimately lag /api/native/info.version by one alpha until the GH release is published — both 32.0.0-alpha.11 and 32.0.0-alpha.10 are acceptable per the review brief. The test file accepts either. test_bighat_files_v2.py (cloud bighat-files import/export) has 7 pre-existing failures that are NOT post-merge regressions — they predate this iteration and are out of scope for this review.",
+  "rca of the issue": "N/A — no failures. Initial test draft had 3 minor authoring mistakes (mac_apple vs macos_apple key naming; macos_intel.url legitimately null; missing required location_name in setup payload) — all fixed in-place before final run."
+}
