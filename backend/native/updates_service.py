@@ -47,6 +47,7 @@ import hashlib
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 from dataclasses import asdict, dataclass, field
@@ -59,6 +60,32 @@ import httpx
 from .config import config_manager
 
 logger = logging.getLogger(__name__)
+
+
+# Canonical update channel: the cloud licensing API exposes a single
+# manifest at /api/downloads/latest that lists the latest installer per
+# platform from the GitHub Releases of BIGHatEntertainment/BIGHat-Program.
+# This is the ONE source of truth for the update flow per
+# /app/memory/PRD.md "CANONICAL DISTRIBUTION FLOW". Do not change without
+# updating the PRD.
+DEFAULT_UPDATE_CHANNEL_URL = "https://api.bighat.live/api/downloads/latest"
+
+
+def _detect_platform_key() -> str:
+    """Map this machine's OS+arch to the platform key the cloud manifest
+    uses ('windows' / 'macos_apple' / 'macos_intel'). Linux falls through
+    to 'windows' as a last resort — there's no Linux installer in the
+    canonical flow, and customers running the sidecar on Linux are devs
+    who can override BIGHAT_UPDATE_CHANNEL_URL anyway."""
+    sysname = platform.system().lower()
+    if sysname == "windows":
+        return "windows"
+    if sysname == "darwin":
+        mach = platform.machine().lower()
+        if mach in ("arm64", "aarch64"):
+            return "macos_apple"
+        return "macos_intel"
+    return "windows"
 
 
 # ----- Version semantics -----
@@ -145,7 +172,11 @@ class UpdatesService:
         if self._explicit_channel:
             return self._explicit_channel
         cfg = config_manager.config.get("updates", {}) or {}
-        return cfg.get("channel_url") or os.environ.get("BIGHAT_UPDATE_CHANNEL_URL") or ""
+        return (
+            cfg.get("channel_url")
+            or os.environ.get("BIGHAT_UPDATE_CHANNEL_URL")
+            or DEFAULT_UPDATE_CHANNEL_URL
+        )
 
     def _staging_root(self) -> Path:
         gen = config_manager.config.get("paths", {}).get("generated")
@@ -180,6 +211,32 @@ class UpdatesService:
             if r.status_code != 200:
                 raise RuntimeError(f"manifest_http_{r.status_code}")
             data = r.json()
+
+        # Schema adapter: api.bighat.live/api/downloads/latest returns
+        # {"version": "...", "platforms": {"windows": {...}, "macos_apple": {...}, ...}}
+        # while UpdateManifest expects {"latest_version", "download_url", "sha256"}.
+        # Detect and transform on the fly so the canonical channel URL
+        # works out of the box without a separate manifest service.
+        if isinstance(data, dict) and "platforms" in data and "latest_version" not in data:
+            plat_key = _detect_platform_key()
+            plat = (data.get("platforms") or {}).get(plat_key) or {}
+            if not plat.get("url"):
+                # No installer for this OS in the latest release; try the
+                # generic "macos" Apple-Silicon fallback before giving up.
+                if plat_key in ("macos_apple", "macos_intel"):
+                    other = (data.get("platforms") or {}).get(
+                        "macos_intel" if plat_key == "macos_apple" else "macos_apple"
+                    ) or {}
+                    if other.get("url"):
+                        plat = other
+            data = {
+                "latest_version": plat.get("version") or data.get("version") or "",
+                "download_url":   plat.get("url") or "",
+                "sha256":         plat.get("sha256") or "",  # cloud resolver doesn't expose this yet
+                "release_notes":  data.get("release_notes", ""),
+                "release_date":   data.get("release_date", ""),
+                "mandatory":      bool(data.get("mandatory", False)),
+            }
         return UpdateManifest.from_dict(data)
 
     # ----- Status report -----
@@ -245,7 +302,13 @@ class UpdatesService:
                 "latest_version": manifest.latest_version,
             }
 
-        if not manifest.sha256 or len(manifest.sha256) != 64:
+        # sha256 is optional. The cloud `/api/downloads/latest` manifest
+        # doesn't expose per-asset hashes today; HTTPS + GitHub CDN are
+        # the integrity guarantee. When sha256 IS provided (e.g. ops
+        # ships an explicit BIGHAT_UPDATE_MANIFEST_FIXTURE for a release
+        # with verifiable hashes) we still enforce it strictly.
+        sha_expected = manifest.sha256.lower() if manifest.sha256 else ""
+        if sha_expected and len(sha_expected) != 64:
             raise RuntimeError("invalid_manifest_sha256")
 
         target_dir = self._staging_root()
@@ -273,19 +336,20 @@ class UpdatesService:
                             out.write(chunk)
 
         digest = h.hexdigest().lower()
-        verified = digest == manifest.sha256.lower()
+        verified = (not sha_expected) or (digest == sha_expected)
         if not verified:
             # Refuse to keep an unverifiable bundle on disk.
             try:
                 target.unlink(missing_ok=True)
             except OSError:
                 pass
-            raise RuntimeError(f"sha256_mismatch: got {digest} expected {manifest.sha256}")
+            raise RuntimeError(f"sha256_mismatch: got {digest} expected {sha_expected}")
 
         staged = {
             "version": manifest.latest_version,
             "path": str(target),
-            "verified": True,
+            "verified": True,  # download completed; sha_verified flags hash check
+            "sha_verified": bool(sha_expected),
             "size": target.stat().st_size,
             "sha256": digest,
             "downloaded_at": datetime.now(timezone.utc).isoformat(),

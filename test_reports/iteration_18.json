@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 18 — Validated the Update tool 'channel_not_configured' fix. Created /app/backend/tests/test_updates_default_channel_iter18.py with 24 assertions covering: (1) DEFAULT_UPDATE_CHANNEL_URL constant + precedence ladder (explicit > env > config > default), (2) status() returns installed_version (NOT current_version) and channel_url defaults to https://api.bighat.live/api/downloads/latest with no env vars, (3) _detect_platform_key for Windows/Darwin-arm64/Darwin-aarch64/Darwin-x86_64/Linux-fallback via unittest.mock.patch on platform.system+machine, (4) fetch_manifest schema adapter — Windows/macOS Apple/macOS Intel each pick the right platforms[*].url with mocked httpx, (5) macos_apple host with no AS url falls back to macos_intel, (6) legacy direct-manifest schema is a no-op, (7) check() no longer raises update_channel_not_configured under default config, (8) download() with empty sha256 streams + computes digest + returns sha_verified=False/verified=True, (9) download() with valid 64-hex sha enforces match (sha_verified=True), (10) download() with non-64 sha raises invalid_manifest_sha256, (11) UpdateTool.jsx static asserts — uses status.installed_version, no 'current_version' references, channel_not_configured branch says 're-install' not 'connected to the internet', (12) backend /api/ smoke = 200. All 24/24 PASS.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_updates_default_channel_iter18.py",
+    "/app/test_reports/pytest/updates_default_channel_iter18.xml",
+    "/app/test_reports/pytest/phase9_1_regression_iter18.xml"
+  ],
+  "action_items": [
+    "PRE-EXISTING (not iter-18): /app/backend/tests/test_phase9_1_updates_native.py is stale because VERSION.txt was bumped to 32.0.0-alpha.11 in iter-17 — the fixture manifest still pins latest_version=31.1.0 so check/download now correctly return 'no_update_available'. The phase 9.1 tests still hard-code installed_version='31.0.0'. Either bump the fixture to a version > 32.0.0-alpha.11 OR rewrite the phase 9.1 tests to read VERSION.txt + pin fixture to (VERSION + 1). Failures observed: TestCheck.test_check_with_fixture_returns_update_available, TestDownload.* (4 cases all assert update was attempted, but skipped path is now taken), TestLauncherCheck (expects '31.0.0'), and TestApply.* (depend on a successful download to seed staged). Not caused by iter-18 — kept untouched per instructions.",
+    "PRE-EXISTING (not iter-18): TestRegressionSpotChecks expects /api/native/sync/status in {200,401,403} but live returns 404. Unrelated to updates."
+  ],
+  "critical_code_review_comments": [
+    "_channel_url() precedence is correct: explicit constructor arg short-circuits before config/env/default. config.get('channel_url') is checked BEFORE env, which is the intentional ordering documented in the iter-18 change — confirmed by tests.",
+    "Schema adapter in fetch_manifest() correctly guards on `'platforms' in data and 'latest_version' not in data` so legacy direct-manifest fixtures still parse unchanged (verified by test_legacy_direct_manifest_is_noop).",
+    "macos_apple <-> macos_intel cross-fallback only triggers when the same-OS slot has an empty url, NOT cross-OS (Windows host won't fall through to mac). This is the right safety policy and is now covered by tests.",
+    "download() optional-sha contract: empty sha => sha_verified=False, verified=True (the file is staged and usable); provided sha of length 64 => strict equality check; provided sha of any other length => RuntimeError('invalid_manifest_sha256'). All three branches now have explicit tests.",
+    "ENHANCEMENT (informational): _detect_platform_key returns 'windows' for Linux as a fallback. Add a logger.warning when fallback triggers — currently silent, which could mask 'wrong installer downloaded' bugs on bespoke Linux sidecar setups.",
+    "ENHANCEMENT (informational): UpdateManifest.from_dict tolerates partial cloud payloads (e.g. missing version key after schema adapt produces empty latest_version=''), which then propagates to is_newer('','31.0.0')=False -> silently 'no update'. Consider raising a manifest_missing_version error in the adapter when both platforms.<key>.version AND data.version are empty so the UI can surface it instead of showing 'up to date'.",
+    "FRONTEND CR (informational): UpdateTool.jsx — the 'check failed' helper text branches on a string-includes match. Backend wraps the RuntimeError into HTTPException(detail=str(e)), so e.response.data.detail is exactly 'update_channel_not_configured'. The substring match 'channel_not_configured' is correct AND tolerant of future renames like 'updates_channel_not_configured'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_updates_default_channel_iter18.py"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 iter-18 assertions). Phase 9.1 regression suite has 7 pre-existing failures + 4 dependent errors caused by VERSION.txt drift to 32.0.0-alpha.11 in iter-17, NOT by iter-18 changes.",
+    "frontend": "N/A (skipped per request; JSX checked via static string asserts only)"
+  },
+  "test_credentials": "N/A — iter-18 fixes do not touch auth flows",
+  "seed_data_creation": "None — all bundle bytes are tmp_path-scoped and torn down by pytest.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-18 fixes are fully validated by /app/backend/tests/test_updates_default_channel_iter18.py. If the canonical channel URL ever changes from https://api.bighat.live/api/downloads/latest, update DEFAULT_UPDATE_CHANNEL_URL in updates_service.py AND PRD.md AND the iter-18 test constant. Phase 9.1 regression suite is stale due to VERSION.txt=32.0.0-alpha.11 > fixture 31.1.0 — main agent should either (a) bump fixture manifest version above current VERSION.txt, or (b) refactor phase 9.1 tests to compute fixture version dynamically. The schema adapter mock pattern (class _AsyncClientCM + _patch_httpx helper) in iter-18 test file is reusable for any future httpx.AsyncClient-based unit tests.",
+  "rca of the issue": "ROOT CAUSE: Customer hit 'update_channel_not_configured' because (1) no BIGHAT_UPDATE_CHANNEL_URL env var was baked into the installer, (2) the embedded config.json didn't have updates.channel_url either, and (3) the code raised hard instead of defaulting. Even after providing a URL, the cloud /api/downloads/latest returns a {version, platforms:{...}} payload that the legacy UpdateManifest parser couldn't read, and the cloud doesn't expose sha256 so download() also failed with invalid_manifest_sha256. UI compounded this by reading status.current_version (which never existed — backend returns installed_version). FIX VERIFIED: DEFAULT_UPDATE_CHANNEL_URL constant added, fetch_manifest detects platforms-style payload and maps platforms[_detect_platform_key()] -> {latest_version, download_url}, sha256 now optional in download() (HTTPS is the integrity guarantee), UpdateTool.jsx reads status.installed_version + manifest.latest_version + branches the error helper on channel_not_configured to suggest re-install instead of internet connectivity."
+}

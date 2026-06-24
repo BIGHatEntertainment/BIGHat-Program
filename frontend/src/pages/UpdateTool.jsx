@@ -57,8 +57,9 @@ export default function UpdateTool() {
   };
 
   const hasUpdate = result?.update_available === true ||
-                    (status?.latest_version && status?.current_version && status.latest_version !== status.current_version);
-  const m = result?.manifest || status?.manifest || {};
+                    (status?.latest_known?.latest_version && status?.installed_version &&
+                     status.latest_known.latest_version !== status.installed_version);
+  const m = result?.manifest || status?.latest_known || {};
   const notes = m?.release_notes || m?.notes || m?.changelog || '';
   const noteLines = (Array.isArray(notes) ? notes : String(notes).split('\n'))
     .map((s) => String(s).trim())
@@ -88,13 +89,13 @@ export default function UpdateTool() {
             <div className="border rounded-lg p-4">
               <div className="text-xs text-gray-500 uppercase tracking-wide">Installed version</div>
               <div data-testid="installed-version" className="text-2xl font-mono font-semibold text-gray-900 mt-1">
-                {status?.current_version || '—'}
+                {status?.installed_version || result?.installed_version || '—'}
               </div>
             </div>
             <div className="border rounded-lg p-4">
               <div className="text-xs text-gray-500 uppercase tracking-wide">Latest available</div>
               <div data-testid="latest-version" className="text-2xl font-mono font-semibold text-gray-900 mt-1">
-                {status?.latest_version || result?.manifest?.version || '—'}
+                {result?.manifest?.latest_version || status?.latest_known?.latest_version || '—'}
               </div>
             </div>
           </div>
@@ -106,7 +107,9 @@ export default function UpdateTool() {
                 <div className="font-medium text-red-900">Couldn&apos;t check for updates</div>
                 <div className="text-sm text-red-700 mt-1">{error}</div>
                 <div className="text-xs text-red-600 mt-2">
-                  Make sure you&apos;re connected to the internet, then click &quot;Check now&quot; again.
+                  {String(error).includes('channel_not_configured')
+                    ? 'This installer wasn\'t built with the canonical update channel. Re-install the latest version from your post-purchase email to fix this.'
+                    : 'Make sure you\'re connected to the internet, then click "Check now" again.'}
                 </div>
               </div>
             </div>
@@ -118,7 +121,7 @@ export default function UpdateTool() {
                 <div className="flex items-center gap-2 mb-3">
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                   <span className="font-semibold text-green-900">
-                    Update available: {m.version || result.manifest?.version}
+                    Update available: {m.latest_version || m.version}
                   </span>
                 </div>
                 {noteLines.length > 0 && (
