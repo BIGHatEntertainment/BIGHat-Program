@@ -92,6 +92,50 @@ def _fetch_latest_release() -> dict:
     return data
 
 
+def _fetch_recent_releases(limit: int = 5) -> list[dict]:
+    """Fetch the last N releases (newest first), filtered to non-draft.
+    Used by resolve() to walk back to a previous release when the latest
+    is missing the requested platform's binary (e.g. a Windows build
+    failed on the most recent tag — we still want to serve customers
+    SOMETHING downloadable instead of a dead link).
+
+    Cached for the same TTL as `_fetch_latest_release()`.
+    """
+    cache_key = f"recent_{limit}"
+    cached = _CACHE.get(cache_key)
+    now = time.time()
+    if cached and cached[0] > now:
+        return cached[1]
+
+    owner, repo = _gh_owner_repo()
+    if not owner or not repo:
+        return []
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/releases?per_page={int(limit)}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "bighat-downloads-resolver",
+    }
+    tok = _github_token()
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        logger.warning(f"[downloads] error fetching recent releases: {e}")
+        _CACHE[cache_key] = (now + 30, [])
+        return []
+
+    # Skip drafts (they can have incomplete asset uploads mid-build).
+    releases = [r for r in data if not r.get("draft")]
+    _CACHE[cache_key] = (now + _CACHE_TTL_SECONDS, releases)
+    return releases
+
+
 # Asset-name matchers (case-insensitive). Each entry is
 # (required_extensions, required_substrings, forbidden_substrings).
 # An asset is picked only if its lowered filename ends with one of the
@@ -202,6 +246,37 @@ def resolve(platform: str) -> dict:
         asset = _pick_asset(assets, "macos_intel")
 
     if not asset:
+        # Latest release is missing a binary for this platform (common
+        # when a single CI matrix leg fails — e.g. the Windows leg dies
+        # at `cargo update` on a transient crates.io connection reset
+        # but the Mac legs succeed and publish). Walk back through the
+        # last few releases and serve the most recent one that DOES
+        # have a binary for this platform, so paid customers always get
+        # a working installer. Flag the response so callers can render
+        # a small "you're getting an older build" notice if they want.
+        for older in _fetch_recent_releases(limit=5):
+            older_version = (older.get("tag_name") or "").lstrip("vV")
+            if older_version == version:
+                continue   # skip the latest release we already failed on
+            older_assets = older.get("assets") or []
+            older_asset = _pick_asset(older_assets, lookup)
+            if not older_asset and platform == "macos":
+                older_asset = _pick_asset(older_assets, "macos_intel")
+            if older_asset:
+                logger.info(
+                    "[downloads] latest %s has no %s asset — falling back to %s",
+                    version or "?", platform, older_version,
+                )
+                return {
+                    "url":            older_asset.get("browser_download_url"),
+                    "version":        older_version,
+                    "filename":       older_asset.get("name"),
+                    "platform":       platform,
+                    "size":           older_asset.get("size"),
+                    "source":         "github",
+                    "is_fallback":    True,
+                    "latest_version": version,
+                }
         return {"url": None, "version": version, "filename": None,
                 "platform": platform, "size": None, "source": "github"}
 

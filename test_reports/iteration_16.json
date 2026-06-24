@@ -1,0 +1,32 @@
+{
+  "summary": "Validated SPA-fallback /download exclusion and downloads_resolver walk-back fallback. Wrote 10 new unit tests in /app/backend/tests/test_downloads_resolver_fallback.py — all pass. Existing /app/backend/tests/test_cloud_downloads.py regression (11 tests) still passes. Live smoke checks against REACT_APP_BACKEND_URL confirm GET /api/ = 200 and GET /api/downloads/latest = 200 with the new walk-back fields populated (is_fallback=true, latest_version=32.0.0-alpha.11, version=32.0.0-alpha.10 for Windows because v32.0.0-alpha.11 has no .exe yet — the fix is operating against real GitHub data right now).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /download (via public REACT_APP_BACKEND_URL)", "issue": "Public URL returns the React index.html shell (2247 bytes) for /download. This is NOT a bug in the SPA-fallback fix — the Kubernetes ingress routes any non-/api/* path to the frontend container on port 3000, so requests for /download never reach FastAPI on port 8001 in this preview environment. The backend SPA exclusion fix is validated correctly via TestClient (native-mode reload) where /download returns 404 cleanly. In production-cloud the cloud_download_landing_router will own /download as intended."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_downloads_resolver_fallback.py",
+    "/app/test_reports/pytest/resolver_fallback_iter16.xml",
+    "/app/test_reports/pytest/cloud_downloads_regression_iter16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "downloads_resolver.resolve() now returns a dict whose shape is conditional — it has the keys `is_fallback` and `latest_version` only on the fallback path. Recommend documenting this in the resolve() docstring (currently the docstring lists only the always-present keys) so downstream callers (license_router, download_landing) don't need to guess. The /api/downloads/latest response already exposes these conditionally which is good.",
+    "_fetch_recent_releases uses the same `_CACHE` dict as _fetch_latest_release but with key `recent_5`. Consider extracting a small `_cached_fetch(key, ttl, fn)` helper to remove the duplicated cache-check + negative-cache boilerplate (~25 LOC duplicated between the two functions). Not blocking.",
+    "The walk-back loop in resolve() does not break out early on the first hit per platform if `_fetch_recent_releases()` includes the latest release as the first element AND it has the asset for `platform` (it can't — we only enter the walk-back when latest didn't match). So this is fine; just noting that the `older_version == version` skip is purely a defense-in-depth check, which is appropriate.",
+    "Static check on /app/backend/server.py line 2237: the exclusion uses `in (\"health\", \"docs\", \"openapi.json\", \"redoc\", \"download\")`. A second `/download/` (trailing slash) would still hit the SPA fallback (full_path = \"download/\"). Low-risk because download_landing only registers GET /download, not GET /download/, and the production ingress should normalise; but worth a follow-up to either include `\"download/\"` in the tuple or to use `full_path == \"download\" or full_path.startswith(\"download/\")`."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_downloads_resolver_fallback.py (new)"
+  ],
+  "success_rate": {"backend": "100% (21/21 tests pass: 10 new walk-back + 11 existing regression)", "frontend": "n/a (backend-only review)"},
+  "test_credentials": "n/a",
+  "seed_data_creation": "None. All GitHub responses are mocked via patch.object on cloud.downloads_resolver._fetch_latest_release / _fetch_recent_releases / urllib.request.urlopen — zero real network calls.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 16 validated the v32.0.0-alpha.11 release-asset hotfix: (a) SPA fallback in server.py now excludes 'download' literal so /download cannot be shadowed by React index.html; (b) downloads_resolver.resolve() walks back through up to 5 recent releases when the latest is missing the platform's binary. Live evidence the walk-back is working right now in production data: GET /api/downloads/latest reports windows.is_fallback=true with latest_version=32.0.0-alpha.11 falling back to version=32.0.0-alpha.10 because the alpha.11 Windows job failed at cargo update. Both /app/backend/.env BIGHAT_CLOUD_MODE=1 AND BIGHAT_NATIVE_MODE=1 are set here, so the cloud download_landing router IS mounted (the review request's note about native-only is slightly inaccurate for this sandbox, but does not affect the fix). New test file uses patch.object pattern — keep it as regression. Use downloads_resolver._bust_cache() between any future related tests.",
+  "rca of the issue": "User-reported bugs: (1) Resend post-purchase 'Download BIG Hat Entertainment' button landed Windows users on a 'wrong place' license API page because the FastAPI /download view was shadowed by the React SPA fallback at /{full_path:path} in server.py. Fix: added 'download' literal to the exclusion tuple at line 2237. Validated by static-string check + TestClient (native-mode reload) returning 404 cleanly for /download and /download?missing=windows. (2) v32.0.0-alpha.11 GitHub Release was missing the Windows .exe (cargo-update transient crates.io network reset on the Windows CI leg). Fix: added _fetch_recent_releases(limit=5) in downloads_resolver.py + walk-back block inside resolve() that returns the most recent older release with a matching binary, flagged is_fallback=True with latest_version annotated. Validated by 7 unit tests covering: happy-path walk-back, no-asset-anywhere (returns url=None, no is_fallback key), lazy invocation (recent fetch never called when latest matches), same-version skip, macos alias→intel inside older release, TTL cache, draft filtering. Production GitHub /api/downloads/latest now serves alpha.10 Windows .exe with is_fallback=true while alpha.11 Windows job retries on GitHub Actions."
+}

@@ -2229,8 +2229,12 @@ try:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def _spa_fallback(full_path: str, request: _StaticRequest):
-            # Never shadow API routes
-            if full_path.startswith("api/") or full_path in ("health", "docs", "openapi.json", "redoc"):
+            # Never shadow API routes or the cloud download landing page.
+            # `/download` is a FastAPI HTML view (cloud.download_landing)
+            # — letting the SPA catch it would render the api-host "wrong
+            # place" page, which is wrong for legitimate purchasers who
+            # just clicked their post-purchase email button.
+            if full_path.startswith("api/") or full_path in ("health", "docs", "openapi.json", "redoc", "download"):
                 raise HTTPException(status_code=404, detail="not_found")
             candidate = _STATIC_DIR / full_path
             if candidate.is_file():
