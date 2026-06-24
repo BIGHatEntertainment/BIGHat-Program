@@ -223,6 +223,81 @@ but it's not required today — the reported regression is Windows-only.
 
 ---
 
+## 🛑 AUTO-TAG → RELEASE PIPELINE MUST EXPLICITLY DISPATCH RELEASE.YML
+
+> Added 2026-06-24 after alpha.12 was tagged successfully by auto-tag.yml
+> but `release.yml` never fired, leaving the GitHub Release empty even
+> though the build pipeline was "configured to fire on tag push".
+
+### The invariant
+**GitHub Actions safety rule**: workflows whose triggering event is caused
+by the default `GITHUB_TOKEN` do NOT trigger downstream workflows. This
+prevents infinite loops, and it absolutely applies to our setup:
+`auto-tag.yml` pushes the `v<version>` tag using `GITHUB_TOKEN`; that tag
+push does NOT fire `release.yml` even though release.yml's trigger is
+`on.push.tags: ['v32.*', 'v33.*']`.
+
+The pipeline MUST explicitly invoke release.yml. Two options, in order
+of preference:
+
+#### Option A — `workflow_dispatch` from inside auto-tag.yml (current fix)
+After pushing the tag, auto-tag.yml POSTs to the workflows dispatch API
+using the same `GITHUB_TOKEN`. workflow_dispatch IS allowed for the
+default token. The step is at the bottom of `auto-tag.yml` and looks
+like:
+
+```yaml
+- name: Dispatch release.yml (workflow_dispatch fallback)
+  env:
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: |
+    curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+      "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+      -d "{\"ref\":\"$TAG\",\"inputs\":{\"version\":\"$V\",\"draft\":\"false\"}}"
+```
+
+`release.yml` must honour `inputs.draft == 'false'` (see below).
+
+#### Option B — push tags with a PAT that has the `workflow` scope
+Store a fine-grained PAT in repo secrets (e.g. `RELEASE_PAT`) and use it
+in `git push origin "$TAG"`. Tags pushed by user PATs DO trigger
+downstream workflows. **Not used today** because Option A doesn't
+require any extra secret.
+
+### `release.yml` MUST honor `inputs.draft` correctly
+The `releaseDraft` field in the tauri-action step must be exactly:
+
+```yaml
+releaseDraft: ${{ inputs.draft == 'true' }}
+```
+
+NOT `${{ inputs.draft == 'true' || github.event_name == 'workflow_dispatch' }}`.
+The OR-with-event-name pattern is a classic over-eager safety guard that
+breaks the explicit-dispatch path: every workflow_dispatch becomes a
+draft no matter what the user requested. With the strict expression
+above, an explicit `draft: false` input publishes a public release and
+`draft: true` produces a draft.
+
+### Build-time guarantees
+- Tag push by auto-tag.yml ↦ tag exists, but release.yml does NOT
+  auto-fire (GITHUB_TOKEN rule).
+- The dispatch step inside auto-tag.yml ↦ release.yml runs with
+  `event=workflow_dispatch` and `inputs.draft=false` ↦ public release
+  with all 3 OS installers attached.
+
+### If the pipeline ever silently skips a release
+Run this checklist:
+1. Did `auto-tag.yml` create the tag? Check Actions → the tag-push run.
+2. Did `auto-tag.yml`'s "Dispatch release.yml" step succeed? Look for
+   the curl output in the run log.
+3. Did `release.yml` start? Filter Actions by workflow=release.yml.
+4. If yes but the release is a draft, check `releaseDraft` expression in
+   release.yml hasn't reverted to the OR-with-event-name pattern.
+5. If still empty, PATCH the release to `draft=false` via API:
+   `PATCH /repos/{owner}/{repo}/releases/{id}` body `{"draft": false}`.
+
+---
+
 
 
 ## Original Problem Statement

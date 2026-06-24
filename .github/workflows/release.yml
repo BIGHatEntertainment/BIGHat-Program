@@ -148,6 +148,6 @@ jobs:
             - macOS (Intel): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_x64.dmg`
 
             See CHANGELOG.md for the full notes.
-          releaseDraft: ${{ inputs.draft == 'true' || github.event_name == 'workflow_dispatch' }}
+          releaseDraft: ${{ inputs.draft == 'true' }}
           prerelease: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

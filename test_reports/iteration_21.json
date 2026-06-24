@@ -1,0 +1,39 @@
+{
+  "summary": "Static validation of alpha.12 root-cause fix: auto-tag.yml now explicitly dispatches release.yml (default GITHUB_TOKEN cannot trigger downstream tag-push workflows), and release.yml's releaseDraft expression is strictly `${ inputs.draft == 'true' }` so workflow_dispatch with draft=false publishes a public release. PRD.md section + curl example verified. Backend /api/ smoke 200. iter15 autotag regression (8 tests) still green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_release_pipeline_dispatch_iter21.py",
+    "/app/test_reports/pytest/release_pipeline_dispatch_iter21.xml"
+  ],
+  "action_items": [
+    "Push the workflow changes to GitHub when the PAT regains `workflow` scope so future tag pushes auto-dispatch release.yml without manual API calls.",
+    "Once pushed, cut a no-op VERSION.txt bump (e.g. alpha.13) to live-validate the end-to-end auto-tag → dispatch → public-release pipeline on GitHub-hosted runners.",
+    "Remove operational PID 3100 background publisher once alpha.12 release is patched to draft=false (one-shot, not a long-lived process)."
+  ],
+  "critical_code_review_comments": [
+    "release.yml workflow_dispatch.inputs.draft default is 'true' (line 21); auto-tag.yml hard-overrides this with 'false' in the curl body, so manual dispatches from the Actions UI default to draft=true. This is fine for the auto-tag pipeline path, but a one-line nit: if you ever manually re-dispatch via UI to publish a release, you must remember to flip the draft toggle.",
+    "auto-tag.yml dispatch step uses `secrets.GITHUB_TOKEN`. GitHub's documented behaviour is that workflow_dispatch via GITHUB_TOKEN IS allowed, so this works — but if Actions security policy ever tightens, the fallback would need a PAT (Option B already documented in PRD).",
+    "auto-tag.yml dispatch step is correctly guarded by `if: steps.skip.outputs.skip != 'true'`, so a no-op re-run on the same VERSION.txt won't double-dispatch. Confirmed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_release_pipeline_dispatch_iter21.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 new + 8/8 iter15 regression)",
+    "frontend": "skipped per request"
+  },
+  "test_credentials": "n/a — static validation only",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Workflow files run only on GitHub-hosted runners; the dispatch fallback cannot be exercised in this container. iter21 covers static contract: releaseDraft strict expression, push.tags v32/v33 still wired, workflow_dispatch inputs (version required, draft string), auto-tag dispatch step name/ordering/skip-guard/curl-body (ref/inputs.version/inputs.draft='false')/GH_TOKEN env. PyYAML 1.1 quirk: `on:` parses to bool True — use `_on(cfg)` helper in the new test file.",
+  "rca of the issue": "Root cause: GitHub Actions safety rule — tag pushes performed by the default GITHUB_TOKEN do NOT trigger downstream workflows (anti-loop protection). For alpha.12, auto-tag.yml created v32.0.0-alpha.12 successfully but release.yml's `on.push.tags` never fired. Mitigation (now in code, validated): (1) auto-tag.yml appends an explicit `workflow_dispatch` POST to /actions/workflows/release.yml/dispatches using GH_TOKEN; (2) release.yml's `releaseDraft` is strictly `${ inputs.draft == 'true' }` (the previous OR-with-event_name guard would have forced every workflow_dispatch into draft mode); (3) dispatch step is conditional on skip!='true' so a re-run on an existing tag doesn't re-dispatch. Live validation requires pushing to GitHub (PAT lacks workflow scope at time of testing)."
+}
