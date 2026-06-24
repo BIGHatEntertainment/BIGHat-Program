@@ -1,0 +1,37 @@
+{
+  "summary": "Static-validation pass for NSIS installer-hooks fix (iter 17). Created /app/backend/tests/test_installer_hooks_iter17.py with 22 pytest assertions covering: installer-hooks.nsh file presence, both PREINSTALL + PREUNINSTALL macros, taskkill targets ('BIG Hat Entertainment.exe' and 'bighat-backend.exe'), nsExec::Exec usage, Sleep > 500ms after kills, balanced !macro/!macroend, tauri.conf.json validity (version 32.0.0-alpha.11 preserved, productName, externalBin, installerHooks wired, installMode perMachine, relative path resolves), .nsh<->tauri.conf.json executable-name cross-consistency, PRD.md documents the new invariant, and /api/ backend smoke. All 22/22 tests PASS.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_installer_hooks_iter17.py",
+    "/app/test_reports/pytest/installer_hooks_iter17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "installer-hooks.nsh is clean: both macros mirror each other (kill shell + kill backend + Sleep 800), exit codes are intentionally discarded via Pop $0 so a fresh install where the processes aren't running doesn't break the installer, 2>nul keeps installer logs tidy.",
+    "Cross-file naming is consistent: tauri.conf.json productName='BIG Hat Entertainment' -> 'BIG Hat Entertainment.exe' AND externalBin 'binaries/bighat-backend' -> 'bighat-backend.exe', both quoted exactly in the .nsh.",
+    "tauri.conf.json: installMode='perMachine' ensures the hook runs elevated so taskkill can terminate processes owned by any user. version='32.0.0-alpha.11' preserved.",
+    "PRD.md INSTALLER MUST KILL section is clear and references both executable names + the rationale.",
+    "Note (informational, not blocking): the actual runtime behavior (NSIS extracting + executing the hook) only runs at install time on a Windows machine. Recommend a single manual smoke install on a clean Windows VM (with the previous version still running) before cutting the alpha.11 release tag."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_installer_hooks_iter17.py"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 static + smoke tests)",
+    "frontend": "N/A (skipped per request)"
+  },
+  "test_credentials": "N/A — no auth flows touched",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Static NSIS hook fix is fully validated in /app/backend/tests/test_installer_hooks_iter17.py. The real install-time behavior on Windows cannot be tested in this Linux container — that must be exercised manually on a Windows VM by installing alpha.10, launching the app, then running the alpha.11 installer on top. If the executable filenames ever change, both installer-hooks.nsh AND the PRD section must be updated; the iter17 test will catch mismatches automatically.",
+  "rca of the issue": "Original bug: NSIS Abort/Retry/Ignore on 'Error opening file for writing: ...bighat-backend.exe' during upgrade — Windows refused to overwrite the locked binaries because both 'BIG Hat Entertainment.exe' (Tauri shell) and 'bighat-backend.exe' (FastAPI sidecar) from the previous install were still running. Fix verified statically: installer-hooks.nsh now defines NSIS_HOOK_PREINSTALL + NSIS_HOOK_PREUNINSTALL macros, each invoking `nsExec::Exec 'cmd /c taskkill /F /T /IM \"<exe>\" 2>nul'` for both executables and then `Sleep 800` so Windows fully releases the file handles. tauri.conf.json wires bundle.windows.nsis.installerHooks='installer-hooks.nsh' (resolves from src-tauri/) with installMode='perMachine' so the kill runs as Administrator."
+}

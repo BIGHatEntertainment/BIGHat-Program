@@ -76,7 +76,8 @@
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installMode": "perMachine",
-        "languages": ["English"]
+        "languages": ["English"],
+        "installerHooks": "installer-hooks.nsh"
       },
       "wix": {
         "language": ["en-US"]

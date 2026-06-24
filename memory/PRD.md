@@ -48,6 +48,46 @@ clarifying questions, and confirm before writing code.
 
 ---
 
+## 🛑 INSTALLER MUST KILL RUNNING PROCESSES BEFORE OVERWRITE — DO NOT REMOVE
+
+> Added 2026-06-24 after a customer hit
+> *"Error opening file for writing: C:\Program Files\BIG Hat Entertainment\bighat-backend.exe"*
+> mid-install when upgrading from a previous version.
+
+### The invariant
+Every Windows release MUST ship with a NSIS installer that terminates the
+following processes BEFORE extracting any files:
+
+- `BIG Hat Entertainment.exe`  (the Tauri shell)
+- `bighat-backend.exe`         (the PyInstaller FastAPI sidecar)
+
+Without this, an upgrade install over a running app fails because Windows
+refuses to overwrite locked binaries, and the customer is left with
+Abort / Retry / Ignore prompts — none of which are acceptable for a paid
+product.
+
+### Where this is wired
+- `/app/src-tauri/installer-hooks.nsh` — defines `NSIS_HOOK_PREINSTALL`
+  and `NSIS_HOOK_PREUNINSTALL` macros that call
+  `taskkill /F /T /IM <process>.exe` and sleep 800 ms so Windows fully
+  releases the file handles.
+- `/app/src-tauri/tauri.conf.json` → `bundle.windows.nsis.installerHooks`
+  points at `installer-hooks.nsh`. **Do not delete this field.**
+
+### Build-time guarantees
+- The `.nsh` file ships inside `src-tauri/` so `tauri build` always finds it.
+- The hooks run as Administrator (installMode=perMachine), so they have the
+  rights to kill processes owned by any user.
+- `taskkill` exit codes are intentionally ignored (`Pop $0` is discarded) so
+  a fresh install where the processes aren't running doesn't error out.
+
+### If you ever change the executable names
+Update BOTH the `taskkill` lines in `installer-hooks.nsh` AND keep this PRD
+section in sync. The names must match exactly what Tauri produces in
+`%programfiles%\BIG Hat Entertainment\`.
+
+---
+
 
 
 ## Original Problem Statement
