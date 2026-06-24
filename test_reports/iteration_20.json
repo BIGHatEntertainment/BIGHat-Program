@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 20 — Static validation pass for Tauri window-controls capability fix + Windows Job Object sidecar lifecycle. All 17 assertions green across 6 invariants (capability JSON, Cargo TOML windows-sys block, lib.rs Win32 Job Object code + ordering, TitleBar JSX no-regression, PRD doc sections, live /api/ backend smoke).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_tauri_window_controls_iter20.py",
+    "/app/test_reports/pytest/tauri_window_controls_iter20.xml"
+  ],
+  "action_items": [
+    "REQUIRED end-to-end-on-real-Windows verification (cannot run in this Linux sandbox): build alpha.12 via the windows-latest GitHub Actions runner, install on a customer machine, and confirm (a) the custom title bar X / minimize / maximize buttons work on click, (b) `tasklist /FI \"IMAGENAME eq bighat-backend.exe\"` returns empty after BOTH (i) clean X-close AND (ii) Task Manager 'End task' on `BIG Hat Entertainment.exe`. Static checks alone cannot prove the KILL_ON_JOB_CLOSE behaviour fires — the kernel reference semantics are Windows-only and have to be observed on metal."
+  ],
+  "critical_code_review_comments": [
+    "lib.rs assign_pid_to_kill_on_close_job correctly leaks the job handle (the `let _ = job;` marker) — this is intentional and matches Microsoft's documented KILL_ON_JOB_CLOSE pattern. Do not 'fix' it by adding CloseHandle(job) on the success path; it would defeat the whole mechanism.",
+    "The OpenProcess access rights `PROCESS_TERMINATE | PROCESS_SET_QUOTA` are exactly the minimum AssignProcessToJobObject requires — good least-privilege choice.",
+    "lib.rs uses `epoch:{secs}` as the log timestamp instead of a real ISO date. Minor / cosmetic; flagged earlier iterations. Not blocking.",
+    "Capability list is intentionally minimal (5 entries). Adding any new window op (set-fullscreen, set-always-on-top, etc.) will need an explicit additional permission — `core:window:default` does NOT cover those.",
+    "TitleBar.jsx `safe()` wrapper still swallows window-control rejections silently. With the capability now granted it shouldn't matter, but if a future regression drops the cap again the symptom will once more be invisible. Consider a one-shot console.warn on first swallowed rejection for diagnosability — not blocking."
+  ],
+  "updated_files": ["/app/backend/tests/test_tauri_window_controls_iter20.py"],
+  "success_rate": {"backend": "100%", "frontend": "n/a (frontend skipped per request)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 20 added /app/backend/tests/test_tauri_window_controls_iter20.py — 17 static-validation tests covering the alpha.12 window-controls + sidecar Job Object work. All pass. The Rust code itself cannot be compiled in this Linux sandbox (Job Object code is #[cfg(target_os = \"windows\")]), so the end-to-end verification step on a real Windows machine — including `tasklist` checks after taskbar-close vs Task Manager 'End task' — is still pending and must be done by the user against an actual alpha.12 installer built by the windows-latest GitHub runner. Iteration 19 covered launcher persistence; iteration 17 covered installer hooks; do not re-run those suites unnecessarily.",
+  "rca of the issue": "Customer reported (1) custom title-bar buttons hover correctly but do nothing on click and (2) bighat-backend.exe orphaned in Task Manager after right-click→Close on the taskbar. RCA: (1) /app/src-tauri/capabilities/default.json lacked 'core:window:default' so every getCurrentWindow().minimize/toggleMaximize/close IPC call was rejected by Tauri 2.x capability gate; the safe() wrapper in TitleBar.jsx swallowed the rejection. (2) The Rust ExitRequested handler reliably kills the sidecar on clean close but never fires on forced parent termination, so the sidecar was orphaned. Fix: added the missing capability AND wrapped the spawned sidecar PID in a Win32 Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so the OS guarantees cleanup regardless of how the parent dies. Mitigation: keep both mechanisms (clean ExitRequested.kill() + force-kill safety net). Verification: file invariants locked by the new pytest module; real-world reproduction must happen on a Windows build."
+}

@@ -132,6 +132,97 @@ frozen mode.**
 
 ---
 
+## 🛑 WINDOW CONTROLS REQUIRE `core:window:default` CAPABILITY
+
+> Added 2026-06-24 after a customer reported the custom title-bar
+> minimize/maximize/close buttons hover-styling correctly but doing
+> nothing on click. Same root cause: Tauri 2.x rejects window IPC calls
+> with no permission grant.
+
+### The invariant
+`/app/src-tauri/capabilities/default.json` MUST include `"core:window:default"`
+in `permissions`. Without it, every `getCurrentWindow().minimize() /
+.toggleMaximize() / .close() / .isMaximized() / .onResized()` call from
+the React TitleBar silently fails (the IPC is rejected and our `safe()`
+wrapper in `TitleBar.jsx` swallows the rejection). Buttons look alive
+(CSS works) but nothing happens.
+
+The current minimum permission list is:
+
+```json
+"permissions": [
+    "core:default",
+    "core:window:default",   ← MANDATORY for the custom title bar
+    "shell:default",
+    "process:default",
+    "dialog:default"
+]
+```
+
+If you ever add another window operation not covered by `core:window:default`
+(e.g. set-fullscreen, set-always-on-top), grant the specific permission
+explicitly — never disable capabilities entirely.
+
+---
+
+## 🛑 SIDECAR LIFECYCLE MUST BE TIED TO THE TAURI SHELL
+
+> Added 2026-06-24 after a customer reported `bighat-backend.exe`
+> processes lingering in Task Manager after the app was closed via
+> right-click → Close on the taskbar (because the window controls were
+> broken, see previous section).
+
+### The invariant
+The Python sidecar (`bighat-backend.exe`) MUST NOT outlive the Tauri shell
+under ANY shutdown path — clean window close, taskbar "End task", crash,
+SIGKILL, parent OOM-kill. There are two complementary mechanisms; BOTH
+must remain in place:
+
+#### 1. Clean shutdown path (Rust `RunEvent::ExitRequested`)
+`lib.rs` matches `RunEvent::ExitRequested` and calls `child.kill()` on the
+stored `CommandChild`. This is the polite path triggered by the user
+clicking the close button or the OS sending `WM_CLOSE`.
+
+#### 2. Force-kill safety net (Windows Job Object, kill-on-close)
+Immediately after spawning the sidecar, `lib.rs` calls
+`assign_pid_to_kill_on_close_job(pid)` (Windows-only, defined at the
+bottom of `lib.rs`). This:
+  - Creates a Win32 Job Object via `CreateJobObjectW`.
+  - Sets `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` via `SetInformationJobObject`.
+  - Opens the sidecar process with `PROCESS_TERMINATE | PROCESS_SET_QUOTA`.
+  - Assigns the sidecar to the job with `AssignProcessToJobObject`.
+  - Intentionally does NOT call `CloseHandle(job)` — the open handle keeps
+    the job alive. When the parent process dies (any way at all), the
+    kernel closes the last handle and `KILL_ON_JOB_CLOSE` reaps every
+    process in the job (= the sidecar).
+
+This means even Task Manager "End task" or a hard crash on the Tauri
+shell cleans up the sidecar. The `windows-sys` crate (Win32_System_*) is
+the dependency that backs this — see `src-tauri/Cargo.toml`
+`[target.'cfg(target_os = "windows")'.dependencies]`.
+
+#### What to NOT do
+- Don't remove the `windows-sys` dependency without first replacing the
+  job-object behaviour with an equivalent mechanism (e.g. detouring the
+  spawn via `Stdio::null()` + `CREATE_BREAKAWAY_FROM_JOB` is the OPPOSITE
+  of what we want).
+- Don't rely solely on `ExitRequested` — Task Manager bypasses it.
+- Don't spawn additional helper processes from the sidecar without also
+  joining them to the same job (or wrapping them in their own
+  KILL_ON_JOB_CLOSE). The current sidecar is single-process (PyInstaller
+  --onefile), so this is moot today.
+
+### macOS / Linux
+The Job Object code is `#[cfg(target_os = "windows")]`. On macOS and
+Linux the sidecar dies via:
+  - `ExitRequested` → `child.kill()` (clean path), AND
+  - Tauri's `tokio::process::Command` configures the child for cleanup
+    when the parent process group exits (Unix process-group inheritance).
+A future Linux hardening pass could use `prctl(PR_SET_PDEATHSIG, SIGKILL)`
+but it's not required today — the reported regression is Windows-only.
+
+---
+
 
 
 ## Original Problem Statement

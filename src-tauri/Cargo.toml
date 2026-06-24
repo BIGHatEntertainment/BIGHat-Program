@@ -30,6 +30,19 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 log = "0.4"
 env_logger = "0.11"
 
+# Windows-only: used to wrap the bighat-backend sidecar inside a Job Object
+# with KILL_ON_JOB_CLOSE so that ANY way the Tauri shell process dies —
+# clean window close, Task Manager "End task", crash — Windows guarantees
+# the sidecar dies with it. Without this, customers see orphan
+# `bighat-backend.exe` processes lingering in Task Manager. See PRD.md
+# section "SIDECAR LIFECYCLE MUST BE TIED TO THE TAURI SHELL".
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
