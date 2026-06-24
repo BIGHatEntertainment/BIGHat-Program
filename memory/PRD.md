@@ -1,5 +1,55 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+---
+
+## 🛑 CANONICAL DISTRIBUTION FLOW — READ BEFORE ANY BUILD / RELEASE WORK
+
+> Locked in by the merchant 2026-06-24. **Do not invent alternatives. Do not
+> over-engineer. Every release MUST move through these four steps exactly.**
+
+```
+1) User buys on bighat.live (Squarespace storefront).
+2) api.bighat.live (the cloud deployment) picks up the purchase, generates
+   a license key, and emails the user the key + a download link.
+3) User downloads the installer from GitHub Releases.
+4) Once installed, the app talks to api.bighat.live for ALL licensing,
+   tracking, and update checks. The in-app Update tool checks the installed
+   version against the latest GitHub Release and prompts to download if
+   they differ.
+```
+
+### Implications for the agent — DO NOT VIOLATE
+- **Single source of truth for binaries** = GitHub Releases. No CDN, no S3, no
+  attaching installers to emails. The download link in the Resend email is a
+  redirect into the GitHub Release that matches the user's OS.
+- **Single source of truth for license + tracking** = `api.bighat.live`
+  (cloud-mode FastAPI). All license verification, HWID activation, update
+  manifests, and Squarespace order polling happen there.
+- **Update flow** = installed app → `GET https://api.bighat.live/api/downloads/latest`
+  → compare `version` field to local `backend/VERSION.txt` → if different,
+  surface the GitHub Release URL in the Update tool. The desktop app NEVER
+  pulls binaries from anywhere except GitHub Releases.
+- **Cutting a release** = bump `backend/VERSION.txt` → push to `main` →
+  `auto-tag.yml` creates the tag → `release.yml` builds Win/Mac via Tauri →
+  `tauri-action` publishes to GitHub Releases as a public (non-draft) release
+  → done. No extra branches, no force pushes, no manual tagging.
+- **If a CI leg fails** (e.g. Windows job hits a transient crates.io reset):
+  the downloads resolver walks back to the previous release's binary so paid
+  customers always get a working installer. Re-run the failed job via
+  `POST /actions/runs/{id}/rerun-failed-jobs`. Do NOT cut a new tag, do NOT
+  create a workaround branch, do NOT manually upload assets.
+- **api.bighat.live** must be redeployed via the Emergent Deploy button
+  whenever code in `/app/backend/cloud/` or `/app/backend/server.py` changes.
+  GitHub Actions only builds the desktop installer — it does NOT deploy the
+  cloud API.
+
+If a future user request implies straying from this flow, push back, ask
+clarifying questions, and confirm before writing code.
+
+---
+
+
+
 ## Original Problem Statement
 Convert the existing BIG Hat Hub full-stack web application (React + FastAPI
 + MongoDB) into a standalone native Windows program — "BIG Hat Standalone
