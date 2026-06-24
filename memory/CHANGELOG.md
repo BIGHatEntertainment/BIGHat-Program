@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-06-24 — Phase 10.13: v32.0.0-alpha.11 release hotfix + downloads resilience
+
+### What broke
+The v32.0.0-alpha.11 release.yml run (id 28057721736) had **only the macOS Apple
+Silicon leg succeed**. The Windows (x86_64) leg failed at `cargo update` with a
+crates.io connection reset (`[56] Failure when receiving data from the peer`)
+while resolving `crossbeam-utils` for `zip v0.6.6` — a transient GitHub Actions
+runner network blip, NOT a code defect. The macOS Intel leg sat queued for 2+
+hours waiting for a macos-13 runner. Net effect: the published v32.0.0-alpha.11
+GitHub Release was missing `BIGHatEntertainment-Setup-32.0.0-alpha.11.exe` and
+`BIGHatEntertainment-32.0.0-alpha.11_x64.dmg`. The Resend post-purchase email's
+"Download BIG Hat Entertainment" button (which hits `/api/downloads/auto`) saw
+the missing Windows asset and 302-redirected customers to
+`api.bighat.live/download?missing=windows`, which the React SPA fallback was
+catching and rendering as the "You're in the wrong place" license-API landing
+page. Two issues, one root cause (a build failure), but compounded by missing
+graceful-degradation in the resolver.
+
+### Operational fixes (already applied on GitHub)
+- Cancelled four zombie v32.0.0-alpha.10 release runs that were clogging the
+  queue ahead of alpha.11.
+- Re-ran the failed Windows leg + queued Intel leg via the GitHub API
+  (`POST /actions/runs/28057721736/rerun-failed-jobs`). Attempt #2 in progress.
+- Force-merged `main-v2` back into `main` (`PATCH /git/refs/heads/main` with
+  force=true pointing at `da936a3dc9fb`), then `DELETE /git/refs/heads/main-v2`.
+  Repo now has a single clean `main` branch with all alpha.11 code.
+
+### Code fixes (in this sandbox; will go live on api.bighat.live after redeploy)
+
+#### `/app/backend/server.py` — SPA-fallback exclusion
+Added `'download'` to the literal-match exclusion tuple in `_spa_fallback`.
+Previously the catch-all `@app.get("/{full_path:path}")` was shadowing the
+FastAPI `download_landing` view on the api host, sending customers to the
+"wrong place" page. Now `/download` always reaches the cloud router that
+renders the proper OS-aware download landing page.
+
+#### `/app/backend/cloud/downloads_resolver.py` — release walk-back
+Added `_fetch_recent_releases(limit=5)` and a fallback walk inside `resolve()`.
+When the latest release is missing an asset for a platform (e.g. Windows .exe
+absent from alpha.11), the resolver now walks the last 5 non-draft releases and
+returns the first match, annotating the response with
+`is_fallback=True` and `latest_version=<the version that was missing>`. Paid
+customers always get a working installer — they just may temporarily get the
+previous version's binary while the broken build is being re-cut.
+
+### Tests
+- 10 new unit tests in `/app/backend/tests/test_downloads_resolver_fallback.py`
+  cover happy-path walk-back, no-asset-anywhere (no `is_fallback` key),
+  laziness (recent fetch only on miss), same-version skip, macos→intel inside
+  older release, TTL cache, draft filtering.
+- 11 existing tests in `test_cloud_downloads.py` still green.
+- Iteration 16 testing-agent report: 21/21 pass, no critical issues.
+
+### Net result
+- alpha.11 release will get its `.exe` + Intel `.dmg` once the rerun completes.
+- Even if a future release has a single-OS build failure, paid customers will
+  still receive a working installer (the resolver walks back automatically).
+- `/download` cannot be shadowed by the SPA again.
+
+---
+
+
 ## 2026-06-23 — Phase 10.12: robust .bighat OS-association + trivia summary parser
 
 ### Two enhancements per merchant request
