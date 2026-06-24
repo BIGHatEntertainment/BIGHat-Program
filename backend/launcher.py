@@ -175,6 +175,28 @@ def _load_env() -> None:
     that point at the user-writable data dir instead — this is exactly
     what alpha.6 was missing (KeyError: 'MONGO_URL' on server.py:50).
     """
+    # ---- PERSISTENCE FIX (alpha.12) ----
+    # In frozen mode BACKEND_DIR is a per-launch _MEIxxxx temp dir; anything
+    # written there evaporates on app close. The DB + secrets were already
+    # pinned to USER_DATA_DIR below, BUT system_config.json (which holds
+    # setup_complete, license, master admin users, paths) was still using
+    # native.config's default = BACKEND_DIR/native/system_config.json →
+    # forced the Setup Wizard to re-run on EVERY launch.
+    #
+    # Fix: in frozen mode, pin BIGHAT_CONFIG_PATH + BIGHAT_DATA_ROOT into
+    # USER_DATA_DIR BEFORE any native.* module imports. Must use setdefault
+    # so explicit overrides (e.g. installer-managed deployments) still win.
+    # In dev (sys.frozen == False) we keep the legacy in-repo paths so the
+    # sandbox keeps using /app/backend/native/system_config.json.
+    if getattr(sys, "frozen", False):
+        USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault(
+            "BIGHAT_CONFIG_PATH", str(USER_DATA_DIR / "system_config.json"),
+        )
+        os.environ.setdefault(
+            "BIGHAT_DATA_ROOT", str(USER_DATA_DIR / "app"),
+        )
+
     _bootstrap_env_from_template()
     _quarantine_dev_seed_if_present()
     try:

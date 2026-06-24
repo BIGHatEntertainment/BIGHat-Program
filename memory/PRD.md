@@ -88,6 +88,50 @@ section in sync. The names must match exactly what Tauri produces in
 
 ---
 
+## 🛑 INSTALLER STATE MUST PERSIST IN USER_DATA_DIR — NEVER IN _MEIxxxx
+
+> Added 2026-06-24 after a customer reported the Setup Wizard re-appearing
+> on every launch, losing their license key + master admin login.
+
+### The invariant
+In **PyInstaller-frozen** mode, anything written under `BACKEND_DIR` evaporates
+when the app closes — `BACKEND_DIR` resolves to `_MEIxxxxxx`, a temp directory
+PyInstaller extracts on each launch and Windows cleans up after. The following
+state MUST live under `USER_DATA_DIR` (= `%LOCALAPPDATA%\BIGHat\data` on
+Windows, `~/Library/Application Support/BIGHat/data` on macOS):
+
+| What | Where (frozen) | Env var | Owner |
+|---|---|---|---|
+| Setup state, license, master admin users, paths | `USER_DATA_DIR/system_config.json` | `BIGHAT_CONFIG_PATH` | `native.config.ConfigManager` |
+| Application data root (trivia, assets, generated) | `USER_DATA_DIR/app/` | `BIGHAT_DATA_ROOT` | `native.config._default_data_root` |
+| MontyDB / SQLite database | `USER_DATA_DIR/montydb/` | `MONTYDB_DATA_DIR` | `server.py` Motor shim |
+| Per-install secrets (JWT_SECRET, admin passwords) | `USER_DATA_DIR/.env` | (read by `python-dotenv`) | `launcher._load_env` |
+| Crash logs | `USER_DATA_DIR/logs/` | n/a | `launcher._write_crashlog` |
+
+### Where this is wired
+`/app/backend/launcher.py` → `_load_env()` runs at process start. When
+`getattr(sys, 'frozen', False)` is true it sets `BIGHAT_CONFIG_PATH` +
+`BIGHAT_DATA_ROOT` to `USER_DATA_DIR/...` using `os.environ.setdefault`
+BEFORE any `native.*` module imports. This means `native.config` reads
+the user-data path on first access and persists every subsequent write
+there. Dev sandbox is untouched (`sys.frozen == False` → falls back to
+legacy `/app/backend/native/system_config.json`).
+
+### Build-time guarantees
+- `setdefault` semantics: explicit ops overrides (e.g. enterprise installers
+  pointing at a network share) still win.
+- The user-data dirs are created BEFORE config_manager is imported so the
+  first write never races a missing directory.
+
+### If you ever add new stateful files
+Either route them through `native.config.config_manager.config["paths"]`
+(which already lives under USER_DATA_DIR in frozen mode) OR add a new env
+var that defaults to `USER_DATA_DIR/<your_subdir>` and set it the same way
+in `_load_env()`. **Do not write anything to `BACKEND_DIR` at runtime in
+frozen mode.**
+
+---
+
 
 
 ## Original Problem Statement
