@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 23 static-validation pass for the merchant's retired-auto-tag directive. 17/17 pytest assertions green. Verified: (1) auto-tag.yml and ci-tauri-check.yml are deleted; (2) release.yml is intact with v32.*/v33.* push triggers, workflow_dispatch, the verify-release-assets gate (needs build-tauri, if:always(), PATCHes release public with draft:false/make_latest:true), and the 75-minute timeout on build-tauri; (3) src-tauri/src/lib.rs has all Job Object tokens stripped (assign_pid_to_kill_on_close_job, CreateJobObjectW, AssignProcessToJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 'use windows_sys') AND retains the RunEvent::ExitRequested -> child.kill() clean-shutdown arm; (4) Cargo.toml no longer declares windows-sys and still parses as valid TOML with the expected dependency block (tauri/tauri-plugin-shell/-process/-dialog, reqwest, log, env_logger); (5) backend/VERSION.txt and src-tauri/tauri.conf.json are both 32.0.0-alpha.13; (6) PRD.md has the new 'RELEASE FLOW — MANUAL, ONE-CLICK FROM MAIN AGENT (NO AUTO-TAG)' section, the SIDECAR LIFECYCLE section is rewritten to note Job Object removal and the ExitRequested-only path, and there are no imperative 'Recreate auto-tag.yml' / 'Re-add ci-tauri-check.yml' directives outside the NEVER-do bullets; (7) live REACT_APP_BACKEND_URL/api/ returns 200 with the expected BIG Hat Hub API payload. No Rust toolchain available so the release.yml workflow itself cannot be exercised locally — that is GitHub-runner territory and matches the merchant's expectation that the agent drives it via PAT on the next 'save and push'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_release_flow_simplified_iter23.py",
+    "/app/test_reports/pytest/iter23_results.xml"
+  ],
+  "action_items": [
+    "Optional cleanup (NOT blocking the merchant directive, but stale and confusing): PRD.md line ~33 in the CANONICAL DISTRIBUTION FLOW bullet still describes 'auto-tag.yml creates the tag → release.yml builds' as the cutting-a-release flow. Update that bullet to point at the new manual / PAT-driven flow now documented later in the file so the two sections don't contradict each other.",
+    "Optional cleanup: PRD.md '🛑 RELEASE PIPELINE MUST BE FAIL-CLOSED' section still has 'Layer 1 — Pre-tag fast check: .github/workflows/ci-tauri-check.yml' (lines ~302-307) describing a workflow that no longer exists. Either delete Layer 1 entirely or rewrite it to describe the agent's pre-tag verification step. Currently this layer documents a dead workflow.",
+    "When the merchant next says 'save and push', the agent must execute the PAT-driven flow end-to-end (tag create → workflow_dispatch → per-leg poll → verify 3 binaries → PATCH public) — this cannot be regression-tested in the sandbox; rely on the per-leg verification + the verify-release-assets gate."
+  ],
+  "critical_code_review_comments": [
+    "src-tauri/src/lib.rs:85-94 — chrono_now() is a misleading name; it formats 'epoch:<secs>' rather than an ISO timestamp. Comment acknowledges this. Low risk but worth a tiny rename like 'format_epoch_secs' for the next read.",
+    "src-tauri/src/lib.rs:420 — RunEvent::Opened arm clones a Mutex<u16> via '.lock().unwrap().clone()'; that's fine because u16 is Copy, but the explicit '.clone()' is dead-code. Minor.",
+    "PRD.md self-contradiction noted in action_items: lines ~33 and ~302-307 describe the retired workflows as if they still exist; lines 211-272 document the new flow. Two sources of truth will eventually bite. Resolve to one.",
+    "Cargo.toml uses tauri 2.0 with default features explicitly empty (`features = []`). If a future task needs e.g. tray-icon or window-state, remember the features array is intentionally pruned."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_release_flow_simplified_iter23.py"
+  ],
+  "success_rate": {"backend": "100% (17/17 static + smoke)", "frontend": "n/a (testing_type=backend only)"},
+  "test_credentials": "n/a — no auth flow exercised this iteration",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "This iteration is a static audit of the file-system state after the merchant retired auto-tag.yml + ci-tauri-check.yml and the agent stripped the Windows Job Object code from src-tauri/src/lib.rs. The pytest file at /app/backend/tests/test_release_flow_simplified_iter23.py uses PyYAML + tomllib to parse the workflow + Cargo files and string-matches lib.rs / PRD.md. If a future iteration re-introduces a windows-sys dependency or a Job Object code path, the test_job_object_code_is_stripped and test_no_windows_sys_dependency tests will fail loudly. The release.yml workflow itself runs on GitHub-hosted runners (windows-latest, macos-14, macos-13) and cannot be exercised in this sandbox — the only way to validate it end-to-end is to actually cut a v32.x tag and watch the run. The merchant has explicitly authorised the agent to drive that via PAT on the next 'save and push'.",
+  "rca of the issue": "Not a bug fix — this iteration locks in a directive the merchant gave after repeated auto-tag.yml failures. The root cause of those past failures (per PRD.md) was twofold: (a) auto-tag.yml used the default GITHUB_TOKEN, whose tag-push does NOT trigger downstream workflows, so release.yml never fired even when the tag was created — leaving customers staring at half-baked releases; (b) the Windows Job Object hardening added in an earlier iteration introduced a HANDLE-type mismatch (`windows-sys >= 0.52` represents HANDLE as `isize`, not a pointer) that broke two release builds. Mitigation: delete the offending workflows, strip the Job Object code (clean-shutdown ExitRequested.kill() still covers all customer-reported close paths), pin the directive in PRD.md, and switch to an agent-driven PAT release flow with explicit per-leg verification and a verify-release-assets gate that fails closed."
+}

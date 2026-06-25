@@ -167,134 +167,111 @@ explicitly — never disable capabilities entirely.
 
 ## 🛑 SIDECAR LIFECYCLE MUST BE TIED TO THE TAURI SHELL
 
-> Added 2026-06-24 after a customer reported `bighat-backend.exe`
-> processes lingering in Task Manager after the app was closed via
-> right-click → Close on the taskbar (because the window controls were
-> broken, see previous section).
+> Originally added 2026-06-24. Simplified 2026-06-25 — the Windows Job
+> Object hardening was removed after it introduced compile errors that
+> ate two release cycles. The clean-shutdown path is sufficient for
+> reported customer scenarios (X-button close, taskbar right-click
+> Close, OS sending `WM_CLOSE`).
 
 ### The invariant
 The Python sidecar (`bighat-backend.exe`) MUST NOT outlive the Tauri shell
-under ANY shutdown path — clean window close, taskbar "End task", crash,
-SIGKILL, parent OOM-kill. There are two complementary mechanisms; BOTH
-must remain in place:
+when the user closes the app via:
+  - The custom title-bar X button.
+  - The OS sending `WM_CLOSE` (taskbar right-click → Close).
+  - A clean process exit.
 
-#### 1. Clean shutdown path (Rust `RunEvent::ExitRequested`)
+### How this is wired
 `lib.rs` matches `RunEvent::ExitRequested` and calls `child.kill()` on the
-stored `CommandChild`. This is the polite path triggered by the user
-clicking the close button or the OS sending `WM_CLOSE`.
+stored `CommandChild`. This covers every reported close path. The kill is
+synchronous (`TerminateProcess` on Windows, `SIGKILL` on Unix), so the
+sidecar is reaped before the Tauri shell process exits.
 
-#### 2. Force-kill safety net (Windows Job Object, kill-on-close)
-Immediately after spawning the sidecar, `lib.rs` calls
-`assign_pid_to_kill_on_close_job(pid)` (Windows-only, defined at the
-bottom of `lib.rs`). This:
-  - Creates a Win32 Job Object via `CreateJobObjectW`.
-  - Sets `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` via `SetInformationJobObject`.
-  - Opens the sidecar process with `PROCESS_TERMINATE | PROCESS_SET_QUOTA`.
-  - Assigns the sidecar to the job with `AssignProcessToJobObject`.
-  - Intentionally does NOT call `CloseHandle(job)` — the open handle keeps
-    the job alive. When the parent process dies (any way at all), the
-    kernel closes the last handle and `KILL_ON_JOB_CLOSE` reaps every
-    process in the job (= the sidecar).
+### Known limitation
+Force-kill paths that bypass `ExitRequested` (Task Manager "End task" on
+the shell process, hard crash, OOM-kill) DO leave the sidecar running.
+A Windows Job Object with `KILL_ON_JOB_CLOSE` would close that hole; an
+earlier attempt to add it caused two release-build failures, so it has
+been retired pending a separate, dedicated session with proper Windows
+cross-compile testing. The customer-reported scenarios are all covered
+by the clean-shutdown path.
 
-This means even Task Manager "End task" or a hard crash on the Tauri
-shell cleans up the sidecar. The `windows-sys` crate (Win32_System_*) is
-the dependency that backs this — see `src-tauri/Cargo.toml`
-`[target.'cfg(target_os = "windows")'.dependencies]`.
-
-#### What to NOT do
-- Don't remove the `windows-sys` dependency without first replacing the
-  job-object behaviour with an equivalent mechanism (e.g. detouring the
-  spawn via `Stdio::null()` + `CREATE_BREAKAWAY_FROM_JOB` is the OPPOSITE
-  of what we want).
-- Don't rely solely on `ExitRequested` — Task Manager bypasses it.
-- Don't spawn additional helper processes from the sidecar without also
-  joining them to the same job (or wrapping them in their own
-  KILL_ON_JOB_CLOSE). The current sidecar is single-process (PyInstaller
-  --onefile), so this is moot today.
-
-### macOS / Linux
-The Job Object code is `#[cfg(target_os = "windows")]`. On macOS and
-Linux the sidecar dies via:
-  - `ExitRequested` → `child.kill()` (clean path), AND
-  - Tauri's `tokio::process::Command` configures the child for cleanup
-    when the parent process group exits (Unix process-group inheritance).
-A future Linux hardening pass could use `prctl(PR_SET_PDEATHSIG, SIGKILL)`
-but it's not required today — the reported regression is Windows-only.
+### If you re-add force-kill hardening later
+- Test the Rust code by cross-compiling locally for
+  `x86_64-pc-windows-msvc` BEFORE pushing — do not rely on the GitHub
+  Actions runner to surface compile errors.
+- Verify `HANDLE` type semantics for the chosen `windows-sys` /
+  `windows-rs` version. `windows-sys >= 0.52` represents `HANDLE` as
+  `isize` (NOT a pointer), so use `== 0` / `!= 0`, not `.is_null()`.
+- Keep the wiring behind `#[cfg(target_os = "windows")]` and ensure the
+  fallback (`ExitRequested.kill()` only) still works when the block is
+  compiled out.
 
 ---
 
-## 🛑 AUTO-TAG → RELEASE PIPELINE MUST EXPLICITLY DISPATCH RELEASE.YML
+## 🛑 RELEASE FLOW — MANUAL, ONE-CLICK FROM MAIN AGENT (NO AUTO-TAG)
 
-> Added 2026-06-24 after alpha.12 was tagged successfully by auto-tag.yml
-> but `release.yml` never fired, leaving the GitHub Release empty even
-> though the build pipeline was "configured to fire on tag push".
+> Re-locked 2026-06-25 by the merchant. Auto-tagging via `auto-tag.yml`
+> is **PERMANENTLY RETIRED** — it caused too many silent failures
+> (`GITHUB_TOKEN` not triggering downstream workflows, draft-release
+> shenanigans, partial-build silent ships). The release flow is now
+> **agent-driven**, end-to-end.
 
-### The invariant
-**GitHub Actions safety rule**: workflows whose triggering event is caused
-by the default `GITHUB_TOKEN` do NOT trigger downstream workflows. This
-prevents infinite loops, and it absolutely applies to our setup:
-`auto-tag.yml` pushes the `v<version>` tag using `GITHUB_TOKEN`; that tag
-push does NOT fire `release.yml` even though release.yml's trigger is
-`on.push.tags: ['v32.*', 'v33.*']`.
+### The release flow
+1. **Merchant bumps `backend/VERSION.txt`** (and `src-tauri/tauri.conf.json`)
+   in the sandbox and tells the agent "save and push".
+2. **Agent confirms** the bump is sane (semver-shaped, not a downgrade).
+3. **Merchant clicks Save to GitHub** in Emergent.
+4. **Agent uses the PAT directly** to:
+   a. Create the `v<version>` tag pointing at the latest commit on `main`.
+   b. Dispatch `release.yml` via the GitHub API
+      (`POST /actions/workflows/release.yml/dispatches`) with `ref=v<version>`
+      and `inputs.version=<version>`.
+   c. Poll each of the 3 matrix legs (Windows, macOS Apple Silicon, macOS
+      Intel) until conclusion.
+   d. If any leg fails or sits queued past the timeout, **re-run that leg
+      ONLY** via `POST /actions/runs/{id}/rerun-failed-jobs`. Do not cut
+      a new tag for the same version.
+   e. Once `verify-release-assets` confirms all 3 binaries are on the
+      release, **PATCH the release public**:
+      `PATCH /repos/.../releases/{id}` body
+      `{"draft":false,"prerelease":false,"make_latest":"true"}`.
+   f. Read back the assets list and report each filename + SHA256 + byte
+      size to the merchant in chat.
 
-The pipeline MUST explicitly invoke release.yml. Two options, in order
-of preference:
+### What this replaces
+- ❌ `auto-tag.yml` — deleted.
+- ❌ `ci-tauri-check.yml` — deleted.
+- ✅ `release.yml` — kept, with the `verify-release-assets` gate. Triggers:
+  - `push.tags: ['v32.*', 'v33.*']` — for hand-pushed tags from the agent.
+  - `workflow_dispatch` — used by the agent when triggering programmatically.
 
-#### Option A — `workflow_dispatch` from inside auto-tag.yml (current fix)
-After pushing the tag, auto-tag.yml POSTs to the workflows dispatch API
-using the same `GITHUB_TOKEN`. workflow_dispatch IS allowed for the
-default token. The step is at the bottom of `auto-tag.yml` and looks
-like:
+### The agent's checklist when "save and push" is invoked
+- [ ] Confirm `backend/VERSION.txt` and `src-tauri/tauri.conf.json` are
+      both at the same version.
+- [ ] After the merchant's Save to GitHub completes, fetch
+      `https://api.github.com/repos/.../commits/main` and confirm the
+      VERSION.txt bump is visible at the head of main.
+- [ ] Create the tag via `POST /repos/.../git/refs` with
+      `ref=refs/tags/v<version>`, `sha=<main HEAD>`.
+- [ ] Dispatch release.yml.
+- [ ] Poll the run's jobs every 45s until all completed.
+- [ ] If any leg failed, fetch its log, post the error annotation to the
+      merchant, and re-run that leg specifically.
+- [ ] verify-release-assets passes → PATCH release public.
+- [ ] Report final asset list with sizes + sha256 from the API.
 
-```yaml
-- name: Dispatch release.yml (workflow_dispatch fallback)
-  env:
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  run: |
-    curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" \
-      "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
-      -d "{\"ref\":\"$TAG\",\"inputs\":{\"version\":\"$V\",\"draft\":\"false\"}}"
-```
+### NEVER do these
+- ❌ Recreate `auto-tag.yml` or any equivalent (e.g. a "save triggers
+  build" workflow). The merchant has explicitly retired this pattern.
+- ❌ Skip the per-leg verification step. Every release must have
+  Windows .exe + Mac AS .dmg + Mac Intel .dmg verified by the agent
+  before publishing public.
+- ❌ Mark a release "shipped" until the agent has personally read back
+  the asset list from the API and confirmed all 3 files exist.
 
-`release.yml` must honour `inputs.draft == 'false'` (see below).
+---
 
-#### Option B — push tags with a PAT that has the `workflow` scope
-Store a fine-grained PAT in repo secrets (e.g. `RELEASE_PAT`) and use it
-in `git push origin "$TAG"`. Tags pushed by user PATs DO trigger
-downstream workflows. **Not used today** because Option A doesn't
-require any extra secret.
 
-### `release.yml` MUST honor `inputs.draft` correctly
-The `releaseDraft` field in the tauri-action step must be exactly:
-
-```yaml
-releaseDraft: ${{ inputs.draft == 'true' }}
-```
-
-NOT `${{ inputs.draft == 'true' || github.event_name == 'workflow_dispatch' }}`.
-The OR-with-event-name pattern is a classic over-eager safety guard that
-breaks the explicit-dispatch path: every workflow_dispatch becomes a
-draft no matter what the user requested. With the strict expression
-above, an explicit `draft: false` input publishes a public release and
-`draft: true` produces a draft.
-
-### Build-time guarantees
-- Tag push by auto-tag.yml ↦ tag exists, but release.yml does NOT
-  auto-fire (GITHUB_TOKEN rule).
-- The dispatch step inside auto-tag.yml ↦ release.yml runs with
-  `event=workflow_dispatch` and `inputs.draft=false` ↦ public release
-  with all 3 OS installers attached.
-
-### If the pipeline ever silently skips a release
-Run this checklist:
-1. Did `auto-tag.yml` create the tag? Check Actions → the tag-push run.
-2. Did `auto-tag.yml`'s "Dispatch release.yml" step succeed? Look for
-   the curl output in the run log.
-3. Did `release.yml` start? Filter Actions by workflow=release.yml.
-4. If yes but the release is a draft, check `releaseDraft` expression in
-   release.yml hasn't reverted to the OR-with-event-name pattern.
-5. If still empty, PATCH the release to `draft=false` via API:
-   `PATCH /repos/{owner}/{repo}/releases/{id}` body `{"draft": false}`.
 
 ---
 

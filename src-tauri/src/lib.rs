@@ -313,25 +313,6 @@ fn run_inner(port: u16, open_file: Option<String>) {
                 *state.child.lock().unwrap() = Some(child);
             }
 
-            // Windows-only: wrap the sidecar PID in a Job Object configured with
-            // KILL_ON_JOB_CLOSE. If the Tauri shell process is ever killed
-            // without firing RunEvent::ExitRequested — Task Manager "End task",
-            // VBS wrapper force-exit, hard crash — Windows kernel will reap
-            // the entire job (= our sidecar) automatically. The job handle is
-            // intentionally leaked so it lives for the parent process lifetime;
-            // the OS closes it on exit and triggers the kill.
-            #[cfg(target_os = "windows")]
-            {
-                let state = app.state::<BackendState>();
-                let pid_opt = state.child.lock().unwrap().as_ref().map(|c| c.pid());
-                if let Some(pid) = pid_opt {
-                    match assign_pid_to_kill_on_close_job(pid) {
-                        Ok(()) => log_line("info", format!("sidecar pid {pid} bound to KILL_ON_JOB_CLOSE job")),
-                        Err(e) => log_line("warn", format!("could not bind sidecar to job object (cleanup will rely on ExitRequested): {e}")),
-                    }
-                }
-            }
-
             // 3. Drain sidecar stdout/stderr to the log.
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
@@ -453,66 +434,3 @@ fn run_inner(port: u16, open_file: Option<String>) {
 // Silence unused warnings if cross-compiling without the Path import.
 #[allow(dead_code)]
 fn _unused_path_marker(_: &Path) {}
-
-// ---------------------------------------------------------------------------
-// Windows-only: bind a spawned child PID to a kill-on-close Job Object so any
-// shutdown of the parent reaps the sidecar. We deliberately leak the job
-// handle for the lifetime of the parent process — when the kernel closes the
-// last handle to the job at parent exit, KILL_ON_JOB_CLOSE fires.
-// ---------------------------------------------------------------------------
-#[cfg(target_os = "windows")]
-fn assign_pid_to_kill_on_close_job(pid: u32) -> Result<(), String> {
-    use std::mem;
-    use std::ptr;
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
-    };
-
-    unsafe {
-        // windows-sys 0.52: HANDLE is `isize` (NULL = 0), SECURITY_ATTRIBUTES pointer
-        // is *const, and PCWSTR (lpname) is *const u16. Use ptr::null() not null_mut().
-        let job = CreateJobObjectW(ptr::null(), ptr::null());
-        if job == 0 {
-            return Err("CreateJobObjectW returned NULL".into());
-        }
-
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = mem::zeroed();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let ok = SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            &mut info as *mut _ as *mut _,
-            mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        );
-        if ok == 0 {
-            CloseHandle(job);
-            return Err("SetInformationJobObject failed".into());
-        }
-
-        let proc_handle = OpenProcess(PROCESS_TERMINATE | PROCESS_SET_QUOTA, 0, pid);
-        if proc_handle == 0 {
-            CloseHandle(job);
-            return Err(format!("OpenProcess(pid={pid}) failed"));
-        }
-
-        let ok = AssignProcessToJobObject(job, proc_handle);
-        CloseHandle(proc_handle);
-        if ok == 0 {
-            CloseHandle(job);
-            return Err("AssignProcessToJobObject failed".into());
-        }
-
-        // Deliberately do NOT CloseHandle(job) — the kernel reference held by
-        // this open handle is what keeps the job alive. When the parent
-        // process exits, the kernel closes the last handle automatically and
-        // KILL_ON_JOB_CLOSE reaps the sidecar.
-        let _ = job;
-        Ok(())
-    }
-}
