@@ -98,9 +98,22 @@ export function TitleBar() {
   return (
     <div
       className="tauri-titlebar"
-      data-tauri-drag-region
       data-testid="tauri-titlebar"
     >
+      {/*
+        Drag region is the BRAND area only. We deliberately do NOT set
+        data-tauri-drag-region on the outer wrapper — Tauri's JS-side drag
+        handler matches via `target.closest('[data-tauri-drag-region]')`,
+        and when the outer wrapper has the attribute, every descendant
+        (including the close/minimize/maximize buttons) becomes a drag
+        target on mousedown. Browsers fire mousedown -> mouseup -> click
+        in that order; once Tauri swallows mousedown to start a drag, the
+        button's onClick never fires.
+        The CSS `-webkit-app-region: drag` rule on .tauri-titlebar still
+        gives the entire bar OS-native window-drag behaviour outside the
+        controls. See PRD.md "WINDOW CONTROLS REQUIRE core:window:default
+        CAPABILITY" for the full incident write-up.
+      */}
       <div className="tauri-titlebar__brand" data-tauri-drag-region>
         <img
           src="/hat-logo.png"

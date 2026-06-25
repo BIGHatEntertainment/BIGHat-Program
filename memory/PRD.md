@@ -166,6 +166,33 @@ If you ever add another window operation not covered by `core:window:default`
 (e.g. set-fullscreen, set-always-on-top), grant the specific permission
 explicitly — never disable capabilities entirely.
 
+### CRITICAL — SVG icons inside the buttons MUST have `pointer-events: none`
+> Added 2026-06-25 alpha.13 — the customer reported the buttons did NOTHING
+> on click despite the capability grant being correct. Root cause was NOT
+> the capability — it was a drag-region conflict.
+
+Tauri's JS-side drag handler resolves drag targets via
+`event.target.closest('[data-tauri-drag-region]')` on mousedown. When the
+outer title-bar wrapper has `data-tauri-drag-region` AND a user clicks
+the SVG icon inside a `<button>`, `event.target` is the SVG element (not
+the button). Tauri's "ignore form elements" check fails, mousedown is
+hijacked to start a drag, and the button's onClick never fires.
+
+Two fixes are wired in tandem — both must remain in place:
+  1. `index.css` adds `pointer-events: none` to `.tauri-titlebar__btn svg`
+     and all its children. This makes the `<button>` the event target.
+  2. `TitleBar.jsx` does NOT put `data-tauri-drag-region` on the outer
+     wrapper — only on the inner `.tauri-titlebar__brand` div. The CSS
+     `-webkit-app-region: drag` on `.tauri-titlebar` still gives the
+     entire bar OS-native window-drag behaviour outside the controls.
+
+### If you ever rewrite the title bar
+- Keep the SVG `pointer-events: none` rule.
+- Keep `data-tauri-drag-region` OFF the outermost wrapper.
+- Verify on a real Windows install: click X, minimize, maximize. The
+  ExitRequested handler in `lib.rs` reaps the sidecar — `tasklist /FI
+  "IMAGENAME eq bighat-backend.exe"` MUST return empty after close.
+
 ---
 
 ## 🛑 SIDECAR LIFECYCLE MUST BE TIED TO THE TAURI SHELL

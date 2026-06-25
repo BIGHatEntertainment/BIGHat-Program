@@ -1054,6 +1054,25 @@ body:has(.tauri-titlebar) {
   height: 100%;
   -webkit-app-region: no-drag;
   app-region: no-drag;
+  /* Belt-and-suspenders: also exclude from the HTML drag-region attribute
+     if it's set anywhere up the tree. Tauri's drag handler uses
+     event.target.closest('[data-tauri-drag-region]') to decide whether
+     to start a window drag on mousedown — but it short-circuits on
+     <button>/<input>/etc. Children of buttons (our SVG icons) DO get
+     picked up though, so see the .tauri-titlebar__btn svg rule below. */
+}
+
+/* CRITICAL — alpha.13 customer bug fix:
+   The SVG icons (minus, square, X) used to receive the click event
+   instead of the button wrapping them. Tauri's drag-region handler
+   then saw a non-button target and started a window drag, EATING the
+   click. With pointer-events:none on the SVGs, event.target is always
+   the .tauri-titlebar__btn <button>, Tauri ignores buttons, and the
+   onClick handler runs as intended. Without this, the minimize /
+   maximize / close buttons silently do nothing. */
+.tauri-titlebar__btn svg,
+.tauri-titlebar__btn svg * {
+  pointer-events: none;
 }
 
 .tauri-titlebar__btn {

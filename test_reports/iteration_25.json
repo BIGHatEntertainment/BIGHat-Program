@@ -1,0 +1,29 @@
+{
+  "summary": "Static validation of the alpha.14 Tauri title-bar click-through fix (iter-25). Verified all 11 file-level invariants from the review request via a new pytest suite, plus a live backend smoke. All assertions pass; ESLint on TitleBar.jsx is clean. NOTE: this fix is a Tauri-shell + CSS change that only exercises inside a real Windows build — the dev sandbox/Playwright cannot render the chromeless title bar (gated on window.__TAURI__), so no frontend automation was attempted, per the request's instructions.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_titlebar_dragregion_fix_iter25.py",
+    "/app/test_reports/pytest/titlebar_dragregion_fix_iter25.xml"
+  ],
+  "action_items": [
+    "Cut alpha.14 release: current alpha.13 binaries STILL contain the bug because they were built before this CSS change. The customer must download alpha.14 (not refresh alpha.13) for the X/min/max buttons to respond. Surface this clearly in the release notes / customer reply.",
+    "On the alpha.14 build, manually verify on real Windows: (1) click X closes the window AND the sidecar is reaped (tasklist /FI \"IMAGENAME eq bighat-backend.exe\" should be empty post-close), (2) minimize and maximize/restore work, (3) dragging the brand area still moves the window."
+  ],
+  "critical_code_review_comments": [
+    "TitleBar.jsx: the in-file comment block above the outer <div> already documents the exact RCA (Tauri JS-drag handler vs. SVG event target) — good defensive future-proofing. Keep it as-is.",
+    "index.css: the `.tauri-titlebar__btn svg, .tauri-titlebar__btn svg *` selector also covers nested <line>/<rect> elements. Comprehensive. The companion comment block at lines 1065-1072 explains why — keep it.",
+    "Minor: chrono_now() in lib.rs writes `epoch:<secs>` rather than ISO-8601. Not a regression for this fix, but harder to scan when debugging customer-side logs. Optional future polish — add a tiny YYYY-MM-DD formatter without pulling chrono, or just include the chrono crate.",
+    "Minor: PRD.md WINDOW CONTROLS section is now the canonical write-up for both the capability grant AND the SVG pointer-events invariant — both must be preserved together or the bug returns. Consider also adding a one-line code comment in capabilities/default.json pointing to that PRD section."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_titlebar_dragregion_fix_iter25.py"
+  ],
+  "success_rate": {"backend": "100% (11/11 static + smoke)", "frontend": "n/a — Tauri-only fix, sandbox cannot render"},
+  "test_credentials": "none required",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The fix lives in two files: TitleBar.jsx (no data-tauri-drag-region on the outer div, kept on the inner .tauri-titlebar__brand) and index.css (.tauri-titlebar__btn svg, .tauri-titlebar__btn svg * { pointer-events: none }). The pytest suite is the regression gate — re-run it after any title-bar refactor. Real-world verification requires a Windows installer build (alpha.14+); the dev sandbox cannot exercise this code path because window.__TAURI__ is undefined in a browser.",
+  "rca of the issue": "Tauri 2.x's JS-side drag handler resolves the drag target on mousedown via event.target.closest('[data-tauri-drag-region]'). It short-circuits when the target is a <button>/<input>/etc., but NOT when the target is a child of those (an <svg>). In alpha.13 the outer .tauri-titlebar wrapper had data-tauri-drag-region AND the SVG icons had default pointer-events, so a click on the X landed on the <svg>, Tauri started a window drag on mousedown, swallowing the mouseup → no onClick. Mitigation (this iter): (1) drop data-tauri-drag-region from the outer wrapper — keep it only on the inner brand div, (2) add `pointer-events: none` to `.tauri-titlebar__btn svg, .tauri-titlebar__btn svg *` so the <button> is always event.target. OS-level window dragging still works because the CSS `-webkit-app-region: drag` rule on .tauri-titlebar is untouched, and the buttons opt out via `-webkit-app-region: no-drag`."
+}
