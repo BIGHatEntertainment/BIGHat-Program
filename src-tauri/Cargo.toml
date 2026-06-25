@@ -37,7 +37,7 @@ env_logger = "0.11"
 # `bighat-backend.exe` processes lingering in Task Manager. See PRD.md
 # section "SIDECAR LIFECYCLE MUST BE TIED TO THE TAURI SHELL".
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.52", features = [
+windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_JobObjects",
     "Win32_System_Threading",

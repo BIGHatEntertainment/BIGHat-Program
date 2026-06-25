@@ -475,8 +475,10 @@ fn assign_pid_to_kill_on_close_job(pid: u32) -> Result<(), String> {
     };
 
     unsafe {
-        let job = CreateJobObjectW(ptr::null_mut(), ptr::null());
-        if job.is_null() {
+        // windows-sys 0.52: HANDLE is `isize` (NULL = 0), SECURITY_ATTRIBUTES pointer
+        // is *const, and PCWSTR (lpname) is *const u16. Use ptr::null() not null_mut().
+        let job = CreateJobObjectW(ptr::null(), ptr::null());
+        if job == 0 {
             return Err("CreateJobObjectW returned NULL".into());
         }
 
@@ -494,7 +496,7 @@ fn assign_pid_to_kill_on_close_job(pid: u32) -> Result<(), String> {
         }
 
         let proc_handle = OpenProcess(PROCESS_TERMINATE | PROCESS_SET_QUOTA, 0, pid);
-        if proc_handle.is_null() {
+        if proc_handle == 0 {
             CloseHandle(job);
             return Err(format!("OpenProcess(pid={pid}) failed"));
         }

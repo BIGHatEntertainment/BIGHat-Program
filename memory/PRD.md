@@ -298,6 +298,81 @@ Run this checklist:
 
 ---
 
+## 🛑 RELEASE PIPELINE MUST BE FAIL-CLOSED — NEVER SHIP A HALF-BAKED RELEASE
+
+> Added 2026-06-24 after alpha.12 published as a draft with only the macOS
+> Apple Silicon `.dmg` (Windows leg failed to compile because of a
+> `windows-sys` type mismatch I introduced; macOS Intel leg sat queued for
+> 10+ hours because macos-13 runners were scarce). Customers would have
+> downloaded an installer that didn't exist for their OS.
+
+### The invariant
+A GitHub Release tagged `v<version>` is **PUBLIC** if and only if all three
+of these assets are attached:
+
+  1. `BIGHatEntertainment-Setup-<version>.exe`           (Windows)
+  2. `BIG.Hat.Entertainment_<version>_aarch64.dmg`       (macOS Apple Silicon)
+  3. `BIG.Hat.Entertainment_<version>_x64.dmg`           (macOS Intel)
+
+If ANY of these three is missing — for any reason: compile error, queue
+timeout, runner shortage, network blip — the release MUST be demoted to
+DRAFT and the workflow MUST exit non-zero. Customers should NEVER be able
+to navigate to a public Release page for a tag whose installer they need
+but doesn't exist.
+
+### Where this is wired
+
+#### Layer 1 — Pre-tag fast check: `.github/workflows/ci-tauri-check.yml`
+Runs `cargo check --target <triple>` for Windows + macOS Apple Silicon +
+macOS Intel on every push to `main` that touches `src-tauri/**`. If the
+Rust code doesn't compile, the user sees a red ❌ on the commit BEFORE
+auto-tag.yml ever fires release.yml. Saves ~25 min of false-start build
+time and prevents broken commits from cutting tags.
+
+#### Layer 2 — Per-leg timeout: `release.yml` `build-tauri` job
+`timeout-minutes: 75` on the matrix job. If a runner (especially the
+scarce macos-13 Intel runners) sits queued > 75 min, the leg auto-fails
+fast instead of dragging out for 10 hours.
+
+#### Layer 3 — Post-build verification gate: `release.yml` `verify-release-assets` job
+Runs `needs: build-tauri` with `if: always()`. After the matrix finishes
+(success OR partial-failure), this job:
+  1. Fetches the release at the current tag via the GitHub API.
+  2. Scans the assets list for the three required binaries (case-insensitive
+     regex match).
+  3. If anything is missing, PATCHes the release to `draft: true` and
+     `exit 1`s the workflow with a clear `::error::` annotation listing
+     which binary is missing.
+  4. If all three are present, PATCHes the release to
+     `{"draft":false,"prerelease":false,"make_latest":"true"}` — the
+     SINGLE place in the pipeline that ever flips a release public.
+
+### Why three layers
+- Layer 1 catches the most common cause of partial builds (Rust compile
+  errors) before any tag is cut.
+- Layer 2 keeps a single stuck runner from blocking a release indefinitely.
+- Layer 3 is the bulletproof gate: even if layers 1 + 2 miss something
+  (e.g. a transient crates.io blip mid-build), the release never becomes
+  public unless every binary is actually there.
+
+### If this ever fails open
+The release shouldn't be public without all assets. If you see one in the
+wild that is, the diagnostic checklist is:
+  1. Did `verify-release-assets` run? Check the release.yml run's job list.
+  2. Did it pass with all 3 binaries, or did someone manually edit the
+     release? (PATCH to draft=true the moment you spot it.)
+  3. If `verify-release-assets` was skipped, check `needs: build-tauri`
+     and `if: always()` are still both present in the YAML.
+
+### How customers cope while a release is in draft
+The downloads resolver (`backend/cloud/downloads_resolver.py`) walks back
+through the last 5 non-draft releases for any missing platform asset.
+So while a draft alpha.N is being fixed, paying customers still get the
+alpha.N-1 binary for their platform via the same email link and
+`/api/downloads/auto` flow. No customer-facing dead links — ever.
+
+---
+
 
 
 ## Original Problem Statement

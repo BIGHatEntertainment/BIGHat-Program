@@ -27,6 +27,7 @@ permissions:
 jobs:
   build-tauri:
     name: ${{ matrix.label }}
+    timeout-minutes: 75    # any leg stuck > 75 min (incl. queued-waiting-for-runner) auto-fails so a stuck macos-13 runner can't tie up a release indefinitely
     strategy:
       fail-fast: false
       matrix:
@@ -151,3 +152,81 @@ jobs:
           releaseDraft: ${{ inputs.draft == 'true' }}
           prerelease: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+  # -------------------------------------------------------------------------
+  # Gate job: runs AFTER the matrix and refuses to let an incomplete release
+  # be visible to customers. If any of (Windows .exe, macOS Apple Silicon
+  # .dmg, macOS Intel .dmg) is missing from the release at this tag, the job
+  # fails LOUDLY — customers never see the half-baked release because
+  # tauri-action's draft toggle is honored on miss (or the release is
+  # explicitly demoted back to draft by this job on partial uploads).
+  # -------------------------------------------------------------------------
+  verify-release-assets:
+    name: Verify release assets are complete
+    needs: build-tauri
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            V="${{ inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V"     >> "$GITHUB_OUTPUT"
+
+      - name: Verify all 3 OS installers uploaded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Looking up release for tag $TAG..."
+          REL=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+          REL_ID=$(echo "$REL" | python -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+          if [ -z "$REL_ID" ]; then
+            echo "::error::No release found at $TAG. The matrix legs may have all failed before tauri-action could create the release."
+            exit 1
+          fi
+          ASSETS=$(echo "$REL" | python -c "import sys,json;print('\n'.join(a['name'] for a in json.load(sys.stdin).get('assets',[])))")
+          echo "Assets currently on release:"
+          echo "$ASSETS" | sed 's/^/  /'
+
+          MISSING=()
+          # We don't care about the exact byte-for-byte file name, just that
+          # one .exe for windows + one .dmg per mac arch is present.
+          echo "$ASSETS" | grep -Eqi 'BIG.*Hat.*Entertainment.*Setup.*\.exe$|BIG.*Hat.*Entertainment.*\.exe$' || MISSING+=("windows-setup.exe")
+          echo "$ASSETS" | grep -Eqi 'aarch64.*\.dmg$|arm64.*\.dmg$'                                              || MISSING+=("macos-apple-silicon.dmg")
+          echo "$ASSETS" | grep -Eqi 'x64.*\.dmg$|x86_64.*\.dmg$|intel.*\.dmg$'                                   || MISSING+=("macos-intel.dmg")
+
+          if [ ${#MISSING[@]} -ne 0 ]; then
+            echo "::error::Release $TAG is INCOMPLETE — missing: ${MISSING[*]}. Demoting back to draft so customers cannot see a half-baked release."
+            curl -sS -X PATCH \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${REL_ID}" \
+              -d '{"draft":true}' >/dev/null
+            echo "Release demoted to draft. Inspect the failed matrix legs above, fix the root cause, re-run failed jobs (or cut a new tag), and only re-publish once all 3 binaries are present."
+            exit 1
+          fi
+          echo "All 3 OS binaries present. Release $TAG is publishable."
+
+          # Force the release to be PUBLIC (not draft, not prerelease). This
+          # is the only place a release transitions from build-in-progress to
+          # customer-visible — every other path is fail-closed.
+          curl -sS -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${REL_ID}" \
+            -d '{"draft":false,"prerelease":false,"make_latest":"true"}' >/dev/null
+          echo "Release $TAG published publicly."

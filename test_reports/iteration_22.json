@@ -1,0 +1,41 @@
+{
+  "summary": "Static validation of the 3-layer fail-closed release pipeline that fixes the alpha.12 incident (Windows leg compile error + macOS-13 queue timeout shipped a draft release with only the mac-arm64 dmg). Verified: (1) lib.rs Windows Job Object HANDLE checks use `== 0` (NOT .is_null) and CreateJobObjectW uses ptr::null() x2; (2) Cargo.toml windows-sys = 0.59 with exact 3-feature set; (3) release.yml has job-level timeout-minutes:75 on build-tauri, plus a verify-release-assets gate job (needs: build-tauri, if: always(), ubuntu-latest, timeout 5, contents:write) that regex-matches the 3 OS installers and PATCHes draft=true on miss / draft=false+prerelease=false+make_latest=true on success; (4) ci-tauri-check.yml fires on push main/master + PR with src-tauri/** paths, runs `cargo check --target <triple> --locked --all-targets` from src-tauri/ across the 3-target matrix with Swatinem/rust-cache@v2 and timeout 25; (5) PRD.md documents the 3-layer defense + downloads_resolver customer fallback; (6) backend /api/ smoke 200. 22/22 new tests + 13/13 iter21 regression = 35/35.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_release_failclosed_iter22.py",
+    "/app/test_reports/pytest/release_failclosed_iter22.xml"
+  ],
+  "action_items": [
+    "Push the fixes to GitHub and trigger a no-op VERSION.txt bump (alpha.13) to live-validate: (a) ci-tauri-check.yml turns green on the commit BEFORE auto-tag fires, (b) all 3 build-tauri legs upload binaries, (c) verify-release-assets flips the release to public. The cargo-check + PATCH paths cannot be exercised in this sandbox.",
+    "If the build-tauri matrix EVER has fail-fast=true added back, verify-release-assets must still run because it uses `if: always()` — but consider documenting that build-tauri's fail-fast: false is what allows the partial-success path to still hit the gate.",
+    "PATCH alpha.12 GitHub release to draft=true server-side (cleanup of the orphan release per the problem statement) — already noted as done in the user-supplied context."
+  ],
+  "critical_code_review_comments": [
+    "release.yml line 152: `releaseDraft: ${{ inputs.draft == 'true' }}` — for tag-push events (no `inputs`), this evaluates to false, so tauri-action publishes as non-draft immediately. The verify-release-assets gate then re-PATCHes either draft=true (incomplete) or draft=false (complete). Net behaviour is correct, but there is a brief window where customers polling /releases could see the in-progress release before the gate flips it back to draft. Consider passing `releaseDraft: true` always, then letting verify-release-assets be the sole public-flip — that would close the race entirely.",
+    "verify-release-assets resolves the tag via `${GITHUB_REF_NAME#v}` which works for push:tag events; for workflow_dispatch via auto-tag.yml the `inputs.version` branch is taken. Both paths covered. ✅",
+    "ci-tauri-check.yml runs `cargo check` not `cargo build`, so any feature-flag-conditional code (Windows Job Object) IS typechecked because of --all-targets + the right --target triple. Verified the cfg(target_os = \"windows\") block is the exact thing that broke alpha.12 — this gate would have caught it. ✅",
+    "Cargo.toml: windows-sys 0.59 features {Win32_Foundation, Win32_System_JobObjects, Win32_System_Threading} cover all symbols imported in lib.rs (CreateJobObjectW, AssignProcessToJobObject, SetInformationJobObject, JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE, CloseHandle). ✅",
+    "lib.rs assign_pid_to_kill_on_close_job intentionally leaks the job handle (the `let _ = job;` at line 515) so the kernel keeps the job alive for the parent process lifetime — KILL_ON_JOB_CLOSE then reaps the sidecar on parent exit. Comment is clear; semantics are correct. ✅"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_release_failclosed_iter22.py"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 new + 13/13 iter21 regression = 35/35)",
+    "frontend": "skipped per request"
+  },
+  "test_credentials": "n/a — static validation only",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Workflow files only run on GitHub-hosted runners. The cargo-check job + the verify-release-assets PATCH calls cannot be exercised in this container (no Rust toolchain, no GitHub API token). iter22 locks the static contract: lib.rs `== 0` HANDLE checks + `ptr::null()` x2 in CreateJobObjectW; Cargo.toml windows-sys 0.59 + exact feature set; release.yml job-level timeout 75 + verify-release-assets job shape + 3 regex checks + both PATCH bodies; ci-tauri-check.yml triggers + matrix + cargo-check command + Swatinem cache; PRD section + downloads_resolver fallback mention. Note: PyYAML 1.1 quirk — bare `on:` parses to bool True; use the `_on()` helper.",
+  "rca of the issue": "Root cause: a Rust compile error in /app/src-tauri/src/lib.rs (alpha.12) — HANDLE is `isize` in windows-sys 0.52, so `.is_null()` doesn't exist on it, and CreateJobObjectW's signature in 0.59 uses *const PCWSTR + *const SECURITY_ATTRIBUTES (so `ptr::null_mut()` was the wrong type). Windows leg failed cargo build; macOS-13 leg sat queued 10+ hours. tauri-action created the release with only the macos-14 dmg, but as a draft, so no public link. Customer email path: Resend sends a download link that redirects into the matching GitHub Release for the customer's OS — if that release exists but is missing the customer's installer, the link 404s. Mitigations (now validated static-only): (1) Layer 1 — ci-tauri-check.yml runs `cargo check` for all 3 targets on every push to main touching src-tauri/**, so the alpha.12 compile error would have been caught BEFORE auto-tag.yml ran. (2) Layer 2 — release.yml build-tauri job has timeout-minutes: 75 so a queued macos-13 runner can't tie up a release indefinitely. (3) Layer 3 — verify-release-assets gate runs `needs: build-tauri, if: always()` after the matrix; scans assets for the 3 required binaries (case-insensitive regex), PATCHes draft=true on miss (release stays invisible) and PATCHes draft=false+prerelease=false+make_latest=true ONLY when all 3 are present. (4) Customer fallback — downloads_resolver walks back to the previous non-draft release so paying customers always get a working installer for their OS, even while the latest alpha is in draft purgatory."
+}
