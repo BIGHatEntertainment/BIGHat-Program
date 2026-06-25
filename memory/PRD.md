@@ -29,10 +29,13 @@
   → compare `version` field to local `backend/VERSION.txt` → if different,
   surface the GitHub Release URL in the Update tool. The desktop app NEVER
   pulls binaries from anywhere except GitHub Releases.
-- **Cutting a release** = bump `backend/VERSION.txt` → push to `main` →
-  `auto-tag.yml` creates the tag → `release.yml` builds Win/Mac via Tauri →
-  `tauri-action` publishes to GitHub Releases as a public (non-draft) release
-  → done. No extra branches, no force pushes, no manual tagging.
+- **Cutting a release** = bump `backend/VERSION.txt` + `src-tauri/tauri.conf.json`
+  → click Save to GitHub → tell the agent "save and push" → the agent uses
+  the PAT to create the `v<version>` tag, dispatch `release.yml`, monitor
+  each matrix leg, verify all 3 OS binaries land, and PATCH the release
+  public. The merchant never touches the GitHub UI. See the section
+  "RELEASE FLOW — MANUAL, ONE-CLICK FROM MAIN AGENT (NO AUTO-TAG)" for the
+  full agent checklist.
 - **If a CI leg fails** (e.g. Windows job hits a transient crates.io reset):
   the downloads resolver walks back to the previous release's binary so paid
   customers always get a working installer. Re-run the failed job via
@@ -299,12 +302,17 @@ but doesn't exist.
 
 ### Where this is wired
 
-#### Layer 1 — Pre-tag fast check: `.github/workflows/ci-tauri-check.yml`
-Runs `cargo check --target <triple>` for Windows + macOS Apple Silicon +
-macOS Intel on every push to `main` that touches `src-tauri/**`. If the
-Rust code doesn't compile, the user sees a red ❌ on the commit BEFORE
-auto-tag.yml ever fires release.yml. Saves ~25 min of false-start build
-time and prevents broken commits from cutting tags.
+#### Layer 1 — Agent-driven pre-tag verification
+Before creating the `v<version>` tag, the agent inspects the latest
+commit on `main` (the merchant's "save and push") and confirms:
+  - `backend/VERSION.txt` and `src-tauri/tauri.conf.json` agree on the
+    version string.
+  - The version string is semver-shaped and not a downgrade of an
+    existing tag.
+  - No file in `src-tauri/**` was touched if the agent has no
+    high-confidence reason to believe the Rust still compiles. (Rust
+    compile failures on `release.yml` waste a 25-minute matrix run.)
+If anything looks off, the agent stops and asks the merchant.
 
 #### Layer 2 — Per-leg timeout: `release.yml` `build-tauri` job
 `timeout-minutes: 75` on the matrix job. If a runner (especially the
