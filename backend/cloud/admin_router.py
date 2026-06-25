@@ -10,7 +10,9 @@ Endpoints:
     GET  /api/license/admin/keys
     GET  /api/license/admin/keys/{key}
     POST /api/license/admin/keys/mint
+    POST /api/license/admin/keys/restore     (recover a key after data-wipe)
     POST /api/license/admin/keys/{key}/revoke
+    POST /api/license/admin/keys/{key}/resend-email
 """
 from __future__ import annotations
 
@@ -168,6 +170,60 @@ async def mint_key(
         note=req.note,
         send_email=req.send_email,
     )
+    return _to_view(lic)
+
+
+# ---- restore (put a wiped license back with its ORIGINAL key) ----
+class _RestoreKeyRequest(MintKeyRequest):
+    """Same fields as MintKeyRequest plus `key` — the exact license string
+    the customer already has in their original purchase email. Used after a
+    cloud DB wipe so customers don't get a brand-new key (which would
+    invalidate the one they were emailed at purchase time)."""
+    key: str
+
+
+@router.post("/keys/restore", response_model=AdminKeyView)
+async def restore_key(
+    req: _RestoreKeyRequest,
+    _admin: str = Depends(_require_admin),
+) -> AdminKeyView:
+    """Recovery endpoint for a license that was lost from the DB (e.g. a
+    cloud-side data wipe). Re-inserts the license with the customer's
+    ORIGINAL key value — the one already in their purchase email — so they
+    don't need a new email and the email-key contract is preserved.
+
+    Idempotent on the key: if a row already exists for this key, returns it
+    unchanged. If a row exists for the email but with a DIFFERENT key, the
+    request is rejected (use `/keys/mint` for a fresh purchase, or revoke
+    the old row first).
+    """
+    svc = _require_service()
+    # If the key already exists, treat as idempotent success.
+    existing_by_key = await svc.store.get_by_key(req.key)
+    if existing_by_key:
+        return _to_view(existing_by_key)
+    # If a row exists for the email under a different key, refuse — the
+    # caller probably wants /keys/mint instead.
+    existing_by_email = await svc.store.get_by_email(str(req.email))
+    if existing_by_email and existing_by_email.key != req.key:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"email already has a different key: {existing_by_email.key}. "
+                "Use /keys/mint, or revoke the existing row first."
+            ),
+        )
+    lic = await svc.mint_manual(
+        email=str(req.email),
+        owns_standalone=req.owns_standalone,
+        owns_music_bingo=req.owns_music_bingo,
+        owns_karaoke=req.owns_karaoke,
+        cloud_library_months=req.cloud_library_months,
+        note=(req.note or "restored after data-wipe"),
+        send_email=False,   # don't double-email — customer already has the key
+        key=req.key,
+    )
+    logger.info("[license] admin restored key %s for %s", req.key, req.email)
     return _to_view(lic)
 
 

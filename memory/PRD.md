@@ -211,6 +211,76 @@ by the clean-shutdown path.
 
 ---
 
+## 🛑 LICENSE-KEY RECOVERY AFTER A CLOUD DATA-WIPE
+
+> Added 2026-06-25 after a paying customer's license (already emailed
+> from a 2-day-old Squarespace purchase) was missing from the cloud DB
+> after a redeploy. The desktop setup wizard returned "We don't recognise
+> that license key" for the exact key in the customer's purchase email.
+
+### The invariant
+A customer's license key, once emailed, MUST be recoverable into the
+cloud DB **with the original key value preserved**. Customers can't be
+issued a NEW key — their purchase email is the contract, and the key in
+that email is the one they'll always paste into the Setup Wizard.
+
+### The endpoint
+`POST /api/license/admin/keys/restore` (defined in `cloud/admin_router.py`):
+
+```json
+{
+  "key": "BHE-XXXX-XXXX-XXXX-XXXX",
+  "email": "customer@example.com",
+  "owns_standalone": true,
+  "owns_music_bingo": false,
+  "owns_karaoke": false,
+  "cloud_library_months": 0,
+  "note": "restored after 2026-06-25 wipe",
+  "send_email": false
+}
+```
+
+Behavior:
+- If a row already exists with this `key` → idempotent return.
+- If a row exists for this `email` with a DIFFERENT `key` → 409 conflict.
+  Use `/keys/mint` or revoke the old row first.
+- Otherwise inserts a new row with the EXACT key value, no email sent.
+
+### When to use it
+1. A customer reports "license not recognised" with a key they have in
+   their original purchase email.
+2. The agent verifies the key is missing via
+   `GET /api/license/admin/keys/{key}` (returns 404).
+3. The agent calls `/keys/restore` with the same key + the customer's
+   email and the entitlements they originally purchased
+   (`owns_standalone: true` for the basic tier).
+
+### What to NOT do
+- ❌ Don't call `/keys/mint` for a recovery — it generates a NEW key,
+  breaks the email contract.
+- ❌ Don't ask the customer to re-purchase.
+- ❌ Don't tell them to use "Continue offline" forever — that bypasses
+  cloud activation only as a stopgap.
+
+### Customer-facing stopgap while recovery is pending
+The desktop Setup Wizard has a "Continue offline" button that records
+`offline_mode: true` and lets the customer use the app immediately
+without cloud activation. Use this when the customer needs to keep
+working while the recovery is being processed (e.g. waiting for an
+Emergent cloud redeploy to land the `restore` endpoint).
+
+### Preventing data-wipes
+Cloud MongoDB MUST be on a persistent volume, not ephemeral container
+storage. The `BIGHAT_CLOUD_MODE=1` env var must override
+`BIGHAT_NATIVE_MODE=1` for DB connection selection (`server.py` startup
+ordering — already fixed). If wipes keep happening, escalate to
+Emergent Deploy infrastructure — the cloud DB volume is not actually
+persistent.
+
+---
+
+
+
 ## 🛑 RELEASE FLOW — MANUAL, ONE-CLICK FROM MAIN AGENT (NO AUTO-TAG)
 
 > Re-locked 2026-06-25 by the merchant. Auto-tagging via `auto-tag.yml`

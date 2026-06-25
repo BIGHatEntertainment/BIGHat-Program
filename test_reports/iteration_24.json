@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 24 — license-key recovery after cloud data-wipe. Validated mint_manual(key=...) extension, new POST /api/license/admin/keys/restore endpoint, PRD recovery section + RELEASE FLOW preservation. 17/17 new tests pass + 6/6 phase10_9 regression tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_license_restore_iter24.py",
+    "/app/test_reports/pytest/license_restore_iter24.xml"
+  ],
+  "tests_covered": [
+    "mint_manual signature: `key: Optional[str] = None` present with default None (introspected)",
+    "mint_manual(key=None) generates fresh BHE-XXXX-XXXX-XXXX-XXXX key (regression)",
+    "mint_manual(key='BHE-E7GX-VGTT-TGGP-8S2G') inserts row with the EXACT key string; persisted via store.get_by_key()",
+    "mint_manual with existing email merges (keeps original key even if new `key` arg passed — existing-by-email branch preserved)",
+    "POST /api/license/admin/keys/restore requires admin Bearer auth (401 on bad token)",
+    "/keys/restore inserts row with provided key + email + flags; verified via store.get_by_key()",
+    "/keys/restore idempotent when key already in DB (no duplicate row, same response)",
+    "/keys/restore returns HTTP 409 when email exists under DIFFERENT key; detail mentions existing key",
+    "/keys/restore passes send_email=False to mint_manual (no email sent; verified via FakeEmail.sent list)",
+    "/keys/restore default note contains 'restored' (verified via captured logger output)",
+    "/keys/restore preserves owns_standalone/owns_music_bingo/owns_karaoke/cloud_library_months (cloud_library_status flips to 'active' when months>0)",
+    "Regression: /keys/mint, /keys/{key}/revoke, /keys/{key}/resend-email still work",
+    "Backend smoke: GET REACT_APP_BACKEND_URL/api/ returns 200",
+    "PRD: 'LICENSE-KEY RECOVERY AFTER A CLOUD DATA-WIPE' section present with JSON payload + 'Don't call /keys/mint' rule",
+    "PRD: 'RELEASE FLOW — MANUAL, ONE-CLICK FROM MAIN AGENT' section header still present and located AFTER the recovery section (regression)"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin_router.py: restore_key correctly delegates to mint_manual(key=req.key, send_email=False) and gates with /keys/restore-specific idempotency + 409 conflict checks before delegation.",
+    "license_service.py: mint_manual `key` kwarg is keyword-only (good, signature is *, ...) and `key or generate_key()` at line 395 is correct — empty/None falls back to a generated key.",
+    "Note: the 'note' field is logged but not persisted on the LicenseKey model — current contract is logs-only. If long-term auditing is needed, persist note on the row (e.g. add `admin_note` field).",
+    "Minor: `restore_key` calls `store.get_by_email(str(req.email))` BEFORE delegating to `mint_manual`, which also does its own get_by_email. Two queries per restore — acceptable given recovery volume is tiny.",
+    "Test note: 16-byte HMAC JWT secret triggers InsecureKeyLengthWarning in tests; production must use >=32-byte LICENSE_ADMIN_SECRET (not a bug, just an env-config reminder)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_license_restore_iter24.py"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 new + 6/6 phase10_9 regression)",
+    "frontend": "n/a (backend-only per request)"
+  },
+  "test_credentials": "Unit tests use TestClient with monkeypatched ADMIN_EMAIL=admin@example.com / ADMIN_PASSWORD=test-admin-pw / LICENSE_ADMIN_SECRET=unit-test-secret. Live admin auth against the preview deployment was NOT exercised (sandbox build does not need to ship the restore endpoint until merchant clicks Emergent Deploy).",
+  "seed_data_creation": "Per-test ephemeral MontyDB (sqlite) under /tmp; auto-cleaned via fixture teardown. No persistent test data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After merchant clicks Emergent Deploy and api.bighat.live ships the /keys/restore endpoint, the agent will call it with key=BHE-E7GX-VGTT-TGGP-8S2G, email=sellards@bighat.live, owns_standalone=true to restore the customer's row. Recovery contract is fully test-covered locally; live restore is a single curl against prod admin auth.",
+  "rca of the issue": "Cloud redeploy wiped the licenses MongoDB collection between purchase (T-2d) and customer activation attempt. The Squarespace order-poller's cursor had already advanced past the order so it would not re-mint. Fix: (a) extend mint_manual to accept a caller-provided key (preserves the email-key contract from the original purchase email), (b) add admin-only POST /keys/restore endpoint with idempotency on key + 409 on conflicting email→key mapping, (c) document recovery procedure in PRD. Long-term mitigation noted in PRD: cloud MongoDB MUST be on persistent volume; escalate to Emergent Deploy infra if wipes recur."
+}
