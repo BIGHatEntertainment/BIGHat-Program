@@ -149,7 +149,13 @@ jobs:
             - macOS (Intel): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_x64.dmg`
 
             See CHANGELOG.md for the full notes.
-          releaseDraft: ${{ inputs.draft == 'true' }}
+          # Always create as draft. The verify-release-assets gate job that
+          # runs after the matrix is the ONLY place in the entire pipeline
+          # that flips a release public — and only after confirming all 3
+          # OS installers are attached. This closes the race window where
+          # a customer could briefly see a half-baked release between
+          # tauri-action upload and the verification gate.
+          releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
