@@ -105,3 +105,4 @@ function TitleBar() {
 }
 
 export default TitleBar;
+export { TitleBar };
