@@ -248,7 +248,40 @@ async def initialize_setup(payload: SetupInitRequest):
         lic = config_manager.config.setdefault("license_status", {})
         lic["pending_cloud_activation"] = True
         config_manager.save_config()
-        # Local seat so the customer can use the app offline immediately.
+        # v32.0.0-alpha.19: optimistic offline grant.
+        #
+        # Before this, pending_cloud=True only stored the key and a
+        # `register_seat` — `owns_standalone` was never flipped to true,
+        # so a customer who chose "Continue offline" (or was forced into
+        # the deferred path because the cloud was unreachable) walked
+        # straight into a LOCKED dashboard with "Complete first-run
+        # setup to unlock" and no way out. That defeated the whole point
+        # of the offline-tolerant setup flow.
+        #
+        # Fix: if the local license key is well-formed (validated above
+        # at line 167), grant `owns_standalone=true` immediately and
+        # let the 4-hour cloud refresh job downgrade later if the cloud
+        # eventually says "unknown_key" or "revoked". This is the
+        # standard offline-first contract — accept on the client,
+        # reconcile with the server when reachable. The local copy
+        # carries `pending_cloud_activation=true` the whole time so the
+        # UI can surface the "verifying with cloud…" badge.
+        _apply_cloud_response_to_local_state(
+            {
+                "ok": True,
+                "owns_standalone":      True,
+                "owns_music_bingo":     False,
+                "owns_karaoke":         False,
+                "cloud_library_active": False,
+                "max_seats":            5,
+                "active_seats":         1,
+                # Mark explicitly so the refresh job + the UI know this is
+                # a provisional grant pending cloud reconciliation.
+                "pending":              True,
+            },
+            license_key=key,
+            email=admin_email,
+        )
         register_seat(label=f"Master Admin — {master_user['display_name']}")
     else:
         _apply_cloud_response_to_local_state(cloud_resp, license_key=key, email=admin_email)
