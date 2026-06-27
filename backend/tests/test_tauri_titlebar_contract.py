@@ -1,24 +1,14 @@
-"""Locked contract for the v32.0.0 Tauri chromeless title bar.
+"""Locked contract for the v32.0.0-alpha.17+ Tauri window shell.
 
-The user explicitly approved a LYRX-style chromeless window (2026-06-21):
-no Windows OS chrome, custom drag region, custom min/max/close buttons.
-Three things MUST hold for that experience to work:
+Original chromeless design (alpha.4 → alpha.16) was abandoned after two
+rounds of customer-reported "double title bar" + unresponsive window
+controls on Windows. We now run with native OS chrome and NO custom
+React titlebar.
 
-  1. `tauri.conf.json` MUST set `decorations: false` on the main window.
-     If a future change flips it back to `true`, the user gets the
-     Windows title bar AND our custom one stacked.
-
-  2. The React `<TitleBar />` component MUST render unconditionally
-     `data-tauri-drag-region` on its root. Without that attribute, the
-     window can't be moved — there are no other drag affordances.
-
-  3. The React `<TitleBar />` MUST expose three buttons by their
-     `data-testid` attributes so smoke tests can drive them:
-       - `tauri-titlebar-minimize`
-       - `tauri-titlebar-maximize`
-       - `tauri-titlebar-close`
-
-This test pins all three by static inspection — no Tauri runtime needed.
+These tests pin the new invariants by static inspection — no Tauri
+runtime needed. If you flip any of these, **read the explanation in
+the matching CHANGELOG entry (v32.0.0-alpha.17) and PRD section
+"WINDOW CHROME = NATIVE OS" before changing this test**.
 """
 from __future__ import annotations
 
@@ -28,60 +18,67 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TAURI_CONF = ROOT / "src-tauri" / "tauri.conf.json"
 TITLEBAR_JSX = ROOT / "frontend" / "src" / "components" / "TitleBar.jsx"
+APP_JS = ROOT / "frontend" / "src" / "App.js"
+SPLASH_HTML = ROOT / "frontend" / "public" / "splash.html"
+LIB_RS = ROOT / "src-tauri" / "src" / "lib.rs"
 
 
-def test_tauri_conf_decorations_disabled():
+def test_tauri_conf_decorations_enabled():
     cfg = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     windows = cfg["app"]["windows"]
     assert len(windows) >= 1, "tauri.conf.json must declare at least one window"
     main = windows[0]
-    assert main["label"] == "main", \
-        "first window in tauri.conf.json must be label='main' (Rust shell looks it up by name)"
-    assert main["decorations"] is False, (
-        "tauri.conf.json windows[0].decorations MUST stay false. "
-        "Flipping it on stacks the Windows OS chrome on top of our custom "
-        "TitleBar.jsx — see CHANGELOG v32.0.0 Phase 2."
+    assert main["label"] == "main"
+    assert main["decorations"] is True, (
+        "tauri.conf.json windows[0].decorations MUST stay true. "
+        "Chromeless mode + Webview2 produces a double titlebar on "
+        "Windows — see CHANGELOG v32.0.0-alpha.17."
     )
 
 
-def test_titlebar_jsx_has_drag_region():
-    text = TITLEBAR_JSX.read_text(encoding="utf-8")
-    assert "data-tauri-drag-region" in text, (
-        "<TitleBar /> must mark its root with `data-tauri-drag-region` — "
-        "without that the chromeless window cannot be moved."
+def test_custom_titlebar_jsx_removed():
+    assert not TITLEBAR_JSX.exists(), (
+        "frontend/src/components/TitleBar.jsx must NOT exist. The "
+        "custom React titlebar was removed in v32.0.0-alpha.17. If "
+        "you need to bring it back, read the PRD section "
+        "'WINDOW CHROME = NATIVE OS' first."
     )
 
 
-def test_titlebar_jsx_exposes_window_control_testids():
-    text = TITLEBAR_JSX.read_text(encoding="utf-8")
-    missing = [
-        tid for tid in (
-            "tauri-titlebar",
-            "tauri-titlebar-minimize",
-            "tauri-titlebar-maximize",
-            "tauri-titlebar-close",
-        )
-        if f'"{tid}"' not in text and f"'{tid}'" not in text
-    ]
-    assert not missing, (
-        f"<TitleBar /> is missing required data-testid attributes: {missing}. "
-        "Browser smoke tests rely on these to drive window controls."
+def test_app_js_does_not_mount_titlebar():
+    text = APP_JS.read_text(encoding="utf-8")
+    assert "<TitleBar" not in text, (
+        "App.js must NOT mount <TitleBar />. We rely on native OS chrome."
+    )
+    assert "components/TitleBar" not in text, (
+        "App.js must NOT import the deleted TitleBar component."
     )
 
 
-def test_titlebar_jsx_only_renders_inside_tauri():
-    """The React app runs both in the dev preview (browser) AND inside
-    the Tauri shell. The title bar MUST be a no-op in the browser, else
-    every dev session shows two title bars stacked."""
-    text = TITLEBAR_JSX.read_text(encoding="utf-8")
-    # Either guard form is acceptable — but at least one must be present.
-    has_guard = (
-        "if (!isTauri)" in text
-        or "isTauri ?" in text
-        or "__TAURI_INTERNALS__" in text
+def test_splash_html_has_no_custom_titlebar():
+    text = SPLASH_HTML.read_text(encoding="utf-8")
+    # The custom splash titlebar used these markers — none may remain.
+    forbidden = (".titlebar {", "titlebar__brand", "titlebar__controls",
+                 "titlebar__btn", 'id="btn-min"', 'id="btn-max"',
+                 'id="btn-close"')
+    leaks = [m for m in forbidden if m in text]
+    assert not leaks, (
+        f"splash.html still contains custom titlebar markup: {leaks}. "
+        "It was stripped in v32.0.0-alpha.17 to let native chrome show."
     )
-    assert has_guard, (
-        "<TitleBar /> must guard its render on a runtime Tauri detection "
-        "(e.g. `window.__TAURI_INTERNALS__`) so dev-preview browsers don't "
-        "show the custom chrome."
+
+
+def test_lib_rs_treekills_sidecar_on_windows():
+    text = LIB_RS.read_text(encoding="utf-8")
+    assert "RunEvent::ExitRequested" in text
+    assert "taskkill" in text, (
+        "src-tauri/src/lib.rs must run `taskkill /F /T /PID <pid>` on "
+        "Windows in the ExitRequested arm. PyInstaller --onefile spawns "
+        "a child python.exe that survives a plain CommandChild.kill() — "
+        "see CHANGELOG v32.0.0-alpha.17."
+    )
+    # The bootloader PID is captured BEFORE child.kill() consumes the child.
+    assert 'child.pid()' in text, (
+        "lib.rs must capture child.pid() BEFORE calling child.kill(); "
+        "kill() consumes the CommandChild."
     )

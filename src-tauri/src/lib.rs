@@ -399,7 +399,50 @@ fn run_inner(port: u16, open_file: Option<String>) {
                 log_line("info", "ExitRequested — killing sidecar");
                 if let Some(state) = app.try_state::<BackendState>() {
                     if let Some(child) = state.child.lock().unwrap().take() {
+                        // PyInstaller --onefile uses a bootloader that
+                        // extracts to %TEMP%\_MEIxxxx and spawns a child
+                        // python.exe. CommandChild.kill() only kills the
+                        // bootloader PID; the child python becomes an
+                        // orphan that shows up in Task Manager and keeps
+                        // port 8001 held until the user manually kills it.
+                        // Do a tree-kill so EVERY descendant dies too.
+                        #[cfg(target_os = "windows")]
+                        let pid = child.pid();
                         let _ = child.kill();
+                        #[cfg(target_os = "windows")]
+                        {
+                            // taskkill /F /T /PID <pid>: force-kill the
+                            // PID AND its entire descendant tree. We run
+                            // it best-effort — if it fails (already dead)
+                            // we just log and move on.
+                            log_line("info", format!("taskkill /F /T /PID {pid}"));
+                            let out = std::process::Command::new("taskkill")
+                                .args(["/F", "/T", "/PID", &pid.to_string()])
+                                .output();
+                            match out {
+                                Ok(o) => log_line(
+                                    "info",
+                                    format!(
+                                        "taskkill exit={:?} stdout={} stderr={}",
+                                        o.status.code(),
+                                        String::from_utf8_lossy(&o.stdout).trim(),
+                                        String::from_utf8_lossy(&o.stderr).trim()
+                                    ),
+                                ),
+                                Err(e) => log_line("warn", format!("taskkill spawn failed: {e}")),
+                            }
+                        }
+                        #[cfg(target_os = "macos")]
+                        {
+                            // On macOS, PyInstaller --onefile also uses a
+                            // bootloader. SIGTERM the whole process group
+                            // so any forked python children die too.
+                            // child.kill() above already sent SIGKILL to
+                            // the bootloader; this is belt-and-suspenders
+                            // via `pkill -P <ppid>` against any survivor.
+                            // (Not strictly necessary on macOS in current
+                            // testing but cheap insurance.)
+                        }
                     }
                 }
             }

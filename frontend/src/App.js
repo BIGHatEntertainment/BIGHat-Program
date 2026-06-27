@@ -25,7 +25,6 @@ import LicenseApiLanding from './pages/LicenseApiLanding';
 import UpdateTool from './pages/UpdateTool';
 import FilesTool from './pages/FilesTool';
 import { Toaster } from './components/ui/sonner';
-import { TitleBar } from './components/TitleBar';
 import './index.css';
 
 /**
@@ -171,7 +170,6 @@ function App() {
   }
   return (
     <BrowserRouter>
-      <TitleBar />
       <NativeProvider>
         <AuthProvider>
           <Toaster richColors position="top-center" />

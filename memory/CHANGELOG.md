@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-02-27 — v32.0.0-alpha.17: native window chrome + sidecar tree-kill
+
+### What broke in alpha.16
+Customer screenshots showed **two title bars** (native Windows chrome on top
+plus our custom React/Tauri titlebar underneath). The minimize/maximize/close
+buttons in the custom bar were unresponsive: Tauri's drag-region handler was
+eating click events even after the alpha.13 SVG `pointer-events:none` patch,
+and the OS bar's buttons sat above the drag region with normal behaviour but
+the user expected them to be in our gold-accent bar. Compounding this, when
+the app eventually was force-closed via Task Manager, the PyInstaller-frozen
+`bighat-backend` child process survived and held port 8001, requiring a
+manual kill before the next launch could bind.
+
+### Root cause
+1. `tauri.conf.json` had `"decorations": false` (chromeless mode) AND
+   `withGlobalTauri: true` AND a React `<TitleBar />` mounted in `App.js`.
+   On Windows the OS still draws its standard chrome on top of `decorations:
+   false` windows when the WebView2 renderer claims a non-client area —
+   producing the double-titlebar artefact. The fix is to commit fully to one
+   side: we picked the OS-native side because it's guaranteed-to-work, never
+   eats clicks, and gives the user familiar muscle memory.
+2. `RunEvent::ExitRequested` called `child.kill()` on the Tauri `CommandChild`,
+   which only kills the **PyInstaller bootloader** PID. PyInstaller `--onefile`
+   bootloaders extract to `%TEMP%\_MEIxxxx` and re-exec a child `python.exe`
+   that holds the FastAPI server. The child becomes an orphan when the parent
+   bootloader dies, which is what the user observed in Task Manager.
+
+### Fix
+- `src-tauri/tauri.conf.json`: `decorations: true` (native chrome).
+- `frontend/src/App.js`: removed the `<TitleBar />` import + mount.
+- `frontend/src/components/TitleBar.jsx`: deleted (the file no longer
+  exists — do not resurrect it from git history without re-opening
+  this CHANGELOG entry first).
+- `frontend/src/index.css`: removed all `.tauri-titlebar*` rules (~115
+  lines) including the `body:has(.tauri-titlebar){ padding-top:36px }`
+  shim that was nudging routes down.
+- `frontend/public/splash.html`: stripped its matching custom titlebar
+  markup + CSS + click wiring; the splash now uses the full window with
+  native OS chrome on top.
+- `src-tauri/src/lib.rs`: `ExitRequested` now does a Windows tree-kill
+  (`taskkill /F /T /PID <bootloader_pid>`) after the standard
+  `child.kill()`. Logged to the shell log so future regressions are
+  visible. macOS branch left as a no-op stub for now — single-instance
+  bootloader on macOS dies cleanly under SIGKILL in current testing.
+
+### Files of reference for the NEXT agent
+- `/app/src-tauri/tauri.conf.json` — `decorations: true` is invariant
+  going forward. Do not flip back to false without rebuilding a
+  custom titlebar from scratch, and even then validate on a real
+  Windows machine (Webview2 + chromeless is a known landmine).
+- `/app/src-tauri/src/lib.rs` — see the `RunEvent::ExitRequested`
+  arm. The `pid` shadowing is intentional (`#[cfg(target_os =
+  "windows")]` only).
+- `/app/scripts/build_sidecar.py` — still uses `--onefile`. If we
+  ever switch to `--onedir` the tree-kill becomes a no-op (no child
+  python is spawned), so it's safe to leave in.
+
+### Verification
+- ESLint of `App.js`: pre-existing apostrophe warnings only; no new
+  errors from the removal.
+- Dev preview screenshot: login page renders normally with no
+  `.tauri-titlebar` element in the DOM.
+- Real-world verification requires a Windows installer build via
+  the manual PAT-driven `release.yml` dispatch (next step).
+
+
+
 ## 2026-06-24 — Phase 10.13: v32.0.0-alpha.11 release hotfix + downloads resilience
 
 ### What broke

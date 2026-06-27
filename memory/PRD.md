@@ -135,63 +135,44 @@ frozen mode.**
 
 ---
 
-## 🛑 WINDOW CONTROLS REQUIRE `core:window:default` CAPABILITY
+## 🛑 WINDOW CHROME = NATIVE OS (NEVER REINTRODUCE A CUSTOM TITLEBAR)
 
-> Added 2026-06-24 after a customer reported the custom title-bar
-> minimize/maximize/close buttons hover-styling correctly but doing
-> nothing on click. Same root cause: Tauri 2.x rejects window IPC calls
-> with no permission grant.
+> Originally added 2026-06-24 documenting a custom React TitleBar that
+> needed Tauri capability grants + drag-region trickery. Replaced
+> wholesale 2026-02-27 (v32.0.0-alpha.17) after the custom bar produced
+> a double-titlebar artefact on Windows + intermittently unresponsive
+> buttons that we spent three alphas chasing.
 
 ### The invariant
-`/app/src-tauri/capabilities/default.json` MUST include `"core:window:default"`
-in `permissions`. Without it, every `getCurrentWindow().minimize() /
-.toggleMaximize() / .close() / .isMaximized() / .onResized()` call from
-the React TitleBar silently fails (the IPC is rejected and our `safe()`
-wrapper in `TitleBar.jsx` swallows the rejection). Buttons look alive
-(CSS works) but nothing happens.
+`tauri.conf.json` ships `"decorations": true`. The OS draws the
+window chrome — including minimize, maximize, and close. There is NO
+custom React titlebar, NO `<TitleBar />` component, NO custom CSS for
+`.tauri-titlebar*`, and the splash screen at `frontend/public/splash.html`
+has NO custom chrome markup either. Webview2 + chromeless windows is a
+known landmine; we tried it twice (alpha.13 and alpha.16) and burned
+days on it. We are not doing it a third time.
 
-The current minimum permission list is:
+### If a future agent is asked to "make the titlebar look custom"
+1. Push back. Explain that this was tried (CHANGELOG v32.0.0-alpha.17)
+   and the cost / risk is high.
+2. If the user still insists, build it on a feature branch, validate
+   on a REAL Windows machine (NOT just the dev preview — the dev
+   preview doesn't reproduce Webview2 chrome behaviour), and update
+   this section once it ships.
+3. The capability `core:window:default` is still granted in
+   `capabilities/default.json` because it's cheap insurance for any
+   future `getCurrentWindow().*` IPC call (e.g. from the React
+   "Quit BIG Hat" menu item). Removing it is optional but harmless.
 
-```json
-"permissions": [
-    "core:default",
-    "core:window:default",   ← MANDATORY for the custom title bar
-    "shell:default",
-    "process:default",
-    "dialog:default"
-]
-```
-
-If you ever add another window operation not covered by `core:window:default`
-(e.g. set-fullscreen, set-always-on-top), grant the specific permission
-explicitly — never disable capabilities entirely.
-
-### CRITICAL — SVG icons inside the buttons MUST have `pointer-events: none`
-> Added 2026-06-25 alpha.13 — the customer reported the buttons did NOTHING
-> on click despite the capability grant being correct. Root cause was NOT
-> the capability — it was a drag-region conflict.
-
-Tauri's JS-side drag handler resolves drag targets via
-`event.target.closest('[data-tauri-drag-region]')` on mousedown. When the
-outer title-bar wrapper has `data-tauri-drag-region` AND a user clicks
-the SVG icon inside a `<button>`, `event.target` is the SVG element (not
-the button). Tauri's "ignore form elements" check fails, mousedown is
-hijacked to start a drag, and the button's onClick never fires.
-
-Two fixes are wired in tandem — both must remain in place:
-  1. `index.css` adds `pointer-events: none` to `.tauri-titlebar__btn svg`
-     and all its children. This makes the `<button>` the event target.
-  2. `TitleBar.jsx` does NOT put `data-tauri-drag-region` on the outer
-     wrapper — only on the inner `.tauri-titlebar__brand` div. The CSS
-     `-webkit-app-region: drag` on `.tauri-titlebar` still gives the
-     entire bar OS-native window-drag behaviour outside the controls.
-
-### If you ever rewrite the title bar
-- Keep the SVG `pointer-events: none` rule.
-- Keep `data-tauri-drag-region` OFF the outermost wrapper.
-- Verify on a real Windows install: click X, minimize, maximize. The
-  ExitRequested handler in `lib.rs` reaps the sidecar — `tasklist /FI
-  "IMAGENAME eq bighat-backend.exe"` MUST return empty after close.
+### Window close MUST still teardown the sidecar
+The `RunEvent::ExitRequested` arm in `src-tauri/src/lib.rs` kills the
+`CommandChild` AND runs `taskkill /F /T /PID <bootloader_pid>` on
+Windows, because PyInstaller `--onefile` extracts to `%TEMP%\_MEIxxxx`
+and spawns a child `python.exe` that Tauri's `child.kill()` doesn't
+reach. After clicking the OS close (X) button on Windows,
+`tasklist /FI "IMAGENAME eq bighat-backend.exe"` MUST return empty.
+If we ever switch `build_sidecar.py` to `--onedir`, the tree-kill
+becomes a no-op (no child python) and is safe to leave in place.
 
 ---
 
