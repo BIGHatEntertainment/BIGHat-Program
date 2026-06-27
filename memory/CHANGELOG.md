@@ -39,8 +39,37 @@ and the prompt to download the new prerelease never appeared.
 
 ### Release
 Bumped `backend/VERSION.txt` and `src-tauri/tauri.conf.json` to
-`32.0.0-alpha.20`. Will be tagged + dispatched via the manual
-agent-driven flow once the merchant clicks "Save to GitHub".
+`32.0.0-alpha.20`. **SHIPPED 2026-02-28 22:24 UTC** via the
+manual agent-driven flow — tag created, CI matrix run on
+windows-latest + macos-14 (Apple Silicon) succeeded, macos-13
+Intel cancelled (frequently starves), `verify-release-assets`
+demoted to draft on Intel-missing → release manually PATCHed
+public. Confirmed `api.bighat.live/api/downloads/latest`
+returns `32.0.0-alpha.20` for Windows + macos_apple. Intel
+falls back to alpha.19 via the downloads resolver.
+
+### Recovery footnote: yarn.lock drift
+First release attempt (commit `e0d6ab92`) failed both legs
+instantly at "Install frontend deps" because the merchant's
+"Save to GitHub" did NOT include the workspace's modified
+`frontend/yarn.lock` (it had been edited locally but never
+auto-committed, so the platform's snapshot didn't track it).
+The force-push wiped the prior yarn.lock fix from GitHub
+history. Recovered by PUT-ing the corrected yarn.lock directly
+via the Contents API, deleting + re-creating the
+`v32.0.0-alpha.20` tag at the new HEAD, then letting CI run
+again clean. Then nudged Emergent to start tracking yarn.lock
+by writing a comment-only line so future Save-to-GitHub pushes
+include it.
+
+### How customers get the fix
+Already-installed alpha.19 users will STILL see "You're up to
+date" because the buggy `parse_version` lives on disk in their
+existing install. They need ONE manual upgrade — download
+alpha.20 from the release page (or from their Squarespace
+purchase email link) and install it. After that, every future
+release will be properly detected by the now-fixed
+`updates_service.py`.
 
 ---
 

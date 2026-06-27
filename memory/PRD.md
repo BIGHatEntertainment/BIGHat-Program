@@ -1005,8 +1005,16 @@ customer owns, not opaque rows in a SQLite database.
 - Watchdog auto-refresh on local trivia/bingo asset folder changes.
 - Move `/api/native/updates/{check,download}` behind master-admin
   (Phase 9.1 reviewer DoS concern).
-- Pre-release tag-aware `parse_version` if pre-release update channel ever
-  goes live.
+
+## Shipped — v32.0.0-alpha.20 (2026-02-28)
+Pre-release version comparator fix. `parse_version` now returns
+`(major, minor, patch, is_release, prerelease_rank, prerelease_num)`
+so `alpha.18 < alpha.19 < alpha.20 < beta.1 < rc.1 < release`. 7 new
+contract tests in `test_version_comparator.py`. UpdateTool.jsx has
+belt-and-suspenders string comparison. Release shipped publicly with
+Windows .exe + macOS Apple Silicon .dmg + .app.tar.gz. Customers on
+alpha.19 need ONE manual upgrade to get the fix on disk; subsequent
+updates work natively.
 
 ## Test credentials
 See `/app/memory/test_credentials.md`. Native master admin:
