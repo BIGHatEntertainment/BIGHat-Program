@@ -89,28 +89,60 @@ def _detect_platform_key() -> str:
 
 
 # ----- Version semantics -----
-_VER_RX = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$")
+_VER_RX = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:[-+](.+))?$")
+# Prerelease suffix grammar: `alpha.18`, `beta.3`, `rc.1` → (label_rank, n).
+# Lower label_rank sorts earlier (alpha < beta < rc < release).
+_PRERELEASE_RANK = {"alpha": 0, "beta": 1, "rc": 2}
+_PRERELEASE_RX = re.compile(r"^(alpha|beta|rc)\.?(\d+)?$", re.IGNORECASE)
 
 
 def parse_version(v: str) -> tuple:
-    """Return (major, minor, patch) for semver-ish strings.
+    """Return a sortable tuple for a semver-ish version string.
 
-    Accepts "31.0.0", "31.0.0-beta.1", "v31.0.0". Returns (0,0,0) for
-    anything we can't parse so unknown is always less-than known.
+    Tuple shape: ``(major, minor, patch, is_release, prerelease_rank, prerelease_num)``.
+
+    `is_release` is 1 for plain ``32.0.0`` and 0 for ``32.0.0-alpha.18``
+    so a final release ALWAYS sorts after every pre-release of the
+    same triple. `prerelease_rank` orders ``alpha < beta < rc``, and
+    `prerelease_num` is the integer suffix (``alpha.18`` → 18).
+
+    Why this exists: alpha.17 → alpha.18 → alpha.19 customers reported
+    the Update tool saying "you're up to date" while LATEST AVAILABLE
+    showed a clearly newer prerelease. The old impl stripped the
+    suffix entirely, so every ``32.0.0-alpha.*`` parsed to ``(32,0,0)``
+    and `is_newer` returned False between any two prereleases of the
+    same base triple. See CHANGELOG v32.0.0-alpha.20.
+
+    Returns ``(0, 0, 0, 0, 0, 0)`` for unparseable input so unknown is
+    always less than known.
     """
     if not v:
-        return (0, 0, 0)
+        return (0, 0, 0, 0, 0, 0)
     s = v.strip().lstrip("vV ")
     m = _VER_RX.match(s)
     if not m:
-        # Last-ditch: try to pull the first three integers
         nums = re.findall(r"\d+", s)
         nums = (nums + ["0", "0", "0"])[:3]
         try:
-            return (int(nums[0]), int(nums[1]), int(nums[2]))
+            return (int(nums[0]), int(nums[1]), int(nums[2]), 1, 0, 0)
         except ValueError:
-            return (0, 0, 0)
-    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return (0, 0, 0, 0, 0, 0)
+    major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    suffix = m.group(4)
+    if not suffix:
+        # No suffix → final release. Sort AFTER every pre-release of
+        # the same triple by setting is_release=1 and prerelease_rank
+        # to a very high sentinel.
+        return (major, minor, patch, 1, 99, 0)
+    pm = _PRERELEASE_RX.match(suffix)
+    if not pm:
+        # Unknown suffix label — treat as pre-release rank=98 (after
+        # rc, before final). Conservative; ensures we still detect
+        # newer suffixes even if we can't classify them.
+        return (major, minor, patch, 0, 98, 0)
+    label = pm.group(1).lower()
+    num = int(pm.group(2) or "0")
+    return (major, minor, patch, 0, _PRERELEASE_RANK.get(label, 98), num)
 
 
 def is_newer(candidate: str, current: str) -> bool:

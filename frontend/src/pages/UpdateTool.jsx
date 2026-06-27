@@ -55,9 +55,15 @@ export default function UpdateTool() {
     }
   };
 
-  const hasUpdate = result?.update_available === true ||
-                    (status?.latest_known?.latest_version && status?.installed_version &&
-                     status.latest_known.latest_version !== status.installed_version);
+  // v32.0.0-alpha.20: belt-and-suspenders. Backend `update_available`
+  // is authoritative when present, but if both sides disagree on the
+  // version strings displayed in the cards (e.g. installed=18,
+  // latest=19), trust the strings — they're the ground truth the user
+  // can see. Fixes the alpha.18 → alpha.19 false "You're up to date".
+  const installedStr = status?.installed_version || result?.installed_version || '';
+  const latestStr    = result?.manifest?.latest_version || status?.latest_known?.latest_version || '';
+  const stringsDiffer = installedStr && latestStr && installedStr !== latestStr;
+  const hasUpdate = result?.update_available === true || stringsDiffer === true;
   const m = result?.manifest || status?.latest_known || {};
   const notes = m?.release_notes || m?.notes || m?.changelog || '';
   const noteLines = (Array.isArray(notes) ? notes : String(notes).split('\n'))
