@@ -356,9 +356,38 @@ def _parse_bighat(payload: bytes) -> tuple[dict, dict, dict[str, bytes], str]:
         raise HTTPException(400, "File is not a valid .bighat archive (bad zip)")
 
     # Format header validation. v1 used "bighat/round"; v2 uses "bighat".
+    #
+    # v32.0.0-alpha.19 leniency: third-party generators (the user's
+    # external trivia-round tool, for example) sometimes ship .bighat
+    # files with NO `format` field at all — they encode the kind of
+    # content in `manifest.type` (e.g. "MC", "BIG", "round"). Rejecting
+    # those with "Unsupported file format: ''" gave the customer no
+    # actionable signal. We now accept the file if EITHER the `format`
+    # is one of the known string IDs, OR the `type` is a recognised
+    # content type. Anything else still bounces — random zip files with
+    # a manifest.json that says nothing useful won't import.
     fmt = manifest.get("format", "")
-    if fmt not in ("bighat", "bighat/round"):
-        raise HTTPException(400, f"Unsupported file format: {fmt!r}")
+    type_alias = str(manifest.get("type") or "").lower()
+    # Trivia round-type codes the external generator emits + the
+    # canonical lowercase names used elsewhere in the codebase.
+    KNOWN_TYPES = {
+        "round", "presentation", "pack",                # canonical
+        "mc", "reg", "misc", "mys", "big",              # external generator round codes
+    }
+    accepted_by_format = fmt in ("bighat", "bighat/round")
+    accepted_by_type   = type_alias in KNOWN_TYPES
+    if not (accepted_by_format or accepted_by_type):
+        raise HTTPException(
+            400,
+            f"Unsupported .bighat file: manifest must contain either "
+            f"'format' = 'bighat' OR a recognised 'type' field "
+            f"(round/presentation/pack/MC/BIG/REG/MISC/MYS). "
+            f"Got format={fmt!r} type={manifest.get('type')!r}.",
+        )
+    # If we accepted by type, synthesise the format so downstream
+    # code can treat the file uniformly.
+    if not accepted_by_format:
+        manifest["format"] = "bighat"
     if int(manifest.get("version", 0)) > BIGHAT_VERSION:
         raise HTTPException(
             400,

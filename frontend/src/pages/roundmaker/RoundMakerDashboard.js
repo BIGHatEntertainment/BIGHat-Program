@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
 import PageHeader from "../../components/PageHeader";
+import { pickAndImportBighat } from "../../lib/bighatPicker";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -192,20 +193,19 @@ export default function Dashboard() {
     toast.success(`Saved "${round.name}.bighat"`);
   };
 
-  const handleOpenBighat = async (file) => {
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".bighat")) {
-      toast.error("Please select a .bighat file");
-      return;
-    }
-    const form = new FormData();
-    form.append("file", file);
+  const handleOpenBighat = async () => {
+    // v32.0.0-alpha.19: route through the shared picker. In Tauri this
+    // opens the native OS dialog rooted at ~/Documents/BIGHat
+    // Entertainment/Files/Rounds. In the browser fallback it's a
+    // standard <input type=file>. Either way the import lands in the
+    // local DB and we refresh the list.
     try {
-      const res = await axios.post(`${API}/bighat-files/import`, form);
-      toast.success(`Imported "${res.data.name}"`);
+      const result = await pickAndImportBighat({ subfolder: "Rounds" });
+      if (!result) return;    // user cancelled
+      toast.success(`Imported "${result.name}"`);
       fetchRounds();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to import .bighat file");
+      toast.error(e.response?.data?.detail || e.message || "Failed to import .bighat file");
     }
   };
 
@@ -285,8 +285,9 @@ export default function Dashboard() {
                 Recent Rounds
               </h2>
             </div>
-            <label
-              htmlFor="bighat-import-input"
+            <button
+              type="button"
+              onClick={handleOpenBighat}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm font-medium
                          text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 border border-yellow-400/30
                          transition-colors duration-200"
@@ -295,19 +296,7 @@ export default function Dashboard() {
             >
               <FolderOpen size={16} />
               Open .bighat...
-              <input
-                id="bighat-import-input"
-                data-testid="open-bighat-input"
-                type="file"
-                accept=".bighat,application/x-bighat"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = "";  // allow re-opening the same file
-                  handleOpenBighat(f);
-                }}
-              />
-            </label>
+            </button>
           </div>
 
           {loading ? (
