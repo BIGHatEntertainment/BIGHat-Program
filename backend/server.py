@@ -2093,22 +2093,30 @@ try:
         _poller_set_runtime(service=_license_service, store=_license_store)
         app.include_router(_poller_router)
 
-        # v32.0.0-alpha.18: env-driven license bootstrap restore.
+        # v32.0.0-alpha.18.1: env-driven license bootstrap.
         #
-        # The user reported they couldn't easily call the JWT-protected
-        # /api/license/admin/keys/restore endpoint to recover keys
-        # wiped during a redeploy. This is the same operation but
-        # triggered by an env var on startup, so the workflow is:
+        # Two modes, selected by whether `key` is supplied per entry:
         #
-        #   1. Operator sets `LICENSE_BOOTSTRAP_RESTORES` to a JSON
-        #      array of {key, email, owns_standalone, owns_music_bingo,
-        #      owns_karaoke, cloud_library_months} objects.
-        #   2. Operator hits Deploy on Emergent.
-        #   3. On startup we idempotently call svc.mint_manual(key=...)
-        #      for each entry — existing rows are NOT overwritten.
-        #   4. Operator unsets the env var on the next deploy.
+        #   1. RESTORE — `key` is supplied. The operator already knows
+        #      the key (e.g. recovering after a DB-wipe redeploy). We
+        #      mint the row with that exact key string. send_email=False
+        #      because the customer already has the key in hand.
         #
-        # If the env var is missing / blank / not JSON, this is a no-op.
+        #   2. FRESH MINT — `key` is omitted (or empty). The cloud
+        #      generates a brand-new key, persists it, and Resend emails
+        #      it to the customer. Use this when the original key is
+        #      lost / the operator wants a new key. send_email=True so
+        #      the customer receives the key over the same channel the
+        #      Squarespace poller uses.
+        #
+        # Operator workflow:
+        #   • Set `LICENSE_BOOTSTRAP_RESTORES` to a JSON array.
+        #   • Click Deploy on Emergent.
+        #   • Watch the logs for [license-bootstrap] success/skip lines.
+        #   • Clear the env var on the next deploy so it doesn't re-run.
+        #
+        # Idempotent: existing keys are not overwritten and existing
+        # email→key bindings block conflicting writes.
         @app.on_event("startup")
         async def _bootstrap_restore_licenses():
             raw = os.environ.get("LICENSE_BOOTSTRAP_RESTORES", "").strip()
@@ -2122,15 +2130,16 @@ try:
             except (ValueError, _json.JSONDecodeError) as e:
                 logger.error("[license-bootstrap] BAD JSON in LICENSE_BOOTSTRAP_RESTORES: %s", e)
                 return
-            restored = skipped = 0
+            restored = minted = skipped = 0
             for ent in entries:
                 if not isinstance(ent, dict):
                     skipped += 1
                     continue
                 key   = (ent.get("key") or "").strip()
                 email = (ent.get("email") or "").strip()
-                if not key or not email:
-                    logger.warning("[license-bootstrap] skipping entry without key/email: %s", ent)
+                # Email is always required (key is optional — see fresh-mint mode).
+                if not email:
+                    logger.warning("[license-bootstrap] skipping entry without email: %s", ent)
                     skipped += 1
                     continue
                 # Reject obvious unfilled placeholders. We've been bitten
@@ -2143,41 +2152,73 @@ try:
                 if "<" in email or ">" in email or "@" not in email:
                     logger.error(
                         "[license-bootstrap] entry has placeholder/invalid email %r — "
-                        "did you forget to replace <your purchase email>? Skipping %s.",
-                        email, key,
+                        "did you forget to replace <your purchase email>? Skipping.",
+                        email,
                     )
                     skipped += 1
                     continue
-                # Idempotent: only insert if not already present.
-                if await _license_store.get_by_key(key):
-                    logger.info("[license-bootstrap] key %s already present, no-op", key)
+
+                # ---- RESTORE mode (key supplied) ----
+                if key:
+                    # Idempotent: only insert if not already present.
+                    if await _license_store.get_by_key(key):
+                        logger.info("[license-bootstrap] key %s already present, no-op", key)
+                        continue
+                    # Refuse if another row exists for this email (different key)
+                    # — operator should use the admin restore endpoint instead.
+                    other = await _license_store.get_by_email(email)
+                    if other and other.key != key:
+                        logger.error(
+                            "[license-bootstrap] %s already has a different key (%s); "
+                            "refusing to bootstrap-mint %s. Use the admin restore endpoint.",
+                            email, other.key, key,
+                        )
+                        skipped += 1
+                        continue
+                    try:
+                        await _license_service.mint_manual(
+                            email=email,
+                            owns_standalone=bool(ent.get("owns_standalone", True)),
+                            owns_music_bingo=bool(ent.get("owns_music_bingo", False)),
+                            owns_karaoke=bool(ent.get("owns_karaoke", False)),
+                            cloud_library_months=int(ent.get("cloud_library_months", 0) or 0),
+                            note=str(ent.get("note") or "bootstrap-restore"),
+                            send_email=False,    # customer already has the key
+                            key=key,
+                        )
+                        restored += 1
+                        logger.info("[license-bootstrap] restored %s for %s", key, email)
+                    except Exception as e:    # noqa: BLE001 — log + continue
+                        logger.exception("[license-bootstrap] restore failed for %s: %s", key, e)
+                        skipped += 1
                     continue
-                # Refuse if another row exists for this email (different key)
-                # — operator should use the admin restore endpoint instead.
-                other = await _license_store.get_by_email(email)
-                if other and other.key != key:
-                    logger.error("[license-bootstrap] %s already has a different key (%s); "
-                                 "refusing to bootstrap-mint %s. Use the admin restore endpoint.",
-                                 email, other.key, key)
-                    skipped += 1
-                    continue
+
+                # ---- FRESH MINT mode (no key supplied) ----
+                # `mint_manual` is smart: if `email` already has a row,
+                # it updates entitlements and re-sends the existing key
+                # over email. If not, it generates a brand-new key,
+                # persists it, and emails it. Either way the customer
+                # gets a deliverable email with their current key — the
+                # whole point of fresh-mint mode.
                 try:
-                    await _license_service.mint_manual(
+                    new_lic = await _license_service.mint_manual(
                         email=email,
                         owns_standalone=bool(ent.get("owns_standalone", True)),
                         owns_music_bingo=bool(ent.get("owns_music_bingo", False)),
                         owns_karaoke=bool(ent.get("owns_karaoke", False)),
                         cloud_library_months=int(ent.get("cloud_library_months", 0) or 0),
-                        note=str(ent.get("note") or "bootstrap-restore"),
-                        send_email=False,    # customer already has the key
-                        key=key,
+                        note=str(ent.get("note") or "bootstrap-fresh-mint"),
+                        send_email=True,    # customer receives the key by email
+                        key=None,
                     )
-                    restored += 1
-                    logger.info("[license-bootstrap] restored %s for %s", key, email)
+                    minted += 1
+                    logger.info("[license-bootstrap] fresh-mint OK — key=%s for %s (emailed)",
+                                new_lic.key, email)
                 except Exception as e:    # noqa: BLE001 — log + continue
-                    logger.exception("[license-bootstrap] mint failed for %s: %s", key, e)
+                    logger.exception("[license-bootstrap] fresh mint failed for %s: %s", email, e)
                     skipped += 1
-            logger.info("[license-bootstrap] done — restored=%d skipped=%d", restored, skipped)
+            logger.info("[license-bootstrap] done — restored=%d minted=%d skipped=%d",
+                        restored, minted, skipped)
 
         # LOUD startup banner — single curl-able place to confirm prod is wired.
         from cloud import config as _cloud_config
