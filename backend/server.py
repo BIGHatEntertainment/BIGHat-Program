@@ -2133,6 +2133,21 @@ try:
                     logger.warning("[license-bootstrap] skipping entry without key/email: %s", ent)
                     skipped += 1
                     continue
+                # Reject obvious unfilled placeholders. We've been bitten
+                # by operators copy-pasting an example that contained
+                # '<your purchase email>' verbatim — Pydantic's EmailStr
+                # silently rejected the row inside mint_manual() and the
+                # restore appeared to "succeed" while leaving the DB
+                # empty. Fail loud here so the operator sees a clear
+                # log line and fixes the env var on the next deploy.
+                if "<" in email or ">" in email or "@" not in email:
+                    logger.error(
+                        "[license-bootstrap] entry has placeholder/invalid email %r — "
+                        "did you forget to replace <your purchase email>? Skipping %s.",
+                        email, key,
+                    )
+                    skipped += 1
+                    continue
                 # Idempotent: only insert if not already present.
                 if await _license_store.get_by_key(key):
                     logger.info("[license-bootstrap] key %s already present, no-op", key)
