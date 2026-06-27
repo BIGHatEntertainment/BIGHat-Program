@@ -615,8 +615,41 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Scheduler not started: {e}")
     
     logger.info("BIG Hat Hub API started successfully")
+
+    # ─── Cloud licensing async startup (Squarespace poller + env-var bootstrap)
+    #
+    # These USED to be registered via `@app.on_event("startup")` decorators
+    # at module-import time inside the `if is_cloud_mode():` block lower
+    # in this file. But FastAPI's `app.on_event(...)` is **deprecated and
+    # ignored when a lifespan handler is provided** to `FastAPI(...)` —
+    # and we're using lifespan here. So those decorators silently never
+    # ran on production, which meant:
+    #   • the Squarespace poller never started → new orders never minted
+    #     a key → no Resend email after purchase;
+    #   • the LICENSE_BOOTSTRAP_RESTORES env-var hook never fired →
+    #     manual recovery was impossible too.
+    #
+    # The fix: invoke the same coroutines directly from inside lifespan
+    # so they actually run under FastAPI 0.110+'s lifespan-only model.
+    # Module-level references to `_cloud_lifespan_startup` /
+    # `_cloud_lifespan_shutdown` get populated inside the `if
+    # is_cloud_mode():` block; we no-op gracefully if they're absent.
+    _cloud_startup_fn = globals().get("_cloud_lifespan_startup")
+    if callable(_cloud_startup_fn):
+        try:
+            await _cloud_startup_fn()
+        except Exception as e:    # noqa: BLE001
+            logger.exception("Cloud lifespan startup failed: %s", e)
+
     yield
-    
+
+    _cloud_shutdown_fn = globals().get("_cloud_lifespan_shutdown")
+    if callable(_cloud_shutdown_fn):
+        try:
+            await _cloud_shutdown_fn()
+        except Exception as e:    # noqa: BLE001
+            logger.exception("Cloud lifespan shutdown failed: %s", e)
+
     if scheduler_instance:
         scheduler_instance.shutdown()
     client.close()
@@ -2064,7 +2097,6 @@ try:
         _poller_shutdown = asyncio.Event()
         _poller_task = None
 
-        @app.on_event("startup")
         async def _start_squarespace_poller():
             global _poller_task
             if _cloud_config.squarespace_api_key():
@@ -2081,7 +2113,6 @@ try:
                 logger.warning("Squarespace orders poller NOT started — "
                                "SQUARESPACE_API_KEY env var is empty")
 
-        @app.on_event("shutdown")
         async def _stop_squarespace_poller():
             _poller_shutdown.set()
             if _poller_task:
@@ -2089,6 +2120,12 @@ try:
                     await asyncio.wait_for(_poller_task, timeout=5.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
+
+        # Keep the @app.on_event decorators registered too — they're a
+        # no-op under lifespan but harmless. The REAL invocation happens
+        # from lifespan() (see `_cloud_lifespan_startup` below).
+        app.on_event("startup")(_start_squarespace_poller)
+        app.on_event("shutdown")(_stop_squarespace_poller)
 
         _poller_set_runtime(service=_license_service, store=_license_store)
         app.include_router(_poller_router)
@@ -2117,7 +2154,6 @@ try:
         #
         # Idempotent: existing keys are not overwritten and existing
         # email→key bindings block conflicting writes.
-        @app.on_event("startup")
         async def _bootstrap_restore_licenses():
             raw = os.environ.get("LICENSE_BOOTSTRAP_RESTORES", "").strip()
             # Proof-of-life diagnostic — writes on EVERY startup so the
@@ -2284,6 +2320,29 @@ try:
                     skipped += 1
             logger.info("[license-bootstrap] done — restored=%d minted=%d skipped=%d",
                         restored, minted, skipped)
+
+        # Register the bootstrap hook AND wire the lifespan-callable
+        # functions. `app.on_event("startup")` is a no-op under FastAPI's
+        # lifespan model, but harmless to leave in for older deploys.
+        # The lifespan() function up top calls these via the
+        # `_cloud_lifespan_startup` / `_cloud_lifespan_shutdown` globals.
+        app.on_event("startup")(_bootstrap_restore_licenses)
+
+        async def _cloud_lifespan_startup():
+            """Called from `lifespan()` — this is the path that ACTUALLY
+            runs on FastAPI 0.110+. Order matters: the Squarespace poller
+            must start BEFORE the bootstrap so a fresh-mint env var entry
+            doesn't race a concurrently-arriving Squarespace order."""
+            await _start_squarespace_poller()
+            await _bootstrap_restore_licenses()
+
+        async def _cloud_lifespan_shutdown():
+            await _stop_squarespace_poller()
+
+        # Expose to lifespan via module globals (lifespan looks them up
+        # by name with `globals().get(...)`).
+        globals()["_cloud_lifespan_startup"]  = _cloud_lifespan_startup
+        globals()["_cloud_lifespan_shutdown"] = _cloud_lifespan_shutdown
 
         # LOUD startup banner — single curl-able place to confirm prod is wired.
         from cloud import config as _cloud_config
