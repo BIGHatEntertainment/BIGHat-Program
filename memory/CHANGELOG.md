@@ -7,6 +7,62 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.21: imported `.bighat` rounds were invisible
+
+### What the customer saw
+After importing a `.bighat` from the external round generator
+(`BIG_Cactus League (Easy)`), the toast said "Imported … " — but
+"Recent Rounds" stayed at "No rounds yet" and the Generator
+showed nothing. The row WAS in `db.rounds` (verified later).
+
+### Root cause
+Two compounding bugs in the import path:
+
+1. **`_import_zip_bytes` (backend/routes/bighat_files.py)**: only
+   set `doc["status"] = "draft"` when status was already present
+   (`if "status" in doc:`) — third-party payloads don't ship a
+   `status` field at all, so the inserted row had no `status`.
+   Same omission for `round_type`: the round-KIND (MC/BIG/REG/…)
+   lives in `manifest.type`, never copied into the doc.
+
+2. **`list_rounds` (backend/routes/roundmaker.py)**: constructed
+   every row via `RoundResponse(**r)` in a single comprehension.
+   `RoundResponse` declares `round_type: str` and `status: str`
+   as required. One missing field on ONE row throws a Pydantic
+   `ValidationError`, which surfaces as a 500 from the endpoint.
+   The dashboard's `fetchRounds` swallows the error and shows the
+   empty state — exact UX the customer reported.
+
+### Fixes
+- `_import_zip_bytes` now ALWAYS writes `status="draft"`,
+  backfills `round_type` from `manifest.type` (mapping the
+  external generator's round codes to canonical: MC stays MC,
+  unknowns default to MC), defaults `questions` to `[]`, and
+  sets `pptx_path=None`.
+- Round-type alias normalisation: `_import_zip_bytes` now treats
+  `manifest.type` of MC/BIG/REG/MISC/MYS as content_type `round`
+  (instead of bouncing with "Unknown content type") — they're
+  all rounds, just different sub-kinds.
+- `list_rounds` backfills `round_type` / `status` / `questions`
+  / `created_at` on read and skips rows it still can't render
+  (rather than 500-ing the whole list), logging via the existing
+  logger so support can find legacy broken rows.
+
+### Tests
+8 new cases in `backend/tests/test_bighat_import_list_contract.py`:
+6 parameterised import-then-list runs for each round-type code,
+plus the legacy backfill case, plus the unrenderable-row skip
+case. All 8 pass. The existing 7 version-comparator tests still
+pass.
+
+### Release
+Bumped `backend/VERSION.txt` and `src-tauri/tauri.conf.json` to
+`32.0.0-alpha.21`. PENDING: merchant clicks "Save to GitHub",
+then agent creates tag + dispatches CI.
+
+---
+
+
 ## 2026-02-28 — v32.0.0-alpha.20: pre-release version comparator fix
 
 ### What broke in alpha.19

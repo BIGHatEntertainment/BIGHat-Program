@@ -422,9 +422,22 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
     if db is None:
         raise HTTPException(500, "database not initialised")
     manifest, doc, assets, signature = _parse_bighat(payload)
-    content_type = manifest.get("type") or "round"
+    raw_type = str(manifest.get("type") or "round")
+    # Normalise alias → canonical content type. Third-party round
+    # generators emit the round-KIND (MC/BIG/REG/MISC/MYS) in
+    # `manifest.type`; treat all of those as `round`. `_parse_bighat`
+    # already accepted the file via KNOWN_TYPES, so reaching this branch
+    # with a non-canonical alias is the expected path.
+    _ROUND_ALIASES = {"mc", "reg", "misc", "mys", "big", "round"}
+    if raw_type.lower() in _ROUND_ALIASES:
+        content_type = "round"
+        # Stash the original code so the round_type backfill below can
+        # promote "MC" / "BIG" / ... to `RoundResponse.round_type`.
+        manifest.setdefault("round_type", raw_type.upper() if raw_type.lower() != "round" else None)
+    else:
+        content_type = raw_type
     if content_type not in BIGHAT_TYPES:
-        raise HTTPException(400, f"Unknown content type: {content_type}")
+        raise HTTPException(400, f"Unknown content type: {raw_type}")
     spec = BIGHAT_TYPES[content_type]
 
     # If this install has a signing key configured and the file is signed,
@@ -445,10 +458,14 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
     doc["id"] = new_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["imported_from"] = ".bighat"
-    # Bingo / scoreboard / presentation: don't rehydrate the status of the
-    # source machine (e.g. "live", "presenting") — always import as draft.
-    if "status" in doc:
-        doc["status"] = "draft"
+    # ALWAYS land a "draft" status. The previous `if "status" in doc` guard
+    # silently dropped this when the source payload lacked a status field
+    # entirely (as third-party round generators do), leaving the inserted
+    # row without the `status: str` field that `RoundResponse` requires.
+    # One bad row was enough to make `GET /api/roundmaker/rounds` 500 with
+    # a Pydantic validation error, hiding ALL rounds from the dashboard.
+    # See v32.0.0-alpha.21 changelog for the failure mode.
+    doc["status"] = "draft"
     name = (
         doc.get("name")
         or doc.get("title")
@@ -457,6 +474,29 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
         or f"Imported {spec.pretty}"
     )
     doc["name"] = name
+
+    # Round-specific required fields. `RoundResponse` declares `round_type`
+    # as a non-optional `str`; external generators emit the round kind in
+    # `manifest.type` (e.g. "MC", "REG", "MISC", "MYS", "BIG") and DON'T
+    # always copy it into the payload. Backfill from the manifest before
+    # insertion so the list endpoint can validate the row.
+    if content_type == "round":
+        rt = (
+            doc.get("round_type")
+            or manifest.get("round_type")
+            or str(manifest.get("type") or "").upper()
+            or "MC"
+        )
+        # Only well-known codes survive; anything weird falls back to MC.
+        if rt not in {"MC", "REG", "MISC", "MYS", "BIG"}:
+            rt = "MC"
+        doc["round_type"] = rt
+        # `pptx_path` is declared `Optional[str]` so None is fine, but
+        # `questions` is required as a list. Default to [] so the row
+        # is renderable even if the upstream payload was empty.
+        if not isinstance(doc.get("questions"), list):
+            doc["questions"] = []
+        doc.setdefault("pptx_path", None)
 
     # Asset rehydration. We don't restore them into GridFS automatically
     # (would need to know the bucket layout per type) — instead we stash

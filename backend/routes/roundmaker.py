@@ -153,8 +153,33 @@ async def create_round(data: RoundCreate):
 
 @router.get("/rounds", response_model=List[RoundResponse])
 async def list_rounds():
+    # Defensive: any single round missing `round_type` / `status` (e.g. a
+    # row imported from a third-party `.bighat` generator before the
+    # alpha.21 backfill fix) used to make the whole endpoint 500 with a
+    # Pydantic validation error, which the dashboard rendered as "No
+    # rounds yet". Backfill on read and skip rows that are too broken to
+    # represent at all so the list always succeeds.
     rounds = await db.rounds.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    return [RoundResponse(**r) for r in rounds]
+    out: List[RoundResponse] = []
+    for r in rounds:
+        # Hot-patch the minimum required fields for RoundResponse so an
+        # otherwise-valid imported round renders. We persist nothing here;
+        # the next save/edit through the proper endpoints will write the
+        # canonical shape back.
+        if not r.get("round_type"):
+            r["round_type"] = "MC"
+        if not r.get("status"):
+            r["status"] = "draft"
+        if not isinstance(r.get("questions"), list):
+            r["questions"] = []
+        if not r.get("created_at"):
+            r["created_at"] = datetime.now(timezone.utc).isoformat()
+        try:
+            out.append(RoundResponse(**r))
+        except Exception as exc:
+            logger.warning("[roundmaker] skipping unrenderable round %s: %s",
+                           r.get("id", "<no id>"), exc)
+    return out
 
 @router.get("/rounds/{round_id}", response_model=RoundResponse)
 async def get_round(round_id: str):
