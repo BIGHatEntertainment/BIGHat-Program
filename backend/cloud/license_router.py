@@ -142,6 +142,32 @@ async def status(key: str = Path(..., min_length=8, max_length=64)) -> StatusRes
     )
 
 
+# ---------- /api/license/bootstrap/last-run ----------
+#
+# Diagnostic readout of the env-var bootstrap-restore startup hook.
+# Public on purpose — the customer can't read deploy logs from outside
+# Emergent, and the operator (sole person who knows the email used in
+# the bootstrap entry) is the only one who can correlate the data to a
+# real account. Returns the LAST result of the bootstrap run, including
+# the minted key in clear text (so the operator can hand it to a
+# customer when Resend fails). Wipes the doc after the response so the
+# key isn't sitting in the DB indefinitely.
+#
+# Required because Resend has silently failed on `api.bighat.live` for
+# the alpha.18 bootstrap and we need a fallback channel to deliver the
+# key without forcing the customer to dig through deploy logs.
+@router.get("/license/bootstrap/last-run")
+async def bootstrap_last_run() -> dict:
+    svc = _require_service()
+    doc = await svc.store.db["bootstrap_diagnostics"].find_one_and_delete(
+        {"_id": "last_run"}
+    )
+    if not doc:
+        return {"ok": False, "reason": "no_bootstrap_run_recorded_yet"}
+    doc.pop("_id", None)
+    return {"ok": True, **doc}
+
+
 # ---------- /api/downloads/* ----------
 # Three entry points:
 #   - GET /api/downloads/auto              → 302 redirect to the right installer for the requester's OS

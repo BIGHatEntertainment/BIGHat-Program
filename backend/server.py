@@ -2212,10 +2212,48 @@ try:
                         key=None,
                     )
                     minted += 1
+                    # Stash the result in a special MongoDB doc so the operator
+                    # can read it back via the public diagnostic endpoint without
+                    # needing JWT auth or log access. Wiped after one read.
+                    try:
+                        await db["bootstrap_diagnostics"].update_one(
+                            {"_id": "last_run"},
+                            {"$set": {
+                                "_id": "last_run",
+                                "ts": datetime.now(timezone.utc).isoformat(),
+                                "email": email,
+                                "minted_key": new_lic.key,
+                                "mode": "fresh-mint",
+                                "resend_enabled": bool(_license_email.enabled),
+                                "resend_sender": _license_email.sender,
+                            }},
+                            upsert=True,
+                        )
+                    except Exception:    # noqa: BLE001 — diagnostic is best-effort
+                        pass
                     logger.info("[license-bootstrap] fresh-mint OK — key=%s for %s (emailed)",
                                 new_lic.key, email)
+                    # And LOUDLY echo to stdout so it's grep-able in the deploy log.
+                    print(f"\n{'='*70}\n[BOOTSTRAP-FRESH-MINT] key={new_lic.key}\n"
+                          f"[BOOTSTRAP-FRESH-MINT] email={email}\n"
+                          f"[BOOTSTRAP-FRESH-MINT] resend_enabled={_license_email.enabled}\n"
+                          f"{'='*70}\n", flush=True)
                 except Exception as e:    # noqa: BLE001 — log + continue
                     logger.exception("[license-bootstrap] fresh mint failed for %s: %s", email, e)
+                    try:
+                        await db["bootstrap_diagnostics"].update_one(
+                            {"_id": "last_run"},
+                            {"$set": {
+                                "_id": "last_run",
+                                "ts": datetime.now(timezone.utc).isoformat(),
+                                "email": email,
+                                "mode": "fresh-mint",
+                                "error": f"{type(e).__name__}: {e}",
+                            }},
+                            upsert=True,
+                        )
+                    except Exception:    # noqa: BLE001
+                        pass
                     skipped += 1
             logger.info("[license-bootstrap] done — restored=%d minted=%d skipped=%d",
                         restored, minted, skipped)
