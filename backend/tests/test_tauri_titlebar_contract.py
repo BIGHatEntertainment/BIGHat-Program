@@ -55,6 +55,24 @@ def test_app_js_does_not_mount_titlebar():
     )
 
 
+def test_page_header_component_exists():
+    """v32.0.0-alpha.18 unified sub-page nav. <PageHeader /> is the only
+    sanctioned header for sub-pages (Files, Round Generator, Schedule,
+    Update Tool, …) — gives every page a Back arrow top-left and a Home
+    button top-right at identical positions, so muscle memory holds.
+
+    Presenter views (Trivia/Bingo/Karaoke live shows) opt out of the
+    Home button via `showHome={false}` so a host can't accidentally
+    close the show mid-event — see PRD 'WINDOW CHROME' for the related
+    safety constraint."""
+    p = ROOT / "frontend" / "src" / "components" / "PageHeader.jsx"
+    assert p.exists(), "PageHeader.jsx must exist (sub-page nav contract)"
+    txt = p.read_text(encoding="utf-8")
+    assert "page-header-back" in txt
+    assert "page-header-home" in txt
+    assert "showHome" in txt, "PageHeader must accept a `showHome` prop for presenter views"
+
+
 def test_splash_html_has_no_custom_titlebar():
     text = SPLASH_HTML.read_text(encoding="utf-8")
     # The custom splash titlebar used these markers — none may remain.

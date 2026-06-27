@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic2, Music, HelpCircle, Lock, ShoppingCart } from 'lucide-react';
+import { Mic2, Music, HelpCircle, Lock, ShoppingCart, KeyRound } from 'lucide-react';
 import { useNative } from '../context/NativeContext';
+import LicenseActivationDialog from './LicenseActivationDialog';
 
 const STORE_BASE = 'https://bighat.live/shop';
 
@@ -55,6 +56,7 @@ export default function AppCards() {
   const navigate = useNavigate();
   const { isPremiumActive, subscription } = useNative();
   const ownsStandalone = Boolean(subscription?.owns_standalone);
+  const [activateOpen, setActivateOpen] = useState(false);
 
   return (
     <section
@@ -74,6 +76,7 @@ export default function AppCards() {
               owned={owned}
               ownsStandalone={ownsStandalone}
               onLaunch={() => owned && navigate(app.route)}
+              onActivate={() => setActivateOpen(true)}
               onBuy={() => {
                 window.open(`${STORE_BASE}${app.storePath}`, '_blank', 'noopener,noreferrer');
               }}
@@ -81,11 +84,17 @@ export default function AppCards() {
           );
         })}
       </div>
+
+      {/* In-place license activation modal — opened by the locked Trivia
+          card "Enter License Key" button and the user-dropdown menu item.
+          Calls /api/native/license/cloud/activate then re-runs the native
+          info fetch so cards unlock without an app restart. */}
+      <LicenseActivationDialog open={activateOpen} onClose={() => setActivateOpen(false)} />
     </section>
   );
 }
 
-function AppCard({ app, owned, ownsStandalone, onLaunch, onBuy }) {
+function AppCard({ app, owned, ownsStandalone, onLaunch, onBuy, onActivate }) {
   const Icon = app.icon;
   const isAddon = app.id !== 'trivia';
   // Add-ons require the standalone base; if base is missing, prompt for that
@@ -216,14 +225,24 @@ function AppCard({ app, owned, ownsStandalone, onLaunch, onBuy }) {
         )}
 
         {/* Trivia (base) when owns_standalone is false — shouldn't normally
-            happen since the wizard gates this, but render gracefully. */}
+            happen since the wizard gates this, but render gracefully.
+            Surfaces the in-place activation button so a customer who
+            skipped Setup can recover without uninstalling. */}
         {!owned && app.id === 'trivia' && (
-          <div
-            className="mt-5 px-3 py-2.5 rounded-lg text-xs text-white/50 bg-white/5 border border-white/10"
-            data-testid={`app-card-${app.id}-not-activated`}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onActivate && onActivate(); }}
+            data-testid={`app-card-${app.id}-activate-btn`}
+            className="mt-5 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold border transition-all duration-200"
+            style={{
+              borderColor: 'rgba(251, 221, 104, 0.55)',
+              color: '#fbdd68',
+              backgroundColor: 'rgba(251, 221, 104, 0.08)',
+            }}
           >
-            Complete first-run setup to unlock.
-          </div>
+            <KeyRound className="w-4 h-4" />
+            Enter License Key
+          </button>
         )}
       </div>
     </div>

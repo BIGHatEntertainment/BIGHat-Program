@@ -5,6 +5,7 @@ import { Grid2X2, HelpCircle, Target, Search, Crown, Trash2, Download, FileText,
 import { Button } from "../../components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
+import PageHeader from "../../components/PageHeader";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -210,19 +211,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#000e2a' }}>
-      {/* Header */}
-      <header className="sticky top-0 z-50" style={{ backgroundColor: 'rgba(0, 14, 42, 0.8)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(251, 221, 104, 0.15)' }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
-          <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-white/5" data-testid="back-to-dashboard">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbdd68" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          </button>
-          <img src="/hat-logo.png" alt="BIG Hat" className="h-9 w-9 object-contain" />
-          <div>
-            <h1 className="text-xl font-bold" style={{ color: '#fbdd68' }}>Round Generator</h1>
-            <p className="text-xs" style={{ color: '#8892b0' }}>Trivia Round Creator</p>
-          </div>
-        </div>
-      </header>
+      <PageHeader title="Round Generator" subtitle="Trivia Round Creator" />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Tabs */}

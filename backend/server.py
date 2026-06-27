@@ -2093,6 +2093,77 @@ try:
         _poller_set_runtime(service=_license_service, store=_license_store)
         app.include_router(_poller_router)
 
+        # v32.0.0-alpha.18: env-driven license bootstrap restore.
+        #
+        # The user reported they couldn't easily call the JWT-protected
+        # /api/license/admin/keys/restore endpoint to recover keys
+        # wiped during a redeploy. This is the same operation but
+        # triggered by an env var on startup, so the workflow is:
+        #
+        #   1. Operator sets `LICENSE_BOOTSTRAP_RESTORES` to a JSON
+        #      array of {key, email, owns_standalone, owns_music_bingo,
+        #      owns_karaoke, cloud_library_months} objects.
+        #   2. Operator hits Deploy on Emergent.
+        #   3. On startup we idempotently call svc.mint_manual(key=...)
+        #      for each entry — existing rows are NOT overwritten.
+        #   4. Operator unsets the env var on the next deploy.
+        #
+        # If the env var is missing / blank / not JSON, this is a no-op.
+        @app.on_event("startup")
+        async def _bootstrap_restore_licenses():
+            raw = os.environ.get("LICENSE_BOOTSTRAP_RESTORES", "").strip()
+            if not raw:
+                return
+            try:
+                import json as _json
+                entries = _json.loads(raw)
+                if not isinstance(entries, list):
+                    raise ValueError("must be a JSON array")
+            except (ValueError, _json.JSONDecodeError) as e:
+                logger.error("[license-bootstrap] BAD JSON in LICENSE_BOOTSTRAP_RESTORES: %s", e)
+                return
+            restored = skipped = 0
+            for ent in entries:
+                if not isinstance(ent, dict):
+                    skipped += 1
+                    continue
+                key   = (ent.get("key") or "").strip()
+                email = (ent.get("email") or "").strip()
+                if not key or not email:
+                    logger.warning("[license-bootstrap] skipping entry without key/email: %s", ent)
+                    skipped += 1
+                    continue
+                # Idempotent: only insert if not already present.
+                if await _license_store.get_by_key(key):
+                    logger.info("[license-bootstrap] key %s already present, no-op", key)
+                    continue
+                # Refuse if another row exists for this email (different key)
+                # — operator should use the admin restore endpoint instead.
+                other = await _license_store.get_by_email(email)
+                if other and other.key != key:
+                    logger.error("[license-bootstrap] %s already has a different key (%s); "
+                                 "refusing to bootstrap-mint %s. Use the admin restore endpoint.",
+                                 email, other.key, key)
+                    skipped += 1
+                    continue
+                try:
+                    await _license_service.mint_manual(
+                        email=email,
+                        owns_standalone=bool(ent.get("owns_standalone", True)),
+                        owns_music_bingo=bool(ent.get("owns_music_bingo", False)),
+                        owns_karaoke=bool(ent.get("owns_karaoke", False)),
+                        cloud_library_months=int(ent.get("cloud_library_months", 0) or 0),
+                        note=str(ent.get("note") or "bootstrap-restore"),
+                        send_email=False,    # customer already has the key
+                        key=key,
+                    )
+                    restored += 1
+                    logger.info("[license-bootstrap] restored %s for %s", key, email)
+                except Exception as e:    # noqa: BLE001 — log + continue
+                    logger.exception("[license-bootstrap] mint failed for %s: %s", key, e)
+                    skipped += 1
+            logger.info("[license-bootstrap] done — restored=%d skipped=%d", restored, skipped)
+
         # LOUD startup banner — single curl-able place to confirm prod is wired.
         from cloud import config as _cloud_config
         _resend_state = "ENABLED" if _license_email.enabled else "DISABLED (no RESEND_API_KEY — license emails will NOT send)"

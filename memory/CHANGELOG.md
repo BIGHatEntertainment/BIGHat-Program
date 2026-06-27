@@ -7,6 +7,107 @@
 
 ---
 
+## 2026-02-27 — v32.0.0-alpha.18: locked-state recovery, files folders, unified nav
+
+### What broke in alpha.17
+After the alpha.17 native-chrome fix went out, the customer did a clean
+install + reinstall expecting to be walked through Setup again — but the
+new install rehydrated `system_config.json` from `%LOCALAPPDATA%\BIGHat\`
+(left behind by the previous install) and SKIPPED the wizard. With Setup
+skipped there was no UI to enter their license key, and the customer
+hit a permanently-locked dashboard with "Complete first-run setup to
+unlock" and no button. The Files tool also let them upload .bighat files
+but provided no way to LOAD them back into anything. Three separate
+issues, one underlying theme: the app was missing recovery paths.
+
+### Fix (alpha.18 batch)
+
+**1. Clean-install setup mandatory** — `installer-hooks.nsh` now wipes
+`%LOCALAPPDATA%\BIGHat` from the `NSIS_HOOK_POSTUNINSTALL` macro.
+Updates (in-place install over an existing version) DO NOT run the
+uninstaller and so still preserve user data, which is the intended
+continuation behaviour. Only a manual Apps & Features → Uninstall
+triggers the wipe — exactly when the user expects a fresh slate.
+
+**2. In-place license re-entry** — new
+`frontend/src/components/LicenseActivationDialog.jsx` modal calls
+`/api/native/license/cloud/activate` with `{license_key, email,
+label}`, re-runs `NativeContext.refresh()` so the locked Trivia/Bingo/
+Karaoke cards unlock without an app restart. Triggered from:
+  • The locked Trivia card's new "Enter License Key" button (replaces
+    the dead-end "Complete first-run setup to unlock" copy).
+  • The Header user-dropdown's new "Enter License Key" menu item —
+    available from EVERY page, not just the dashboard.
+
+**3. Typed Files subfolders + auto-routing** —
+`backend/native/files_router.py` now creates `Files/Rounds`,
+`Files/Bingo`, `Files/Karaoke`, `Files/Other` at startup. Uploads are
+routed to the right subfolder by inspecting the .bighat archive's
+`manifest.json` `type` field (`round`/`presentation`/`pack` → Rounds,
+`bingo` → Bingo, `karaoke`/`playlist` → Karaoke, else Other). A
+sibling `Hosts/<host_slug>` directory is created next to `Files/` for
+per-host working data (event drafts, schedule snapshots). One-shot
+migration moves pre-alpha.18 flat-layout .bighats into their correct
+subfolder on first list call (idempotent, guarded by a marker file).
+The FilesTool React UI gets folder tabs (All / Rounds / Bingo /
+Karaoke / Other), a per-row "Load into Round Generator / Trivia
+Presenter / Bingo Lobby" action, "Reveal in folder" buttons, and the
+backend exposes `POST /api/native/files/reveal` to open the host OS
+file manager focused on a file.
+
+**4. Unified `<PageHeader />` for sub-page nav** — new
+`frontend/src/components/PageHeader.jsx` renders Back (top-LEFT,
+history −1) and Home (top-RIGHT, → `/`) at identical positions on
+every sub-page. Presenter views opt out via `showHome={false}` so a
+host can't accidentally close the Trivia/Bingo/Karaoke show mid-event.
+Applied to: FilesTool, RoundMakerDashboard, UpdateTool, SchedulingPage.
+The Schedule page's "Logout" button (which actually navigated to the
+dashboard — confusing) was removed in favour of the new Home button.
+
+**5. Cloud bootstrap-restore env var** —
+`backend/server.py` startup hook reads `LICENSE_BOOTSTRAP_RESTORES`
+(JSON list of `{key, email, owns_*}`), idempotently restores each key
+via `LicenseService.mint_manual(...)` — same path as the JWT-protected
+`/api/license/admin/keys/restore` endpoint but without needing the
+caller to log in. Operator workflow: set the env var, redeploy once,
+unset it. Solves the customer complaint that JWT-based admin restore
+wasn't a workflow they could realistically execute.
+
+**6. Hardened sidecar tree-kill** (alpha.17 carry-over) — confirmed in
+production: `taskkill /F /T /PID <bootloader_pid>` from ExitRequested
+now reaps the PyInstaller `--onefile` child python and the X-button
+close no longer leaves an orphan in Task Manager.
+
+### Files of reference for the NEXT agent
+- `/app/src-tauri/installer-hooks.nsh` — POSTUNINSTALL wipes %LOCALAPPDATA%.
+- `/app/frontend/src/components/PageHeader.jsx` — sole sanctioned
+  header for sub-pages. Do NOT roll a custom header on a sub-page;
+  use `<PageHeader title="…" subtitle="…" variant="dark|light"
+  actions={…} showHome={false} />`. Light variant is for the
+  schedule page; dark is default.
+- `/app/frontend/src/components/LicenseActivationDialog.jsx` — the
+  ONLY place where re-entering a license key is implemented. Anyone
+  adding a third "where's my license entry?" surface should reuse
+  this component, not rebuild it.
+- `/app/backend/native/files_router.py` — typed subfolders + the
+  one-shot migration. The marker file `.alpha18-migrated` lives in
+  the user's Files root; deleting it is safe (migration re-runs).
+- `/app/backend/server.py — _bootstrap_restore_licenses` — env-var
+  recovery path. Idempotent; safe to leave the env var set across
+  multiple deploys, but the operator should still clear it once the
+  customer reports they're unblocked.
+
+### Verification
+- Backend pytest contract: `test_native_files_layout.py` (11 tests) +
+  `test_tauri_titlebar_contract.py` (6 tests) = **17/17 PASS**.
+- Frontend dev-preview smoke: login page renders with no console
+  errors after the unified PageHeader rollout.
+- Real-world Windows verification requires the v32.0.0-alpha.18
+  installer build via the manual PAT-driven `release.yml` dispatch
+  (next step).
+
+
+
 ## 2026-02-27 — v32.0.0-alpha.17: native window chrome + sidecar tree-kill
 
 ### What broke in alpha.16

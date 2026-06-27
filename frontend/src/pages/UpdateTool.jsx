@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import { Download, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import PageHeader from '../components/PageHeader';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -11,7 +11,6 @@ const API = process.env.REACT_APP_BACKEND_URL;
 // user trigger the download step. Apply step still requires master-admin
 // auth so we link them to it but don't try to invoke it inline.
 export default function UpdateTool() {
-  const navigate = useNavigate();
   const [status, setStatus] = useState(null);          // last known status snapshot
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState(null);          // newest manifest after check
@@ -66,16 +65,13 @@ export default function UpdateTool() {
     .filter(Boolean);
 
   return (
-    <div data-testid="update-tool" className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-3xl mx-auto">
-        <Button data-testid="back-btn" variant="ghost" onClick={() => navigate('/')} className="mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to dashboard
-        </Button>
-
+    <div data-testid="update-tool" className="min-h-screen bg-gray-50">
+      <PageHeader title="Update" subtitle="Check for new features and improvements" variant="light" />
+      <div className="max-w-3xl mx-auto p-8">
         <div className="bg-white rounded-xl shadow-lg p-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Update</h1>
+              <h2 className="text-2xl font-bold text-gray-900">Check for updates</h2>
               <p className="text-sm text-gray-500 mt-1">
                 Check for new features and improvements to BIG Hat Entertainment.
               </p>

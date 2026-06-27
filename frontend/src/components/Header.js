@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Settings, LogOut, Menu, X, ChevronDown } from 'lucide-react';
+import { Settings, LogOut, Menu, X, ChevronDown, KeyRound } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import NativeBadge from './NativeBadge';
+import LicenseActivationDialog from './LicenseActivationDialog';
 
 export default function Header() {
   const { user, logout } = useAuth();
@@ -10,6 +11,7 @@ export default function Header() {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [licenseDialogOpen, setLicenseDialogOpen] = useState(false);
   const isAdmin = user?.role === 'admin' || user?.role === 'master_admin';
 
   return (
@@ -112,6 +114,14 @@ export default function Header() {
           </div>
         )}
       </div>
+
+      {/* Always-available license re-entry. Bound here (instead of inside
+          AppCards) so it's reachable from every page, not just the
+          dashboard. v32.0.0-alpha.18 — see PRD "LOCKED-STATE RECOVERY". */}
+      <LicenseActivationDialog
+        open={licenseDialogOpen}
+        onClose={() => setLicenseDialogOpen(false)}
+      />
     </header>
   );
 }

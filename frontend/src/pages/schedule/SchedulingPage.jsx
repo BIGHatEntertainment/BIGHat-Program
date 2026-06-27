@@ -15,6 +15,7 @@ import PasswordConfirmDialog from '../../components/schedule/PasswordConfirmDial
 import EventDetailDialog from '../../components/schedule/EventDetailDialog';
 import MonthlyCalendarDialog from '../../components/schedule/MonthlyCalendarDialog';
 import BlackoutCalendarDialog from '../../components/schedule/BlackoutCalendarDialog';
+import PageHeader from '../../components/PageHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -196,6 +197,8 @@ const SchedulingPage = () => {
   };
 
   const handleLogout = () => {
+    // Kept for backwards-compat with the old "Logout" button — now wired
+    // only to clear the schedule-only session.
     sessionStorage.removeItem('loggedInHost');
     navigate('/');
     toast.success('Returned to dashboard');
@@ -222,57 +225,40 @@ const SchedulingPage = () => {
 
   return (
     <div className="min-h-screen force-light" style={{ background: "linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e0f2fe 100%)" }}>
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="p-2">
-                <img 
-                  src="/hat-logo.png" 
-                  alt="BIG Hat Entertainment" 
-                  className="h-12 w-12 object-contain"
-                />
-              </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Event Scheduler</h1>
-                <p className="text-sm text-muted-foreground">
-                  Welcome, <span className="font-semibold text-primary">{loggedInHost.name}</span>
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
+      {/* Unified PageHeader (Back + Home pinned to identical positions
+          across every sub-page). The schedule-specific Profile / Admin
+          actions slot in as `actions` so they sit next to Home but
+          never displace it. */}
+      <PageHeader
+        title="Event Scheduler"
+        subtitle={loggedInHost?.name ? `Welcome, ${loggedInHost.name}` : 'Welcome'}
+        variant="light"
+        actions={(
+          <>
+            <Button
+              onClick={() => navigate('/schedule/profile')}
+              variant="outline"
+              size="sm"
+              className="flex items-center space-x-2 hover:bg-purple-50 hover:text-purple-600 transition-smooth"
+              data-testid="profile-btn"
+            >
+              <UserCircle className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1">Profile</span>
+            </Button>
+            {loggedInHost?.is_admin && (
               <Button
-                onClick={() => navigate('/schedule/profile')}
+                onClick={() => navigate('/schedule/admin')}
                 variant="outline"
-                className="flex items-center space-x-2 hover:bg-purple-50 hover:text-purple-600 transition-smooth"
-                data-testid="profile-btn"
+                size="sm"
+                className="flex items-center space-x-2 hover:bg-primary hover:text-primary-foreground transition-smooth"
               >
-                <UserCircle className="h-4 w-4" />
-                <span className="hidden sm:inline">Profile</span>
+                <Settings className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">Admin</span>
               </Button>
-              <Button
-                onClick={handleLogout}
-                variant="outline"
-                className="flex items-center space-x-2 hover:bg-red-50 hover:text-red-600 transition-smooth"
-              >
-                <User className="h-4 w-4" />
-                <span className="hidden sm:inline">Logout</span>
-              </Button>
-              {loggedInHost.is_admin && (
-                <Button
-                  onClick={() => navigate('/schedule/admin')}
-                  variant="outline"
-                  className="flex items-center space-x-2 hover:bg-primary hover:text-primary-foreground transition-smooth"
-                >
-                  <Settings className="h-4 w-4" />
-                  <span className="hidden sm:inline">Admin</span>
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+            )}
+          </>
+        )}
+      />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 

@@ -1,10 +1,50 @@
-import React, { useEffect, useRef, useState } from 'react';
+/**
+ * Files tool — the .bighat file manager.
+ *
+ * v32.0.0-alpha.18 redesign:
+ *   • Typed subfolder tabs (All / Rounds / Bingo / Karaoke / Other) at
+ *     the top — switches the listing without leaving the page.
+ *   • Per-file "Load into…" dropdown so a saved round can be reopened
+ *     in Round Generator / Build Wizard / Presenter with one click —
+ *     fixing the "I uploaded it but there's nothing I can do with it"
+ *     complaint.
+ *   • Per-file "Reveal in Folder" opens the host OS file manager (calls
+ *     POST /api/native/files/reveal).
+ *   • Unified <PageHeader /> for back + home navigation.
+ */
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, Download, Trash2, FolderOpen, FileText, Loader2, AlertCircle } from 'lucide-react';
+import {
+  Upload, Download, Trash2, FolderOpen, FileText, Loader2,
+  AlertCircle, Play, Pencil, ExternalLink,
+} from 'lucide-react';
 import { Button } from '../components/ui/button';
+import PageHeader from '../components/PageHeader';
 
 const API = process.env.REACT_APP_BACKEND_URL;
+
+// On-disk folder names. Must exactly match SUBFOLDERS in
+// /app/backend/native/files_router.py — the backend rejects anything
+// else with a 400. "All" is a UI-only synthetic value that means
+// "aggregate across every subfolder".
+const FOLDERS = [
+  { key: 'all',     label: 'All' },
+  { key: 'Rounds',  label: 'Rounds' },
+  { key: 'Bingo',   label: 'Bingo' },
+  { key: 'Karaoke', label: 'Karaoke' },
+  { key: 'Other',   label: 'Other' },
+];
+
+// Which content_types are "loadable" into which destinations. The
+// matrix here drives which "Load into…" buttons appear per row.
+const LOAD_DESTINATIONS = {
+  round:        [{ label: 'Round Generator', href: (f) => `/roundmaker?openFile=${encodeURIComponent(f.path)}` }],
+  presentation: [{ label: 'Trivia Presenter', href: (f) => `/trivia/present?openFile=${encodeURIComponent(f.path)}` }],
+  pack:         [{ label: 'Round Generator', href: (f) => `/roundmaker?openFile=${encodeURIComponent(f.path)}` }],
+  bingo:        [{ label: 'Bingo Lobby',     href: (f) => `/bingo?openFile=${encodeURIComponent(f.path)}` }],
+  karaoke:      [],   // karaoke .bighat loader lives inside the Karaoke add-on (P4)
+};
 
 const formatSize = (b) => {
   if (b < 1024) return `${b} B`;
@@ -16,22 +56,22 @@ const formatDate = (iso) => {
   try { return new Date(iso).toLocaleString(); } catch { return iso; }
 };
 
-// .bighat file manager. Lists, uploads, downloads, deletes files stored in
-// the user's BIGHat Entertainment/Files folder.
 export default function FilesTool() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const [files, setFiles] = useState([]);
   const [folder, setFolder] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState('all');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async (which = selectedFolder) => {
     setLoading(true);
     setError(null);
     try {
-      const r = await axios.get(`${API}/api/native/files`);
+      const params = which && which !== 'all' ? { folder: which } : {};
+      const r = await axios.get(`${API}/api/native/files`, { params });
       setFiles(r.data.files || []);
       setFolder(r.data.folder || '');
     } catch (e) {
@@ -39,9 +79,9 @@ export default function FilesTool() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedFolder]);
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(selectedFolder); }, [selectedFolder, refresh]);
 
   const onPickFile = () => fileInputRef.current?.click();
 
@@ -58,10 +98,16 @@ export default function FilesTool() {
     try {
       const form = new FormData();
       form.append('file', f);
+      // If the user has a specific subfolder selected, send it as a
+      // hint so the upload lands there even if the type-detection
+      // would have put it elsewhere. "all" → let the backend auto-route.
+      if (selectedFolder && selectedFolder !== 'all') {
+        form.append('folder', selectedFolder);
+      }
       await axios.post(`${API}/api/native/files/upload`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      await refresh();
+      await refresh(selectedFolder);
     } catch (e) {
       const d = e?.response?.data?.detail;
       setError(typeof d === 'string' ? d : (e.message || 'upload_failed'));
@@ -71,55 +117,115 @@ export default function FilesTool() {
     }
   };
 
-  const onDownload = (name) => {
-    // Same-origin download; the backend sets a filename header.
-    window.location.href = `${API}/api/native/files/download/${encodeURIComponent(name)}`;
+  const onDownload = (f) => {
+    const url = `${API}/api/native/files/download/${encodeURIComponent(f.name)}?folder=${encodeURIComponent(f.folder || '')}`;
+    window.location.href = url;
   };
 
-  const onDelete = async (name) => {
-    if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
+  const onDelete = async (f) => {
+    if (!window.confirm(`Delete "${f.name}"? This can't be undone.`)) return;
     setError(null);
     try {
-      await axios.delete(`${API}/api/native/files/${encodeURIComponent(name)}`);
-      await refresh();
+      await axios.delete(`${API}/api/native/files/${encodeURIComponent(f.name)}`, {
+        params: { folder: f.folder || '' },
+      });
+      await refresh(selectedFolder);
     } catch (e) {
       const d = e?.response?.data?.detail;
       setError(typeof d === 'string' ? d : (e.message || 'delete_failed'));
     }
   };
 
-  return (
-    <div data-testid="files-tool" className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <Button data-testid="back-btn" variant="ghost" onClick={() => navigate('/')} className="mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to dashboard
-        </Button>
+  const onReveal = async (f) => {
+    setError(null);
+    try {
+      const form = new FormData();
+      if (f) {
+        form.append('name', f.name);
+        form.append('folder', f.folder || '');
+      } else {
+        form.append('folder', selectedFolder === 'all' ? '' : selectedFolder);
+      }
+      const r = await axios.post(`${API}/api/native/files/reveal`, form);
+      if (!r.data.ok) {
+        // Headless / sandboxed env — just show the path.
+        setError(`Can't open the OS file manager in this environment. Path: ${r.data.path || folder}`);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message || 'reveal_failed');
+    }
+  };
 
-        <div className="bg-white rounded-xl shadow-lg p-8">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Files</h1>
-              <p className="text-sm text-gray-500 mt-1">
-                Save and organise your <code className="font-mono bg-gray-100 px-1">.bighat</code> files (trivia rounds, bingo cards, karaoke playlists, etc.).
-              </p>
-            </div>
-            <Button data-testid="upload-btn" onClick={onPickFile} disabled={uploading} className="bg-blue-600 hover:bg-blue-700 text-white">
-              {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading…</> : <><Upload className="w-4 h-4 mr-2" /> Upload .bighat</>}
+  const onLoadInto = (f, dest) => {
+    // Internal navigation — the destination page reads ?openFile=<path>
+    // and imports the round, same way the file-association handoff works
+    // when a customer double-clicks a .bighat from Explorer.
+    navigate(dest.href(f));
+  };
+
+  return (
+    <div data-testid="files-tool" className="min-h-screen bg-gray-50">
+      <PageHeader
+        title="Files"
+        subtitle="Saved trivia rounds, bingo cards, karaoke playlists"
+        variant="light"
+        actions={(
+          <Button data-testid="upload-btn" onClick={onPickFile} disabled={uploading} className="bg-blue-600 hover:bg-blue-700 text-white" size="sm">
+            {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading…</> : <><Upload className="w-4 h-4 mr-2" /> Upload .bighat</>}
+          </Button>
+        )}
+      />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".bighat"
+        onChange={onFileChosen}
+        className="hidden"
+        data-testid="file-input"
+      />
+
+      <div className="max-w-5xl mx-auto p-8">
+        <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8">
+          {/* Folder selector */}
+          <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="folder-tabs">
+            {FOLDERS.map((f) => (
+              <button
+                key={f.key}
+                data-testid={`folder-tab-${f.key}`}
+                onClick={() => setSelectedFolder(f.key)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                  selectedFolder === f.key
+                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <Button
+              data-testid="reveal-folder-btn"
+              variant="ghost"
+              size="sm"
+              onClick={() => onReveal(null)}
+              className="text-gray-600 hover:text-blue-600"
+              title="Open the folder in your file manager"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" /> Reveal in folder
             </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".bighat"
-              onChange={onFileChosen}
-              className="hidden"
-              data-testid="file-input"
-            />
           </div>
 
           {folder && (
-            <div data-testid="files-folder" className="flex items-center gap-2 text-xs text-gray-500 mb-6 mt-2">
+            <div data-testid="files-folder" className="flex items-center gap-2 text-xs text-gray-500 mb-6">
               <FolderOpen className="w-4 h-4" />
-              <span>Files are saved to: <span className="font-mono text-gray-700">{folder}</span></span>
+              <span>
+                Saved to:{' '}
+                <span className="font-mono text-gray-700">
+                  {folder}
+                  {selectedFolder !== 'all' ? `\\${selectedFolder}` : ''}
+                </span>
+              </span>
             </div>
           )}
 
@@ -144,6 +250,7 @@ export default function FilesTool() {
                 <thead className="bg-gray-50 text-left text-gray-600">
                   <tr>
                     <th className="px-4 py-2 font-medium">Name</th>
+                    <th className="px-4 py-2 font-medium">Folder</th>
                     <th className="px-4 py-2 font-medium">Summary</th>
                     <th className="px-4 py-2 font-medium">Size</th>
                     <th className="px-4 py-2 font-medium">Modified</th>
@@ -151,26 +258,56 @@ export default function FilesTool() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {files.map((f) => (
-                    <tr key={f.name} data-testid={`file-row-${f.name}`} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-mono text-gray-900">{f.name}</td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {f.summary
-                          ? <span data-testid={`summary-${f.name}`}>{f.summary}</span>
-                          : <span className="text-gray-400 italic">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{formatSize(f.size_bytes)}</td>
-                      <td className="px-4 py-3 text-gray-600">{formatDate(f.modified_at)}</td>
-                      <td className="px-4 py-3 text-right space-x-2">
-                        <Button data-testid={`download-${f.name}`} size="sm" variant="ghost" onClick={() => onDownload(f.name)}>
-                          <Download className="w-4 h-4" />
-                        </Button>
-                        <Button data-testid={`delete-${f.name}`} size="sm" variant="ghost" onClick={() => onDelete(f.name)} className="text-red-600 hover:bg-red-50">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {files.map((f) => {
+                    const dests = LOAD_DESTINATIONS[f.type] || [];
+                    return (
+                      <tr key={`${f.folder}/${f.name}`} data-testid={`file-row-${f.name}`} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-mono text-gray-900 break-all">{f.name}</td>
+                        <td className="px-4 py-3 text-gray-600">
+                          <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                            {f.folder}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">
+                          {f.summary
+                            ? <span data-testid={`summary-${f.name}`}>{f.summary}</span>
+                            : <span className="text-gray-400 italic">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatSize(f.size_bytes)}</td>
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(f.modified_at)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1 flex-wrap">
+                            {dests.map((d, i) => {
+                              const Icon = i === 0 ? Play : Pencil;
+                              return (
+                                <Button
+                                  key={d.label}
+                                  data-testid={`load-${f.name}-${i}`}
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => onLoadInto(f, d)}
+                                  className="text-blue-600 hover:bg-blue-50"
+                                  title={`Load into ${d.label}`}
+                                >
+                                  <Icon className="w-4 h-4 mr-1" />
+                                  <span className="hidden sm:inline">{d.label}</span>
+                                </Button>
+                              );
+                            })}
+                            <Button data-testid={`reveal-${f.name}`} size="sm" variant="ghost" onClick={() => onReveal(f)} title="Reveal in folder">
+                              <ExternalLink className="w-4 h-4" />
+                            </Button>
+                            <Button data-testid={`download-${f.name}`} size="sm" variant="ghost" onClick={() => onDownload(f)} title="Download">
+                              <Download className="w-4 h-4" />
+                            </Button>
+                            <Button data-testid={`delete-${f.name}`} size="sm" variant="ghost" onClick={() => onDelete(f)} className="text-red-600 hover:bg-red-50" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
