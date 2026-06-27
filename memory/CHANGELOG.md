@@ -7,6 +7,45 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.20: pre-release version comparator fix
+
+### What broke in alpha.19
+Customer ran the in-app Update tool after installing alpha.19. The
+tool fetched the latest manifest (alpha.19 from
+`api.bighat.live/api/downloads/latest`) and STILL displayed
+"You're up to date" against an alpha.18 install. Root cause: the
+`parse_version` regex in `backend/native/updates_service.py`
+stripped any prerelease suffix entirely, collapsing every
+`32.0.0-alpha.*` to the same tuple `(32, 0, 0)`. As a result
+`is_newer("32.0.0-alpha.19", "32.0.0-alpha.18")` returned `False`,
+and the prompt to download the new prerelease never appeared.
+
+### Fix
+- `backend/native/updates_service.py::parse_version` now returns
+  a 6-tuple `(major, minor, patch, is_release, prerelease_rank,
+  prerelease_num)`. `is_release=1` for a final triple, 0 for
+  prereleases — guarantees the final release ALWAYS sorts after
+  every prerelease of the same triple. `prerelease_rank` orders
+  `alpha (0) < beta (1) < rc (2) < unknown (98) < release (99)`.
+- `frontend/src/pages/UpdateTool.jsx` belt-and-suspenders: trusts
+  the backend `update_available` when truthy, but also flags an
+  available update when the displayed installed/latest version
+  STRINGS differ — so even an old desktop install with a
+  pre-fix backend still surfaces the prompt visually.
+- New contract test `backend/tests/test_version_comparator.py`
+  (7 cases) locks every ordering invariant: consecutive alphas,
+  alpha→beta→rc→release ladder, major/minor/patch dominance,
+  v-prefix tolerance, unknown-suffix fallback. **All passing.**
+
+### Release
+Bumped `backend/VERSION.txt` and `src-tauri/tauri.conf.json` to
+`32.0.0-alpha.20`. Will be tagged + dispatched via the manual
+agent-driven flow once the merchant clicks "Save to GitHub".
+
+---
+
+
+
 ## 2026-02-27 — v32.0.0-alpha.18: locked-state recovery, files folders, unified nav
 
 ### What broke in alpha.17
