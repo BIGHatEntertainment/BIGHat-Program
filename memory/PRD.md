@@ -1006,6 +1006,17 @@ customer owns, not opaque rows in a SQLite database.
 - Move `/api/native/updates/{check,download}` behind master-admin
   (Phase 9.1 reviewer DoS concern).
 
+## Shipped — v32.0.0-alpha.21 (2026-02-28)
+Imported `.bighat` files were invisible in Round Maker. Fixed both
+sides: `_import_zip_bytes` now always writes `status="draft"` and
+backfills `round_type` from `manifest.type` (treating MC/BIG/REG/MISC/MYS
+round-kind codes as content_type `round`). `list_rounds` now backfills
+missing fields on read and skips unrenderable rows instead of 500-ing
+the whole endpoint. 8 new contract tests in
+`test_bighat_import_list_contract.py`, all passing. Customers on
+alpha.20 with already-imported-but-hidden rounds will see them appear
+automatically after upgrading to alpha.21 (no re-import needed).
+
 ## Shipped — v32.0.0-alpha.20 (2026-02-28)
 Pre-release version comparator fix. `parse_version` now returns
 `(major, minor, patch, is_release, prerelease_rank, prerelease_num)`
