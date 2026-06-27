@@ -2120,7 +2120,32 @@ try:
         @app.on_event("startup")
         async def _bootstrap_restore_licenses():
             raw = os.environ.get("LICENSE_BOOTSTRAP_RESTORES", "").strip()
+            # Proof-of-life diagnostic — writes on EVERY startup so the
+            # operator can curl `/api/license/bootstrap/last-run` to see
+            # which step of the bootstrap fired. Includes a peek at the
+            # raw env var (first 200 chars) so we can spot
+            # case/quoting/sync issues between the Emergent secrets tab
+            # and what the Python process actually sees.
+            async def _diag(stage: str, **extra):
+                try:
+                    await db["bootstrap_diagnostics"].update_one(
+                        {"_id": "last_run"},
+                        {"$set": {
+                            "_id": "last_run",
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                            "stage": stage,
+                            "env_var_seen": bool(raw),
+                            "env_var_len": len(raw),
+                            "env_var_preview": raw[:200],
+                            **extra,
+                        }},
+                        upsert=True,
+                    )
+                except Exception:    # noqa: BLE001
+                    pass
+            await _diag("startup_hook_fired")
             if not raw:
+                await _diag("env_var_missing_or_empty")
                 return
             try:
                 import json as _json
@@ -2129,7 +2154,9 @@ try:
                     raise ValueError("must be a JSON array")
             except (ValueError, _json.JSONDecodeError) as e:
                 logger.error("[license-bootstrap] BAD JSON in LICENSE_BOOTSTRAP_RESTORES: %s", e)
+                await _diag("json_parse_failed", error=f"{type(e).__name__}: {e}")
                 return
+            await _diag("entries_parsed", entries_count=len(entries))
             restored = minted = skipped = 0
             for ent in entries:
                 if not isinstance(ent, dict):

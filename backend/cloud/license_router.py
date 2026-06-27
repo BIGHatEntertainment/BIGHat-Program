@@ -159,7 +159,9 @@ async def status(key: str = Path(..., min_length=8, max_length=64)) -> StatusRes
 @router.get("/license/bootstrap/last-run")
 async def bootstrap_last_run() -> dict:
     svc = _require_service()
-    doc = await svc.store.db["bootstrap_diagnostics"].find_one_and_delete(
+    # Read-only: we keep the doc so the operator can re-inspect after
+    # subsequent deploys without re-running the bootstrap.
+    doc = await svc.store.db["bootstrap_diagnostics"].find_one(
         {"_id": "last_run"}
     )
     if not doc:
