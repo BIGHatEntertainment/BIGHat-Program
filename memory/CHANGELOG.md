@@ -7,6 +7,57 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.22 follow-up fixes (in-app updater)
+
+### Two new bugs the customer hit upgrading alpha.20 → alpha.21
+1. **`download_failed: Redirect response '302 Found' for url '...'`** —
+   clicking "Download update" inside the app returned a long error.
+   Root cause: `httpx.AsyncClient` defaults to `follow_redirects=False`.
+   Every GitHub release asset URL 302s to a short-lived S3-signed URL;
+   without `follow_redirects=True` the client raises on the redirect
+   before reading any bytes. Fixed in BOTH the manifest fetch (line
+   ~243) AND the bundle stream (line ~371) — the manifest path
+   currently goes to `api.bighat.live` which doesn't redirect today,
+   but the protection is cheap and future-proofs the CDN swap.
+2. **Error message overflowed the card** — when the detail field is a
+   ~1.2 KB pre-signed URL it stretched off the right edge of the white
+   card with no scroll/wrap. Fixed in `UpdateTool.jsx`: wrapped the
+   detail in a `<pre>` with `max-h-40`, `overflow-auto`,
+   `whitespace-pre-wrap`, and `break-all`, plus the parent flex container
+   got `min-w-0` so it can shrink below its content width. Customer can
+   now also copy-paste the full error into a support ticket from a
+   code-like block.
+
+### Data preservation on Windows reinstall — already correct
+Customer asked: "if I manually install alpha.21 over alpha.20, will it
+preserve my license key, master admin, all setup data?" Yes, by design
+since alpha.12. `launcher.py::_user_data_dir()` puts EVERYTHING the
+customer cares about at `%LOCALAPPDATA%\BIGHat\data\`:
+- `system_config.json` (license, master admin, paths, subscription)
+- `montydb/` (the SQLite/MontyDB store — users, sessions, locations,
+  rounds, presentations, scoreboard themes, bingo games)
+- `.env` (per-install random secrets — JWT signing key, etc.)
+- `assets/`, `trivia/`, `generated/`, `logs/`
+NSIS uninstalls only the install directory (`C:\Program Files\BIG Hat
+Entertainment\`), which contains the executable, the bundled Tauri
+resources, and the frozen Python sidecar — none of the customer's
+state. Tested locally by re-running the launcher across version bumps;
+the wizard does NOT re-prompt and the license stays activated.
+
+### Tests
+- New `backend/tests/test_updates_download_follows_redirects.py` —
+  spins up a local 2-hop aiohttp server (`/asset` 302→ `/real-asset`),
+  points `BIGHAT_UPDATE_MANIFEST_FIXTURE` at a manifest JSON pointing
+  at `/asset`, and asserts the bundle on disk byte-matches the bytes
+  served behind the redirect. Validated by temporarily removing the
+  `follow_redirects=True` and confirming the test fails with the SAME
+  error string the customer reported.
+- Cumulative backend suite: 30/30 passing
+  (7 version + 8 import-list + 14 locations + 1 redirect).
+
+---
+
+
 ## 2026-02-28 — v32.0.0-alpha.22: Trivia Setup (locations + branding)
 
 ### What shipped

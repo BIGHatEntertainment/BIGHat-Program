@@ -238,7 +238,12 @@ class UpdatesService:
         if not url:
             raise RuntimeError("update_channel_not_configured")
 
-        async with httpx.AsyncClient(timeout=15) as client:
+        # httpx defaults to follow_redirects=False, but BOTH our manifest
+        # CDN (api.bighat.live) and especially the GitHub releases
+        # download URL chain through 302s to S3-signed URLs. We have to
+        # opt in or the download fails with "Redirect response '302
+        # Found' for url …" as customers saw on alpha.20→alpha.21.
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             r = await client.get(url, headers={"Accept": "application/json"})
             if r.status_code != 200:
                 raise RuntimeError(f"manifest_http_{r.status_code}")
@@ -359,7 +364,11 @@ class UpdatesService:
                     h.update(chunk)
                     out.write(chunk)
         else:
-            async with httpx.AsyncClient(timeout=120) as client:
+            # Same redirect-following requirement as the manifest fetch
+            # — GitHub releases assets all return a 302 to an S3-signed
+            # URL. v32.0.0-alpha.22 fix for the alpha.20→alpha.21 in-app
+            # update failure: "Redirect response '302 Found'".
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
                 async with client.stream("GET", manifest.download_url) as r:
                     r.raise_for_status()
                     with open(target, "wb") as out:

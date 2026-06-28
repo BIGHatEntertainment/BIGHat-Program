@@ -103,11 +103,21 @@ export default function UpdateTool() {
           </div>
 
           {error && (
-            <div data-testid="update-error" className="flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+            <div data-testid="update-error" className="flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-lg mb-4 min-w-0">
               <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
+              <div className="flex-1 min-w-0">
                 <div className="font-medium text-red-900">Couldn&apos;t check for updates</div>
-                <div className="text-sm text-red-700 mt-1">{error}</div>
+                {/*
+                  Error detail can be a 1KB+ pre-signed S3 URL when GitHub
+                  redirects fail. Cap height + scroll + break long tokens so it
+                  never overflows the card. Use a code-like block so the
+                  customer can still copy-paste it into a support ticket.
+                  v32.0.0-alpha.22 UX fix.
+                */}
+                <pre data-testid="update-error-detail"
+                     className="text-xs text-red-700 mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono p-2 bg-red-100/40 rounded border border-red-200">
+{String(error)}
+                </pre>
                 <div className="text-xs text-red-600 mt-2">
                   {String(error).includes('channel_not_configured')
                     ? 'This installer wasn\'t built with the canonical update channel. Re-install the latest version from your post-purchase email to fix this.'
