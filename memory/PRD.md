@@ -1017,6 +1017,17 @@ the whole endpoint. 8 new contract tests in
 alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
+## Shipped — v32.0.0-alpha.23 (2026-02-28)
+External-generator `.bighat` imports now produce fully-populated
+rounds in the dashboard. Question text, options, correct-option
+checkbox, answer text, question numbers, and bundled title-card
+covers all translate from the generator's `{prompt, n, options:
+[{text, correct}], correct_index, assets/cover.jpg}` shape into
+the local `QuestionItem` schema. Verified against 5 real merchant
+fixtures (MC / REG / REG / MYS / BIG). 63/63 backend tests
+passing. Released same flow as alpha.22 — yarn.lock drift fix #4
+via Contents API.
+
 ## Shipped — v32.0.0-alpha.22 (2026-02-28)
 Three customer-visible additions stacked into one release:
 1. **Trivia Setup** tab in Admin Settings — full per-location branding
