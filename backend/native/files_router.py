@@ -81,8 +81,33 @@ LEGACY_DOCS_FOLDER_ALIASES: tuple[str, ...] = (
 # URL-safe slugs the frontend sends in `?folder=`; the values are the
 # on-disk folder names. Keeping them in sync (case + spelling) makes
 # the URL → path mapping trivial.
-SUBFOLDERS: tuple[str, ...] = ("Trivia", "Bingo", "Karaoke", "Other")
+#
+# v32.0.0-alpha.27: `Files/` now also hosts the host-scoped working
+# data (`Hosts/`), location media (`Locations/`), and scoreboard JSON
+# blobs (`Scoreboard/`). The merchant explicitly asked for everything
+# user-visible to live under a single `Files/` umbrella so it can be
+# backed up as one folder and so the user knows where each kind of
+# content lives.
+SUBFOLDERS: tuple[str, ...] = (
+    "Trivia",
+    "Bingo",
+    "Karaoke",
+    "Hosts",
+    "Locations",
+    "Scoreboard",
+    "Other",
+)
 DEFAULT_SUBFOLDER = "Other"
+
+# Whitelist of subfolder names allowed to live directly under the
+# canonical "BIG Hat Entertainment" Documents root. The legacy-folder
+# merger refuses to copy ANY other top-level child across — that's how
+# we prevent stray `backend/` directories from dev installs / older
+# alpha packagers ending up in the merchant's Documents tree.
+ALLOWED_DOCS_CHILDREN: frozenset[str] = frozenset({
+    "Files",     # user data tree (the one this router manages)
+    "Backups",   # backup_service.py writes here
+})
 
 # Round-type subdirectories under Files/Trivia/. Mirrors the codes the
 # Round Maker uses (`MC`, `REG`, `MISC`, `MYS`, `BIG`) plus a `_Other`
@@ -155,24 +180,54 @@ def _merge_legacy_docs_folders() -> int:
         if not legacy.exists() or legacy == canonical:
             continue
         canonical.mkdir(parents=True, exist_ok=True)
-        moved = _merge_tree(legacy, canonical)
-        moved_total += moved
-        # Try to remove the now-empty alias. shutil.rmtree only when the
-        # tree is empty of files — leave it in place if anything failed
-        # to move, the merchant can resolve manually then re-launch.
-        try:
-            if not any(legacy.rglob("*")):
-                shutil.rmtree(legacy, ignore_errors=True)
-                logger.info(
-                    "[native-files] merged legacy '%s' into '%s' (%d files), "
-                    "removed empty legacy folder",
-                    alias, APP_DOCS_FOLDER, moved,
-                )
-            else:
+        # Only merge children whose name is in ALLOWED_DOCS_CHILDREN.
+        # Everything else (notably stray `backend/`, `python/`, `lib/`
+        # directories from broken dev builds or alpha packagers) gets
+        # quarantined into `.legacy-unknown/<alias>/<child>/` under
+        # canonical so the merchant can decide whether to keep it,
+        # rather than silently inheriting confusing data.
+        for child in list(legacy.iterdir()):
+            try:
+                if child.name in ALLOWED_DOCS_CHILDREN and child.is_dir():
+                    dest_child = canonical / child.name
+                    dest_child.mkdir(parents=True, exist_ok=True)
+                    moved_total += _merge_tree(child, dest_child)
+                    # Remove the now-empty source.
+                    try:
+                        if not any(child.rglob("*")):
+                            shutil.rmtree(child, ignore_errors=True)
+                    except OSError:
+                        pass
+                else:
+                    # Quarantine — DON'T leave random data in the
+                    # canonical brand folder.
+                    quarantine_root = canonical / ".legacy-unknown" / alias
+                    quarantine_root.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.move(str(child), str(quarantine_root / child.name))
+                        logger.info(
+                            "[native-files] quarantined unexpected legacy child "
+                            "'%s/%s' into %s (was NOT a known data folder)",
+                            alias, child.name, quarantine_root,
+                        )
+                    except OSError as e:
+                        logger.warning(
+                            "[native-files] could not quarantine %s: %s",
+                            child, e,
+                        )
+            except OSError as e:
                 logger.warning(
-                    "[native-files] merged %d files from '%s' but tree not "
-                    "empty — leaving legacy folder in place for manual cleanup",
-                    moved, alias,
+                    "[native-files] error processing legacy child %s: %s",
+                    child, e,
+                )
+        # Try to remove the now-empty alias.
+        try:
+            if not any(legacy.iterdir()):
+                legacy.rmdir()
+                logger.info(
+                    "[native-files] merged '%s' into canonical '%s' (%d files), "
+                    "removed empty legacy folder",
+                    alias, APP_DOCS_FOLDER, moved_total,
                 )
         except OSError as e:
             logger.warning("[native-files] could not remove legacy folder '%s': %s", alias, e)
@@ -234,13 +289,33 @@ def _base_root() -> Path:
 
 
 def _hosts_root() -> Path:
-    """Sibling of Files/ — per-host working data (event drafts, snapshots).
-    Lives outside Files/ so it doesn't pollute the .bighat file listing
-    but stays inside the same `BIG Hat Entertainment` parent so a single
-    backup captures everything."""
+    """v32.0.0-alpha.27: now lives UNDER Files/ (was `Files/..` before)
+    so the merchant has a single `Files/` umbrella with everything in
+    it. On first launch after alpha.27 we migrate any pre-existing
+    `BIG Hat Entertainment/Hosts/` directory into
+    `BIG Hat Entertainment/Files/Hosts/` so existing host data is
+    preserved."""
     files_root = _base_root()
-    # Files/.. = BIG Hat Entertainment/
-    hosts = files_root.parent / "Hosts"
+    hosts = files_root / "Hosts"
+    # One-shot migration: pre-alpha.27 sat at the same level as Files/.
+    legacy = files_root.parent / "Hosts"
+    if legacy.exists() and legacy != hosts:
+        hosts.mkdir(parents=True, exist_ok=True)
+        try:
+            _merge_tree(legacy, hosts)
+            # `_merge_tree` only moves files — leftover empty subdirs
+            # are removed below so the legacy directory tree disappears
+            # entirely once the move succeeds. We use rmtree
+            # unconditionally because at this point every file has
+            # been resolved (moved OR skipped because the canonical
+            # destination was newer), so anything left in legacy is
+            # safe to drop.
+            shutil.rmtree(legacy, ignore_errors=True)
+            logger.info(
+                "[native-files] alpha.27: moved legacy Hosts/ into Files/Hosts/"
+            )
+        except OSError as e:
+            logger.warning("[native-files] could not migrate legacy Hosts/: %s", e)
     hosts.mkdir(parents=True, exist_ok=True)
     return hosts
 
