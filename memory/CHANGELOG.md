@@ -74,9 +74,28 @@ exactly what alpha.23 fixes).
 
 ### Release
 Bumped `backend/VERSION.txt` and `src-tauri/tauri.conf.json` to
-`32.0.0-alpha.23`. **Pending tag** — waiting on merchant to attach
-a sample real-world `.bighat` from the external generator so we
-can verify the translator against ground-truth before shipping.
+`32.0.0-alpha.23`. **Verified against 5 real merchant fixtures**
+(MC / REG / REG / MYS / BIG) attached to the bug report — every
+file imports correctly with populated question text, ticked correct
+options, extracted title-card cover image, preserved multi-answer
+`answers` array for BIG rounds, and the special "What is the theme
+of this round?" blank-answer MYS slot. End-to-end smoke test against
+the live preview backend confirms imported MC_01_A renders with the
+exact Q1 the merchant's UI showed in the alpha.22 bug screenshot.
+
+### Round shape discovered from the external generator
+- Per-question:
+  `{ n: int, category: str, prompt: str, answer: str, points: int,
+     media: {image?: "assets/q1.gif"}, options: [str, ...],
+     correct_index: int|null, answers?: [str, ...] }`
+- BIG rounds: additional `answers: [str, ...]` for the multi-answer
+  case ("Name the 10 teams that share a stadium" → preserved as-is).
+- MYS rounds: 10 clues, the 10th has a blank `answer` because the
+  merchant fills in the theme by hand in Round Maker.
+- Cover image lives at `assets/cover.jpg` (or `.png`).
+- Per-question media at `assets/q1.gif` (currently passed through
+  but not extracted to GridFS — future work for richer per-Q
+  rendering).
 
 ---
 

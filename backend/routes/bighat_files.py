@@ -489,11 +489,14 @@ def _coerce_options_and_answer(q: dict) -> tuple[list[str], int | None, str]:
     # Resolve answer / correctOption from explicit fields if not derived
     # already from a per-option flag.
     if correct_idx is None:
-        if isinstance(q.get("correctOption"), int):
-            correct_idx = q["correctOption"]
-        elif isinstance(q.get("correct_option"), int):
-            correct_idx = q["correct_option"]
-        else:
+        # External generator uses `correct_index` (with the `_index`
+        # suffix). Local schema uses `correctOption`. Accept both plus
+        # `correct_option` for symmetry.
+        for ck in ("correctOption", "correct_option", "correct_index", "correctIndex"):
+            if isinstance(q.get(ck), int):
+                correct_idx = q[ck]
+                break
+        if correct_idx is None:
             # Also include plain `answer` here — for MC rounds it commonly
             # contains the correct option's TEXT (or its A/B/C/D letter)
             # and we want to surface that as the checked checkbox in the UI.
@@ -546,7 +549,12 @@ def _normalise_question(q: dict, idx: int) -> dict:
                 "options": None, "correctOption": None}
 
     out = dict(q)
-    out["number"] = q.get("number") if isinstance(q.get("number"), int) else idx + 1
+    # External generator uses `n` (per the alpha.23 sample files);
+    # local schema uses `number`. Accept either, fall back to the
+    # 1-indexed position in the questions list so the dashboard never
+    # shows "Q?" placeholders.
+    raw_n = q.get("number") if isinstance(q.get("number"), int) else q.get("n")
+    out["number"] = raw_n if isinstance(raw_n, int) and raw_n > 0 else idx + 1
     out["question"] = _coerce_question_text(q)
     opts, correct_idx, answer_text = _coerce_options_and_answer(q)
     if opts:
