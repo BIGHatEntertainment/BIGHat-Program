@@ -418,6 +418,191 @@ async def inspect_bighat(file: UploadFile = File(...)) -> InspectResult:
     )
 
 
+# ============================================================
+# Third-party generator translation helpers (v32.0.0-alpha.23)
+# ============================================================
+#
+# The merchant uses an external web tool ("`.bighat` Round Generator")
+# that exports `.bighat` archives with a richer per-question shape than
+# what the local Round Maker schema expects. Without translation, the
+# imported rounds render with blank question text, unchecked correct
+# answers, and missing title cards — every UX symptom the merchant
+# reported on alpha.22.
+
+def _coerce_question_text(q: dict) -> str:
+    """Pull the question/prompt text out of a question dict, trying the
+    field names every generator I've seen in the wild has used."""
+    for k in ("question", "prompt", "text", "q", "title"):
+        v = q.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def _coerce_options_and_answer(q: dict) -> tuple[list[str], int | None, str]:
+    """Return `(options_strings, correctOption_idx_or_None, answer_text)`.
+
+    Handles four shapes:
+      1. `options: ["A text", "B text", "C text", "D text"]` + a
+         separate `answer` / `correctAnswer` / `correct_answer` string
+         or letter, OR a separate `correctOption: int`.
+      2. `options: [{text: "...", correct: true}, ...]`  (the external
+         generator's preferred shape — that's what the screenshot
+         shows: option A has `correct: true`, the rest false).
+      3. `options: [{label/value: "...", isCorrect/is_correct: true}, ...]`
+         (camelCase / snake_case variants — also seen).
+      4. Per-key flatlay: `option_a, option_b, option_c, option_d` +
+         `correct_answer: "A"` or `correctAnswer: "A"`.
+    """
+    raw = q.get("options")
+
+    options: list[str] = []
+    correct_idx: int | None = None
+
+    if isinstance(raw, list) and raw:
+        if all(isinstance(o, str) for o in raw):
+            options = [str(o) for o in raw]
+        else:
+            for o in raw:
+                if isinstance(o, dict):
+                    text = ""
+                    for k in ("text", "label", "value", "option", "answer"):
+                        v = o.get(k)
+                        if isinstance(v, str) and v.strip():
+                            text = v.strip()
+                            break
+                    options.append(text)
+                    if correct_idx is None:
+                        for ck in ("correct", "is_correct", "isCorrect", "right", "is_right"):
+                            if o.get(ck) is True:
+                                correct_idx = len(options) - 1
+                                break
+                else:
+                    options.append(str(o))
+    else:
+        # Per-key flatlay (option_a / option_b / …).
+        for i, letter in enumerate(["a", "b", "c", "d"]):
+            v = q.get(f"option_{letter}") or q.get(f"option{letter.upper()}")
+            if isinstance(v, str) and v.strip():
+                options.append(v.strip())
+
+    # Resolve answer / correctOption from explicit fields if not derived
+    # already from a per-option flag.
+    if correct_idx is None:
+        if isinstance(q.get("correctOption"), int):
+            correct_idx = q["correctOption"]
+        elif isinstance(q.get("correct_option"), int):
+            correct_idx = q["correct_option"]
+        else:
+            # Also include plain `answer` here — for MC rounds it commonly
+            # contains the correct option's TEXT (or its A/B/C/D letter)
+            # and we want to surface that as the checked checkbox in the UI.
+            for ak in ("correctAnswer", "correct_answer", "correct", "answer"):
+                raw_a = q.get(ak)
+                if isinstance(raw_a, str) and raw_a.strip():
+                    cleaned = raw_a.strip().upper()
+                    # Letter shortcut (A/B/C/D)
+                    if cleaned in {"A", "B", "C", "D"} and len(options) >= ord(cleaned) - 64:
+                        correct_idx = ord(cleaned) - ord("A")
+                        break
+                    # Otherwise match by text against the options list.
+                    for i, opt in enumerate(options):
+                        if opt.strip().casefold() == raw_a.strip().casefold():
+                            correct_idx = i
+                            break
+                    if correct_idx is not None:
+                        break
+
+    # answer_text — pick the explicit field if present, else derive from
+    # the correctOption back into a string. Some non-MC round types use
+    # `answer` directly without an options list.
+    answer_text = ""
+    for ak in ("answer", "correctAnswer", "correct_answer"):
+        v = q.get(ak)
+        if isinstance(v, str) and v.strip():
+            answer_text = v.strip()
+            break
+    # If the explicit field was just a letter shortcut (A/B/C/D) and we
+    # resolved an index into the options list, prefer the resolved option
+    # text — letters are ambiguous and the dashboard renders the answer
+    # string directly into the slide.
+    if correct_idx is not None and 0 <= correct_idx < len(options):
+        if not answer_text or (
+            len(answer_text) == 1 and answer_text.upper() in {"A", "B", "C", "D"}
+        ):
+            answer_text = options[correct_idx]
+
+    return options, correct_idx, answer_text
+
+
+def _normalise_question(q: dict, idx: int) -> dict:
+    """Translate a third-party question dict into the local schema's
+    canonical shape. Pass-through fields beyond the canonical six are
+    preserved on the resulting dict so nothing the generator might
+    later add gets dropped.
+    """
+    if not isinstance(q, dict):
+        return {"number": idx + 1, "question": str(q or ""), "answer": "",
+                "options": None, "correctOption": None}
+
+    out = dict(q)
+    out["number"] = q.get("number") if isinstance(q.get("number"), int) else idx + 1
+    out["question"] = _coerce_question_text(q)
+    opts, correct_idx, answer_text = _coerce_options_and_answer(q)
+    if opts:
+        out["options"] = opts
+    if correct_idx is not None:
+        out["correctOption"] = correct_idx
+    if answer_text:
+        out["answer"] = answer_text
+    # Guarantee both required fields exist on the dict so QuestionItem
+    # validation doesn't raise (empty strings render as "undefined…"
+    # placeholders in the UI which is correct UX for a malformed row).
+    out.setdefault("answer", "")
+    out.setdefault("question", "")
+    return out
+
+
+async def _ingest_cover_image(assets: dict[str, bytes]) -> str | None:
+    """If the .bighat archive bundles a title-card / cover image under
+    `assets/title_card.*` or `assets/cover.*` (the external generator's
+    convention is `title_card.png`), upload it to GridFS and return the
+    file id so the importer can persist `doc.cover_image_id`. Returns
+    None if no recognisable cover asset was bundled.
+    """
+    if not assets or db is None:
+        return None
+    # Heuristic: any asset whose filename stem is in our canonical set,
+    # regardless of extension.
+    canonical_stems = {"title_card", "title", "cover", "cover_image"}
+    chosen: tuple[str, bytes] | None = None
+    for asset_path, blob in assets.items():
+        stem = Path(asset_path).stem.lower()
+        if stem in canonical_stems:
+            chosen = (asset_path, blob)
+            break
+    if not chosen:
+        return None
+    name, blob = chosen
+    suffix = Path(name).suffix.lower()
+    mime = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp",
+    }.get(suffix, "application/octet-stream")
+    try:
+        from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+        bucket = AsyncIOMotorGridFSBucket(db)
+        file_id = await bucket.upload_from_stream(
+            f"imported-{name}",
+            io.BytesIO(blob),
+            metadata={"contentType": mime, "imported_from": ".bighat"},
+        )
+        return str(file_id)
+    except Exception as exc:                       # pragma: no cover
+        logger.warning("[bighat-files] cover image upload failed: %s", exc)
+        return None
+
+
 async def _import_zip_bytes(payload: bytes) -> ImportResult:
     if db is None:
         raise HTTPException(500, "database not initialised")
@@ -497,6 +682,33 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
         if not isinstance(doc.get("questions"), list):
             doc["questions"] = []
         doc.setdefault("pptx_path", None)
+
+        # ─── Question shape normalisation (v32.0.0-alpha.23) ────────
+        # The local `QuestionItem` schema wants
+        #   { number, question, answer, options:[str,…], correctOption:int }
+        # but third-party generators (the external `.bighat Round
+        # Generator` web tool the merchant uses) ship a richer mix:
+        #   • question text under `question` | `prompt` | `text` | `q`
+        #   • options either as plain strings, OR as objects
+        #     `{ text|label|value, correct|is_correct|isCorrect }`
+        #     OR as `option_a / option_b / option_c / option_d`
+        #   • answer under `answer` | `correctAnswer` | `correct_answer`
+        #     OR derivable from `correct: true` on one of the options
+        # If we just insert their payload verbatim, the dashboard
+        # renders the placeholder "Question undefined…" and no checkbox
+        # ticks — exactly what the merchant reported in alpha.22.
+        doc["questions"] = [_normalise_question(q, idx)
+                            for idx, q in enumerate(doc["questions"])]
+
+        # ─── Title card asset extraction (v32.0.0-alpha.23) ─────────
+        # If the .bighat bundles a title-card image at
+        # `assets/title_card.*` (the external generator's convention)
+        # or anything pattern-matching cover/title in the assets dir,
+        # promote it into GridFS and set `doc.cover_image_id` so the
+        # Round Maker UI renders the thumbnail.
+        ci = await _ingest_cover_image(assets)
+        if ci:
+            doc["cover_image_id"] = ci
 
     # Asset rehydration. We don't restore them into GridFS automatically
     # (would need to know the bucket layout per type) — instead we stash

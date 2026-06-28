@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.23: external-generator `.bighat` import
+
+### What the merchant saw on alpha.22
+Imported a `.bighat` from the external `.bighat Round Generator` web
+tool. The Round Maker dashboard:
+  • showed the round name + round type correctly
+  • showed the option text in A/B/C/D fields correctly
+  • but every question slot rendered the placeholder
+    "Question undefined…"
+  • no option was ticked as the correct answer
+  • the bundled title-card image didn't appear
+
+### Root cause
+The external generator's per-question dict uses different field names
+than the local Round Maker's `QuestionItem` schema:
+  • question text under `prompt` (sometimes `text`/`q`/`title`)
+    instead of `question`
+  • options as objects `{text, correct: bool}` instead of plain
+    strings + a separate `correctOption` int
+  • title card bundled as `assets/title_card.png` instead of being
+    pre-uploaded to GridFS with the id stashed in `cover_image_id`
+
+`_import_zip_bytes` was inserting the payload verbatim, so the
+schema saw `q.question == undefined` and rendered the placeholder,
+and saw no `correctOption` int so no checkbox got ticked.
+
+### Fix
+1. New `_normalise_question(q, idx)` translator runs over every
+   question during import. Handles five common third-party shapes:
+   - `{prompt, options:[{text, correct}]}` (external generator's
+     preferred shape — primary fix for the merchant's bug)
+   - `{question, options:[str], correctOption: int}` (local
+     canonical — must round-trip without mutation)
+   - `{question, options:[str], correctAnswer: "A"}`  (letter shortcut)
+   - `{question, options:[str], answer: "Beta"}` (text-match,
+     case-insensitive; normalises to canonical option casing)
+   - `{question, option_a..option_d, correct_answer: "B"}` (per-key
+     flatlay)
+   Plus `isCorrect` / `is_correct` casing variants on the option
+   dicts. Empty / malformed rows degrade to placeholder text rather
+   than crashing.
+2. New `_ingest_cover_image(assets)` helper extracts a bundled
+   `assets/title_card.png` (or `cover.*` / `title.*` variants) into
+   GridFS and sets `doc.cover_image_id` so the dashboard thumbnail
+   renders. Best-effort — a missing or broken upload is logged but
+   does not fail the whole import.
+
+### Where does the imported round end up?
+Drafts land in `db.rounds` with `status: draft`. To make a round
+appear in **Round Roulette** and the **Build Wizard**, click
+**Approve & Upload** in the Round Maker dashboard — that runs the
+existing `generate_pptx(doc)` pipeline and lands the file in the
+local round folder where `GET /api/trivia/round-files/{type}`
+discovers it. No new wiring needed: the existing publish path
+already handles imported rounds the same way it handles
+hand-built ones, provided the question shape is correct (which is
+exactly what alpha.23 fixes).
+
+### Tests
+- `backend/tests/test_question_shape_normalisation.py` — 20 cases
+  spanning every shape we've seen in the wild, plus the boundary
+  conditions (empty question, non-dict input, missing fields).
+- Cumulative suite: 57/57 (8 import-list + 14 locations + 7 version
+  + 1 redirect + 7 backup + 20 shape).
+
+### Release
+Bumped `backend/VERSION.txt` and `src-tauri/tauri.conf.json` to
+`32.0.0-alpha.23`. **Pending tag** — waiting on merchant to attach
+a sample real-world `.bighat` from the external generator so we
+can verify the translator against ground-truth before shipping.
+
+---
+
+
 ## 2026-02-28 — v32.0.0-alpha.22 follow-up: Backup my setup
 
 ### What shipped
