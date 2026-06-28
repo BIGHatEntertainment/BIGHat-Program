@@ -5,8 +5,9 @@ import api from '../lib/api';
 import Header from '../components/Header';
 import {
   Users, Plus, Trash2, Edit, Shield, ShieldCheck,
-  Calendar, X, Save, ChevronRight, AlertTriangle
+  Calendar, X, Save, ChevronRight, AlertTriangle, MapPin
 } from 'lucide-react';
+import TriviaSetup from './admin/TriviaSetup';
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -48,6 +49,7 @@ export default function AdminPage() {
   const tabs = [
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'events', label: 'Event Management', icon: Calendar },
+    { id: 'trivia-setup', label: 'Trivia Setup', icon: MapPin },
   ];
 
   return (
@@ -115,6 +117,14 @@ export default function AdminPage() {
             showAddEvent={showAddEvent}
             setShowAddEvent={setShowAddEvent}
             onRefresh={loadData}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
+        {activeTab === 'trivia-setup' && (
+          <TriviaSetup
+            currentUser={user}
+            allUsers={users}
             setError={setError}
             setSuccess={setSuccess}
           />

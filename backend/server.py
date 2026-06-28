@@ -2048,6 +2048,18 @@ except Exception as e:
     logger.warning(f"Could not load Native files router: {e}")
 
 
+# Native locations router (v32.0.0-alpha.22, Phase 11). Admin-managed
+# per-venue branding images + admin-to-location assignments. Feeds the
+# Trivia Setup page in the dashboard's Admin Settings area.
+try:
+    from native.locations_router import router as locations_router, set_database as locations_set_database
+    locations_set_database(db)
+    app.include_router(locations_router, prefix="/api")
+    logger.info("Native locations router registered at /api/native/locations/*")
+except Exception as e:
+    logger.warning(f"Could not load Native locations router: {e}")
+
+
 # Cloud licensing service (Phase 10.0). Gated by BIGHAT_CLOUD_MODE=1; this is
 # ONLY enabled when the container is deployed as `api.bighat.live`, never when
 # the same codebase runs inside a desktop installer (BIGHAT_NATIVE_MODE=1).

@@ -1,0 +1,39 @@
+{
+  "summary": "v32.0.0-alpha.22 Trivia Setup tested end-to-end on the preview env. Existing in-memory contract test (test_locations_router.py, 14 tests) re-run green; added live integration suite test_locations_live_iter27.py (9 tests, all PASS) covering auth gates (401/403), regression smokes (/api/native/info, /api/roundmaker/rounds — confirmed not 500), and the full master_admin lifecycle (create -> get -> rename -> upload PNG -> /raw byte-equality -> delete image -> reject PDF with 415 -> delete location). Playwright run as sellards@bighat.live walked the entire UI happy path: 'Trivia Setup' tab renders, modal create, location card appears in list with expected slug-based data-testid, editor pane exposes all six required testids, save button correctly disabled when no change and enabled after edit, rename persists in the left list, PNG upload renders a branding-image-{id} tile, delete shows confirm dialog and removes the location with a success banner. All ten flows from the review request pass on master_admin. RBAC was NOT exercised end-to-end for host/admin roles (no host/admin seeds existed and creating them was out-of-scope for this iter) but the corresponding 401/403 responses are already covered by both pytest suites.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminPage tab bar", "issues": ["Only the new 'Trivia Setup' tab carries a data-testid (admin-tab-trivia-setup). 'User Management' and 'Event Management' tabs have no data-testid — automation must fall back to role/text selectors. Non-blocking but inconsistent."]},
+      {"screen": "TriviaSetup empty branding state", "issues": ["The branding-grid data-testid is only emitted once at least one image exists. When the grid is empty there is no anchor element with that testid — UI shows the upload CTA only. Per-image branding-image-{id} testids render correctly once an image is added. Minor: consider always rendering the grid container so a generic empty-state assertion can hit it."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_locations_router.py",
+    "/app/backend/tests/test_locations_live_iter27.py",
+    "/app/test_reports/pytest/locations_live_iter27.xml"
+  ],
+  "action_items": [
+    "(optional) Add data-testid='admin-tab-user-management' and admin-tab-event-management to the existing tab buttons on AdminPage.js so the test suite isn't asymmetric — currently only the new Trivia Setup tab has a testid.",
+    "(optional) Always render the branding-grid container (even when empty) so frontend automation can assert on it without first having to upload an image.",
+    "(future iter) Seed at least one host-role and one admin-role test user (or expose a fixture endpoint) so role-based UI gating — admin sees no New/Delete/AdminAssignments, host redirected to / — can be exercised by Playwright. Backend pytest already covers those code paths; the gap is purely UI-level."
+  ],
+  "critical_code_review_comments": [
+    "locations_router.py: _user_id() correctly prefers _id over id which matches the documented get_current_user() contract — good. The Mongo insert at line 256 stores both _id and id with the same uuid, which is unusual but harmless because every read uses {_id: 0} projection.",
+    "locations_router.py upload_branding_image (line 322-336): MIME fallback via mimetypes.guess_type for application/octet-stream is sensible for macOS GIF picker. The 415 path is tested live and works. Consider also rejecting suspicious magic-byte mismatches (e.g. file claims image/png but doesn't start with \\x89PNG) — currently the allow-list trusts content_type or extension. Low risk because uploads are master/admin-gated.",
+    "locations_router.py reorder endpoint defensively appends unknown-IDs from the existing list and ignores stale IDs (good) — but does NOT verify the client actually sent every existing ID, so a buggy client could silently 'forget' images. Current behaviour (server fills them in at the end) is the safer of the two options.",
+    "locations_router.py delete_location: rmtree errors are logged but the API still returns 204 — correct (DB row is authoritative). Worth noting that a partially-failed FS wipe leaves orphan files under 02_Locations/<old-slug>/ that no future location will reference (slug uniqueness check is global). Not a functional bug, mild disk-leak.",
+    "Backend file size: locations_router.py is 480 lines — comfortably under the 700-line threshold. No DRY violations spotted; helpers (_require_master, _require_admin_or_master, _require_location_access, _strip_admin_only) are well-factored."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_locations_live_iter27.py (NEW — 9 live preview-env tests, all passing)"
+  ],
+  "success_rate": {"backend": "100% (14/14 in-memory + 9/9 live = 23/23)", "frontend": "100% on master_admin happy path (10/10 review checkpoints); host/admin RBAC UI paths not exercised — pytest covers the backend side"},
+  "test_credentials": "sellards@bighat.live / B1GHat (confirmed working: POST /api/auth/login returns 200 + master_admin role + JWT)",
+  "seed_data_creation": "Each Playwright run creates a TEST Chicago <uuid> location and deletes it at the end. The live pytest suite uses TEST_Iter27_<uuid> names and cleans them up. No persistent test fixtures left behind.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Trivia Setup ships clean. The two minor design notes (missing testids on existing tabs, branding-grid only-when-populated) are cosmetic and do not block release. For the host/admin role-gating UI verification, the next testing pass should first create users via POST /api/native/admin/users (master-admin-only) or the User Management UI tab, then login as each role to confirm: (a) host -> redirected to /, (b) admin (no assignments) -> sees Trivia Setup tab but empty list, no New button, no delete buttons, no AdminAssignments section. Backend RBAC for those flows is already green in test_locations_router.py::test_host_cannot_list_locations + ::test_admin_cannot_create + ::test_admin_cannot_delete + ::test_admin_cannot_reassign.",
+  "rca of the issue": "Not applicable — no issues found. All ten review-request checkpoints pass on master_admin: tab present + clickable, panel renders, create modal works, success banner, location card with slug-based testid, editor pane testids (name input, save btn, upload btn, upload input, delete btn), save-button disabled-without-change semantics correct, rename persists in left list, PNG upload renders branding-image-{id} tile (fetched via /api/native/locations/{id}/images/{id}/raw which returned 200 with image bytes in the live pytest run), per-image deletion path exercised by backend tests, location delete confirm dialog opens with confirm-delete-location-btn and successful deletion shows 'Deleted ...' banner. PDF rejected with 415 as required. /api/roundmaker/rounds returns 200 (not 500). /api/native/info returns a version field. /api/native/locations without auth returns 401."
+}

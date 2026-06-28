@@ -43,6 +43,34 @@ const api = {
   // Changelog
   getChangelog: () =>
     axios.get(`${API}/api/changelog`, { withCredentials: true, headers: authHeaders() }),
+
+  // Trivia Setup (Locations)
+  listLocations: () =>
+    axios.get(`${API}/api/native/locations`, { withCredentials: true, headers: authHeaders() }),
+  createLocation: (data) =>
+    axios.post(`${API}/api/native/locations`, data, { withCredentials: true, headers: authHeaders() }),
+  getLocation: (id) =>
+    axios.get(`${API}/api/native/locations/${id}`, { withCredentials: true, headers: authHeaders() }),
+  updateLocation: (id, data) =>
+    axios.patch(`${API}/api/native/locations/${id}`, data, { withCredentials: true, headers: authHeaders() }),
+  deleteLocation: (id) =>
+    axios.delete(`${API}/api/native/locations/${id}`, { withCredentials: true, headers: authHeaders() }),
+  uploadLocationImage: (id, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return axios.post(`${API}/api/native/locations/${id}/images`, form, {
+      withCredentials: true,
+      headers: { ...authHeaders() },
+    });
+  },
+  deleteLocationImage: (id, imageId) =>
+    axios.delete(`${API}/api/native/locations/${id}/images/${imageId}`, { withCredentials: true, headers: authHeaders() }),
+  reorderLocationImages: (id, imageIds) =>
+    axios.patch(`${API}/api/native/locations/${id}/images/order`, { image_ids: imageIds }, { withCredentials: true, headers: authHeaders() }),
+  setLocationAdmins: (id, userIds) =>
+    axios.patch(`${API}/api/native/locations/${id}/admins`, { assigned_user_ids: userIds }, { withCredentials: true, headers: authHeaders() }),
+  locationImageRawUrl: (id, imageId) =>
+    `${API}/api/native/locations/${id}/images/${imageId}/raw`,
 };
 
 export default api;
