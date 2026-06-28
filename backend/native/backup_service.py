@@ -86,20 +86,27 @@ class BackupResult:
 
 
 def default_backups_dir() -> Path:
-    """Where backups land. Lives UNDER the same `BIGHat Entertainment`
-    root that holds the merchant's `.bighat` files folder so there's
-    ONE Documents folder per app — Files + Backups as siblings — rather
-    than two near-identical "BIG Hat Entertainment" / "BIGHat
-    Entertainment" folders side-by-side.
+    """Where backups land. Lives UNDER the canonical "BIG Hat
+    Entertainment" Documents root (alpha.26+) so there is ONE
+    Documents folder per app — Files/ + Backups/ + Hosts/ as
+    siblings — rather than two near-identical
+    "BIG Hat Entertainment" / "BIGHat Entertainment" folders.
 
-    Windows:  C:\\Users\\<user>\\Documents\\BIGHat Entertainment\\Backups
-    macOS:    ~/Documents/BIGHat Entertainment/Backups
+    The merchant explicitly asked for the SPACED form to match the
+    `productName` in tauri.conf.json, the installer "App Name", and
+    every brand asset. Pre-alpha.26 backup_service wrote to the
+    no-space "BIGHat" form; on first launch after alpha.26 the
+    `files_router` startup merger moves those backups into the
+    canonical folder, so this rename does not strand any history.
+
+    Windows:  C:\\Users\\<user>\\Documents\\BIG Hat Entertainment\\Backups
+    macOS:    ~/Documents/BIG Hat Entertainment/Backups
     """
     override = os.environ.get("BIGHAT_BACKUPS_DIR")
     if override:
         return Path(override).expanduser().resolve()
     docs = Path.home() / "Documents"
-    return docs / "BIGHat Entertainment" / "Backups"
+    return docs / "BIG Hat Entertainment" / "Backups"
 
 
 def default_source_dir() -> Path:

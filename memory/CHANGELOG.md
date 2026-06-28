@@ -7,6 +7,110 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.26: revert Play .bighat, unify Documents folder, Trivia round-type buckets
+
+### Why (merchant feedback on alpha.25)
+Three points came back after the merchant test-drove alpha.25:
+
+  1. **"No no no — I do NOT want the green 'Play .bighat' button."**
+     The point of `.bighat` round files is for the host to add them
+     to the library and assemble a *real* presentation through Build
+     Wizard or Round Roulette. Direct play would let the host run a
+     one-round show that bypasses the rest of the night's structure
+     — exactly the opposite of what trivia nights need.
+
+  2. **"Use the canonical name. There are TWO sibling folders in my
+     Documents — `BIG Hat Entertainment` (with space) and `BIGHat
+     Entertainment` (no space) — that's confusing."** Canonical name
+     is the spaced form (matches every brand asset, the installer's
+     App Name, and `tauri.conf.json` `productName`).
+
+  3. **"Rename the Rounds folder to Trivia, and split it into
+     subfolders by round type so Build Wizard / Round Roulette can
+     find the right round type without scanning everything."**
+
+### What changed
+
+**Play .bighat — fully reverted:**
+- Removed the green "Play .bighat" button from
+  `BIGHatFileButtons.jsx` (deleted `allowPlayDirect` prop,
+  the play file-input, the green button style, the navigate-on-
+  confirm branch).
+- Removed `allowPlayDirect` from `TriviaDashboard.jsx`. Trivia
+  presentations now ONLY go through Build Wizard / Round Roulette.
+- Removed `POST /api/bighat-files/play-direct` from
+  `bighat_files.py`. The `PlayDirectResult` model and the entire
+  endpoint are gone — there's no more consumer.
+- Removed the `_stage_file()` local-path short-circuit from
+  `trivia_viewer.py:get_presentation_slides`. The slides endpoint
+  is back to the alpha.24 shape (SharePoint download only) because
+  there is no longer any presentation doc carrying a local PPTX
+  path.
+- Removed `test_play_direct_bighat.py`.
+
+**Files folder — one canonical "BIG Hat Entertainment" (with space):**
+- `files_router._docs_root()` resolves to
+  `~/Documents/BIG Hat Entertainment/` (spaced form).
+- New `_merge_legacy_docs_folders()` runs once on every app launch:
+  if any of the legacy sibling folders (`BIGHat Entertainment`,
+  `BH Entertainment`) exists, every file under them is moved into
+  the canonical folder via `shutil.move` (cross-device safe) with
+  a "newer mtime wins" conflict rule. The legacy folder is removed
+  if it's left empty after the move. The merchant's existing
+  backup history + their data tree merge into one folder
+  automatically — no manual intervention needed.
+- `backup_service.default_backups_dir()` now writes to
+  `~/Documents/BIG Hat Entertainment/Backups/` (spaced). The
+  alpha.24 no-space form is picked up by the merger above.
+
+**Trivia round-type buckets:**
+- Top-level subfolders are now `Trivia, Bingo, Karaoke, Other`
+  (was `Rounds, Bingo, Karaoke, Other`).
+- Inside `Files/Trivia/`, every round file lives in
+  `MC/`/`REG/`/`MISC/`/`MYS/`/`BIG/` (mirrors the round-type codes
+  the Round Maker emits). Round .bighat files whose `round_type`
+  isn't one of these five land in `Trivia/_Other/` so the merchant
+  can still see and reclassify them.
+- `_round_type_from_archive()` inspects manifest.json +
+  payload.json to extract the round_type; `_folder_for_path()`
+  returns the `(top_level, round_type_sub)` tuple that `/upload`
+  uses to drop the file in the right place.
+- New `_migrate_rounds_to_trivia_layout()` one-shot migration runs
+  on first `/list` call after upgrade:
+    * Folds every `Files/Rounds/*.bighat` into `Files/Trivia/<TYPE>/`.
+    * Removes the (now empty) `Files/Rounds/` directory.
+    * Re-buckets any files left flat in `Files/Trivia/` (e.g. from
+      a merchant who manually renamed the folder before upgrading).
+  Guarded by `.alpha26-migrated` marker so it never re-shuffles.
+- `_resolve_folder()` accepts the new addressing forms:
+  `?folder=Trivia` (aggregates all round types),
+  `?folder=Trivia/MC` (one bucket), or the URL-friendly slash-less
+  `?folder=Trivia-MC` variant. Anything else 400s — no path-walking
+  through raw input.
+- `GET /api/native/files/folder` now exposes `trivia_round_types`
+  so Build Wizard / Round Roulette know which sub-buckets to scan
+  when assembling a presentation.
+
+### Tests
+- New: `backend/tests/test_alpha26_layout_migration.py` (10 cases)
+  — legacy `Rounds/` → `Trivia/<TYPE>/` migration, idempotency,
+  resolve-folder accepting both `Trivia/MC` and `Trivia-MC`,
+  rejection of invalid bucket names, upload routing for each
+  round_type + the catchall, non-trivia content still landing in
+  Bingo/Karaoke/Other, and a regression guard on the backup folder
+  name being the spaced canonical form.
+- 72 tests passing in
+  `cd /app && pytest backend/tests/test_alpha26_layout_migration.py
+   test_cover_image_ingest.py test_question_shape_normalisation.py
+   test_bighat_real_fixtures.py test_bighat_import_list_contract.py
+   test_backup_service.py test_locations_router.py -q`.
+- Live preview-env smoke: `GET /api/native/files/folder` now
+  returns `folder = /root/Documents/BIG Hat Entertainment/Files`,
+  `subfolders = ['Trivia', 'Bingo', 'Karaoke', 'Other']`,
+  `trivia_round_types = ['MC', 'REG', 'MISC', 'MYS', 'BIG']`.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.25: Play .bighat directly from Trivia Presenter
 
 ### Why

@@ -2,25 +2,41 @@
 karaoke playlists, etc.) AND host-scoped working data.
 
 v32.0.0-alpha.18: typed subfolders + auto-migration.
+v32.0.0-alpha.26: rename Rounds→Trivia, subdivide Trivia by round_type,
+                  unify "BIG Hat Entertainment" / "BIGHat Entertainment"
+                  into a single canonical "BIG Hat Entertainment" root.
 
-Layout on disk:
-    %USERPROFILE%\\Documents\\BIGHat Entertainment\\
+Layout on disk (alpha.26+):
+    %USERPROFILE%\\Documents\\BIG Hat Entertainment\\
       ├─ Files\\
-      │    ├─ Rounds\\           ← trivia round .bighat files
+      │    ├─ Trivia\\           ← trivia round .bighat files, split by
+      │    │    ├─ MC\\          ← multiple-choice rounds
+      │    │    ├─ REG\\         ← general (regular) rounds
+      │    │    ├─ MISC\\        ← miscellaneous rounds
+      │    │    ├─ MYS\\         ← mystery rounds
+      │    │    └─ BIG\\         ← big rounds
       │    ├─ Bingo\\            ← bingo pack .bighat files
       │    ├─ Karaoke\\          ← karaoke playlist .bighat files
       │    └─ Other\\            ← unknown content_type fallback
+      ├─ Backups\\               ← auto + manual backup zips
       └─ Hosts\\<host_slug>\\    ← host-scoped event drafts, schedule
                                     snapshots, presenter notes
 
-Why this exists:
-  Before alpha.18 every .bighat dumped into a flat folder. The customer
-  reported it was unusable — uploading works, but there's no way to find
-  things again or organise by event type. We now route uploads to a
-  subfolder by inspecting the archive's `type` field (`round`,
-  `presentation`, `pack`, `bingo`, `karaoke`), with a one-shot migration
-  that moves existing flat-layout files into their correct subfolders on
-  first request.
+Why the Trivia/<round_type>/ split:
+  The merchant reported that Build Wizard / Round Roulette were
+  pulling random round types when assembling a presentation, because
+  every .bighat round file lived in a single flat "Rounds" folder
+  with no way to filter by type. Splitting at the filesystem level
+  means the wizard can request, e.g. "give me 2 MC and 3 REG", and
+  scan only those two subdirectories deterministically.
+
+Why one canonical "BIG Hat Entertainment" root:
+  Pre-alpha.26 two adjacent folders ("BIG Hat Entertainment" with a
+  space, "BIGHat Entertainment" without) accumulated content from
+  different code paths (installer, backup service, files router).
+  The merchant couldn't tell which was the real one. Canonical is
+  now WITH SPACE — matches the productName in tauri.conf.json, the
+  Cargo description, the installer shortcuts, and every brand asset.
 
 Files MUST end in `.bighat`. Overwrite is allowed (same filename replaces).
 """
@@ -31,6 +47,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -47,39 +64,171 @@ router = APIRouter(prefix="/api/native/files", tags=["native-files"])
 
 MAX_FILE_BYTES = 50 * 1024 * 1024     # 50 MB hard cap
 
-# Allowed subfolder names. The keys are the URL-safe slugs the frontend
-# sends in `?folder=`; the values are the on-disk folder names. Keeping
-# them in sync (case + spelling) makes the URL → path mapping trivial.
-SUBFOLDERS: tuple[str, ...] = ("Rounds", "Bingo", "Karaoke", "Other")
+# Canonical brand name used as the Documents subfolder. Must match
+# `tauri.conf.json` productName + the installer "App Name". See module
+# docstring for why we standardised on the spaced form.
+APP_DOCS_FOLDER = "BIG Hat Entertainment"
+# Legacy aliases that we attempt to merge into the canonical folder on
+# startup. Order matters: aliases are processed top-down, each migrated
+# into APP_DOCS_FOLDER and then removed (when empty) so the merchant
+# stops seeing duplicate sibling folders.
+LEGACY_DOCS_FOLDER_ALIASES: tuple[str, ...] = (
+    "BIGHat Entertainment",   # alpha.18 → alpha.25 backup_service / files_router
+    "BH Entertainment",       # pre-alpha.18 short form, if any old installs linger
+)
+
+# Allowed top-level subfolder names inside Files/. The keys are the
+# URL-safe slugs the frontend sends in `?folder=`; the values are the
+# on-disk folder names. Keeping them in sync (case + spelling) makes
+# the URL → path mapping trivial.
+SUBFOLDERS: tuple[str, ...] = ("Trivia", "Bingo", "Karaoke", "Other")
 DEFAULT_SUBFOLDER = "Other"
 
-# Map of content_type (from .bighat manifest.json) → subfolder.
-# `round`, `presentation`, `pack` all relate to trivia → Rounds.
-# `bingo` → Bingo. `karaoke` / `playlist` → Karaoke. Unknown → Other.
+# Round-type subdirectories under Files/Trivia/. Mirrors the codes the
+# Round Maker uses (`MC`, `REG`, `MISC`, `MYS`, `BIG`) plus a `_Other`
+# catchall for round .bighat files that arrive without a recognisable
+# round_type (e.g. external generators that haven't been updated).
+TRIVIA_ROUND_TYPES: tuple[str, ...] = ("MC", "REG", "MISC", "MYS", "BIG")
+TRIVIA_DEFAULT_ROUND_TYPE = "_Other"
+
+# Map of content_type (from .bighat manifest.json) → top-level subfolder.
+# `round`, `presentation`, `pack` all relate to trivia → Trivia. `bingo`
+# → Bingo. `karaoke` / `playlist` → Karaoke. Unknown → Other.
 _TYPE_TO_FOLDER = {
-    "round": "Rounds",
-    "presentation": "Rounds",
-    "pack": "Rounds",
+    "round": "Trivia",
+    "presentation": "Trivia",
+    "pack": "Trivia",
     "bingo": "Bingo",
     "karaoke": "Karaoke",
     "playlist": "Karaoke",
 }
 
+# Older marker (alpha.18) — still respected so we don't redo the flat
+# layout migration. The alpha.26 layout migration uses its own marker.
 _MIGRATION_DONE_MARKER = ".alpha18-migrated"
+_LAYOUT_MIGRATION_MARKER = ".alpha26-migrated"
 
 
 # ---------- Filesystem layout helpers ----------
 
+def _docs_root() -> Path:
+    """Resolve the Documents-level root.
+    Picks up `BIGHAT_FILES_DIR` for tests (which can point at a tmp tree
+    and bypass the BIG Hat Entertainment naming entirely)."""
+    override = os.environ.get("BIGHAT_FILES_DIR")
+    if override:
+        # When the override is set, it IS the base — no Documents prefix.
+        return Path(override).expanduser()
+    home = Path.home()
+    docs = home / "Documents"
+    base = docs if docs.exists() else home
+    return base / APP_DOCS_FOLDER
+
+
+def _merge_legacy_docs_folders() -> int:
+    """If any legacy "BIGHat Entertainment" / "BH Entertainment" sibling
+    folders exist next to the canonical "BIG Hat Entertainment" folder,
+    move their contents into the canonical one and remove the (now
+    empty) alias.
+
+    Called once per process start via `_base_root()`. Idempotent — once
+    the alias is gone (or has no overlap) this is a cheap no-op.
+
+    Conflict rule: if the SAME relative path exists in both the legacy
+    and canonical roots, the file with the newer mtime wins. We refuse
+    to overwrite a newer canonical file with an older legacy one. This
+    matters because alpha.24's backup_service wrote into the
+    no-space "BIGHat" folder for two releases — the merchant's most
+    recent backup is likely there, but they may also have started
+    writing fresh data into "BIG Hat" since installing alpha.26.
+    """
+    if os.environ.get("BIGHAT_FILES_DIR"):
+        return 0     # test override → never touch real Documents
+    home = Path.home()
+    docs = home / "Documents"
+    if not docs.exists():
+        return 0
+    canonical = docs / APP_DOCS_FOLDER
+    moved_total = 0
+    for alias in LEGACY_DOCS_FOLDER_ALIASES:
+        legacy = docs / alias
+        if not legacy.exists() or legacy == canonical:
+            continue
+        canonical.mkdir(parents=True, exist_ok=True)
+        moved = _merge_tree(legacy, canonical)
+        moved_total += moved
+        # Try to remove the now-empty alias. shutil.rmtree only when the
+        # tree is empty of files — leave it in place if anything failed
+        # to move, the merchant can resolve manually then re-launch.
+        try:
+            if not any(legacy.rglob("*")):
+                shutil.rmtree(legacy, ignore_errors=True)
+                logger.info(
+                    "[native-files] merged legacy '%s' into '%s' (%d files), "
+                    "removed empty legacy folder",
+                    alias, APP_DOCS_FOLDER, moved,
+                )
+            else:
+                logger.warning(
+                    "[native-files] merged %d files from '%s' but tree not "
+                    "empty — leaving legacy folder in place for manual cleanup",
+                    moved, alias,
+                )
+        except OSError as e:
+            logger.warning("[native-files] could not remove legacy folder '%s': %s", alias, e)
+    return moved_total
+
+
+def _merge_tree(src: Path, dst: Path) -> int:
+    """Recursively move every file under `src` into the matching relative
+    path under `dst`. Returns count of files moved. Skips overwriting
+    when the destination is newer; otherwise overwrites in-place.
+
+    We deliberately use rename (cross-device safe via shutil.move) rather
+    than copy-then-delete: the merchant doesn't have 2× free space for
+    their backup history."""
+    moved = 0
+    for src_path in src.rglob("*"):
+        if not src_path.is_file():
+            continue
+        rel = src_path.relative_to(src)
+        dst_path = dst / rel
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if dst_path.exists():
+                # Same-name conflict: newer wins.
+                try:
+                    if dst_path.stat().st_mtime >= src_path.stat().st_mtime:
+                        src_path.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    pass
+                dst_path.unlink(missing_ok=True)
+            shutil.move(str(src_path), str(dst_path))
+            moved += 1
+        except OSError as e:
+            logger.warning("[native-files] skipped merging %s → %s: %s", src_path, dst_path, e)
+    return moved
+
+
 def _base_root() -> Path:
-    """Resolve the on-disk base for the current user (~/Documents/BIGHat...)."""
+    """Resolve the on-disk base for the current user — the `Files/`
+    folder UNDER the canonical "BIG Hat Entertainment" Documents root.
+
+    Side-effect: triggers a one-shot merge of the legacy "BIGHat
+    Entertainment" / "BH Entertainment" sibling folders into the
+    canonical "BIG Hat Entertainment" before returning. This keeps
+    the merchant's Documents tree clean on every app launch without
+    any explicit migration UI.
+    """
     override = os.environ.get("BIGHAT_FILES_DIR")
     if override:
         root = Path(override).expanduser()
-    else:
-        home = Path.home()
-        docs = home / "Documents"
-        base = docs if docs.exists() else home
-        root = base / "BIGHat Entertainment" / "Files"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    # First merge any legacy sibling folders, then resolve Files/.
+    _merge_legacy_docs_folders()
+    root = _docs_root() / "Files"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -87,32 +236,58 @@ def _base_root() -> Path:
 def _hosts_root() -> Path:
     """Sibling of Files/ — per-host working data (event drafts, snapshots).
     Lives outside Files/ so it doesn't pollute the .bighat file listing
-    but stays inside the same `BIGHat Entertainment` parent so a single
+    but stays inside the same `BIG Hat Entertainment` parent so a single
     backup captures everything."""
     files_root = _base_root()
-    # Files/.. = BIGHat Entertainment/
+    # Files/.. = BIG Hat Entertainment/
     hosts = files_root.parent / "Hosts"
     hosts.mkdir(parents=True, exist_ok=True)
     return hosts
 
 
 def _ensure_subfolders() -> None:
-    """Idempotently create every typed subfolder. Cheap on every call."""
+    """Idempotently create every typed subfolder. Cheap on every call.
+    Also creates the round-type subfolders inside Trivia/."""
     root = _base_root()
     for name in SUBFOLDERS:
         (root / name).mkdir(parents=True, exist_ok=True)
+    trivia = root / "Trivia"
+    for rt in TRIVIA_ROUND_TYPES:
+        (trivia / rt).mkdir(parents=True, exist_ok=True)
+    # Catchall — created lazily only if we actually need it on upload,
+    # to avoid showing the merchant an empty `_Other` folder.
 
 
 def _resolve_folder(folder: str | None) -> tuple[str, Path]:
     """Validate `folder` against SUBFOLDERS, return (canonical_name, path).
     None / empty / "all" → return ("", base_root) which means "every
-    subfolder, aggregated"."""
+    subfolder, aggregated".
+
+    Round-type buckets are addressable too via the `Trivia/MC` form (or
+    the slash-less `Trivia-MC`). Validation walks the allow-list end-to-
+    end so we never trust raw input on disk."""
     if not folder or folder.lower() == "all":
         return "", _base_root()
+    base = _base_root()
+
+    # Round-type bucket form, e.g. `Trivia/MC` or `Trivia-MC`. The
+    # separator-tolerant split handles both URL-friendly variants the
+    # frontend might use.
+    sep = "/" if "/" in folder else ("-" if "-" in folder else None)
+    if sep:
+        head, _, tail = folder.partition(sep)
+        if head.lower() == "trivia" and tail:
+            tail_up = tail.strip().upper()
+            valid_buckets = set(TRIVIA_ROUND_TYPES) | {TRIVIA_DEFAULT_ROUND_TYPE.upper()}
+            if tail_up in valid_buckets:
+                # Preserve the on-disk casing of `_Other` if requested.
+                tail_disk = TRIVIA_DEFAULT_ROUND_TYPE if tail_up == TRIVIA_DEFAULT_ROUND_TYPE.upper() else tail_up
+                return f"Trivia/{tail_disk}", base / "Trivia" / tail_disk
+
     # Case-insensitive match against allow-list — never trust raw input.
     for name in SUBFOLDERS:
         if folder.lower() == name.lower():
-            return name, _base_root() / name
+            return name, base / name
     raise HTTPException(status_code=400, detail=f"invalid_folder: {folder!r}")
 
 
@@ -213,20 +388,58 @@ def _trivia_summary(content_type: str, manifest: dict, payload: dict) -> str:
     return " · ".join(bits) if bits else "Trivia content"
 
 
-def _folder_for_path(path: Path) -> str:
-    """Inspect a .bighat archive and pick the destination subfolder."""
+def _round_type_from_archive(path: Path) -> str | None:
+    """Inspect a .bighat archive's manifest + payload and return the
+    canonical round_type code (`MC`/`REG`/`MISC`/`MYS`/`BIG`) if present.
+    Returns None when the archive isn't a round, or carries no recognisable
+    round_type — caller then drops it into `Trivia/_Other`."""
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = set(zf.namelist())
+            if "manifest.json" not in names:
+                return None
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            content_type = str(manifest.get("type") or "").lower()
+            if content_type not in ("round", "presentation", "pack"):
+                return None
+            rt = manifest.get("round_type")
+            if not rt and "payload.json" in names:
+                try:
+                    payload = json.loads(zf.read("payload.json").decode("utf-8"))
+                    rt = payload.get("round_type") or payload.get("type")
+                except (json.JSONDecodeError, KeyError):
+                    rt = None
+            if not rt:
+                return None
+            rt_up = str(rt).strip().upper()
+            return rt_up if rt_up in TRIVIA_ROUND_TYPES else None
+    except (zipfile.BadZipFile, json.JSONDecodeError, KeyError, UnicodeDecodeError):
+        return None
+
+
+def _folder_for_path(path: Path) -> tuple[str, str | None]:
+    """Inspect a .bighat archive and pick the destination subfolder.
+
+    Returns `(top_level_subfolder, round_type_sub | None)`. For trivia
+    content the second value is the round_type bucket (`MC`/`REG`/…).
+    For non-trivia content it's None so callers know not to nest.
+    """
     info = _summarise_bighat(path)
     content_type = str(info.get("type") or "").lower()
-    return _TYPE_TO_FOLDER.get(content_type, DEFAULT_SUBFOLDER)
+    top = _TYPE_TO_FOLDER.get(content_type, DEFAULT_SUBFOLDER)
+    if top == "Trivia":
+        rt = _round_type_from_archive(path)
+        return top, rt or TRIVIA_DEFAULT_ROUND_TYPE
+    return top, None
 
 
 # ---------- One-shot migration: flat → typed subfolders ----------
 
 def _migrate_flat_layout() -> int:
     """If the user has any .bighat files DIRECTLY in Files/ (legacy flat
-    layout), move them into the right subfolder by inspecting each
-    archive's content_type. Idempotent — runs once per install (guarded
-    by a marker file)."""
+    layout, pre-alpha.18), move them into the right subfolder by
+    inspecting each archive's content_type. Idempotent — runs once per
+    install (guarded by a marker file)."""
     root = _base_root()
     marker = root / _MIGRATION_DONE_MARKER
     if marker.exists():
@@ -239,8 +452,12 @@ def _migrate_flat_layout() -> int:
         if p.parent != root:
             continue
         try:
-            target_subfolder = _folder_for_path(p)
-            dest = root / target_subfolder / p.name
+            top, rt = _folder_for_path(p)
+            dest_dir = root / top
+            if rt is not None:
+                dest_dir = dest_dir / rt
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / p.name
             # If a file of the same name already exists in the subfolder
             # (re-upload happened post-migration), keep the newer mtime.
             if dest.exists():
@@ -265,16 +482,118 @@ def _migrate_flat_layout() -> int:
     return moved
 
 
+def _migrate_rounds_to_trivia_layout() -> int:
+    """One-shot alpha.26 migration: rename the legacy `Rounds/` folder
+    to `Trivia/` AND redistribute every .bighat file inside it into
+    the new round-type subdirectories (`MC/`, `REG/`, …).
+
+    Idempotent — guarded by `_LAYOUT_MIGRATION_MARKER`. The migration
+    runs even if the merchant only has `Trivia/` already (i.e. they
+    manually renamed in Explorer) because the round-type split is the
+    point of the migration, not the folder rename.
+    """
+    root = _base_root()
+    marker = root / _LAYOUT_MIGRATION_MARKER
+    if marker.exists():
+        return 0
+
+    legacy_rounds = root / "Rounds"
+    trivia = root / "Trivia"
+
+    # Step 1: if legacy Rounds/ exists, fold its contents into Trivia/.
+    if legacy_rounds.exists() and legacy_rounds.is_dir():
+        trivia.mkdir(parents=True, exist_ok=True)
+        for child in legacy_rounds.rglob("*"):
+            if not child.is_file():
+                continue
+            rel = child.relative_to(legacy_rounds)
+            dest = trivia / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                if dest.exists():
+                    if dest.stat().st_mtime >= child.stat().st_mtime:
+                        child.unlink(missing_ok=True)
+                        continue
+                    dest.unlink(missing_ok=True)
+                shutil.move(str(child), str(dest))
+            except OSError as e:
+                logger.warning("[native-files] could not migrate %s: %s", child, e)
+        # Remove the now-empty `Rounds/` directory tree if possible.
+        try:
+            if not any(legacy_rounds.rglob("*")):
+                shutil.rmtree(legacy_rounds, ignore_errors=True)
+        except OSError:
+            pass
+
+    # Step 2: ensure all round-type subdirs exist.
+    trivia.mkdir(parents=True, exist_ok=True)
+    for rt in TRIVIA_ROUND_TYPES:
+        (trivia / rt).mkdir(parents=True, exist_ok=True)
+
+    # Step 3: move any .bighat files sitting DIRECTLY in Trivia/ (i.e.
+    # the flat-layout legacy from before this release) into their
+    # round-type bucket.
+    moved = 0
+    for p in trivia.glob("*.bighat"):
+        if not p.is_file():
+            continue
+        rt = _round_type_from_archive(p) or TRIVIA_DEFAULT_ROUND_TYPE
+        dest_dir = trivia / rt
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / p.name
+        try:
+            if dest.exists():
+                if dest.stat().st_mtime >= p.stat().st_mtime:
+                    p.unlink(missing_ok=True)
+                    continue
+                dest.unlink(missing_ok=True)
+            p.rename(dest)
+            moved += 1
+        except OSError as e:
+            logger.warning("[native-files] could not bucket %s: %s", p, e)
+
+    try:
+        marker.write_text(
+            f"alpha.26 layout migration completed at "
+            f"{datetime.now(timezone.utc).isoformat()}, moved={moved}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    if moved:
+        logger.info(
+            "[native-files] alpha.26: bucketed %d trivia round .bighat files by round_type",
+            moved,
+        )
+    return moved
+
+
 def _all_files_iter() -> Iterable[tuple[str, Path]]:
-    """Walk every typed subfolder. Yields (subfolder_name, file_path) so
-    callers can show the folder column without re-stat-ing the parent."""
+    """Walk every typed subfolder + every Trivia/<round_type>/ bucket.
+    Yields (subfolder_name, file_path). The `subfolder_name` for trivia
+    rounds is reported as e.g. `Trivia/MC` so the UI can show the full
+    path-tail in a single column."""
     root = _base_root()
     for sub in SUBFOLDERS:
         sub_dir = root / sub
         if not sub_dir.exists():
             continue
-        for p in sub_dir.glob("*.bighat"):
-            yield sub, p
+        if sub == "Trivia":
+            # Walk every round-type bucket plus the catchall.
+            for rt_dir in sub_dir.iterdir():
+                if not rt_dir.is_dir():
+                    continue
+                label = f"Trivia/{rt_dir.name}"
+                for p in rt_dir.glob("*.bighat"):
+                    yield label, p
+            # Defensive: surface any .bighat files that somehow ended
+            # up directly under Trivia/ (e.g. a legacy upload while the
+            # migration was disabled) so the UI doesn't hide them.
+            for p in sub_dir.glob("*.bighat"):
+                yield "Trivia", p
+        else:
+            for p in sub_dir.glob("*.bighat"):
+                yield sub, p
 
 
 # ---------- HTTP routes ----------
@@ -282,8 +601,9 @@ def _all_files_iter() -> Iterable[tuple[str, Path]]:
 @router.get("/folder")
 async def files_folder() -> dict[str, Any]:
     """Return the absolute path of the base Files/ folder + list of
-    typed subfolders + the Hosts/ root. Exposed so the UI can show
-    'Files saved to: <path>'."""
+    typed subfolders + the trivia round-type buckets + the Hosts/ root.
+    Exposed so the UI can show 'Files saved to: <path>' and so Build
+    Wizard / Round Roulette know which sub-buckets to scan."""
     _ensure_subfolders()
     root = _base_root()
     return {
@@ -291,6 +611,7 @@ async def files_folder() -> dict[str, Any]:
         "folder": str(root),
         "hosts_folder": str(_hosts_root()),
         "subfolders": list(SUBFOLDERS),
+        "trivia_round_types": list(TRIVIA_ROUND_TYPES),
         "exists": root.exists(),
         "platform": platform.system(),
     }
@@ -298,33 +619,59 @@ async def files_folder() -> dict[str, Any]:
 
 @router.get("")
 async def files_list(folder: str | None = None) -> dict[str, Any]:
-    """List every .bighat file. With `?folder=Rounds` (etc) lists only
-    that subfolder. Without a folder param, returns all files annotated
-    with the subfolder they live in. Triggers the one-shot migration."""
+    """List every .bighat file. With `?folder=Trivia` (etc) lists only
+    that subfolder; with `?folder=Trivia/MC` lists only that
+    round-type bucket. Without a folder param, returns all files
+    annotated with the subfolder (and round-type bucket where
+    applicable) they live in. Triggers the one-shot migrations on
+    first call after install / upgrade."""
     _ensure_subfolders()
     _migrate_flat_layout()
+    _migrate_rounds_to_trivia_layout()
 
     items: list[dict[str, Any]] = []
     canonical, target = _resolve_folder(folder)
 
-    if canonical:
-        # Single-folder listing.
-        for p in sorted(target.glob("*.bighat"), key=lambda x: x.stat().st_mtime, reverse=True):
-            try:
-                st = p.stat()
-                entry = {
-                    "name": p.name,
-                    "folder": canonical,
-                    "size_bytes": st.st_size,
-                    "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
-                    "path": str(p),
-                }
-                entry.update(_summarise_bighat(p))
-                items.append(entry)
-            except OSError:
-                continue
+    if canonical and target.is_dir():
+        if canonical == "Trivia":
+            # Aggregating ALL round-type buckets while the merchant
+            # filters at the top "Trivia" level — show every round file.
+            for rt_dir in target.iterdir():
+                if not rt_dir.is_dir():
+                    continue
+                for p in sorted(rt_dir.glob("*.bighat"), key=lambda x: x.stat().st_mtime, reverse=True):
+                    try:
+                        st = p.stat()
+                        entry = {
+                            "name": p.name,
+                            "folder": f"Trivia/{rt_dir.name}",
+                            "size_bytes": st.st_size,
+                            "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                            "path": str(p),
+                        }
+                        entry.update(_summarise_bighat(p))
+                        items.append(entry)
+                    except OSError:
+                        continue
+        else:
+            # Single-folder listing (Bingo/Karaoke/Other OR a specific
+            # Trivia/<type> bucket).
+            for p in sorted(target.glob("*.bighat"), key=lambda x: x.stat().st_mtime, reverse=True):
+                try:
+                    st = p.stat()
+                    entry = {
+                        "name": p.name,
+                        "folder": canonical,
+                        "size_bytes": st.st_size,
+                        "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                        "path": str(p),
+                    }
+                    entry.update(_summarise_bighat(p))
+                    items.append(entry)
+                except OSError:
+                    continue
     else:
-        # Aggregate listing across every subfolder.
+        # Aggregate listing across every subfolder + round-type bucket.
         for sub, p in _all_files_iter():
             try:
                 st = p.stat()
@@ -346,6 +693,7 @@ async def files_list(folder: str | None = None) -> dict[str, Any]:
         "folder": str(_base_root()),
         "selected_folder": canonical or "all",
         "subfolders": list(SUBFOLDERS),
+        "trivia_round_types": list(TRIVIA_ROUND_TYPES),
         "count": len(items),
         "files": items,
     }
@@ -356,10 +704,12 @@ async def files_upload(
     file: UploadFile = File(...),
     folder: str | None = Form(default=None),
 ) -> dict[str, Any]:
-    """Save a .bighat file. If `folder` is supplied (e.g. 'Rounds') the
-    file goes there directly. Otherwise the archive's content_type is
-    inspected to pick the right typed subfolder. Overwrites a same-named
-    file IN THE SAME SUBFOLDER (but not across folders)."""
+    """Save a .bighat file. If `folder` is supplied (e.g. 'Trivia' or
+    'Trivia/MC') the file goes there directly. Otherwise the archive's
+    content_type is inspected to pick the right top-level subfolder,
+    AND for trivia rounds the round_type is inspected to pick the
+    right `Trivia/<TYPE>/` bucket. Overwrites a same-named file IN
+    THE SAME LEAF FOLDER (not across folders)."""
     _ensure_subfolders()
     name = _safe_name(file.filename or "")
 
@@ -385,8 +735,13 @@ async def files_upload(
         if folder:
             canonical, target_dir = _resolve_folder(folder)
         else:
-            canonical = _folder_for_path(staged)
-            target_dir = base / canonical
+            top, rt = _folder_for_path(staged)
+            if top == "Trivia" and rt is not None:
+                canonical = f"Trivia/{rt}"
+                target_dir = base / "Trivia" / rt
+            else:
+                canonical = top
+                target_dir = base / top
         target_dir.mkdir(parents=True, exist_ok=True)
         dest = target_dir / name
         if dest.exists():
@@ -465,21 +820,38 @@ async def files_reveal(name: str | None = Form(default=None),
 
 def _locate(name: str, folder: str | None) -> Path:
     """Helper: resolve a file by name (+ optional folder hint) to its
-    absolute path. 404s if not found in any subfolder."""
+    absolute path. 404s if not found in any subfolder. With the
+    alpha.26 layout, Trivia files live in `Trivia/<round_type>/`
+    buckets — we scan all of them when no folder hint is supplied."""
     if folder:
         _, target_dir = _resolve_folder(folder)
         p = target_dir / name
         if p.exists():
             return p
         raise HTTPException(status_code=404, detail="not_found")
-    # No folder hint — search every typed subfolder + base root (for
-    # files that haven't been migrated yet).
+    # No folder hint — search every typed subfolder. For Trivia,
+    # also walk each round-type bucket.
+    base = _base_root()
     for sub in SUBFOLDERS:
-        p = _base_root() / sub / name
-        if p.exists():
-            return p
-    # Last-ditch: pre-migration flat layout.
-    p = _base_root() / name
+        sub_dir = base / sub
+        if not sub_dir.exists():
+            continue
+        if sub == "Trivia":
+            for rt_dir in sub_dir.iterdir():
+                if rt_dir.is_dir():
+                    p = rt_dir / name
+                    if p.exists():
+                        return p
+            # Defensive: legacy flat-layout in Trivia/ root.
+            p = sub_dir / name
+            if p.exists():
+                return p
+        else:
+            p = sub_dir / name
+            if p.exists():
+                return p
+    # Last-ditch: pre-migration flat layout at Files/ root.
+    p = base / name
     if p.exists():
         return p
     raise HTTPException(status_code=404, detail="not_found")

@@ -127,18 +127,12 @@ export default function TriviaDashboard() {
                 </div>
               )}
               {/* .bighat import lives in the header so it's reachable even
-                  when the user has zero presentations yet.
-                  `allowPlayDirect` enables the green "Play .bighat" button:
-                  the host picks a round .bighat (e.g. one emailed by the
-                  external generator), the backend compiles it through the
-                  SAME Round Maker → .pptx pipeline the Trivia Presenter
-                  normally uses, and drops them straight into the
-                  presentation view. Skips Round Maker / Build Wizard. */}
-              <BIGHatFileButtons
-                type="presentation"
-                onImported={() => loadData()}
-                allowPlayDirect
-              />
+                  when the user has zero presentations yet. Trivia
+                  presentations are always built via Build Wizard or
+                  Round Roulette — there is no direct-play path; an
+                  imported round lands in the library and the host
+                  picks it up from there. */}
+              <BIGHatFileButtons type="presentation" onImported={() => loadData()} />
             </div>
           </div>
         </div>

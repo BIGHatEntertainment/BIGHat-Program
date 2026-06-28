@@ -1018,6 +1018,35 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.26 (2026-02-28)
+**Trivia round-type buckets + Documents folder unification + Play
+.bighat reverted.** Merchant feedback on alpha.25:
+  * Removed the green "Play .bighat" button — presentations ALWAYS
+    go through Build Wizard / Round Roulette so the night's
+    structure stays intact. `/api/bighat-files/play-direct` endpoint,
+    its test, and the slides-endpoint local-path short-circuit are
+    all gone.
+  * Canonical Documents folder is now `BIG Hat Entertainment` (with
+    space) — matches `productName`, the installer App Name, and
+    every brand asset. On launch, `files_router._merge_legacy_docs_folders()`
+    moves content from any `BIGHat Entertainment` / `BH Entertainment`
+    sibling folders into the canonical one and removes the now-empty
+    aliases. The backup service writes to the spaced form too.
+  * `Files/Rounds/` → `Files/Trivia/`, with every round file
+    re-bucketed into `MC/`/`REG/`/`MISC/`/`MYS/`/`BIG/` (or `_Other/`)
+    by inspecting the archive's `round_type`. `/upload` honours the
+    bucketing automatically. `/folder` now exposes
+    `trivia_round_types` so Build Wizard + Round Roulette can scope
+    their scans without re-implementing the discovery logic. One-shot
+    migration `_migrate_rounds_to_trivia_layout()` runs on first
+    `/list` call after upgrade and is guarded by an
+    `.alpha26-migrated` marker.
+
+10 new tests in `test_alpha26_layout_migration.py`, 72 backend tests
+total passing.
+
+
+
 ## Shipped — v32.0.0-alpha.25 (2026-02-28)
 **One-click "Play .bighat" from the Trivia Presenter hub.** New
 `POST /api/bighat-files/play-direct` endpoint imports a round `.bighat`,
