@@ -616,6 +616,33 @@ async def lifespan(app: FastAPI):
     
     logger.info("BIG Hat Hub API started successfully")
 
+    # ─── Auto-backup at startup (v32.0.0-alpha.22 onward) ────────────
+    # Snapshot the per-install state to a dated zip in
+    # `~/Documents/BIG Hat Entertainment/Backups/`. Idempotent for the
+    # calendar day (multiple restarts overwrite the same file), retains
+    # the last 14 zips. Runs in a thread pool so the lifespan returns
+    # quickly — the merchant never waits on a backup to start using the
+    # app. We log only; a failed backup must never block startup.
+    try:
+        import asyncio as _asyncio
+        from native.backup_service import run_backup as _run_backup
+        async def _bg_backup():
+            try:
+                loop = _asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, _run_backup)
+                if result.ok:
+                    logger.info(
+                        "[backup] startup snapshot ok path=%s files=%d size=%d skipped=%d",
+                        result.path, result.files, result.size, result.skipped,
+                    )
+                else:
+                    logger.warning("[backup] startup snapshot failed: %s", result.error)
+            except Exception as exc:                          # noqa: BLE001
+                logger.warning("[backup] startup backup raised: %s", exc)
+        _asyncio.create_task(_bg_backup())
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("Could not schedule startup backup: %s", e)
+
     # ─── Cloud licensing async startup (Squarespace poller + env-var bootstrap)
     #
     # These USED to be registered via `@app.on_event("startup")` decorators
@@ -2058,6 +2085,16 @@ try:
     logger.info("Native locations router registered at /api/native/locations/*")
 except Exception as e:
     logger.warning(f"Could not load Native locations router: {e}")
+
+
+# Native backup router (v32.0.0-alpha.22). Manual "Backup my setup"
+# trigger + listing. Auto-run on startup is in `lifespan` above.
+try:
+    from native.backup_router import router as backup_router
+    app.include_router(backup_router, prefix="/api")
+    logger.info("Native backup router registered at /api/native/backup/*")
+except Exception as e:
+    logger.warning(f"Could not load Native backup router: {e}")
 
 
 # Cloud licensing service (Phase 10.0). Gated by BIGHAT_CLOUD_MODE=1; this is

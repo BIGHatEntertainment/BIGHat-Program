@@ -7,6 +7,76 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.22 follow-up: Backup my setup
+
+### What shipped
+A "Backup my setup" feature with two complementary triggers:
+
+1. **Automatic on every app startup.** A background task fires from
+   the FastAPI lifespan (right after the API logs "started
+   successfully") and zips the per-install state dir to
+   `~/Documents/BIG Hat Entertainment/Backups/bighat-backup-YYYY-MM-DD.zip`.
+   The task runs in a thread executor so it never blocks the event
+   loop; lifespan returns immediately and the merchant doesn't wait
+   on a backup to start using the app.
+2. **Manual via a card in Admin Settings → User Management.**
+   master_admin-only. Renders the current destination path, the list
+   of dated zips on disk (newest first, with size + mtime), and a big
+   "Back up now" button that runs synchronously through a thread
+   executor + reports filecount / MB on success.
+
+### Backup contents
+Whatever `launcher._user_data_dir()` seeded (`%LOCALAPPDATA%\BIGHat\data\`
+on Windows, `~/Library/Application Support/BIGHat/data/` on macOS):
+- `system_config.json` — license key, master admin email/hash, paths
+- `.env` — per-install random secrets (JWT signing key, etc.)
+- `montydb/` — the entire local SQLite/MontyDB store (users, sessions,
+  rounds, locations, presentations, bingo, scoreboard themes)
+- `assets/`, `trivia/`, `generated/`, `logs/`
+
+### Exclusions (deliberate)
+- `Backups/` itself — never recurse into the destination
+- `__pycache__/`, `tmp/`, `staging/` (update download scratch)
+- `.DS_Store`, `Thumbs.db`
+
+### Design decisions
+- **One zip per calendar day, atomic rename.** Multiple restarts in
+  one day overwrite the same `bighat-backup-2026-MM-DD.zip`. Disk
+  usage stays predictable; the merchant always sees a clean folder.
+- **Retention: keep the newest 14 daily zips.** Older ones get pruned
+  at the end of each successful run. Two weeks is enough recovery
+  window for most "oh no I deleted something" scenarios. The cleanup
+  ONLY matches `bighat-backup-*.zip` — user-named zips in the same
+  folder are never touched.
+- **Best-effort, never crashes.** Locked files (live MontyDB write,
+  AV scan) are skipped with a warning rather than failing the whole
+  backup. A failed backup logs and returns an error dict; it cannot
+  raise into the lifespan or kill a request.
+- **Single-writer guard.** A non-blocking threading.Lock prevents the
+  startup auto-run and a manual click from clobbering each other —
+  the second caller gets `busy` and the UI surfaces a friendly
+  message.
+
+### Endpoints (master_admin only)
+- `GET    /api/native/backup/status` — destination, source, list of zips
+- `POST   /api/native/backup/run`    — run now, return result dict
+
+### Tests
+- `backend/tests/test_backup_service.py` — 7 cases:
+  zip contents + exclusions, same-day idempotency, retention keeps N,
+  retention spares user-named zips, concurrent-busy returns, missing
+  source returns failure not raise, list newest-first.
+- Verified live on the preview backend: lifespan task fired, wrote
+  `bighat-backup-2026-06-28.zip` (331 bytes, 1 file), logged "startup
+  snapshot ok".
+
+### Cumulative suite
+37/37 passing
+(7 version + 8 import-list + 14 locations + 1 redirect + 7 backup).
+
+---
+
+
 ## 2026-02-28 — v32.0.0-alpha.22 follow-up fixes (in-app updater)
 
 ### Two new bugs the customer hit upgrading alpha.20 → alpha.21

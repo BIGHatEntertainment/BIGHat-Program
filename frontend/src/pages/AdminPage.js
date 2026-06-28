@@ -5,7 +5,8 @@ import api from '../lib/api';
 import Header from '../components/Header';
 import {
   Users, Plus, Trash2, Edit, Shield, ShieldCheck,
-  Calendar, X, Save, ChevronRight, AlertTriangle, MapPin
+  Calendar, X, Save, ChevronRight, AlertTriangle, MapPin,
+  Archive, Download, Loader2,
 } from 'lucide-react';
 import TriviaSetup from './admin/TriviaSetup';
 
@@ -184,6 +185,12 @@ function UserManagement({ users, currentUser, showAddUser, setShowAddUser, editi
 
   return (
     <div data-testid="user-management-section">
+      {/* Backup my setup — master_admin only. Manual zip of the per-install
+          state dir (license, master admin, MontyDB, .env, assets). Auto
+          backup also runs on every startup in the background. */}
+      {currentUser?.role === 'master_admin' && (
+        <BackupSetupCard setError={setError} setSuccess={setSuccess} />
+      )}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-white font-semibold">Users ({users.length})</h3>
         <button
@@ -424,3 +431,121 @@ function EventManagement({ events, users, showAddEvent, setShowAddEvent, onRefre
     </div>
   );
 }
+
+
+// ----------------------------------------------------------------
+// BackupSetupCard — master_admin-only card at the top of User
+// Management. Runs a manual backup on demand AND shows what's
+// already on disk (the startup auto-backup populates the list).
+// ----------------------------------------------------------------
+function BackupSetupCard({ setError, setSuccess }) {
+  const [status, setStatus] = useState(null);
+  const [running, setRunning] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const r = await api.backupStatus();
+      setStatus(r.data);
+    } catch (e) {
+      // 403 here just means we're not master_admin — the card won't render,
+      // so silently swallow. Anything else surface.
+      if (e.response?.status !== 403) {
+        setError?.(e.response?.data?.detail || 'Failed to read backup status');
+      }
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const onRun = async () => {
+    setRunning(true);
+    try {
+      const r = await api.runBackup();
+      if (r.data.ok) {
+        const mb = (r.data.size / (1024 * 1024)).toFixed(1);
+        setSuccess?.(`Backup written (${r.data.files} files, ${mb} MB)`);
+      } else {
+        setError?.(`Backup failed: ${r.data.error || 'unknown error'}`);
+      }
+      await refresh();
+    } catch (e) {
+      const detail = e.response?.data?.detail || e.message;
+      if (detail === 'backup_already_running') {
+        setError?.('A backup is already running — try again in a moment.');
+      } else {
+        setError?.(`Backup error: ${detail}`);
+      }
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const fmtBytes = (n) => {
+    if (!n) return '0 B';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  };
+
+  return (
+    <div className="rounded-xl p-5 mb-6"
+         style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.15)' }}
+         data-testid="backup-card">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <Archive size={22} style={{ color: '#fbdd68' }} className="flex-shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <h3 className="text-white font-semibold">Backup my setup</h3>
+            <p className="text-xs mt-0.5" style={{ color: '#8892b0' }}>
+              Snapshots your license, master admin, database, and assets into a dated
+              <code className="mx-1 px-1 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.3)', color: '#fbdd68' }}>.zip</code>
+              under Documents/BIG Hat Entertainment/Backups. Runs automatically every time you start the app
+              (last 14 days kept).
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onRun}
+          disabled={running}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 hover:shadow-lg disabled:opacity-50 flex-shrink-0"
+          style={{ backgroundColor: '#fbdd68', color: '#000e2a' }}
+          data-testid="run-backup-btn"
+        >
+          {running ? <><Loader2 size={14} className="animate-spin" /> Backing up…</>
+                   : <><Download size={14} /> Back up now</>}
+        </button>
+      </div>
+
+      {status && (
+        <div className="text-xs space-y-1" style={{ color: '#8892b0' }} data-testid="backup-status">
+          <div>
+            <span style={{ color: '#fbdd68' }}>Destination:</span>{' '}
+            <code className="break-all">{status.destination}</code>
+          </div>
+          {status.backups?.length === 0 ? (
+            <div className="italic" style={{ color: '#8892b0' }}>No backups yet — click &quot;Back up now&quot; or restart the app.</div>
+          ) : (
+            <details className="mt-2">
+              <summary className="cursor-pointer" style={{ color: '#fbdd68' }}>
+                {status.backups.length} backup{status.backups.length === 1 ? '' : 's'} on disk
+              </summary>
+              <ul className="mt-2 space-y-1 max-h-40 overflow-auto pl-3" data-testid="backup-list">
+                {status.backups.map((b) => (
+                  <li key={b.name} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="font-mono truncate">{b.name}</span>
+                    <span className="flex-shrink-0">{fmtBytes(b.size)} · {fmtDate(b.mtime)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+

@@ -46,8 +46,7 @@ const api = {
 
   // Trivia Setup (Locations)
   listLocations: () =>
-    axios.get(`${API}/api/native/locations`, { withCredentials: true, headers: authHeaders() }),
-  createLocation: (data) =>
+    axios.get(`${API}/api/native/locations`, { withCredentials: true, headers: authHeaders() }),  createLocation: (data) =>
     axios.post(`${API}/api/native/locations`, data, { withCredentials: true, headers: authHeaders() }),
   getLocation: (id) =>
     axios.get(`${API}/api/native/locations/${id}`, { withCredentials: true, headers: authHeaders() }),
@@ -71,6 +70,12 @@ const api = {
     axios.patch(`${API}/api/native/locations/${id}/admins`, { assigned_user_ids: userIds }, { withCredentials: true, headers: authHeaders() }),
   locationImageRawUrl: (id, imageId) =>
     `${API}/api/native/locations/${id}/images/${imageId}/raw`,
+
+  // Backup (master_admin only)
+  backupStatus: () =>
+    axios.get(`${API}/api/native/backup/status`, { withCredentials: true, headers: authHeaders() }),
+  runBackup: () =>
+    axios.post(`${API}/api/native/backup/run`, {}, { withCredentials: true, headers: authHeaders() }),
 };
 
 export default api;

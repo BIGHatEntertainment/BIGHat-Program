@@ -1017,14 +1017,22 @@ the whole endpoint. 8 new contract tests in
 alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
-## In review — v32.0.0-alpha.22 (Trivia Setup)
-New "Trivia Setup" tab in Admin Settings with full CRUD over
-per-location branding images/GIFs. master_admin assigns admins to
-specific locations (multi-tenant); admins only see + edit their
-assigned locations. Round count stays per-event (not per-location);
-sponsor/between-round rotations deferred to subscription tier.
-Backend 23/23 tests pass, UI 10/10 checkpoints pass.
-**Not shipped yet** — waiting for alpha.21 manual install validation.
+## In review — v32.0.0-alpha.22 (Trivia Setup + Auto-backup + Updater fixes)
+1. **Trivia Setup**: new tab in Admin Settings with full CRUD over
+   per-location branding images/GIFs. master_admin assigns admins to
+   specific locations; admins only see + edit their assigned ones.
+2. **Auto-backup**: every app startup snapshots
+   `%LOCALAPPDATA%\BIGHat\data\` to a dated zip in
+   `Documents\BIG Hat Entertainment\Backups\`. Master admin can also
+   trigger manually from User Management. Last 14 days retained,
+   one zip per day (idempotent).
+3. **Updater fixes**: httpx now follows 302 redirects (was the
+   alpha.20→alpha.21 customer bug); error UI no longer overflows the
+   card on long pre-signed URLs.
+Backend 37/37 tests pass.
+**Not shipped yet** — alpha.21 manual install verified by merchant on
+2026-02-28, all setup data preserved. Ready to tag whenever merchant
+gives the go.
 
 ## Shipped — v32.0.0-alpha.20 (2026-02-28)
 Pre-release version comparator fix. `parse_version` now returns
