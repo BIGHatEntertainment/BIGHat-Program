@@ -1017,6 +1017,15 @@ the whole endpoint. 8 new contract tests in
 alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
+## In review — v32.0.0-alpha.22 (Trivia Setup)
+New "Trivia Setup" tab in Admin Settings with full CRUD over
+per-location branding images/GIFs. master_admin assigns admins to
+specific locations (multi-tenant); admins only see + edit their
+assigned locations. Round count stays per-event (not per-location);
+sponsor/between-round rotations deferred to subscription tier.
+Backend 23/23 tests pass, UI 10/10 checkpoints pass.
+**Not shipped yet** — waiting for alpha.21 manual install validation.
+
 ## Shipped — v32.0.0-alpha.20 (2026-02-28)
 Pre-release version comparator fix. `parse_version` now returns
 `(major, minor, patch, is_release, prerelease_rank, prerelease_num)`

@@ -85,7 +85,6 @@ export default function AdminPage() {
             );
           })}
         </div>
-
         {error && (
           <div className="mb-4 p-3 rounded-lg text-sm flex items-center gap-2" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444' }} data-testid="admin-error">
             <AlertTriangle size={16} /> {error}

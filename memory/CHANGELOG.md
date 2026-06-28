@@ -7,6 +7,75 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.22: Trivia Setup (locations + branding)
+
+### What shipped
+A new "Trivia Setup" tab in Admin Settings (`/admin`) lets master_admin
+and admins manage per-location branding images/GIFs that play
+immediately AFTER each round's host slide during a trivia presentation.
+
+### Capability matrix
+- **master_admin**: create, rename, delete locations; upload, reorder,
+  delete branding images; assign other admins to specific locations.
+- **admin**: edit only locations where their `_id` is in
+  `assigned_user_ids`. Can rename, upload, reorder, delete images. Cannot
+  create or delete locations, cannot reassign admins, cannot see the
+  full assignment list.
+- **host**: blocked at the router level (403
+  `admin_or_master_required`); the tab is invisible because the existing
+  Header gating already hides the entire /admin route.
+
+### Data model
+- New Mongo collection `locations`:
+  `{ id, name, slug, branding_images:[{id, filename, mime, size, order,
+  uploaded_at, uploaded_by, ext}], assigned_user_ids:[], created_at,
+  updated_at, created_by }`
+- Image bytes on disk at
+  `<BIGHAT_ASSETS_DIR>/02_Locations/<slug>/branding/<image_id><ext>`
+  — same layout convention as the existing `OverlayService` so future
+  overlay rendering can reuse the path.
+- Round count is intentionally **NOT** on the location. It's a per-event
+  decision in the existing trivia builder (5 or 6 today; subscription
+  tier may expand later).
+- Sponsor / between-round rotations are also intentionally deferred —
+  subscription-gated feature per user direction.
+
+### Endpoints (all mounted at `/api/native/locations/*`)
+- `GET    /`                                — list (filtered by role)
+- `POST   /`                                — create (master_admin)
+- `GET    /{id}`                            — read (access-gated)
+- `PATCH  /{id}`                            — rename
+- `DELETE /{id}`                            — delete location (master_admin)
+- `POST   /{id}/images`                     — upload (≤15 MB, PNG/JPG/GIF/WEBP)
+- `GET    /{id}/images/{img_id}/raw`        — stream image bytes
+- `DELETE /{id}/images/{img_id}`            — remove image (DB + disk)
+- `PATCH  /{id}/images/order`               — reorder by ID list
+- `PATCH  /{id}/admins`                     — replace assignment list (master_admin)
+
+### Tests
+- `backend/tests/test_locations_router.py` — 14 in-memory contract
+  tests (auth, CRUD, slug collisions, upload, PDF rejection, reorder
+  with stale IDs, delete recomputes order, location-delete wipes folder).
+  All passing.
+- Testing agent live-preview run: 14 in-memory + 9 live integration =
+  23/23 backend, 10/10 master_admin UI checkpoints. Zero issues found.
+
+### Polish from testing-agent feedback
+- `branding-grid` testid is now ALWAYS rendered, even with zero images,
+  so automation can anchor on it without first uploading a file.
+- The existing User/Event Management tabs already carry testids
+  (`admin-tab-users`, `admin-tab-events`) — testing-agent's first design
+  note was a false positive; confirmed and dismissed.
+
+### Release
+Bumped `backend/VERSION.txt` and `src-tauri/tauri.conf.json` to
+`32.0.0-alpha.22`. **NOT YET SHIPPED** — waiting for the merchant to
+install alpha.21 via the in-app updater first, validate the comparator +
+.bighat import fixes on disk, then we cut alpha.22.
+
+---
+
+
 ## 2026-02-28 — v32.0.0-alpha.21: imported `.bighat` rounds were invisible
 
 ### What the customer saw

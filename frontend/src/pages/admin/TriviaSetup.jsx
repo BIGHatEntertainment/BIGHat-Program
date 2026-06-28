@@ -473,10 +473,12 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
 
   if (!images.length) {
     return (
-      <div className="rounded-lg p-6 text-center text-sm"
-           style={{ backgroundColor: PALETTE.bg, border: `1px dashed ${PALETTE.border}`, color: PALETTE.textDim }}
-           data-testid="branding-empty">
-        No branding images yet. Drop PNG / JPG / GIF / WEBP files using the Upload button above.
+      <div data-testid="branding-grid" className="grid grid-cols-1">
+        <div className="rounded-lg p-6 text-center text-sm"
+             style={{ backgroundColor: PALETTE.bg, border: `1px dashed ${PALETTE.border}`, color: PALETTE.textDim }}
+             data-testid="branding-empty">
+          No branding images yet. Drop PNG / JPG / GIF / WEBP files using the Upload button above.
+        </div>
       </div>
     );
   }
