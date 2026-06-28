@@ -4,6 +4,7 @@ from typing import List, Dict
 import logging
 import tempfile
 import os
+from pathlib import Path
 
 from sharepoint_service import SharePointService
 from hybrid_pptx_converter import get_hybrid_converter
@@ -190,68 +191,93 @@ async def get_presentation_slides(presentation_id: str) -> Dict:
     """
     Generate slides for a trivia presentation on-demand.
     Downloads files from SharePoint, converts to 16:9 images with overlays.
+
+    For direct-play presentations (alpha.25+), `roundFiles[i].file` is a
+    local absolute path produced by `generate_pptx()` — in that case we
+    skip the SharePoint download and read the file straight off disk.
+    The local-path short-circuit applies to host/location/sponsor files
+    too for symmetry, even though direct-play presentations don't carry
+    those today.
     """
     try:
         # Get presentation from database
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
-        
+
         sp = SharePointService()
         converter = get_hybrid_converter()
         temp_dir = tempfile.mkdtemp(prefix="trivia_view_")
-        
+
+        def _stage_file(remote_or_local: str, local_path: str) -> bool:
+            """Resolve a roundFile/hostFile/locationFile to a usable local
+            .pptx. If the field is already a local path that exists, copy
+            it into the temp dir. Otherwise treat it as a SharePoint path
+            and download. Returns True on success, False on failure.
+            """
+            if not remote_or_local:
+                return False
+            try:
+                src = Path(remote_or_local)
+                if src.is_absolute() and src.is_file():
+                    import shutil
+                    shutil.copy2(str(src), local_path)
+                    return True
+            except Exception:                       # pragma: no cover
+                pass
+            return sp.download_file(remote_or_local, local_path)
+
         all_slides = []
         slide_order = 0
-        
+
         try:
             # 1. Host slide
             if presentation.get('hostFile'):
                 host_local = os.path.join(temp_dir, "host.pptx")
-                if sp.download_file(presentation['hostFile'], host_local):
+                if _stage_file(presentation['hostFile'], host_local):
                     host_slides = converter.convert_pptx_to_slides(host_local, slide_order)
                     all_slides.extend(host_slides)
                     slide_order += len(host_slides)
-            
+
             # 2. Location slide
             if presentation.get('locationFile'):
                 location_local = os.path.join(temp_dir, "location.pptx")
-                if sp.download_file(presentation['locationFile'], location_local):
+                if _stage_file(presentation['locationFile'], location_local):
                     location_slides = converter.convert_pptx_to_slides(location_local, slide_order)
                     all_slides.extend(location_slides)
                     slide_order += len(location_slides)
-            
+
             # 3. Round slides with overlays and sponsors
             round_files = presentation.get('roundFiles', [])
             sponsor_files = presentation.get('sponsorFiles', [])
             sponsor_idx = 0
-            
+
             for round_info in round_files:
                 # Download round file
                 round_local = os.path.join(temp_dir, f"round_{round_info['order']}.pptx")
-                if sp.download_file(round_info['file'], round_local):
+                if _stage_file(round_info['file'], round_local):
                     # Download overlay if specified
                     overlay_local = None
                     if round_info.get('overlayFile'):
                         overlay_local = os.path.join(temp_dir, f"overlay_{round_info['order']}.png")
-                        if not sp.download_file(round_info['overlayFile'], overlay_local):
-                            logger.warning(f"Could not download overlay: {round_info['overlayFile']}")
+                        if not _stage_file(round_info['overlayFile'], overlay_local):
+                            logger.warning(f"Could not stage overlay: {round_info['overlayFile']}")
                             overlay_local = None
-                    
+
                     # Convert with overlay (enforces 16:9)
                     round_slides = converter.convert_pptx_to_slides(round_local, slide_order, overlay_local)
                     all_slides.extend(round_slides)
                     slide_order += len(round_slides)
-                
+
                 # Add sponsor after every other round
                 if round_info['order'] % 2 == 0 and sponsor_idx < len(sponsor_files):
                     sponsor_local = os.path.join(temp_dir, f"sponsor_{sponsor_idx}.pptx")
-                    if sp.download_file(sponsor_files[sponsor_idx], sponsor_local):
+                    if _stage_file(sponsor_files[sponsor_idx], sponsor_local):
                         sponsor_slides = converter.convert_pptx_to_slides(sponsor_local, slide_order)
                         all_slides.extend(sponsor_slides)
                         slide_order += len(sponsor_slides)
                     sponsor_idx += 1
-            
+
             return {
                 "id": presentation['id'],
                 "name": presentation['name'],

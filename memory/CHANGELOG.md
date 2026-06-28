@@ -7,6 +7,88 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.25: Play .bighat directly from Trivia Presenter
+
+### Why
+Merchant runs trivia nights where the round content comes in over email
+as a `.bighat` file (often emailed by the external `.bighat` generator
+the night before the show). Before this release the host had to:
+  1. Open the Round Maker dashboard,
+  2. Import the `.bighat` to land it as a round,
+  3. Go back to the Trivia hub,
+  4. Open Build Wizard,
+  5. Assemble the round into a presentation,
+  6. THEN present.
+Six steps when one would do.
+
+### What changed
+- **New backend endpoint** `POST /api/bighat-files/play-direct`
+  (`bighat_files.py`): runs the upload through the same
+  `_import_zip_bytes()` translator the regular import uses, then calls
+  `generate_pptx()` from `routes/roundmaker` to produce a real `.pptx`,
+  then synthesises a single-round `trivia_presentations` doc with
+  `type='trivia-imported'` so the existing `/trivia-viewer/list`
+  endpoint picks it up automatically. Returns
+  `{presentation_id, round_id, name, round_type}`. Non-round `.bighat`
+  files are rejected with a 400 — they should go through the regular
+  `/import` endpoint instead.
+- **Slides endpoint local-path short-circuit**
+  (`trivia_viewer.py:get_presentation_slides`): direct-play
+  presentations carry a local absolute path in
+  `roundFiles[i].file` (the path `generate_pptx()` wrote). A new
+  `_stage_file()` helper copies that file straight off disk instead
+  of trying to download it from SharePoint — without this the
+  presenter would 404 every direct-play round in native mode. The
+  short-circuit applies to host/location/sponsor files too, even
+  though direct-play doesn't carry those today.
+- **Frontend `BIGHatFileButtons`** gained an `allowPlayDirect` prop.
+  When set, it renders a green "Play .bighat" button alongside the
+  existing "Import" button. Picking a file triggers the standard
+  inspect-then-confirm dialog (so the host sees the file's name + size
+  + asset count + signed status), with the primary CTA relabelled
+  "Play Now". On confirm the file POSTs to `/play-direct` and the
+  router navigates to `/trivia/present?id=<new_presentation_id>` —
+  the same view a regular presentation lands in, so the host can
+  click "Open in Trivia Presenter" to start the show. Play Direct
+  refuses non-round `.bighat` files at the inspect step with a clear
+  toast.
+- **`TriviaDashboard`** turns on `allowPlayDirect` so the button only
+  shows where it makes sense (the Trivia Presenter hub), not on the
+  Round Maker / Bingo / Scoreboard hubs.
+
+### Why this is safe for the canonical Trivia Presenter pipeline
+The phrase "make sure that the files still get read and imported the
+same way that the Trivia Presenter runs its formatting" was important
+to the merchant. `play-direct` deliberately reuses BOTH of those
+existing code paths verbatim — there is no second normaliser, and
+there is no second PPTX renderer:
+  • Import normalisation: `_import_zip_bytes()` — same translator the
+    Round Maker import button uses (alpha.23/24 fixes apply).
+  • PPTX rendering: `generate_pptx()` from `routes/roundmaker` — same
+    function the Round Maker "Download PPTX" button calls. The test
+    `test_play_direct_uses_same_pptx_pipeline_as_round_maker` asserts
+    the generated `.pptx` is byte-identical between the two paths
+    (within a 4 KB tolerance for python-pptx nondeterminism).
+  • Slide rendering: same `hybrid_pptx_converter` the regular
+    Trivia Presenter slide endpoint already uses.
+
+### Tests
+- New: `backend/tests/test_play_direct_bighat.py` (4 cases) — happy
+  path (MC + REG), 400 on non-round payloads, and the
+  same-pipeline-as-round-maker invariant.
+- 66 tests passing in `cd /app && pytest backend/tests/
+  test_play_direct_bighat.py test_cover_image_ingest.py
+  test_question_shape_normalisation.py test_bighat_real_fixtures.py
+  test_bighat_import_list_contract.py test_backup_service.py
+  test_locations_router.py -q`.
+- Live preview-env smoke: POST a real merchant `.bighat`
+  (`mc-01-a.bighat`) to `/play-direct` → 200 with a presentation_id →
+  open `/trivia/present?id=…` → title "MC_01_A (1)" rendered with
+  Direct Play host/location, 1 round visible, "Open in Trivia
+  Presenter" CTA armed.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.24: cover-image preview, MC checkbox, category override
 
 ### What the merchant saw on alpha.23

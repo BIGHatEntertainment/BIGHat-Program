@@ -1018,6 +1018,24 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.25 (2026-02-28)
+**One-click "Play .bighat" from the Trivia Presenter hub.** New
+`POST /api/bighat-files/play-direct` endpoint imports a round `.bighat`,
+compiles it to `.pptx` via the *same* Round Maker `generate_pptx()`
+function that the Round Maker "Download PPTX" button uses, and wraps
+it in a single-round `trivia_presentations` doc so the existing
+presenter UI picks it up unchanged. Frontend gets a green "Play .bighat"
+button in the Trivia Presenter header (alongside Import). Skips Round
+Maker / Build Wizard entirely. The `/trivia-viewer/{id}/slides`
+endpoint gained a local-path short-circuit (`_stage_file`) so the
+generated PPTX is served straight off disk in native mode instead of
+attempting a SharePoint download. 66 backend tests passing including
+a new 4-case suite (`test_play_direct_bighat.py`) that asserts the
+PPTX output is byte-identical to what Round Maker emits — guarantees
+no second formatting code path.
+
+
+
 ## Shipped — v32.0.0-alpha.24 (2026-02-28)
 Post-alpha.23 merchant feedback round. Five issues triaged:
 1. **Stray "Choose File" button** rendering on top of multiple pages

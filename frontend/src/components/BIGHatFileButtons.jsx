@@ -21,9 +21,10 @@
  * cancel out of an accidentally-clicked file.
  */
 import React, { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Download, Upload, X, FileBadge, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Download, Upload, X, FileBadge, ShieldCheck, ShieldAlert, Play } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -34,10 +35,13 @@ const TYPE_LABELS = {
   scoreboard:   'Scoreboard theme',
 };
 
-export default function BIGHatFileButtons({ type, itemId, itemName, onImported }) {
+export default function BIGHatFileButtons({ type, itemId, itemName, onImported, allowPlayDirect = false }) {
   const inputRef = useRef(null);
+  const playInputRef = useRef(null);
+  const navigate = useNavigate();
   const [preview, setPreview] = useState(null);   // {manifest, payload} after inspect
   const [pendingFile, setPendingFile] = useState(null);
+  const [pendingMode, setPendingMode] = useState('import'); // 'import' | 'play-direct'
   const [busy, setBusy] = useState(false);
 
   const handleExport = () => {
@@ -53,7 +57,7 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
     toast.success(`Exporting "${itemName || 'BIG Hat file'}"`);
   };
 
-  const handleFilePick = async (e) => {
+  const handleFilePick = (mode) => async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -66,8 +70,20 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
       const form = new FormData();
       form.append('file', file);
       const res = await axios.post(`${API}/api/bighat-files/inspect`, form);
+      // Play-direct only makes sense for ROUND .bighat files — surface the
+      // error before we commit. The backend enforces the same rule but
+      // failing here gives the user a clearer message.
+      if (mode === 'play-direct' && res.data.type !== 'round') {
+        toast.error(
+          `Play Direct needs a Round .bighat (this is a ${TYPE_LABELS[res.data.type] || res.data.type}). ` +
+          `Use Import instead.`
+        );
+        setBusy(false);
+        return;
+      }
       setPreview(res.data);
       setPendingFile(file);
+      setPendingMode(mode);
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Could not read .bighat file');
     } finally {
@@ -81,13 +97,24 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
     try {
       const form = new FormData();
       form.append('file', pendingFile);
-      const res = await axios.post(`${API}/api/bighat-files/import`, form);
-      toast.success(`Imported "${res.data.name}"`);
-      setPreview(null);
-      setPendingFile(null);
-      if (onImported) onImported(res.data);
+      if (pendingMode === 'play-direct') {
+        const res = await axios.post(`${API}/api/bighat-files/play-direct`, form);
+        toast.success(`Preparing "${res.data.name}"…`);
+        setPreview(null);
+        setPendingFile(null);
+        // Drop into the same view a regular presentation opens in.
+        // The "Open in Trivia Presenter" CTA on that page is what
+        // actually launches the slide editor.
+        navigate(`/trivia/present?id=${res.data.presentation_id}`);
+      } else {
+        const res = await axios.post(`${API}/api/bighat-files/import`, form);
+        toast.success(`Imported "${res.data.name}"`);
+        setPreview(null);
+        setPendingFile(null);
+        if (onImported) onImported(res.data);
+      }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Import failed');
+      toast.error(err.response?.data?.detail || `${pendingMode === 'play-direct' ? 'Play Direct' : 'Import'} failed`);
     } finally {
       setBusy(false);
     }
@@ -96,6 +123,7 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
   const cancelImport = () => {
     setPreview(null);
     setPendingFile(null);
+    setPendingMode('import');
   };
 
   return (
@@ -124,14 +152,37 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
           <Upload size={14} />
           <span>Import</span>
         </button>
+        {allowPlayDirect && (
+          <button
+            type="button"
+            onClick={() => playInputRef.current?.click()}
+            data-testid="bighat-play-direct"
+            title="Pick a .bighat round file and present it immediately, skipping Round Maker / Build Wizard."
+            disabled={busy}
+            style={playBtnStyle}
+          >
+            <Play size={14} />
+            <span>Play .bighat</span>
+          </button>
+        )}
         <input
           ref={inputRef}
           type="file"
           accept=".bighat,application/x-bighat"
-          onChange={handleFilePick}
+          onChange={handleFilePick('import')}
           style={{ display: 'none' }}
           data-testid={`bighat-import-input-${type}`}
         />
+        {allowPlayDirect && (
+          <input
+            ref={playInputRef}
+            type="file"
+            accept=".bighat,application/x-bighat"
+            onChange={handleFilePick('play-direct')}
+            style={{ display: 'none' }}
+            data-testid="bighat-play-direct-input"
+          />
+        )}
       </div>
 
       {preview && (
@@ -188,7 +239,9 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
               <button onClick={cancelImport} data-testid="bighat-import-confirm-cancel" style={ghostBtn}>Cancel</button>
               <button onClick={confirmImport} disabled={busy}
                       data-testid="bighat-import-confirm-ok" style={primaryBtn}>
-                {busy ? 'Importing...' : 'Import to library'}
+                {busy
+                  ? (pendingMode === 'play-direct' ? 'Preparing…' : 'Importing...')
+                  : (pendingMode === 'play-direct' ? 'Play Now' : 'Import to library')}
               </button>
             </div>
           </div>
@@ -203,6 +256,15 @@ const btnStyle = {
   padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(251,221,104,0.25)',
   background: 'rgba(251,221,104,0.08)', color: '#fbdd68', cursor: 'pointer',
   fontSize: 13, fontWeight: 600,
+};
+
+const playBtnStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(34, 197, 94, 0.4)',
+  // Slightly louder than the import button so the host's eye lands here
+  // when their job is "play this thing the generator just emailed me".
+  background: 'rgba(34, 197, 94, 0.12)', color: '#86efac', cursor: 'pointer',
+  fontSize: 13, fontWeight: 700,
 };
 
 const primaryBtn = {
