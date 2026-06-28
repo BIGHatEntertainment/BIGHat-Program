@@ -41,6 +41,92 @@ function initAnswers() {
   return Array.from({ length: 10 }, (_, i) => ({ number: i + 1, answer: "" }));
 }
 
+/**
+ * UI-side defensive question normaliser.
+ *
+ * The backend normaliser at `_normalise_question` (Phase 10.7/alpha.23)
+ * already maps third-party `.bighat` payloads onto the canonical
+ * `QuestionItem` schema at import time. But:
+ *   • Rounds imported BEFORE alpha.23 were inserted verbatim and still
+ *     carry `prompt` / `correct_index` / `options:[{text,correct}]`,
+ *   • a future generator can ship a shape we haven't accounted for.
+ *
+ * Rather than push another migration into Mongo, we be defensive on
+ * read here so legacy + unknown shapes render correctly in the editor.
+ * The fields we set match what `buildPayload` writes back on save, so
+ * one round-trip through the editor canonicalises the row permanently.
+ */
+function normaliseQuestionForUi(q, idx, config) {
+  if (!q || typeof q !== "object") {
+    return {
+      number: idx + 1,
+      question: typeof q === "string" ? q : "",
+      answer: "",
+      options: config?.hasOptions ? ["", "", "", ""] : undefined,
+      correctOption: config?.hasOptions ? -1 : undefined,
+    };
+  }
+
+  const number = (typeof q.number === "number" && q.number > 0)
+    ? q.number
+    : (typeof q.n === "number" && q.n > 0 ? q.n : idx + 1);
+
+  // Question text — fall back through every name we've seen.
+  const question =
+    q.question || q.prompt || q.text || q.q || q.title || "";
+
+  // Options + correctOption — be liberal in what we accept.
+  let options = q.options;
+  let correctOption = q.correctOption;
+
+  if (Array.isArray(options) && options.length && typeof options[0] === "object" && options[0] !== null) {
+    // External generator shape: [{text, correct}, ...]
+    const flatOptions = [];
+    options.forEach((opt, oIdx) => {
+      const text = opt?.text ?? opt?.label ?? opt?.value ?? opt?.option ?? "";
+      flatOptions.push(String(text || ""));
+      const isCorrectFlag = opt?.correct === true || opt?.is_correct === true || opt?.isCorrect === true;
+      if (isCorrectFlag && (correctOption === undefined || correctOption === null || correctOption < 0)) {
+        correctOption = oIdx;
+      }
+    });
+    options = flatOptions;
+  } else if (Array.isArray(options)) {
+    options = options.map((o) => (typeof o === "string" ? o : String(o ?? "")));
+  } else if (config?.hasOptions) {
+    options = ["", "", "", ""];
+  } else {
+    options = undefined;
+  }
+
+  if (correctOption === undefined || correctOption === null) {
+    // Try snake_case + camelCase variants from third-party generators.
+    if (typeof q.correct_option === "number") correctOption = q.correct_option;
+    else if (typeof q.correct_index === "number") correctOption = q.correct_index;
+    else if (typeof q.correctIndex === "number") correctOption = q.correctIndex;
+  }
+  if (typeof correctOption !== "number" || correctOption < 0 || correctOption > 3) {
+    // For letter shortcuts (A/B/C/D) in q.answer / q.correctAnswer
+    const letterRaw = q.correctAnswer || q.correct_answer || (typeof q.answer === "string" && q.answer.trim().length === 1 ? q.answer : null);
+    if (typeof letterRaw === "string" && /^[A-Da-d]$/.test(letterRaw.trim())) {
+      correctOption = letterRaw.trim().toUpperCase().charCodeAt(0) - 65;
+    } else {
+      correctOption = config?.hasOptions ? -1 : undefined;
+    }
+  }
+
+  // Answer text — used by REG/MISC/MYS and by the answers slide on MC.
+  const answer = q.answer || q.correctAnswer || q.correct_answer || "";
+
+  return {
+    number,
+    question,
+    answer,
+    options,
+    correctOption,
+  };
+}
+
 export default function RoundCreator() {
   const { roundType } = useParams();
   const [searchParams] = useSearchParams();
@@ -136,19 +222,32 @@ export default function RoundCreator() {
       const data = res.data;
       setRoundName(data.name);
       if (data.tiebreaker) setTiebreaker(data.tiebreaker);
-      if (data.cover_image_id) setCoverFileId(data.cover_image_id);
+      if (data.cover_image_id) {
+        setCoverFileId(data.cover_image_id);
+        // Display the imported / previously-uploaded cover image in the
+        // editor. The `/cover-image/{id}` endpoint resolves the file by
+        // stem (extension-agnostic) so this works for .bighat imports
+        // (cover.jpg / title_card.png / …) AND manual uploads alike.
+        setCoverPreview(`${API}/roundmaker/cover-image/${data.cover_image_id}`);
+      }
       if (roundType === "BIG" && data.questions?.length) {
-        const answers = data.questions.map((q, i) => ({ number: i + 1, answer: q.answer || "" }));
+        const answers = data.questions.map((q, i) => ({
+          number: i + 1,
+          answer: q.answer || "",
+        }));
         setBigAnswers(answers);
         if (data.questions[0]) {
-          setQuestions([{ number: 1, question: data.questions[0].question, answer: "" }]);
+          // Defensive: pick the first non-empty field for the BIG question
+          // text in case the imported payload only carried `prompt`.
+          const bigQ = data.questions[0];
+          const qText = bigQ.question || bigQ.prompt || bigQ.text || "";
+          setQuestions([{ number: 1, question: qText, answer: "" }]);
         }
       } else if (data.questions?.length) {
-        setQuestions(data.questions.map((q) => ({
-          ...q,
-          correctOption: q.correctOption ?? -1,
-          options: q.options || (config?.hasOptions ? ["", "", "", ""] : undefined),
-        })));
+        // Defensive normalisation — handles legacy pre-alpha.23 imports
+        // whose questions never went through the backend normaliser, plus
+        // any future external generator that emits a shape we haven't seen.
+        setQuestions(data.questions.map((q, idx) => normaliseQuestionForUi(q, idx, config)));
       }
     } catch (e) {
       toast.error("Failed to load round data");
@@ -401,6 +500,45 @@ export default function RoundCreator() {
               >
                 {config.name}
               </h1>
+              {/* Manual round-category override.
+                  When the host imports a `.bighat` and the auto-detected
+                  round_type is wrong, this dropdown lets them re-classify
+                  the round without re-importing. Selecting a new type
+                  navigates the editor to that type's layout (the form
+                  re-mounts and re-loads the same edit ID) — unsaved
+                  field edits are not preserved on switch, but the
+                  questions + cover image from the DB are. */}
+              {editId && (
+                <Select
+                  value={roundType}
+                  onValueChange={(next) => {
+                    if (next && next !== roundType) {
+                      navigate(`/roundmaker/create/${next}?edit=${editId}`);
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    data-testid="round-type-override"
+                    className="h-8 w-36 bg-slate-900/50 border-slate-700 text-slate-200 text-xs
+                      hover:border-teal-400 focus:border-teal-400"
+                    title="Change round category"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    {Object.entries(ROUND_CONFIG).map(([code, cfg]) => (
+                      <SelectItem
+                        key={code}
+                        value={code}
+                        data-testid={`round-type-override-${code}`}
+                        className="text-slate-200 focus:bg-slate-700/50 focus:text-teal-300"
+                      >
+                        {code} · {cfg.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -601,13 +739,18 @@ export default function RoundCreator() {
                 <Label className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-2 block">
                   Title Image
                 </Label>
+                {/* Prefer the imported cover image when the round was
+                    imported from a .bighat that bundled assets/cover.*
+                    or assets/title_card.* — the host's choice on
+                    import wins over the canned title card. Falls back
+                    to the canned title card otherwise. */}
                 <div
                   data-testid="cover-fixed-preview"
                   className="w-full rounded-xl overflow-hidden border border-slate-700"
                 >
-                  <img 
-                    src={`${API}/roundmaker/title-cards/${roundType}`} 
-                    alt={`${roundType} Title Card`} 
+                  <img
+                    src={coverPreview || `${API}/roundmaker/title-cards/${roundType}`}
+                    alt={`${roundType} Title Card`}
                     className="w-full h-48 object-cover rounded-xl"
                     onError={(e) => { e.target.style.display = 'none'; }}
                   />

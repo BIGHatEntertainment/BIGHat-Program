@@ -1,0 +1,42 @@
+{
+  "summary": "Alpha.24 review: imported .bighat cover-image ingestion, MC normalisation, REG normalisation, round-type override dropdown, backup folder canonical name, and the global stray 'Choose File' regression are all working correctly. Backend regression (62 tests) + new live suite (7 tests) both green. Frontend editor verified end-to-end against the preview URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_alpha24_live.py",
+    "/app/backend/tests/test_cover_image_ingest.py",
+    "/app/backend/tests/test_question_shape_normalisation.py",
+    "/app/backend/tests/test_bighat_real_fixtures.py",
+    "/app/backend/tests/test_bighat_import_list_contract.py",
+    "/app/backend/tests/test_backup_service.py",
+    "/app/backend/tests/test_locations_router.py"
+  ],
+  "tests_executed": {
+    "regression_suite": "62/62 passing (cover_image_ingest, question_shape_normalisation, bighat_real_fixtures, bighat_import_list_contract, backup_service, locations_router)",
+    "live_alpha24_suite": "7/7 passing (MC import normalisation w/ correctOption=0 for M*A*S*H, cover-image endpoint 200, 404 on random uuid, traversal rejection, REG animals-1 Q1/Q2 content, backup folder name, round_type exposed on payload)",
+    "frontend_e2e": {
+      "stray_choose_file": "0 visible occurrences on dashboard, /roundmaker, /trivia-setup (login flow OK with Sellards@bighat.live)",
+      "round_type_override_dropdown": "Visible in MC edit mode; all 5 options found (round-type-override-{MC,REG,MISC,MYS,BIG})",
+      "imported_cover_image": "<img> inside cover-fixed-preview src points to /api/roundmaker/cover-image/{uuid}; image loads (naturalWidth=1248x702, complete=true); MD5 of served bytes matches the cover.jpg packaged inside mc-01-a.bighat (568aad176b3ab480398062c92f339510). Note: the bundled cover for mc-01-a happens to be a 'Multiple Choice' graphic that visually resembles the canned template, but it is in fact the imported asset (verified via MD5).",
+      "mc_correct_option_checkbox": "Q1 'What TV series has the most watched series finale ever?' shows A) M*A*S*H ticked; Q2 'Regina is the capital of...' shows C) Saskatchewan ticked. 10 'Answer: X)' badges present (one per question).",
+      "reg_animals_1": "Verified at API level (Q1 teeth/Giant Armadillo, Q2 cancer/Naked Mole Rats)."
+    }
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "RoundCreator.js is ~1045 lines; still growing. Consider extracting the per-coverMode (MC/MYS/BIG/REG/MISC) rendering branches into small subcomponents to keep the file under 700 lines and ease future maintenance.",
+    "The cover-image route (roundmaker.py) correctly rejects ..%2F / ../ traversal — but it would be safer to also reject any value containing '/', '\\', or '..' segments at the route validator level (defensive belt-and-braces) since extension-agnostic stem lookups walk the disk.",
+    "loadRoundData builds cover URL via string concat — if cover_image_id is ever a legacy 24-char ObjectId (per agent-to-agent note), the <img> onError handler silently sets display:none. Consider also showing a fallback to the canned title card in that case so the editor never has a blank slot."
+  ],
+  "updated_files": ["/app/backend/tests/test_alpha24_live.py (new live preview-env regression for alpha.24 changes)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Sellards@bighat.live / BigHat2024! (preview env, from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Live tests import mc-01-a.bighat and animals-1.bighat fixtures via POST /api/bighat-files/import; this creates fresh rounds in the preview DB on every run. Cleanup intentionally not performed (preview env, harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Live alpha.24 suite is at /app/backend/tests/test_alpha24_live.py — use it as the smoke for any future cover-image / question-normalisation / backup-folder regressions. The fixture mc-01-a.bighat bundles a cover.jpg that visually resembles the canned MC title card; verify any 'cover wrong image' user reports by MD5'ing the served bytes against the cover.jpg inside the .bighat (sample sha verified 568aad176b3ab480398062c92f339510). Legacy DB rounds with GridFS-ObjectId cover_image_ids will 404 on the new endpoint — known and accepted for alpha.24."
+}

@@ -130,6 +130,27 @@ async def serve_upload(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(file_path))
 
+
+@router.get("/cover-image/{file_id}")
+async def serve_cover_image(file_id: str):
+    """Serve an uploaded cover image by its UUID stem (extension-agnostic).
+
+    Mirrors `_find_cover_image()`: walks UPLOAD_DIR and returns the first
+    file whose stem matches. Used by the Round Maker editor to preview
+    a round's cover image when the extension isn't carried in the
+    `cover_image_id` field — e.g. for .bighat imports where the bundle
+    decides the format (cover.jpg vs title_card.png).
+    """
+    # Defensive: only allow safe stems (uuid-shape) so we can't be
+    # tricked into reading something outside UPLOAD_DIR.
+    if "/" in file_id or "\\" in file_id or ".." in file_id:
+        raise HTTPException(status_code=400, detail="Invalid file id")
+    match = _find_cover_image(file_id)
+    if not match:
+        raise HTTPException(status_code=404, detail="Cover image not found")
+    return FileResponse(match)
+
+
 # ── Round CRUD ──
 
 @router.post("/rounds", response_model=RoundResponse)

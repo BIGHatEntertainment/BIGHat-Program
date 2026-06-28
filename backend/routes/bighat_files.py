@@ -574,11 +574,24 @@ def _normalise_question(q: dict, idx: int) -> dict:
 async def _ingest_cover_image(assets: dict[str, bytes]) -> str | None:
     """If the .bighat archive bundles a title-card / cover image under
     `assets/title_card.*` or `assets/cover.*` (the external generator's
-    convention is `title_card.png`), upload it to GridFS and return the
-    file id so the importer can persist `doc.cover_image_id`. Returns
-    None if no recognisable cover asset was bundled.
+    convention is `title_card.png`), write it to the Round Maker upload
+    directory (same place `POST /api/roundmaker/upload-cover` writes)
+    and return a uuid `file_id` so:
+      • `cover_image_id` persisted on the round mirrors the same shape
+        the manual upload flow uses,
+      • the existing `_find_cover_image()` helper finds the bytes when
+        generating the PPTX (it walks UPLOAD_DIR by stem),
+      • the existing `GET /api/roundmaker/uploads/{filename}` route
+        serves the image so the editor can preview it.
+
+    Returns None if no recognisable cover asset was bundled.
+
+    NOTE — alpha.24: previous versions of this helper wrote to GridFS,
+    which broke both the PPTX generator AND the editor preview (no UI
+    endpoint served GridFS blobs by id). Keeping a single on-disk
+    convention simplifies the entire cover-image story.
     """
-    if not assets or db is None:
+    if not assets:
         return None
     # Heuristic: any asset whose filename stem is in our canonical set,
     # regardless of extension.
@@ -593,21 +606,25 @@ async def _ingest_cover_image(assets: dict[str, bytes]) -> str | None:
         return None
     name, blob = chosen
     suffix = Path(name).suffix.lower()
-    mime = {
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".gif": "image/gif", ".webp": "image/webp",
-    }.get(suffix, "application/octet-stream")
+    if suffix not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        suffix = ".png"
     try:
-        from motor.motor_asyncio import AsyncIOMotorGridFSBucket
-        bucket = AsyncIOMotorGridFSBucket(db)
-        file_id = await bucket.upload_from_stream(
-            f"imported-{name}",
-            io.BytesIO(blob),
-            metadata={"contentType": mime, "imported_from": ".bighat"},
-        )
-        return str(file_id)
+        # Mirror the layout `POST /api/roundmaker/upload-cover` uses so
+        # `_find_cover_image()` discovers the file by stem. Resolve the
+        # UPLOAD_DIR via whichever import path is active (the dev sandbox
+        # imports as `routes.roundmaker`; tests import as
+        # `backend.routes.roundmaker`).
+        try:
+            from routes.roundmaker import UPLOAD_DIR as ROUNDMAKER_UPLOAD_DIR
+        except ModuleNotFoundError:
+            from backend.routes.roundmaker import UPLOAD_DIR as ROUNDMAKER_UPLOAD_DIR
+        ROUNDMAKER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        file_id = str(uuid.uuid4())
+        out_path = ROUNDMAKER_UPLOAD_DIR / f"{file_id}{suffix}"
+        out_path.write_bytes(blob)
+        return file_id
     except Exception as exc:                       # pragma: no cover
-        logger.warning("[bighat-files] cover image upload failed: %s", exc)
+        logger.warning("[bighat-files] cover image write failed: %s", exc)
         return None
 
 
