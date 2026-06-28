@@ -1017,6 +1017,38 @@ the whole endpoint. 8 new contract tests in
 alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
+
+## Shipped — v32.0.0-alpha.24 (2026-02-28)
+Post-alpha.23 merchant feedback round. Five issues triaged:
+1. **Stray "Choose File" button** rendering on top of multiple pages
+   — already resolved by `display:none` on the hidden file input.
+2. **MC correct-option checkbox empty on imported rounds** — the
+   backend translator was producing correct data but the frontend
+   `loadRoundData` couldn't handle pre-alpha.23 legacy rows. New
+   `normaliseQuestionForUi` helper handles every shape we've seen
+   (prompt/correct_index/options-as-objects/letter answers).
+3. **Bundled title image never appeared in the editor** — root cause:
+   alpha.23's `_ingest_cover_image` wrote to GridFS with no HTTP
+   endpoint to read it back, and `_find_cover_image` couldn't see it
+   either. Switched to writing `<uuid>.<ext>` into `UPLOAD_DIR` —
+   same shape as a manual upload, so PPTX generator + editor preview
+   both work. New endpoint `GET /api/roundmaker/cover-image/{file_id}`
+   serves by stem (extension-agnostic, path-traversal-safe).
+4. **No manual round-type override** — added a dropdown next to the
+   editor title (`data-testid="round-type-override"`) that lets the
+   merchant re-classify between MC/REG/MISC/MYS/BIG. Selecting a new
+   type navigates to that layout with the same edit id.
+5. **Backup folder duplicating as "BIG Hat" + "BIGHat"** — already
+   resolved by canonicalising `backup_service.py` to "BIGHat
+   Entertainment" (matches the rest of the app's data dir naming).
+
+New backend test file `test_cover_image_ingest.py` (7 cases).
+69 tests passing across cover-ingest, question-shape, real-fixtures,
+import-list, backup, locations. Frontend e2e verified live —
+MC checkboxes ticked, imported title image visible, override
+dropdown lists all 5 codes.
+
+
 ## Shipped — v32.0.0-alpha.23 (2026-02-28)
 External-generator `.bighat` imports now produce fully-populated
 rounds in the dashboard. Question text, options, correct-option

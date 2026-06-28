@@ -7,6 +7,92 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.24: cover-image preview, MC checkbox, category override
+
+### What the merchant saw on alpha.23
+After alpha.23 shipped the backend question normaliser, the merchant
+imported the same five `.bighat` files (mc-01-a, animals-1, arizona-1,
+mystery-apples, big-cactus-league-easy) and opened them in the Round
+Maker editor. Five issues showed up:
+  1. A stray "Choose File" button rendered globally on multiple pages.
+  2. The Multiple Choice checkbox for the correct option wasn't ticked.
+  3. The title image bundled inside each `.bighat` didn't render in
+     the editor; the canned title card showed instead.
+  4. No way to manually re-classify a round's category (MC/REG/MISC/
+     MYS/BIG) — auto-detect locked the host in.
+  5. Backups landed in `Documents/BIG Hat Entertainment/Backups` while
+     all other app data lived under `Documents/BIGHat Entertainment/…`,
+     producing two near-identical sibling folders.
+
+### Root cause
+Two of the five (1 and 5) were superficial mismatches already patched
+by `search_replace` at the end of the previous session. The remaining
+three were all downstream of a single architectural mistake in
+alpha.23: `_ingest_cover_image()` uploaded the bundled title image to
+GridFS, but:
+  • `_find_cover_image()` (which the PPTX generator depends on) only
+    walks `backend/roundmaker_uploads/` by stem — it never knew how
+    to talk to GridFS, so the imported cover silently dropped out of
+    the rendered PPTX.
+  • There was no HTTP endpoint to serve a GridFS-stored image, so
+    the editor had nothing to paint into the title-image slot.
+The frontend then compounded #2 by trusting the backend normaliser
+to be the only source of truth — pre-alpha.23 imports stayed broken
+forever because their rows never went through the translator.
+
+### Fix
+**Backend:**
+- `_ingest_cover_image()` now writes the bundled image to
+  `UPLOAD_DIR/<uuid>.<ext>` (same shape as `POST /upload-cover`) and
+  returns the UUID stem. `_find_cover_image()` already walks
+  UPLOAD_DIR by stem so the PPTX generator picks it up.
+  `cover_image_id` on the round doc is now identical in shape to a
+  manually-uploaded cover, so the entire downstream pipeline is
+  oblivious to whether the image came from an import or an upload.
+- New route `GET /api/roundmaker/cover-image/{file_id}` serves the
+  cover by stem (extension-agnostic), rejecting any `/`, `\`, or `..`
+  in the file id as a path-traversal defence.
+
+**Frontend (`RoundCreator.js`):**
+- Added `normaliseQuestionForUi(q, idx, config)` — defensive read-side
+  translator that handles every shape we've seen in the wild
+  (`prompt`/`text`/`q`/`title` → `question`,
+  `options:[{text,correct}]` → `[strings]+correctOption`,
+  `correct_index` / `correctIndex` / `correct_option` →
+  `correctOption`, letter answers A/B/C/D → `correctOption`).
+  This means pre-alpha.23 rows ALSO render correctly the next time
+  the merchant opens them, and one trip through Save canonicalises
+  the row permanently.
+- `loadRoundData` now sets `coverPreview` from `cover_image_id` via
+  the new endpoint so the imported title image appears in the
+  Title Image slot for every round type.
+- Added a round-type override dropdown (`data-testid="round-type-override"`)
+  next to the page title — only visible in edit mode — that lets
+  the merchant re-classify the round between MC / REG / MISC / MYS / BIG.
+  Selecting a new type navigates to that layout with the same edit id.
+- The fixed-coverMode (MC/MYS/BIG) `<img>` now prefers the imported
+  `coverPreview` over the canned title card, with an `onError`
+  fallback to the canned card so legacy GridFS-id rows never show
+  a blank slot.
+
+### Tests
+- New: `backend/tests/test_cover_image_ingest.py` (7 cases) —
+  UPLOAD_DIR write, extension handling (png/jpg), stem recognition
+  (`cover`, `title_card`, etc.), endpoint round-trip, 404 on unknown
+  id, path-traversal rejection.
+- `backend/tests/test_bighat_real_fixtures.py` continues to assert
+  the 5 real merchant `.bighat` files import correctly (stubs the
+  cover-ingest path).
+- 62 backend tests passing in `cd /app && pytest backend/tests/
+  test_cover_image_ingest.py test_question_shape_normalisation.py
+  test_bighat_real_fixtures.py test_bighat_import_list_contract.py
+  test_backup_service.py test_locations_router.py -q`.
+- Frontend e2e verified live at preview env: MC checkbox ticked,
+  title image served from `/api/roundmaker/cover-image/...`,
+  override dropdown shows all 5 round-type codes.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.23: external-generator `.bighat` import
 
 ### What the merchant saw on alpha.22

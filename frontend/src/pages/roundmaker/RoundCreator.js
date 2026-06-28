@@ -752,7 +752,19 @@ export default function RoundCreator() {
                     src={coverPreview || `${API}/roundmaker/title-cards/${roundType}`}
                     alt={`${roundType} Title Card`}
                     className="w-full h-48 object-cover rounded-xl"
-                    onError={(e) => { e.target.style.display = 'none'; }}
+                    onError={(e) => {
+                      // Legacy rounds imported before alpha.24 carry a
+                      // GridFS ObjectId in `cover_image_id` instead of
+                      // a UUID stem under UPLOAD_DIR. The new endpoint
+                      // 404s for them — fall back to the canned title
+                      // card so the editor never shows a blank slot.
+                      const fallback = `${API}/roundmaker/title-cards/${roundType}`;
+                      if (e.target.src !== fallback) {
+                        e.target.src = fallback;
+                      } else {
+                        e.target.style.display = 'none';
+                      }
+                    }}
                   />
                 </div>
               </div>
