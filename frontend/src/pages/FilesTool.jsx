@@ -28,13 +28,26 @@ const API = process.env.REACT_APP_BACKEND_URL;
 // /app/backend/native/files_router.py — the backend rejects anything
 // else with a 400. "All" is a UI-only synthetic value that means
 // "aggregate across every subfolder".
+//
+// Trivia is split by round_type at the filesystem level — clicking
+// "Trivia" shows ALL round types; the host can drill into a specific
+// type (MC / REG / MISC / MYS / BIG) via the sub-tabs that surface
+// below the main row.
 const FOLDERS = [
-  { key: 'all',     label: 'All' },
-  { key: 'Rounds',  label: 'Rounds' },
-  { key: 'Bingo',   label: 'Bingo' },
-  { key: 'Karaoke', label: 'Karaoke' },
-  { key: 'Other',   label: 'Other' },
+  { key: 'all',        label: 'All' },
+  { key: 'Trivia',     label: 'Trivia' },
+  { key: 'Bingo',      label: 'Bingo' },
+  { key: 'Karaoke',    label: 'Karaoke' },
+  { key: 'Hosts',      label: 'Hosts' },
+  { key: 'Locations',  label: 'Locations' },
+  { key: 'Scoreboard', label: 'Scoreboard' },
+  { key: 'Other',      label: 'Other' },
 ];
+
+// Trivia round_type sub-buckets — surfaced as a secondary row when the
+// host has the Trivia tab selected so they can drill into one round
+// type without scrolling through every round file.
+const TRIVIA_BUCKETS = ['MC', 'REG', 'MISC', 'MYS', 'BIG', '_Other'];
 
 // Which content_types are "loadable" into which destinations. The
 // matrix here drives which "Load into…" buttons appear per row.
@@ -195,7 +208,7 @@ export default function FilesTool() {
                 data-testid={`folder-tab-${f.key}`}
                 onClick={() => setSelectedFolder(f.key)}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
-                  selectedFolder === f.key
+                  selectedFolder === f.key || selectedFolder.startsWith(`${f.key}/`)
                     ? 'bg-blue-50 border-blue-300 text-blue-700'
                     : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
                 }`}
@@ -215,6 +228,43 @@ export default function FilesTool() {
               <ExternalLink className="w-4 h-4 mr-1" /> Reveal in folder
             </Button>
           </div>
+
+          {/* Trivia round-type sub-tabs — only visible when the Trivia
+              tab (or a specific Trivia/<TYPE> bucket) is selected. Lets
+              the host drill into one round type without leaving the
+              page. The Build Wizard + Round Roulette use the same
+              underlying buckets when assembling presentations. */}
+          {(selectedFolder === 'Trivia' || selectedFolder.startsWith('Trivia/')) && (
+            <div className="flex flex-wrap items-center gap-2 mb-4 pl-4 border-l-2 border-blue-100"
+                 data-testid="trivia-bucket-tabs">
+              <span className="text-xs uppercase tracking-wider text-gray-500 mr-1">Round type:</span>
+              <button
+                data-testid="trivia-bucket-all"
+                onClick={() => setSelectedFolder('Trivia')}
+                className={`px-2 py-1 rounded text-xs font-medium border ${
+                  selectedFolder === 'Trivia'
+                    ? 'bg-blue-100 border-blue-300 text-blue-800'
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                All
+              </button>
+              {TRIVIA_BUCKETS.map((bucket) => (
+                <button
+                  key={bucket}
+                  data-testid={`trivia-bucket-${bucket}`}
+                  onClick={() => setSelectedFolder(`Trivia/${bucket}`)}
+                  className={`px-2 py-1 rounded text-xs font-medium border ${
+                    selectedFolder === `Trivia/${bucket}`
+                      ? 'bg-blue-100 border-blue-300 text-blue-800'
+                      : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {bucket === '_Other' ? 'Unclassified' : bucket}
+                </button>
+              ))}
+            </div>
+          )}
 
           {folder && (
             <div data-testid="files-folder" className="flex items-center gap-2 text-xs text-gray-500 mb-6">

@@ -340,12 +340,13 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {round.status === "uploaded" ? (
-                        <span className="flex items-center gap-1 text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded-full">
-                          <CheckCircle size={12} />
-                          On SharePoint
-                        </span>
-                      ) : round.status === "pending_approval" || round.approval_status === "pending" ? (
+                      {/* Standalone-mode (alpha.27): rounds are saved to the
+                          local `Documents\\BIG Hat Entertainment\\Files\\Trivia\\<type>\\`
+                          tree (no SharePoint roundtrip), so the only state
+                          a round can be in is "Draft" (the host is still
+                          building) or saved-and-ready. Approval gates
+                          remain for users who need editorial review. */}
+                      {round.approval_status === "pending" ? (
                         <span className="flex items-center gap-1 text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-full">
                           Pending Approval
                         </span>
@@ -353,23 +354,7 @@ export default function Dashboard() {
                         <span className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded-full">
                           Rejected
                         </span>
-                      ) : (
-                        <Button
-                          data-testid={`upload-sp-btn-${round.id}`}
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => handleUploadSharepoint(round, e)}
-                          disabled={uploadingId === round.id || !sharepointReady}
-                          className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 disabled:opacity-40"
-                        >
-                          {uploadingId === round.id ? (
-                            <Loader2 size={16} className="mr-1 animate-spin" />
-                          ) : (
-                            <Upload size={16} className="mr-1" />
-                          )}
-                          {uploadingId === round.id ? "Uploading..." : "SharePoint"}
-                        </Button>
-                      )}
+                      ) : null}
                       <Button
                         data-testid={`duplicate-btn-${round.id}`}
                         variant="ghost"
@@ -529,7 +514,7 @@ function AdminPanel({ rounds, onRefresh }) {
           {allRounds.map(round => {
             const config = getRoundConfig(round.round_type);
             const statusColor = round.status === 'uploaded' ? '#22c55e' : round.approval_status === 'pending' ? '#eab308' : round.approval_status === 'rejected' ? '#ef4444' : '#8892b0';
-            const statusLabel = round.status === 'uploaded' ? 'On SharePoint' : round.approval_status === 'pending' ? 'Pending' : round.approval_status === 'rejected' ? 'Rejected' : round.approval_status === 'approved' ? 'Uploaded' : 'Draft';
+            const statusLabel = round.approval_status === 'pending' ? 'Pending' : round.approval_status === 'rejected' ? 'Rejected' : round.approval_status === 'approved' ? 'Approved' : 'Draft';
             return (
               <div key={round.id} className="rounded-lg px-4 py-3 flex items-center justify-between" style={{ backgroundColor: 'rgba(20, 27, 80, 0.3)', border: '1px solid rgba(251, 221, 104, 0.05)' }}>
                 <div className="flex items-center gap-3">

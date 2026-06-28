@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.27: Documents whitelist + Files tool fixes + SharePoint button removal
+
+### Merchant feedback on alpha.26
+Three issues after the alpha.26 install:
+  1. A `backend/` folder showed up inside `Documents/BIG Hat
+     Entertainment/`. That's program data and belongs in
+     `%LOCALAPPDATA%\BIGHat\data` / `Program Files\BIG Hat
+     Entertainment\` — never Documents.
+  2. The Files tool still showed a "Rounds" tab — the alpha.26
+     `Rounds`→`Trivia` rename only touched the backend layout.
+  3. The Round Maker dashboard still showed a "SharePoint" button
+     on every round row, with "On SharePoint" status badges. This is
+     a standalone app — files live locally under `Files/`, no
+     SharePoint anywhere.
+
+### What changed
+
+**Documents whitelist — no more stray `backend/`:**
+- `files_router.ALLOWED_DOCS_CHILDREN` now whitelists exactly two
+  children of the canonical "BIG Hat Entertainment" Documents root:
+  `Files/` and `Backups/`. Anything else moved across by the
+  legacy-folder merger (e.g. an old `backend/` directory from a
+  previous build, a `python/` interpreter copy from a corrupted
+  install) gets quarantined into
+  `BIG Hat Entertainment/.legacy-unknown/<alias>/` instead of being
+  silently mixed in with the merchant's data.
+- The merger no longer flattens the legacy tree with `_merge_tree` —
+  it walks each top-level child explicitly, decides based on the
+  whitelist whether to migrate or quarantine, and removes empty
+  legacy alias directories at the end.
+
+**`Files/` is now the umbrella for ALL user content:**
+- `Hosts/` moved from `BIG Hat Entertainment/Hosts/` (sibling of
+  `Files/`) to `BIG Hat Entertainment/Files/Hosts/`. `_hosts_root()`
+  migrates pre-existing legacy hosts data on first launch.
+- New `Files/Locations/` subfolder for location media (images +
+  copy).
+- New `Files/Scoreboard/` subfolder for scoreboard JSON files.
+- `SUBFOLDERS` is now `("Trivia", "Bingo", "Karaoke", "Hosts",
+  "Locations", "Scoreboard", "Other")`. `/folder` endpoint returns
+  the same list so the Files tool tabs reflect the on-disk layout
+  one-to-one.
+
+**Files tool UI (alpha.27):**
+- `FilesTool.jsx`: tab row now shows
+  `All / Trivia / Bingo / Karaoke / Hosts / Locations / Scoreboard / Other`.
+- New secondary tab row appears under "Trivia" with round-type
+  buckets (`MC / REG / MISC / MYS / BIG / Unclassified`) so the
+  merchant can drill into one round type without scrolling through
+  the whole library. The bucket tabs use the same `?folder=Trivia/MC`
+  routing the backend already serves (alpha.26).
+- `bighatPicker.js` default subfolder switched from `Rounds` →
+  `Trivia` and now handles the slash-form (`Trivia/MC`) by
+  normalising to the host OS path separator before passing to the
+  Tauri native dialog's `defaultPath`.
+
+**SharePoint button removed from Round Maker dashboard:**
+- `RoundMakerDashboard.js`: the per-round green "SharePoint" upload
+  button and the "On SharePoint" status badge are gone. Rounds save
+  locally; the only states a round can be in are Draft, Pending,
+  Rejected, Approved.
+- Status label dropped the "On SharePoint" / "Uploaded" disambiguation.
+
+### Tests
+- New: `backend/tests/test_alpha27_layout_hardening.py` (6 cases) —
+  whitelist guard for unknown legacy children, Hosts/ migrated
+  under Files/, Locations/Scoreboard exist + resolve via
+  `?folder=`, /folder endpoint exposes the full subfolder list and
+  round_type bucket set.
+- 78 tests passing across alpha.27 + alpha.26 + cover-ingest +
+  question-shape + real-fixtures + import-list + backup + locations.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.26: revert Play .bighat, unify Documents folder, Trivia round-type buckets
 
 ### Why (merchant feedback on alpha.25)

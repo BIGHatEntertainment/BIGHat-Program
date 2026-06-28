@@ -1018,6 +1018,35 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.27 (2026-02-28)
+**Documents whitelist + Files tool ships the new layout + SharePoint
+button gone.** Merchant feedback on alpha.26:
+  * `Documents/BIG Hat Entertainment/` now contains EXACTLY two
+    children: `Files/` and `Backups/`. Anything else carried over
+    from a legacy `BIGHat Entertainment` alias (notably a stray
+    `backend/` python tree from an old build) gets quarantined into
+    `.legacy-unknown/<alias>/` so the merchant can decide what to
+    keep, instead of silently inheriting confusing data.
+  * `Files/` is the umbrella for ALL user content: `Trivia/` (with
+    `MC`/`REG`/`MISC`/`MYS`/`BIG` round-type buckets from alpha.26),
+    `Bingo/`, `Karaoke/`, `Hosts/` (moved from `BIG Hat Entertainment/Hosts/`
+    via one-shot migration), `Locations/` (new), `Scoreboard/` (new),
+    `Other/`.
+  * Files tool now shows the full tab set
+    (All/Trivia/Bingo/Karaoke/Hosts/Locations/Scoreboard/Other) and
+    surfaces the trivia round-type buckets as a secondary tab row
+    under "Trivia" so the host can drill into one type without
+    scrolling. `bighatPicker` defaults to `Trivia/` instead of
+    `Rounds/`.
+  * Removed the per-round green "SharePoint" upload button + "On
+    SharePoint" status badge from Round Maker dashboard. Rounds save
+    locally only — standalone app.
+
+6 new tests in `test_alpha27_layout_hardening.py`, 78 backend tests
+total passing.
+
+
+
 ## Shipped — v32.0.0-alpha.26 (2026-02-28)
 **Trivia round-type buckets + Documents folder unification + Play
 .bighat reverted.** Merchant feedback on alpha.25:

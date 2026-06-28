@@ -3,10 +3,11 @@
  *
  * When running inside the Tauri shell, uses `@tauri-apps/plugin-dialog`'s
  * `open()` with `defaultPath` set to the canonical Files folder
- * (`~/Documents/BIGHat Entertainment/Files/Rounds`), then sends the
- * absolute path to the local FastAPI sidecar at `/api/bighat-files/
- * import-from-path` (no need to round-trip the file bytes over HTTP
- * since the backend runs on localhost and can read the file directly).
+ * (`~/Documents/BIG Hat Entertainment/Files/Trivia` post-alpha.26),
+ * then sends the absolute path to the local FastAPI sidecar at
+ * `/api/bighat-files/import-from-path` (no need to round-trip the file
+ * bytes over HTTP since the backend runs on localhost and can read
+ * the file directly).
  *
  * When running in a plain browser (dev preview), falls back to the
  * standard hidden-input upload because browsers don't expose a way to
@@ -17,7 +18,7 @@
  *   { file: <File> }   — browser File object, ready for /import
  *   null               — user cancelled
  *
- * v32.0.0-alpha.19.
+ * v32.0.0-alpha.19, layout update v32.0.0-alpha.26 (Rounds → Trivia).
  */
 import axios from 'axios';
 
@@ -29,7 +30,7 @@ function inTauri() {
 }
 
 let _cachedFilesRoot = null;
-async function defaultFilesRoot(subfolder = 'Rounds') {
+async function defaultFilesRoot(subfolder = 'Trivia') {
   if (!_cachedFilesRoot) {
     try {
       const r = await axios.get(`${API}/api/native/files/folder`);
@@ -40,14 +41,18 @@ async function defaultFilesRoot(subfolder = 'Rounds') {
   }
   if (!_cachedFilesRoot) return null;
   const sep = _cachedFilesRoot.includes('\\') ? '\\' : '/';
-  return _cachedFilesRoot + sep + subfolder;
+  // `subfolder` may be a plain top-level name (`Trivia`, `Bingo`) or
+  // a Trivia round-type bucket (`Trivia/MC`). Normalise the separator
+  // for the host OS so the native dialog opens at the right path.
+  const normalised = subfolder.replace(/[\\/]/g, sep);
+  return _cachedFilesRoot + sep + normalised;
 }
 
 /**
  * Open the native picker (Tauri) or hidden input (browser). See
  * module docstring for return shape.
  */
-export async function pickBighatFile({ subfolder = 'Rounds' } = {}) {
+export async function pickBighatFile({ subfolder = 'Trivia' } = {}) {
   if (inTauri()) {
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
@@ -88,7 +93,7 @@ export async function pickBighatFile({ subfolder = 'Rounds' } = {}) {
  * have a Tauri absolute path). Returns the backend's ImportResult, or
  * null on cancel.
  */
-export async function pickAndImportBighat({ subfolder = 'Rounds' } = {}) {
+export async function pickAndImportBighat({ subfolder = 'Trivia' } = {}) {
   const picked = await pickBighatFile({ subfolder });
   if (!picked) return null;
   if (picked.path) {

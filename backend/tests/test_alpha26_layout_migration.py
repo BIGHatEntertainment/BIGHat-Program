@@ -213,7 +213,11 @@ def test_folder_endpoint_exposes_round_types_to_frontend(client):
     r = client.get("/api/native/files/folder")
     body = r.json()
     assert body["ok"] is True
-    assert set(body["subfolders"]) == {"Trivia", "Bingo", "Karaoke", "Other"}
+    # alpha.27 added Hosts/Locations/Scoreboard alongside the original
+    # content-type folders. Assert the trivia-related entries exist
+    # without locking the test to the exact set (so future additions
+    # like "Music" or "Polls" don't have to update this assertion).
+    assert {"Trivia", "Bingo", "Karaoke", "Other"} <= set(body["subfolders"])
     assert set(body["trivia_round_types"]) == {"MC", "REG", "MISC", "MYS", "BIG"}
 
 
