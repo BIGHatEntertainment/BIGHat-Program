@@ -86,20 +86,20 @@ class BackupResult:
 
 
 def default_backups_dir() -> Path:
-    """Where backups land. Mirrors the existing native files convention
-    (`~/Documents/BIG Hat Entertainment/Files/...`) so the merchant has
-    ONE place under Documents for all BIG-Hat-managed artefacts they
-    might want to copy off the machine.
+    """Where backups land. Lives UNDER the same `BIGHat Entertainment`
+    root that holds the merchant's `.bighat` files folder so there's
+    ONE Documents folder per app — Files + Backups as siblings — rather
+    than two near-identical "BIG Hat Entertainment" / "BIGHat
+    Entertainment" folders side-by-side.
 
-    Windows:  C:\\Users\\<user>\\Documents\\BIG Hat Entertainment\\Backups
-    macOS:    ~/Documents/BIG Hat Entertainment/Backups
-    Linux:    ~/Documents/BIG Hat Entertainment/Backups  (dev only)
+    Windows:  C:\\Users\\<user>\\Documents\\BIGHat Entertainment\\Backups
+    macOS:    ~/Documents/BIGHat Entertainment/Backups
     """
     override = os.environ.get("BIGHAT_BACKUPS_DIR")
     if override:
         return Path(override).expanduser().resolve()
     docs = Path.home() / "Documents"
-    return docs / "BIG Hat Entertainment" / "Backups"
+    return docs / "BIGHat Entertainment" / "Backups"
 
 
 def default_source_dir() -> Path:
