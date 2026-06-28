@@ -1017,6 +1017,25 @@ the whole endpoint. 8 new contract tests in
 alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
+## Shipped — v32.0.0-alpha.22 (2026-02-28)
+Three customer-visible additions stacked into one release:
+1. **Trivia Setup** tab in Admin Settings — full per-location branding
+   manager (master + per-admin assignments).
+2. **Auto-backup on every startup** + manual "Backup my setup" button —
+   zips the per-install state dir to `Documents/BIG Hat Entertainment/
+   Backups/bighat-backup-YYYY-MM-DD.zip`. 14-day retention.
+3. **In-app updater fixes** — httpx now follows GitHub's 302 redirects
+   to S3-signed URLs (the exact bug customer hit on alpha.20→alpha.21);
+   long error messages now scroll/wrap inside the card instead of
+   overflowing.
+Plus the alpha.20/21 fixes carried forward (prerelease comparator +
+`.bighat` import row visibility). Backend 37/37 tests passing.
+Released 22:24 UTC via the standard agent flow: PUT yarn.lock fix via
+Contents API (drift recurred — third time, same root cause), create
+tag, CI matrix (Win + macOS Apple Silicon both succeed in one run),
+Intel cancelled, release manually patched public. Cloud
+`/api/downloads/latest` confirmed serving alpha.22.
+
 ## In review — v32.0.0-alpha.22 (Trivia Setup + Auto-backup + Updater fixes)
 1. **Trivia Setup**: new tab in Admin Settings with full CRUD over
    per-location branding images/GIFs. master_admin assigns admins to
