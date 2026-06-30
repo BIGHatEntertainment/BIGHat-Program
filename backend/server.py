@@ -467,103 +467,20 @@ async def seed_data():
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
 
-    # Seed schedule employees (hosts). Passwords come from per-host env vars
-    # (e.g. SEED_PW_SELLARDS). Missing values fall back to DEFAULT_HOST_PASSWORD
-    # (resolved at import time from env or a one-shot random). v31.0.10:
-    # never hardcode plaintext passwords in source.
-    emp_count = await db.employees.count_documents({})
-    if emp_count == 0:
-        roster = [
-            ("Nick Sellards", "sellards@bighat.live", True,  "SEED_PW_SELLARDS"),
-            ("Alex Rivera",   "alex@bighat.live",     False, "SEED_PW_ALEX"),
-            ("Jordan Blake",  "jordan@bighat.live",   False, "SEED_PW_JORDAN"),
-            ("Casey Morgan",  "casey@bighat.live",    False, "SEED_PW_CASEY"),
-            ("Taylor Reed",   "taylor@bighat.live",   False, "SEED_PW_TAYLOR"),
-        ]
-        employees_data = [
-            {
-                "id": str(uuid.uuid4()), "name": name, "email": email,
-                "is_admin": is_admin,
-                "password": os.environ.get(envvar) or DEFAULT_HOST_PASSWORD,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-            for (name, email, is_admin, envvar) in roster
-        ]
-        await db.employees.insert_many(employees_data)
-        logger.info(f"Seeded {len(employees_data)} employees")
-
-    # Seed venues
-    venue_count = await db.venues.count_documents({})
-    if venue_count == 0:
-        venues_data = [
-            {"id": "venue-taphouse", "name": "The Tap House", "address": "123 Main St", "city": "Phoenix", "state": "AZ", "venue_pays_host_directly": False, "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": "venue-rustynail", "name": "Rusty Nail Bar", "address": "456 Oak Ave", "city": "Scottsdale", "state": "AZ", "venue_pays_host_directly": False, "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": "venue-desertridge", "name": "Desert Ridge Tavern", "address": "789 Desert Blvd", "city": "Phoenix", "state": "AZ", "venue_pays_host_directly": False, "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": "venue-cactusjacks", "name": "Cactus Jack's", "address": "321 Cactus Way", "city": "Tempe", "state": "AZ", "venue_pays_host_directly": False, "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": "venue-pinthouse", "name": "The Pint House", "address": "654 Brewery Ln", "city": "Mesa", "state": "AZ", "venue_pays_host_directly": False, "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": "venue-copperblues", "name": "Copper Blues", "address": "987 Music Row", "city": "Phoenix", "state": "AZ", "venue_pays_host_directly": False, "created_at": datetime.now(timezone.utc).isoformat()},
-        ]
-        await db.venues.insert_many(venues_data)
-        logger.info(f"Seeded {len(venues_data)} venues")
-
-        # Seed venue pricing
-        pricing_data = [
-            {"venue_id": "venue-taphouse", "trivia_price": 200, "music_bingo_price": 200, "karaoke_price": 0, "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
-            {"venue_id": "venue-rustynail", "trivia_price": 175, "music_bingo_price": 200, "karaoke_price": 0, "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
-            {"venue_id": "venue-desertridge", "trivia_price": 200, "music_bingo_price": 0, "karaoke_price": 0, "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
-            {"venue_id": "venue-cactusjacks", "trivia_price": 0, "music_bingo_price": 0, "karaoke_price": 150, "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
-            {"venue_id": "venue-pinthouse", "trivia_price": 0, "music_bingo_price": 225, "karaoke_price": 0, "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
-            {"venue_id": "venue-copperblues", "trivia_price": 200, "music_bingo_price": 200, "karaoke_price": 175, "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
-        ]
-        await db.venue_pricing.insert_many(pricing_data)
-
-    # Seed schedule events
-    event_count = await db.events.count_documents({})
-    if event_count == 0:
-        employees = await db.employees.find({}, {"_id": 0, "id": 1}).to_list(10)
-        emp_ids = [e["id"] for e in employees]
-        
-        # Generate events for next 4 weeks from now
-        now = datetime.now(timezone.utc)
-        # Start from next Monday
-        days_until_monday = (7 - now.weekday()) % 7
-        if days_until_monday == 0:
-            days_until_monday = 7
-        base_date = (now + timedelta(days=days_until_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
-        events_data = []
-        
-        recurring = [
-            ("Tuesday Trivia Night", "Trivia", "venue-taphouse", 1, "19:00"),
-            ("Wednesday Bingo Bash", "Music Bingo", "venue-rustynail", 2, "20:00"),
-            ("Thursday Trivia", "Trivia", "venue-desertridge", 3, "19:30"),
-            ("Friday Night Karaoke", "Karaoke", "venue-cactusjacks", 4, "21:00"),
-            ("Saturday Bingo Bonanza", "Music Bingo", "venue-pinthouse", 5, "18:00"),
-            ("Sunday Funday Trivia", "Trivia", "venue-copperblues", 6, "16:00"),
-        ]
-        
-        for week in range(4):
-            for title, etype, vid, day_offset, time_str in recurring:
-                h, m = map(int, time_str.split(":"))
-                event_date = base_date + timedelta(days=week * 7 + day_offset, hours=h, minutes=m)
-                events_data.append({
-                    "id": str(uuid.uuid4()),
-                    "title": title,
-                    "event_type": etype,
-                    "venue_id": vid,
-                    "date": event_date.isoformat(),
-                    "duration_hours": 2.0,
-                    "claimed_by": None,
-                    "claimed_at": None,
-                    "status": "available",
-                    "wore_big_hat": False,
-                    "social_media_posts": False,
-                    "winners_post": False,
-                    "is_special_event": False,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-        
-        await db.events.insert_many(events_data)
-        logger.info(f"Seeded {len(events_data)} schedule events")
+    # v32.0.0-alpha.30: mock employees / venues / venue_pricing / events
+    # seeds REMOVED. Production standalone builds must boot empty so that
+    # the merchant never sees fictional hosts (Alex Rivera, Jordan Blake,
+    # Casey Morgan, Taylor Reed) or fake venues (Tap House, Rusty Nail,
+    # etc.) and never has weeks of phantom recurring events on the
+    # schedule grid. The native setup wizard at
+    # `/api/native/setup/initialize` is the only authoritative path that
+    # creates the first user (master_admin), and venues / events are
+    # populated by the merchant through the admin UI.
+    #
+    # Only the env-driven `Nick Sellards` master_admin row above is
+    # retained — that one is gated on `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+    # being present in the cloud SaaS hub's environment and is used by
+    # the cloud dashboard, not by standalone customer installs.
 
 
 @asynccontextmanager
@@ -1151,6 +1068,19 @@ async def update_user_profile(
         await db.users.update_one({"_id": target["_id"]}, {"$set": update})
     updated = await db.users.find_one({"_id": target["_id"]}, {"password_hash": 0})
     updated["_id"] = str(updated["_id"])
+
+    # v32.0.0-alpha.30: refresh the on-disk host.json so Host Recall
+    # picks up the new profile picture / display name / home city even
+    # when the cloud DB is unreachable. Only do this for master_admin
+    # + admin records — host.json is purely a local recall artifact for
+    # operators, not regular customers. Failures are non-fatal.
+    if updated.get("role") in ("master_admin", "admin"):
+        try:
+            from native.files_router import write_host_profile_json
+            write_host_profile_json(updated)
+        except Exception as e:
+            logger.warning(f"[users/profile] host.json refresh failed: {e}")
+
     return updated
 
 
