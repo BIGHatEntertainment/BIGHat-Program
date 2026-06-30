@@ -1066,9 +1066,27 @@ async def list_users(admin: dict = Depends(require_admin)):
         u["_id"] = str(u["_id"])
     return users
 
+def _user_query(user_id: str) -> dict:
+    """Build a Mongo query that matches a user by either Mongo `_id`
+    (ObjectId) OR a string `id` field. Mock-seeded users in the
+    production install carry UUID string ids — passing those through
+    `ObjectId(...)` raises `bson.errors.InvalidId` and the route 500s
+    with the unhelpful "Failed to delete user" toast. Match on either
+    so legacy + new docs work.
+    """
+    from bson.errors import InvalidId
+    q = {"$or": [{"id": user_id}]}
+    try:
+        q["$or"].append({"_id": ObjectId(user_id)})
+    except (InvalidId, TypeError):
+        pass
+    return q
+
+
 @api_router.put("/users/{user_id}")
 async def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(require_admin)):
-    target = await db.users.find_one({"_id": ObjectId(user_id)})
+    query = _user_query(user_id)
+    target = await db.users.find_one(query)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if target.get("role") == "master_admin" and admin.get("role") != "master_admin":
@@ -1082,19 +1100,82 @@ async def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(requ
         update_data["role"] = body.role
     if body.password is not None: update_data["password_hash"] = hash_password(body.password)
     if update_data:
-        await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
-    updated = await db.users.find_one({"_id": ObjectId(user_id)}, {"password_hash": 0})
+        await db.users.update_one({"_id": target["_id"]}, {"$set": update_data})
+    updated = await db.users.find_one({"_id": target["_id"]}, {"password_hash": 0})
     updated["_id"] = str(updated["_id"])
     return updated
 
+
+class UserProfileUpdate(BaseModel):
+    """Self-or-admin editable profile fields. Distinct from `UserUpdate`
+    so a regular user CAN'T elevate their own role via the profile
+    page — only `name`, `home_city`, `host_images[]`, and
+    `profile_picture` are accepted here."""
+    name: Optional[str] = None
+    home_city: Optional[str] = None
+    profile_picture: Optional[str] = None    # absolute path to Files/Hosts/<slug>/avatar.<ext>
+    host_image_16x9: Optional[str] = None    # absolute path
+    host_image_9x16: Optional[str] = None    # absolute path
+
+
+def _is_self_or_admin(target: dict, caller: dict) -> bool:
+    same_user = (
+        str(target.get("_id")) == str(caller.get("_id"))
+        or target.get("id") == caller.get("id")
+        or target.get("email") == caller.get("email")
+    )
+    return same_user or caller.get("role") in ("admin", "master_admin")
+
+
+@api_router.patch("/users/{user_id}/profile")
+async def update_user_profile(
+    user_id: str,
+    body: UserProfileUpdate,
+    caller: dict = Depends(get_current_user),
+):
+    """Profile-page writer. Self can edit own profile; admins +
+    master_admin can edit anyone's. Cannot change role / email /
+    password through this route — those stay on the admin-only
+    `/users/{id}` PUT."""
+    target = await db.users.find_one(_user_query(user_id))
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not _is_self_or_admin(target, caller):
+        raise HTTPException(status_code=403, detail="Not allowed to edit this profile")
+    update: dict = {}
+    for key in ("name", "home_city", "profile_picture", "host_image_16x9", "host_image_9x16"):
+        val = getattr(body, key, None)
+        if val is not None:
+            update[key] = val
+    if update:
+        await db.users.update_one({"_id": target["_id"]}, {"$set": update})
+    updated = await db.users.find_one({"_id": target["_id"]}, {"password_hash": 0})
+    updated["_id"] = str(updated["_id"])
+    return updated
+
+
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
-    target = await db.users.find_one({"_id": ObjectId(user_id)})
+    query = _user_query(user_id)
+    target = await db.users.find_one(query)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if target.get("role") == "master_admin":
         raise HTTPException(status_code=403, detail="Cannot delete master admin")
-    await db.users.delete_one({"_id": ObjectId(user_id)})
+    # Block self-deletion — the merchant should never be able to lock
+    # themselves out of their own admin console. Compare both `_id` AND
+    # an explicit `id` field, but ONLY treat the `id` match as
+    # self-deletion when both sides actually have one (otherwise two
+    # users that both lack an `id` field collide under None == None).
+    target_oid, admin_oid = target.get("_id"), admin.get("_id")
+    target_id, admin_id = target.get("id"), admin.get("id")
+    is_self = (
+        (target_oid is not None and admin_oid is not None and str(target_oid) == str(admin_oid))
+        or (target_id is not None and admin_id is not None and target_id == admin_id)
+    )
+    if is_self:
+        raise HTTPException(status_code=403, detail="Cannot delete your own account")
+    await db.users.delete_one({"_id": target["_id"]})
     return {"message": "User deleted"}
 
 # =============================================
