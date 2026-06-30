@@ -7,6 +7,42 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.30: strip mock seed data, persist master_admin to host.json
+
+### Why
+On a clean production install the merchant was seeing four phantom hosts (Alex Rivera, Jordan Blake, Casey Morgan, Taylor Reed), six fake venues (Tap House, Rusty Nail Bar, Desert Ridge Tavern, Cactus Jack's, The Pint House, Copper Blues), the matching venue_pricing rows, and four weeks of recurring Tue–Sun events on the schedule grid. None of that should ship to a paying customer. Worse, there was no on-disk record of who the master admin actually was — if `system_config.json` got wiped (USB move, reinstall, Documents folder restore), the customer would have to redo the entire setup wizard.
+
+### What changed
+**Backend (`backend/server.py` → `seed_data()`):**
+- DELETED the entire 5-host roster seed (Alex/Jordan/Casey/Taylor + Nick) into `db.employees`. The legacy cloud-side hub had used this for the original scheduler app; the standalone app does not.
+- DELETED the 6-venue + 6-row venue_pricing seed.
+- DELETED the 4-weeks × 6-events-per-week recurring schedule seed.
+- KEPT the env-driven `Nick Sellards` `master_admin` row gated on `ADMIN_EMAIL` / `ADMIN_PASSWORD` — this is used only by the cloud SaaS hub dashboard, not by standalone customer installs (those are seeded by the native setup wizard).
+
+**Backend (`backend/native/files_router.py`):**
+- New helper `host_slug(identifier)` — non-raising twin of `host_folder()` that just returns the sanitised slug.
+- New helper `write_host_profile_json(user)` — atomically writes a copy of the user record (id, email, first_name, last_name, display_name, name, phone, role, home_city, profile_picture, host_image_16x9, host_image_9x16, created_at + `_written_at` / `_source` metadata) into `BIG Hat Entertainment/Files/Hosts/<slug>/host.json`. The `password_hash` field is in an explicit allow-list miss so it never lands on disk.
+
+**Backend (`backend/native/router.py` → `/setup/initialize`):**
+- After `setup_complete=True`, lazily imports `write_host_profile_json` and persists the freshly-created master_admin's full profile to disk. Failures are non-fatal (warning-logged) so a read-only Documents directory never blocks setup.
+
+**Backend (`backend/server.py` → `PATCH /api/users/{id}/profile`):**
+- After the MongoDB update succeeds, if the affected user is `master_admin` or `admin`, refreshes their host.json so Host Recall picks up new profile pictures, display name, and home city even when the cloud is unreachable.
+
+### Tests
+- `backend/tests/test_alpha30_no_mock_seed.py` — 6 tests, all passing:
+  1. Mock employee roster strings are gone from `server.py`.
+  2. Env-driven Nick Sellards master_admin row is retained.
+  3. `write_host_profile_json` writes the full profile to disk and never leaks `password_hash`.
+  4. Missing-email users fall back to id-based slug.
+  5. Empty / None user input is a silent no-op.
+  6. Slug sanitisation strips `/` and `\\` so a malicious email can't traverse out of `Files/Hosts/`.
+
+### Release
+Shipped via the standard manual flow: bumped `backend/VERSION.txt` + `src-tauri/tauri.conf.json` to `32.0.0-alpha.30`, pushed via Contents API, created the `v32.0.0-alpha.30` tag → triggered `release.yml`.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.29: install update button on the Update tool
 
 ### Why

@@ -1018,6 +1018,17 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.30 (2026-02-28)
+- **Removed** the 5-host fake employee roster (Alex/Jordan/Casey/Taylor + dev Nick) from `seed_data()` in `backend/server.py`.
+- **Removed** the 6 mock venues + matching venue_pricing rows.
+- **Removed** the 4-weeks-of-recurring-events seed.
+- **Retained** the env-gated `Nick Sellards` master_admin row for the cloud SaaS hub only (`ADMIN_EMAIL` / `ADMIN_PASSWORD`).
+- **Added** `write_host_profile_json()` + `host_slug()` helpers in `backend/native/files_router.py`.
+- Native setup wizard (`/api/native/setup/initialize`) now writes the master_admin's full profile (id, email, first_name, last_name, display_name, phone, role, home_city, profile_picture, host_image_16x9, host_image_9x16, created_at + metadata) to `BIG Hat Entertainment/Files/Hosts/<slug>/host.json` immediately after `setup_complete=True`. `password_hash` is in an allow-list miss so it never lands on disk.
+- `PATCH /api/users/{id}/profile` refreshes that host.json whenever the master_admin or admin edits their profile.
+- 6 new regression tests in `backend/tests/test_alpha30_no_mock_seed.py`, all passing.
+
+
 ## Shipped — v32.0.0-alpha.29 (2026-02-28)
 **Install button on the Update tool.** Pre-fix, the "downloaded" state
 told master admins to "go to Admin → Updates → Install" — there was no
