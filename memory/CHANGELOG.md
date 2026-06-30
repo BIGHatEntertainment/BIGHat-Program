@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.29: install update button on the Update tool
+
+### Why
+On the deployed alpha.28 install, hitting "Check now" → "Download update" left the merchant staring at this message:
+
+  > Update downloaded. A master admin can apply it from Admin → Updates → Install.
+
+There is no "Updates → Install" location in the admin panel. The hint was a leftover from a planned admin-side install flow that never shipped. The merchant — a master admin — couldn't actually apply the update.
+
+### What changed
+- `UpdateTool.jsx`: the "downloaded" state now exposes a primary **Install update now** button (master-admin only, gated client-side AND server-side by `/api/native/updates/apply`'s existing `require_master_admin` guard). On click, it POSTs `{version: latest}` to `/apply`, the Tauri shell handles the relaunch, and we show a post-apply hint ("The app will relaunch into the new version momentarily…") so the user knows what to expect.
+- Non-master users see a quieter line: "Ask a master admin to sign in and click Install update now on this page to apply it." instead of being sent on a wild goose chase.
+
+### Tests
+- Live preview-env smoke: Master Admin logs in → /update → Check now → Download → **Install update now** button appears + the stale "Admin → Updates → Install" string is gone.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.28: user profile pages + delete-user fix + Schedule/Trivia folder additions
 
 ### Merchant feedback after alpha.27 install

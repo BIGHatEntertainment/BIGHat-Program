@@ -1018,6 +1018,17 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.29 (2026-02-28)
+**Install button on the Update tool.** Pre-fix, the "downloaded" state
+told master admins to "go to Admin → Updates → Install" — there was no
+such location, so updates never actually applied. The Update tool now
+exposes an inline **Install update now** button that POSTs to
+`/api/native/updates/apply` (master-admin gated server-side); the
+Tauri shell handles the relaunch into the new binary. Non-master
+users see a polite "ask a master admin" hint instead.
+
+
+
 ## Shipped — v32.0.0-alpha.28 (2026-02-28)
 **Delete-user fix + Schedule toast fix + user profile pages + new
 folder structure.** Three merchant complaints after alpha.27 install:
