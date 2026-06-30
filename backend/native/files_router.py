@@ -84,10 +84,11 @@ LEGACY_DOCS_FOLDER_ALIASES: tuple[str, ...] = (
 #
 # v32.0.0-alpha.27: `Files/` now also hosts the host-scoped working
 # data (`Hosts/`), location media (`Locations/`), and scoreboard JSON
-# blobs (`Scoreboard/`). The merchant explicitly asked for everything
-# user-visible to live under a single `Files/` umbrella so it can be
-# backed up as one folder and so the user knows where each kind of
-# content lives.
+# blobs (`Scoreboard/`).
+# v32.0.0-alpha.28: added `Schedule/` for event scheduling data with
+# `Location Prices/`, `Events/`, and an `Archive/` for previous
+# months. Trivia gained a `Rounds/` subfolder for presentation JSON
+# files consumed by both the Trivia Presenter AND the Story Generator.
 SUBFOLDERS: tuple[str, ...] = (
     "Trivia",
     "Bingo",
@@ -95,6 +96,7 @@ SUBFOLDERS: tuple[str, ...] = (
     "Hosts",
     "Locations",
     "Scoreboard",
+    "Schedule",
     "Other",
 )
 DEFAULT_SUBFOLDER = "Other"
@@ -303,13 +305,6 @@ def _hosts_root() -> Path:
         hosts.mkdir(parents=True, exist_ok=True)
         try:
             _merge_tree(legacy, hosts)
-            # `_merge_tree` only moves files — leftover empty subdirs
-            # are removed below so the legacy directory tree disappears
-            # entirely once the move succeeds. We use rmtree
-            # unconditionally because at this point every file has
-            # been resolved (moved OR skipped because the canonical
-            # destination was newer), so anything left in legacy is
-            # safe to drop.
             shutil.rmtree(legacy, ignore_errors=True)
             logger.info(
                 "[native-files] alpha.27: moved legacy Hosts/ into Files/Hosts/"
@@ -320,17 +315,122 @@ def _hosts_root() -> Path:
     return hosts
 
 
+def host_folder(host_identifier: str) -> Path:
+    """Resolve (and create) the per-host folder under Files/Hosts/.
+
+    `host_identifier` is the user's email, slug, or id — sanitised to a
+    safe directory name. Returns the absolute path. Used by the
+    profile-page image uploaders so each host's 16:9 / 9:16 GIFs +
+    profile picture land in their own folder.
+    """
+    raw = (host_identifier or "").strip().lower()
+    if not raw:
+        raise HTTPException(status_code=400, detail="host_identifier required")
+    # Strip any path separators or shell metacharacters the user might
+    # type into the email field — defence against directory traversal.
+    safe = re.sub(r"[^a-z0-9._@-]+", "-", raw).strip("-_.")
+    if not safe:
+        raise HTTPException(status_code=400, detail="host_identifier invalid")
+    folder = _hosts_root() / safe
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def archive_previous_month_events() -> int:
+    """On the first of every month, fold all of last month's events
+    out of `Schedule/Events/` into `Schedule/Events/Archive/<YYYY-MM>.csv`.
+
+    Idempotent — a marker file `Archive/.last-archived` records the
+    most recent month archived so re-launching the app on the 2nd–31st
+    of any month never re-runs the archive.
+
+    Returns the number of event JSON files folded into the archive.
+    """
+    schedule = _base_root() / "Schedule"
+    events_dir = schedule / "Events"
+    archive_dir = events_dir / "Archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    marker = archive_dir / ".last-archived"
+    now = datetime.now(timezone.utc)
+    # Previous month: roll back to the 1st of the current month, then
+    # subtract a day → that's a date inside last month.
+    first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month_anchor = first_of_this_month - __import__("datetime").timedelta(days=1)
+    last_month_key = last_month_anchor.strftime("%Y-%m")
+    try:
+        if marker.exists() and marker.read_text().strip() == last_month_key:
+            return 0
+    except OSError:
+        pass
+
+    # Walk every JSON in Events/ (NOT inside Archive/), parse, keep only
+    # those whose `event_date` falls in last_month_key. Fold into one
+    # CSV per month.
+    archived = 0
+    csv_path = archive_dir / f"{last_month_key}.csv"
+    import csv as _csv
+    rows: list[dict[str, Any]] = []
+    for p in events_dir.glob("*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        event_date = str(data.get("event_date") or data.get("date") or "")
+        if not event_date.startswith(last_month_key):
+            continue
+        rows.append(data)
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+    if rows:
+        # Use the union of every key seen so partial events still
+        # archive without dropping fields.
+        fieldnames: list[str] = []
+        for r in rows:
+            for k in r.keys():
+                if k not in fieldnames:
+                    fieldnames.append(k)
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            w = _csv.DictWriter(fh, fieldnames=fieldnames)
+            w.writeheader()
+            w.writerows(rows)
+        archived = len(rows)
+
+    try:
+        marker.write_text(last_month_key, encoding="utf-8")
+    except OSError:
+        pass
+    if archived:
+        logger.info(
+            "[native-files] archived %d events from %s into %s",
+            archived, last_month_key, csv_path,
+        )
+    return archived
+
+
 def _ensure_subfolders() -> None:
     """Idempotently create every typed subfolder. Cheap on every call.
-    Also creates the round-type subfolders inside Trivia/."""
+    Also creates the nested working folders:
+      • Trivia/<round_type>/ + Trivia/Rounds/ for presentation JSON
+      • Schedule/Events/ + Schedule/Location Prices/ + Schedule/Events/Archive/
+    """
     root = _base_root()
     for name in SUBFOLDERS:
         (root / name).mkdir(parents=True, exist_ok=True)
     trivia = root / "Trivia"
     for rt in TRIVIA_ROUND_TYPES:
         (trivia / rt).mkdir(parents=True, exist_ok=True)
-    # Catchall — created lazily only if we actually need it on upload,
-    # to avoid showing the merchant an empty `_Other` folder.
+    # Trivia/Rounds/ holds the JSON descriptors for built presentations.
+    # Both the Trivia Presenter (for playback) and the Story Generator
+    # (for social-asset matching) read from here.
+    (trivia / "Rounds").mkdir(parents=True, exist_ok=True)
+    # Schedule tree.
+    schedule = root / "Schedule"
+    (schedule / "Events").mkdir(parents=True, exist_ok=True)
+    (schedule / "Events" / "Archive").mkdir(parents=True, exist_ok=True)
+    (schedule / "Location Prices").mkdir(parents=True, exist_ok=True)
 
 
 def _resolve_folder(folder: str | None) -> tuple[str, Path]:
@@ -677,9 +777,17 @@ def _all_files_iter() -> Iterable[tuple[str, Path]]:
 async def files_folder() -> dict[str, Any]:
     """Return the absolute path of the base Files/ folder + list of
     typed subfolders + the trivia round-type buckets + the Hosts/ root.
-    Exposed so the UI can show 'Files saved to: <path>' and so Build
-    Wizard / Round Roulette know which sub-buckets to scan."""
+    Also runs the monthly archive job for past events (idempotent —
+    only fires once per calendar month, on the first launch of the
+    month).
+    """
     _ensure_subfolders()
+    # Fire-and-forget the archive job. Wrapped in try/except so a
+    # filesystem hiccup doesn't break the /folder endpoint.
+    try:
+        archive_previous_month_events()
+    except Exception as e:                          # pragma: no cover
+        logger.warning("[native-files] archive job failed: %s", e)
     root = _base_root()
     return {
         "ok": True,
@@ -690,6 +798,90 @@ async def files_folder() -> dict[str, Any]:
         "exists": root.exists(),
         "platform": platform.system(),
     }
+
+
+@router.post("/host-image")
+async def upload_host_image(
+    host_id: str = Form(...),
+    kind: str = Form(...),   # 'avatar' | 'host-16x9' | 'host-9x16'
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Save a host's profile picture or one of their two host slide
+    GIFs (16:9 for the trivia presentation host slide, 9:16 for the
+    social story tool) into `Files/Hosts/<host_slug>/`.
+
+    `host_id` is the host's email or slug — sanitised via
+    `host_folder()` so a malformed value can't escape the Hosts/
+    directory. `kind` constrains the filename to one of three
+    canonical names so the consumers (Trivia Presenter slide
+    generator, Story Generator) can find the asset deterministically
+    without scanning."""
+    KIND_TO_NAME = {
+        "avatar":   "avatar",
+        "host-16x9": "host-16x9",
+        "host-9x16": "host-9x16",
+    }
+    if kind not in KIND_TO_NAME:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {sorted(KIND_TO_NAME)}")
+
+    folder = host_folder(host_id)
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        raise HTTPException(status_code=400, detail="image must be png/jpg/gif/webp")
+
+    # Clear any prior file with the same canonical stem (host swapping
+    # png → gif shouldn't leave the stale png on disk to be served by
+    # mistake).
+    for prior in folder.glob(f"{KIND_TO_NAME[kind]}.*"):
+        try:
+            prior.unlink()
+        except OSError:
+            pass
+
+    dest = folder / f"{KIND_TO_NAME[kind]}{ext}"
+    size = 0
+    with dest.open("wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_FILE_BYTES:
+                out.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="file_too_large_max_50MB")
+            out.write(chunk)
+    return {
+        "ok": True,
+        "host_id": host_id,
+        "kind": kind,
+        "path": str(dest),
+        "size_bytes": size,
+    }
+
+
+@router.get("/raw")
+async def serve_raw_file(path: str):
+    """Serve an arbitrary file under the canonical Files/ root by its
+    absolute path. Used by the user-profile page to render host
+    images stored at `Files/Hosts/<slug>/avatar.png` (and similar)
+    without having to know the file extension upfront.
+
+    Defence: the requested path MUST resolve inside `_base_root()` —
+    any path that walks above the Files/ tree (`..`, symlink jumps)
+    is rejected with a 403."""
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid path")
+    root = _base_root().resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="path outside Files root")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="not_found")
+    return FileResponse(str(resolved))
 
 
 @router.get("")
