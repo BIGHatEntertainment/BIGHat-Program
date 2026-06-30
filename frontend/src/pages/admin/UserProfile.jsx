@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import api from '../lib/api';
-import Header from '../components/Header';
+import { useAuth } from '../../context/AuthContext';
+import api from '../../lib/api';
+import Header from '../../components/Header';
 import { toast } from 'sonner';
 import { ArrowLeft, Upload, Save, MapPin, User, Image as ImageIcon, Loader2 } from 'lucide-react';
 import axios from 'axios';
