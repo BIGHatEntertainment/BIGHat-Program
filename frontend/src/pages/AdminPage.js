@@ -136,6 +136,7 @@ export default function AdminPage() {
 
 function UserManagement({ users, currentUser, showAddUser, setShowAddUser, editingUser, setEditingUser, onRefresh, setError, setSuccess }) {
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'host' });
+  const navigate = useNavigate();
 
   const handleAddUser = async (e) => {
     e.preventDefault();
@@ -249,42 +250,74 @@ function UserManagement({ users, currentUser, showAddUser, setShowAddUser, editi
         </div>
       )}
 
-      {/* User List */}
+      {/* User List — each row is a button that opens the user's
+          profile page. Master admin / admin can edit anyone's; a
+          regular host opening their own row can edit their profile
+          fields (host images, profile picture, home city) but not
+          their role. The inline edit + delete icons stay on the row
+          so the admin doesn't need to navigate just to perform those
+          quick actions. */}
       <div className="space-y-2">
-        {users.map(u => (
-          <div key={u._id} className="glass-card rounded-xl px-4 py-3 flex items-center justify-between" data-testid={`user-row-${u._id}`}>
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold" style={{ backgroundColor: u.role === 'master_admin' ? '#fbdd68' : u.role === 'admin' ? '#5973F7' : '#141b50', color: u.role === 'master_admin' || u.role === 'admin' ? '#000e2a' : '#fbdd68' }}>
-                {u.name?.charAt(0)?.toUpperCase() || '?'}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">{u.name}</span>
-                  {roleIcon(u.role)}
+        {users.map(u => {
+          const userId = u._id || u.id;
+          return (
+            <div
+              key={userId}
+              className="glass-card rounded-xl px-4 py-3 flex items-center justify-between hover:bg-white/5 cursor-pointer transition-colors"
+              data-testid={`user-row-${userId}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/admin/users/${encodeURIComponent(userId)}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate(`/admin/users/${encodeURIComponent(userId)}`);
+                }
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold overflow-hidden" style={{ backgroundColor: u.role === 'master_admin' ? '#fbdd68' : u.role === 'admin' ? '#5973F7' : '#141b50', color: u.role === 'master_admin' || u.role === 'admin' ? '#000e2a' : '#fbdd68' }}>
+                  {u.profile_picture ? (
+                    <img src={`${process.env.REACT_APP_BACKEND_URL}/api/native/files/raw?path=${encodeURIComponent(u.profile_picture)}`}
+                         alt={u.name}
+                         className="w-full h-full object-cover"
+                         onError={(e) => { e.target.style.display = 'none'; }} />
+                  ) : (
+                    u.name?.charAt(0)?.toUpperCase() || '?'
+                  )}
                 </div>
-                <span className="text-xs" style={{ color: '#8892b0' }}>{u.email}</span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-white">{u.name}</span>
+                    {roleIcon(u.role)}
+                  </div>
+                  <span className="text-xs" style={{ color: '#8892b0' }}>
+                    {u.email}{u.home_city ? ` · ${u.home_city}` : ''}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full" style={{
+                  backgroundColor: u.role === 'master_admin' ? 'rgba(251, 221, 104, 0.15)' : u.role === 'admin' ? 'rgba(89, 115, 247, 0.15)' : 'rgba(20, 27, 80, 0.6)',
+                  color: u.role === 'master_admin' ? '#fbdd68' : u.role === 'admin' ? '#5973F7' : '#8892b0'
+                }}>
+                  {u.role === 'master_admin' ? 'Master' : u.role}
+                </span>
+                {u.role !== 'master_admin' && (
+                  <>
+                    <button onClick={() => setEditingUser(u)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors" data-testid={`edit-user-${userId}`}>
+                      <Edit size={14} style={{ color: '#8892b0' }} />
+                    </button>
+                    <button onClick={() => handleDeleteUser(userId, u.name)} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors" data-testid={`delete-user-${userId}`}>
+                      <Trash2 size={14} style={{ color: '#ef4444' }} />
+                    </button>
+                  </>
+                )}
+                <ChevronRight size={14} style={{ color: '#8892b0' }} />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full" style={{
-                backgroundColor: u.role === 'master_admin' ? 'rgba(251, 221, 104, 0.15)' : u.role === 'admin' ? 'rgba(89, 115, 247, 0.15)' : 'rgba(20, 27, 80, 0.6)',
-                color: u.role === 'master_admin' ? '#fbdd68' : u.role === 'admin' ? '#5973F7' : '#8892b0'
-              }}>
-                {u.role === 'master_admin' ? 'Master' : u.role}
-              </span>
-              {u.role !== 'master_admin' && (
-                <>
-                  <button onClick={() => setEditingUser(u)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors" data-testid={`edit-user-${u._id}`}>
-                    <Edit size={14} style={{ color: '#8892b0' }} />
-                  </button>
-                  <button onClick={() => handleDeleteUser(u._id, u.name)} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors" data-testid={`delete-user-${u._id}`}>
-                    <Trash2 size={14} style={{ color: '#ef4444' }} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <style>{`
