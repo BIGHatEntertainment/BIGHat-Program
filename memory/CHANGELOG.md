@@ -7,6 +7,90 @@
 
 ---
 
+## 2026-02-28 — v32.0.0-alpha.28: user profile pages + delete-user fix + Schedule/Trivia folder additions
+
+### Merchant feedback after alpha.27 install
+  1. "Failed to delete user" toast on every host row in the deployed
+     app's User Management screen.
+  2. "Failed to load data" toast on the Schedule page even when the
+     event collection is intentionally empty.
+  3. Add a "user box → profile page" flow with profile picture, two
+     host slide images (16:9 for trivia, 9:16 for social stories),
+     and a home-city field. Permissions: master_admin + admin edit
+     anyone; a user edits their own.
+  4. Folder structure additions: a `Rounds/` subfolder under `Trivia/`
+     for presentation JSON files (consumed by both the Trivia
+     Presenter and the Story Generator), and a `Schedule/` tree with
+     `Location Prices/`, `Events/`, and an `Events/Archive/`
+     auto-archiving previous-month events into one CSV.
+
+### What changed
+
+**Delete-user bug (root cause):**
+- The deployed app's seeded mock users carry UUID-shape `id` fields,
+  not Mongo ObjectIds. `DELETE /api/users/{user_id}` was unwrapping
+  the input with `ObjectId(user_id)`, which raises
+  `bson.errors.InvalidId` for UUIDs → the route 500s → the toast
+  hits "Failed to delete user". New `_user_query()` helper builds a
+  `$or` query that matches by EITHER `id` OR `_id`, so seeded mock
+  users delete cleanly alongside real ObjectId rows. Self-deletion
+  guard now safely compares both fields without colliding when both
+  sides lack an `id` field (the None == None false positive that
+  blocked the first fix attempt).
+- `PUT /api/users/{user_id}` got the same treatment — admins can
+  now edit role/name/password on UUID-id rows too.
+
+**Schedule page toast:**
+- `SchedulingPage.fetchData()` now suppresses the `Failed to load
+  data` toast when the failure is a 404 (i.e. the collection just
+  doesn't exist yet on a fresh install). 4xx-auth and 5xx errors
+  still surface as toasts — only the "no data" case is silent. The
+  merchant's deployed app on production no longer nags about an
+  empty schedule.
+
+**User profile page (`/admin/users/:userId`):**
+- New `UserProfile.jsx` page accessible by clicking any user row in
+  the Admin > User Management screen. Each row is now a button
+  (full row clickable, edit/delete affordances stay inline and
+  `stopPropagation` so clicks don't navigate).
+- Fields: name, home city, profile picture (round avatar), 16:9 host
+  slide GIF, 9:16 host slide GIF. Read-only on this page: email,
+  role (those live on the admin edit dialog).
+- New `PATCH /api/users/{user_id}/profile` accepts a restricted
+  field set so a non-admin user can't elevate themselves through
+  this route. Permission check is "self OR admin OR master_admin".
+- New `POST /api/native/files/host-image` writes the upload to
+  `Files/Hosts/<sanitised-host-id>/<kind>.<ext>`, clearing any
+  prior extension so the consumer never picks up a stale file.
+- New `GET /api/native/files/raw?path=…` serves images stored under
+  `Files/` with a strict resolved-path-must-be-inside-root guard.
+
+**Folder additions (alpha.28):**
+- `SUBFOLDERS` now includes `Schedule`. `_ensure_subfolders()`
+  materialises `Trivia/Rounds/` (for trivia presentation JSON
+  blobs), plus `Schedule/Events/`, `Schedule/Events/Archive/`, and
+  `Schedule/Location Prices/`.
+- New `archive_previous_month_events()` walks every JSON file in
+  `Schedule/Events/`, folds last month's events into a single
+  `Archive/<YYYY-MM>.csv` (DictWriter with the union of every key
+  seen), deletes the originals, writes a `.last-archived` marker.
+  Idempotent — only fires once per calendar month, hooked off
+  `/folder` so it runs at every app launch but no-ops on the 2nd–31st.
+
+### Tests
+- New: `backend/tests/test_alpha28_user_profile_and_layout.py` (9
+  cases): folder layout creation, host-image upload bucketing +
+  stale-extension cleanup, path-traversal sanitisation, raw-serve
+  root containment, archive-job CSV write + idempotency.
+- 87 tests passing across alpha.28 + 27 + 26 + cover + question +
+  fixtures + import-list + backup + locations.
+- Live preview-env smoke: `DELETE /api/users/<UUID-host>` returns
+  `{"message":"User deleted"}` (was 500); `PATCH
+  /api/users/<self>/profile` with `{"home_city":"Phoenix, AZ"}`
+  returns the updated user.
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.27: Documents whitelist + Files tool fixes + SharePoint button removal
 
 ### Merchant feedback on alpha.26

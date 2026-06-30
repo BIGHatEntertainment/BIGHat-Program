@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import AdminPage from './pages/AdminPage';
+import UserProfile from './pages/admin/UserProfile';
 import SchedulingPage from './pages/schedule/SchedulingPage';
 import ScheduleAdminPage from './pages/schedule/ScheduleAdminPage';
 import ProfilePage from './pages/schedule/ProfilePage';
@@ -136,6 +137,7 @@ function AppRoutes() {
         <Route path="/update" element={<ProtectedRoute><UpdateTool /></ProtectedRoute>} />
         <Route path="/files" element={<ProtectedRoute><FilesTool /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
+        <Route path="/admin/users/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/schedule" element={<ProtectedRoute><SchedulingPage /></ProtectedRoute>} />
         <Route path="/schedule/admin" element={<ProtectedRoute><ScheduleAdminPage /></ProtectedRoute>} />
         <Route path="/schedule/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />

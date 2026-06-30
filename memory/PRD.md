@@ -1018,6 +1018,30 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.28 (2026-02-28)
+**Delete-user fix + Schedule toast fix + user profile pages + new
+folder structure.** Three merchant complaints after alpha.27 install:
+  * `DELETE /api/users/{id}` 500s on seeded UUID-id rows → new
+    `_user_query()` matches either `_id` (ObjectId) or `id` (string).
+    Self-deletion guard fixed for the None == None false positive.
+  * Schedule page silently no-ops when the events collection is
+    empty (was toasting "Failed to load data" on a fresh install).
+  * New `/admin/users/:userId` profile page accessible by clicking
+    any user row. Fields: name, home city, round avatar, 16:9 host
+    slide GIF (for trivia presentations), 9:16 host slide GIF (for
+    social stories). Backed by `POST /api/native/files/host-image`
+    (writes to `Files/Hosts/<host>/<kind>.<ext>`) +
+    `PATCH /api/users/{id}/profile` (self-or-admin).
+  * Folder additions: `Files/Trivia/Rounds/` for presentation JSON
+    blobs the Trivia Presenter + Story Generator both consume;
+    `Files/Schedule/` with `Events/`, `Events/Archive/`, and
+    `Location Prices/` subfolders. Auto-archives previous-month
+    events as CSV on every monthly first-launch.
+
+9 new tests, 87 backend tests total passing.
+
+
+
 ## Shipped — v32.0.0-alpha.27 (2026-02-28)
 **Documents whitelist + Files tool ships the new layout + SharePoint
 button gone.** Merchant feedback on alpha.26:
