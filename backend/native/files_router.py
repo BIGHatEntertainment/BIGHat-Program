@@ -53,7 +53,7 @@ import sys
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -334,6 +334,83 @@ def host_folder(host_identifier: str) -> Path:
     folder = _hosts_root() / safe
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def host_slug(host_identifier: str) -> str:
+    """Return the same sanitised slug `host_folder` would resolve to — but
+    WITHOUT raising on empty input (returns "" instead). Used by callers
+    that need to derive the on-disk folder name (e.g. host.json writer)
+    without creating the folder yet."""
+    raw = (host_identifier or "").strip().lower()
+    if not raw:
+        return ""
+    safe = re.sub(r"[^a-z0-9._@-]+", "-", raw).strip("-_.")
+    return safe
+
+
+# Allow-list of fields we copy from a user record into `host.json`.
+# Anything else (password_hash, _id, internal MongoDB cursor state) is
+# intentionally dropped so the on-disk file is safe to read with a text
+# editor and safe to back up to a USB stick.
+_HOST_JSON_FIELDS = (
+    "id",
+    "email",
+    "first_name",
+    "last_name",
+    "display_name",
+    "name",            # legacy single-field name (cloud schema)
+    "phone",
+    "role",
+    "home_city",
+    "profile_picture",
+    "host_image_16x9",
+    "host_image_9x16",
+    "created_at",
+)
+
+
+def write_host_profile_json(user: dict) -> Optional[Path]:
+    """Persist a copy of the master_admin / admin profile into
+    `BIG Hat Entertainment/Files/Hosts/<slug>/host.json`.
+
+    Why local persistence?
+      The cloud hub's MongoDB is authoritative, but the standalone app
+      MUST still recognise the operator when the cloud is unreachable
+      (offline gigs, flaky bar Wi-Fi). `host.json` is the local
+      breadcrumb the Host Recall logic reads at boot to:
+        1. show the host their own profile picture / 16:9 GIF in the
+           presenter UI without round-tripping to the cloud;
+        2. let the Master Admin be recognised cross-launch even after
+           a `system_config.json` wipe;
+        3. give the merchant a portable, human-readable backup of who
+           is configured on this machine.
+
+    Called from:
+      - `/api/native/setup/initialize` (initial master_admin creation)
+      - `/api/users/{id}/profile` PATCH (subsequent profile edits)
+
+    Returns the path written, or None if the user dict has no usable
+    identifier (silent — callers don't fail the request just because the
+    disk write didn't happen)."""
+    if not isinstance(user, dict):
+        return None
+    ident = user.get("email") or user.get("id") or user.get("display_name") or user.get("name")
+    slug = host_slug(str(ident or ""))
+    if not slug:
+        return None
+    folder = _hosts_root() / slug
+    folder.mkdir(parents=True, exist_ok=True)
+    payload = {k: user.get(k) for k in _HOST_JSON_FIELDS if user.get(k) is not None}
+    payload["_written_at"] = datetime.now(timezone.utc).isoformat()
+    payload["_source"] = "bighat-native-host-recall"
+    out = folder / "host.json"
+    try:
+        out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        logger.info("[native-files] wrote host profile to %s", out)
+        return out
+    except OSError as e:
+        logger.warning("[native-files] could not write host.json (%s): %s", out, e)
+        return None
 
 
 def archive_previous_month_events() -> int:
