@@ -243,6 +243,17 @@ async def initialize_setup(payload: SetupInitRequest):
     cfg["setup_complete"] = True
     config_manager.save_config()
 
+    # v32.0.0-alpha.30: persist the master_admin profile to
+    # `BIG Hat Entertainment/Files/Hosts/<slug>/host.json` so Host Recall
+    # can identify the operator offline and survive a system_config wipe.
+    # Import lazily to avoid a circular import at module load time (the
+    # files_router itself imports from `.config`).
+    try:
+        from .files_router import write_host_profile_json  # noqa: WPS433
+        write_host_profile_json(master_user)
+    except Exception as e:  # pragma: no cover — never fail setup over disk
+        logger.warning("[setup] could not persist host.json: %s", e)
+
     # 3. Mirror cloud response (subscription flags, seats) OR flag pending.
     #
     # SECURITY INVARIANT — the cloud is authoritative on entitlement.
