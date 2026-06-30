@@ -98,8 +98,15 @@ const SchedulingPage = () => {
       setEmployees(employeesRes.data);
       setClaimEligibility(eligibilityRes.data);
     } catch (error) {
+      // Don't toast on a fresh install where the schedule collections
+      // are simply empty — the merchant correctly noted this is the
+      // expected first-run state. Only show the error when the failure
+      // is something other than "no data yet" (4xx auth, 5xx server).
       console.error('Error fetching data:', error);
-      toast.error('Failed to load data');
+      const status = error?.response?.status;
+      if (status && status !== 404) {
+        toast.error('Failed to load data');
+      }
     } finally {
       setLoading(false);
     }
