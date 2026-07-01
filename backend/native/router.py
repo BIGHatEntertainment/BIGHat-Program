@@ -12,9 +12,9 @@ import logging
 import re as _re
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from .config import config_manager
@@ -484,3 +484,29 @@ async def get_hwid():
 async def get_full_config():
     """Master-Admin only in production. For Phase 0 this is open for debugging."""
     return config_manager.public_view()
+
+
+
+@router.post("/errors/report")
+async def report_frontend_error(payload: Dict[str, Any] = Body(...)):
+    """Sink for the React ErrorBoundary. We log to the standard
+    supervisor stream so `tail -f /var/log/supervisor/backend.err.log`
+    surfaces frontend crashes without needing DevTools open.
+
+    The endpoint deliberately never raises — the frontend fire-and-
+    forgets with `keepalive: true` during teardown, and we don't want
+    a validation error to become the reason the user's Reload button
+    disappears.
+    """
+    try:
+        msg = str(payload.get("message") or "").strip()[:400]
+        stack = str(payload.get("stack") or "").strip()[:2000]
+        comp = str(payload.get("componentStack") or "").strip()[:2000]
+        loc = str(payload.get("location") or "").strip()[:400]
+        logger.error(
+            "[frontend-error-boundary] loc=%s msg=%s\n  stack=%s\n  componentStack=%s",
+            loc, msg, stack, comp,
+        )
+    except Exception as e:  # pragma: no cover
+        logger.warning("[frontend-error-boundary] failed to log report: %s", e)
+    return {"ok": True}
