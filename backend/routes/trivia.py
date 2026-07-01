@@ -62,25 +62,80 @@ def _list_local_round_files(round_type: str) -> List[Dict[str, str]]:
 
 @router.get("/hosts")
 async def get_hosts() -> List[Dict[str, str]]:
-    """Get list of available hosts from SharePoint"""
+    """List all hosts available for the Trivia Presenter host-picker.
+
+    v32.0.0-alpha.31: SharePoint fully decommissioned. In native mode
+    we source hosts from `system_config.json → users[]` (merged with
+    `db.users` when present) so the merchant's Master Admin + any
+    added sub-admins/hosts show up immediately after setup — no
+    intermittent empty dropdown.
+
+    Response shape kept identical to the pre-alpha.31 SharePoint payload
+    so `TriviaBuilderWizard.jsx` (and SlotMachineRandomizer) don't need
+    a matching frontend edit:
+        [{ id, name, path, host_image_16x9?, host_image_9x16?,
+           profile_picture?, home_city? }]
+    where `path` = the 16:9 slide GIF URL the presenter loads as slide 1.
+    """
+    hosts: List[Dict[str, str]] = []
+    seen_emails: set[str] = set()
+
+    # Native config users (source of truth on standalone installs)
     try:
-        sp = SharePointService()
-        hosts_folder = "01_Trivia/Web App/00_Builder/01_Hosts"
-        items = sp.list_folder_contents(hosts_folder)
-        
-        hosts = []
-        for item in items:
-            if item.get('file') and item['name'].endswith('.pptx'):
+        from native.db_factory import is_native as _is_native
+        if _is_native():
+            from native import config_manager
+            for u in (config_manager.config.get("users", []) or []):
+                email = (u.get("email") or "").lower().strip()
+                if not email or email in seen_emails:
+                    continue
+                display = u.get("display_name") or (
+                    f"{u.get('first_name','')} {u.get('last_name','')}".strip()
+                ) or email
                 hosts.append({
-                    'id': item['id'],
-                    'name': item['name'].replace('.pptx', ''),
-                    'path': f"{hosts_folder}/{item['name']}"
+                    "id": u.get("id") or email,
+                    "name": display,
+                    "path": u.get("host_image_16x9") or "",
+                    "host_image_16x9": u.get("host_image_16x9") or "",
+                    "host_image_9x16": u.get("host_image_9x16") or "",
+                    "profile_picture": u.get("profile_picture") or "",
+                    "home_city": u.get("home_city") or "",
+                    "role": u.get("role") or "host",
                 })
-        
-        return hosts
+                seen_emails.add(email)
     except Exception as e:
-        logger.error(f"Error fetching hosts: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(f"[trivia/hosts] native config source failed: {e}")
+
+    # Merge in db.users (covers cloud mode + any users created via the
+    # native admin router that haven't rehydrated config yet).
+    try:
+        if db is not None:
+            docs = await db.users.find(
+                {"role": {"$in": ["master_admin", "admin", "host"]}},
+                {"password_hash": 0},
+            ).to_list(1000)
+            for u in docs:
+                email = (u.get("email") or "").lower().strip()
+                if not email or email in seen_emails:
+                    continue
+                hosts.append({
+                    "id": u.get("native_user_id") or str(u.get("_id") or u.get("id") or email),
+                    "name": u.get("name") or email,
+                    "path": u.get("host_image_16x9") or "",
+                    "host_image_16x9": u.get("host_image_16x9") or "",
+                    "host_image_9x16": u.get("host_image_9x16") or "",
+                    "profile_picture": u.get("profile_picture") or "",
+                    "home_city": u.get("home_city") or "",
+                    "role": u.get("role") or "host",
+                })
+                seen_emails.add(email)
+    except Exception as e:
+        logger.warning(f"[trivia/hosts] db.users merge failed: {e}")
+
+    # Sort master_admin first, then admin, then host, alpha-by-name inside each tier
+    _tier = {"master_admin": 0, "admin": 1, "host": 2}
+    hosts.sort(key=lambda h: (_tier.get(h.get("role", "host"), 3), (h.get("name") or "").lower()))
+    return hosts
 
 
 @router.get("/locations")
