@@ -1018,6 +1018,15 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.31 (2026-07-01)
+- **Fixed** host image upload / profile PATCH 404 in native mode — `_user_query()` in `backend/server.py` now includes `{"_id": user_id}` as a string branch so native UUID `_id`s match.
+- **Fixed** intermittent "Users (0)" in admin panel — `GET /api/users` now hydrates `db.users` from `system_config.json → users[]` on every request in native mode, copying full profile fields (home_city, profile_picture, host_image_16x9/_9x16, phone).
+- **Fixed** empty "Choose a host…" dropdown in Build Trivia Presentation — `GET /api/trivia/hosts` in `backend/routes/trivia.py` is now SharePoint-free and merges native config users with db.users.
+- **Added** native-config mirror inside `PATCH /api/users/{id}/profile` so profile edits survive a db.users wipe / MontyDB re-init.
+- 4 new regression tests in `backend/tests/test_alpha31_native_users_and_hosts.py`, all passing.
+- Yarn.lock drift recurrence #6 auto-remediated during shipping.
+
+
 ## Shipped — v32.0.0-alpha.30 (2026-02-28)
 - **Removed** the 5-host fake employee roster (Alex/Jordan/Casey/Taylor + dev Nick) from `seed_data()` in `backend/server.py`.
 - **Removed** the 6 mock venues + matching venue_pricing rows.

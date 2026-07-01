@@ -978,6 +978,61 @@ async def refresh_token(request: Request, response: Response):
 
 @api_router.get("/users")
 async def list_users(admin: dict = Depends(require_admin)):
+    """List all users. In native mode we defensively hydrate `db.users`
+    from `system_config.json → users[]` on every read so the merchant
+    NEVER sees "Users (0)" just because their session was restored via
+    JWT cookie without hitting the login-time bridge.
+
+    v32.0.0-alpha.31: added the config→db mirror pass. Previous behavior
+    only mirrored on `/api/auth/login`; if the app booted with a valid
+    cookie the admin panel showed 0 users on fresh installs. Same
+    hydration is what powers `/api/trivia/hosts` so the Trivia Presenter
+    host dropdown stops being intermittent.
+    """
+    try:
+        from native.db_factory import is_native as _is_native
+        if _is_native():
+            from native import config_manager
+            cfg_users = config_manager.config.get("users", []) or []
+            for cfg_u in cfg_users:
+                email = (cfg_u.get("email") or "").lower().strip()
+                if not email:
+                    continue
+                existing = await db.users.find_one({"email": email})
+                display = cfg_u.get("display_name") or (
+                    f"{cfg_u.get('first_name','')} {cfg_u.get('last_name','')}".strip()
+                )
+                # Copy full profile — including image + city fields — so
+                # the /users list returns everything the profile page +
+                # trivia host dropdown need.
+                merge = {
+                    "email": email,
+                    "name": display,
+                    "role": cfg_u.get("role", "host"),
+                    "auth_method": "native",
+                    "native_user_id": cfg_u.get("id"),
+                    "enabled": cfg_u.get("enabled", True),
+                }
+                for k in ("home_city", "profile_picture", "host_image_16x9",
+                          "host_image_9x16", "phone"):
+                    if cfg_u.get(k) is not None:
+                        merge[k] = cfg_u.get(k)
+                if cfg_u.get("password_hash"):
+                    merge["password_hash"] = cfg_u["password_hash"]
+                if existing:
+                    # Only $set fields that are missing OR that config
+                    # has newer values for. Never blow away a
+                    # profile_picture that only lives in db.users.
+                    patch = {k: v for k, v in merge.items() if existing.get(k) in (None, "", 0) or k in ("role", "name")}
+                    if patch:
+                        await db.users.update_one({"_id": existing["_id"]}, {"$set": patch})
+                else:
+                    doc = {"_id": cfg_u.get("id") or str(uuid.uuid4()), **merge,
+                           "created_at": cfg_u.get("created_at") or datetime.now(timezone.utc).isoformat()}
+                    await db.users.insert_one(doc)
+    except Exception as e:
+        logger.warning(f"[users] native config hydration skipped: {e}")
+
     users = await db.users.find({}, {"password_hash": 0}).to_list(1000)
     for u in users:
         u["_id"] = str(u["_id"])
@@ -985,14 +1040,14 @@ async def list_users(admin: dict = Depends(require_admin)):
 
 def _user_query(user_id: str) -> dict:
     """Build a Mongo query that matches a user by either Mongo `_id`
-    (ObjectId) OR a string `id` field. Mock-seeded users in the
-    production install carry UUID string ids — passing those through
-    `ObjectId(...)` raises `bson.errors.InvalidId` and the route 500s
-    with the unhelpful "Failed to delete user" toast. Match on either
-    so legacy + new docs work.
+    (ObjectId) OR a string `id` field OR a string `_id` (native mode).
+    v32.0.0-alpha.31: added the string `_id` branch — the native
+    setup wizard + native login bridge both write `_id` as a UUID
+    string (MontyDB can't compare ObjectId), so a UUID passed on the
+    URL matches nothing under the old `{"id": user_id}` clause alone.
     """
     from bson.errors import InvalidId
-    q = {"$or": [{"id": user_id}]}
+    q = {"$or": [{"id": user_id}, {"_id": user_id}]}
     try:
         q["$or"].append({"_id": ObjectId(user_id)})
     except (InvalidId, TypeError):
@@ -1068,6 +1123,33 @@ async def update_user_profile(
         await db.users.update_one({"_id": target["_id"]}, {"$set": update})
     updated = await db.users.find_one({"_id": target["_id"]}, {"password_hash": 0})
     updated["_id"] = str(updated["_id"])
+
+    # v32.0.0-alpha.31: mirror the update back into system_config.json so
+    # native-mode profile edits (16:9 slide GIF, avatar, home_city) survive
+    # a db.users wipe / MontyDB re-init. Match config user by email or by
+    # native_user_id so both hydration paths converge. Non-fatal on error.
+    try:
+        from native.db_factory import is_native as _is_native_mode
+        if _is_native_mode():
+            from native import config_manager
+            cfg_users = config_manager.config.get("users", []) or []
+            email_lc = (updated.get("email") or target.get("email") or "").lower().strip()
+            native_uid = target.get("native_user_id") or str(target.get("_id"))
+            cfg_user = next(
+                (u for u in cfg_users
+                 if (u.get("email") or "").lower().strip() == email_lc
+                 or u.get("id") == native_uid),
+                None,
+            )
+            if cfg_user is not None:
+                for k, v in update.items():
+                    cfg_user[k] = v
+                if update.get("name"):
+                    cfg_user["display_name"] = update["name"]
+                cfg_user["updated_at"] = datetime.now(timezone.utc).isoformat()
+                config_manager.save_config()
+    except Exception as e:
+        logger.warning(f"[users/profile] native config mirror failed: {e}")
 
     # v32.0.0-alpha.30: refresh the on-disk host.json so Host Recall
     # picks up the new profile picture / display name / home city even

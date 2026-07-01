@@ -7,6 +7,39 @@
 
 ---
 
+## 2026-07-01 — v32.0.0-alpha.31: fix host image upload + admin users list + trivia host picker
+
+### Merchant report (alpha.30 install)
+1. Uploading a .gif into a user's profile said "Image uploaded but profile update failed" and never persisted.
+2. Admin panel showed "Users (0)" intermittently even though logged in as Master Admin.
+3. Build Trivia Presentation "Choose a host…" dropdown was empty.
+
+### Root causes
+1. `server.py :: _user_query()` built `{"$or": [{"id": user_id}]}` + an optional `ObjectId` branch. Native-mode records store `_id` as a UUID string with no separate `id` field, so the query matched nothing and `PATCH /api/users/<uuid>/profile` 404'd.
+2. The login-time native→db bridge was the only mirror path. If the session was restored via JWT cookie, `db.users` stayed empty and `/api/users` returned `[]`.
+3. `routes/trivia.py :: get_hosts()` still called SharePoint (decommissioned in alpha.27), so the wizard dropdown was empty on every native install.
+
+### Fixes
+- `_user_query()` now includes `{"_id": user_id}` (string) so native UUID lookups match.
+- `GET /api/users` proactively hydrates `db.users` from `system_config.json → users[]` on every read in native mode, copying `home_city / profile_picture / host_image_16x9 / _9x16 / phone`.
+- `PATCH /api/users/{id}/profile` mirrors the update back into `system_config.json` so slide GIFs + home_city survive a `db.users` wipe.
+- `GET /api/trivia/hosts` replaced with a SharePoint-free implementation that merges `system_config.users` with `db.users`, dedupes by email, sorts master_admin/admin/host, and returns the same `{id, name, path, host_image_16x9, ...}` shape the frontend already expects (no frontend edits needed).
+
+### Tests
+- `backend/tests/test_alpha31_native_users_and_hosts.py` — 4/4 pass:
+  1. `_user_query` includes the string `_id` branch.
+  2. `get_hosts` no longer references `SharePointService`.
+  3. `list_users` hydrates from `config_manager` in native mode.
+  4. `update_user_profile` writes back to `config_manager.save_config()`.
+
+### CI
+Recurring yarn.lock drift hit again (6th recurrence). Standard remediation: local `yarn install` → push updated yarn.lock via Contents API → delete + recreate the `v32.0.0-alpha.31` tag → workflow re-fired. Windows + macOS ARM both succeeded on the retry.
+
+### Release
+Shipped: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.31
+
+
+
 ## 2026-02-28 — v32.0.0-alpha.30: strip mock seed data, persist master_admin to host.json
 
 ### Why
