@@ -45,6 +45,24 @@ from .local_asset_service import _asset_root
 
 logger = logging.getLogger(__name__)
 
+
+def _files_locations_root() -> Path:
+    """Resolve `<Documents>/BIG Hat Entertainment/Files/Locations/`.
+
+    v32.0.0-alpha.33: locations are moving OUT of the hidden
+    `<assets_root>/02_Locations/` tree (which the merchant can't easily
+    inspect) and INTO the same canonical `Files/Locations/` folder they
+    see in Windows Explorer. This unifies the mental model: everything
+    a merchant configures in the app has a matching folder under
+    `BIG Hat Entertainment/Files/`.
+    """
+    try:
+        from .files_router import _docs_root  # lazy — avoid circular import
+        return _docs_root() / "Files" / "Locations"
+    except Exception as e:
+        logger.warning("locations_router: falling back to assets root: %s", e)
+        return _asset_root() / "02_Locations"
+
 router = APIRouter(prefix="/native/locations", tags=["native-locations"])
 
 # DB + user resolver injection (same pattern as admin_router)
@@ -161,10 +179,68 @@ async def _get_location_or_404(location_id: str) -> Dict[str, Any]:
 
 
 def _branding_dir(slug: str) -> Path:
-    """Resolve `<assets_root>/02_Locations/<slug>/branding/` and mkdir."""
-    root = _asset_root() / "02_Locations" / slug / "branding"
+    """Resolve `<Files>/Locations/<slug>/branding/` and mkdir.
+
+    v32.0.0-alpha.33: moved out of `<assets_root>/02_Locations/…` into
+    the canonical `Files/Locations/…` tree the merchant can browse in
+    Windows Explorer. Falls back to the old path only if the docs root
+    is unavailable (unit tests with no HOME env).
+    """
+    root = _files_locations_root() / slug / "branding"
+    root.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_slug_dir(slug)  # one-shot copy from old assets tree
+    return root
+
+
+def _overlays_dir(slug: str) -> Path:
+    """Resolve `<Files>/Locations/<slug>/overlays/` and mkdir.
+
+    Overlays are semi-transparent images/GIFs the presenter composites
+    ON TOP of each round's slides. One overlay set per location — the
+    presenter picks the overlay matching the current location (chosen
+    in the Build Wizard) and applies it per-round.
+    """
+    root = _files_locations_root() / slug / "overlays"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _migrate_legacy_slug_dir(slug: str) -> None:
+    """One-shot best-effort move from `<assets_root>/02_Locations/<slug>/`
+    to `<Files>/Locations/<slug>/` so existing installs don't lose their
+    already-uploaded branding when alpha.33 rolls in.
+
+    Idempotent — writes a `.alpha33-migrated` marker inside the new
+    folder so subsequent uploads skip the scan.
+    """
+    try:
+        new_slug_dir = _files_locations_root() / slug
+        marker = new_slug_dir / ".alpha33-migrated"
+        if marker.exists():
+            return
+        legacy = _asset_root() / "02_Locations" / slug
+        if legacy.exists() and legacy.resolve() != new_slug_dir.resolve():
+            for sub in ("branding", "overlays"):
+                src = legacy / sub
+                if not src.is_dir():
+                    continue
+                dst = new_slug_dir / sub
+                dst.mkdir(parents=True, exist_ok=True)
+                for entry in src.iterdir():
+                    target = dst / entry.name
+                    if not target.exists():
+                        try:
+                            shutil.move(str(entry), str(target))
+                        except OSError as exc:
+                            logger.warning(
+                                "locations_router: migration move failed %s -> %s: %s",
+                                entry, target, exc,
+                            )
+        new_slug_dir.mkdir(parents=True, exist_ok=True)
+        marker.write_text("migrated", encoding="utf-8")
+        logger.info("locations_router: alpha.33 layout migration done for slug=%s", slug)
+    except OSError as exc:  # pragma: no cover — never fatal
+        logger.warning("locations_router: alpha.33 migration skipped for %s: %s", slug, exc)
 
 
 def _strip_admin_only(doc: Dict[str, Any], viewer: Dict[str, Any]) -> Dict[str, Any]:
@@ -248,14 +324,16 @@ async def create_location(payload: LocationCreate, request: Request) -> Dict[str
         "name": payload.name,
         "slug": slug,
         "branding_images": [],
+        "overlay_images": [],
         "assigned_user_ids": [],
         "created_at": now,
         "updated_at": now,
         "created_by": _user_id(user),
     }
     await _db.locations.insert_one({"_id": doc["id"], **doc})
-    # Pre-create the branding dir so first upload doesn't race on mkdir.
+    # Pre-create both dirs so first upload doesn't race on mkdir.
     _branding_dir(slug)
+    _overlays_dir(slug)
     return doc
 
 
@@ -287,18 +365,21 @@ async def update_location(
 
 @router.delete("/{location_id}", status_code=204)
 async def delete_location(location_id: str, request: Request):
-    """master_admin only. Removes DB row AND on-disk branding folder."""
+    """master_admin only. Removes DB row AND on-disk folder (both new
+    Files/Locations/<slug>/ tree and any leftover legacy assets tree)."""
     await _require_master(request)
     loc = await _get_location_or_404(location_id)
     await _db.locations.delete_one({"id": location_id})
-    # Best-effort wipe — losing the folder is non-fatal if it was already
-    # gone (admin nuked it manually, FS error, ...).
-    folder = _asset_root() / "02_Locations" / loc.get("slug", "")
-    if folder.exists():
-        try:
-            shutil.rmtree(folder)
-        except OSError as exc:
-            logger.warning("locations_router: rmtree failed for %s: %s", folder, exc)
+    # Best-effort wipe — losing the folder is non-fatal.
+    for folder in (
+        _files_locations_root() / loc.get("slug", ""),
+        _asset_root() / "02_Locations" / loc.get("slug", ""),
+    ):
+        if folder.exists():
+            try:
+                shutil.rmtree(folder)
+            except OSError as exc:
+                logger.warning("locations_router: rmtree failed for %s: %s", folder, exc)
 
 
 # ----- Endpoints: branding images -----
@@ -446,6 +527,144 @@ async def reorder_branding_images(
     return {"branding_images": ordered}
 
 
+
+# ----- Endpoints: overlay images -----
+# v32.0.0-alpha.33: overlays are semi-transparent images/GIFs the
+# presenter composites ON TOP of each round's slides. Whereas branding
+# images play right after the host slide (introducing the venue),
+# overlays wrap around every round to reinforce the venue identity.
+# The two lists are parallel — same shape, same helpers — but stored
+# in the `overlay_images` field and the `Files/Locations/<slug>/overlays/`
+# folder so the merchant can inspect and hand-edit either independently.
+
+def _overlay_record_paths(loc: Dict[str, Any], image_id: str) -> tuple[Path, Dict[str, Any]]:
+    img = next((i for i in (loc.get("overlay_images") or []) if i.get("id") == image_id), None)
+    if not img:
+        raise HTTPException(404, detail="overlay_not_found")
+    return _overlays_dir(loc["slug"]) / f"{image_id}{img.get('ext','.bin')}", img
+
+
+@router.post("/{location_id}/overlays", status_code=201)
+async def upload_overlay_image(
+    location_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+) -> Dict[str, Any]:
+    """Upload one overlay image/GIF for this location. Same rules as
+    branding uploads (allow-listed MIME types, 15 MB cap)."""
+    user, loc = await _require_location_access(location_id, request)
+
+    mime = (file.content_type or "").lower()
+    if mime not in _ALLOWED_MIMES:
+        guessed, _ = mimetypes.guess_type(file.filename or "")
+        if (guessed or "").lower() in _ALLOWED_MIMES:
+            mime = (guessed or "").lower()
+        else:
+            raise HTTPException(415, detail=f"unsupported_mime:{mime or 'unknown'}")
+
+    raw = await file.read()
+    if len(raw) > _MAX_IMAGE_BYTES:
+        raise HTTPException(413, detail=f"file_too_large:{len(raw)}")
+    if not raw:
+        raise HTTPException(400, detail="empty_file")
+
+    ext = mimetypes.guess_extension(mime) or Path(file.filename or "").suffix or ".bin"
+    image_id = str(uuid.uuid4())
+    dst = _overlays_dir(loc["slug"]) / f"{image_id}{ext}"
+    dst.write_bytes(raw)
+
+    record = {
+        "id": image_id,
+        "filename": file.filename or f"overlay{ext}",
+        "mime": mime,
+        "size": len(raw),
+        "order": len(loc.get("overlay_images") or []),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": _user_id(user),
+        "ext": ext,
+    }
+    await _db.locations.update_one(
+        {"id": location_id},
+        {
+            "$push": {"overlay_images": record},
+            "$set": {"updated_at": record["uploaded_at"]},
+        },
+    )
+    return record
+
+
+@router.get("/{location_id}/overlays/{image_id}/raw")
+async def get_overlay_image_raw(
+    location_id: str,
+    image_id: str,
+    request: Request,
+):
+    _, loc = await _require_location_access(location_id, request)
+    path, img = _overlay_record_paths(loc, image_id)
+    if not path.is_file():
+        raise HTTPException(404, detail="overlay_file_missing")
+    return FileResponse(str(path), media_type=img.get("mime") or "application/octet-stream")
+
+
+@router.delete("/{location_id}/overlays/{image_id}", status_code=204)
+async def delete_overlay_image(
+    location_id: str,
+    image_id: str,
+    request: Request,
+):
+    _, loc = await _require_location_access(location_id, request)
+    images = loc.get("overlay_images") or []
+    img = next((i for i in images if i.get("id") == image_id), None)
+    if not img:
+        raise HTTPException(404, detail="overlay_not_found")
+    path = _overlays_dir(loc["slug"]) / f"{image_id}{img.get('ext','.bin')}"
+    if path.is_file():
+        try:
+            path.unlink()
+        except OSError as exc:
+            logger.warning("locations_router: overlay unlink failed for %s: %s", path, exc)
+    remaining = [i for i in images if i.get("id") != image_id]
+    for idx, i in enumerate(remaining):
+        i["order"] = idx
+    await _db.locations.update_one(
+        {"id": location_id},
+        {"$set": {
+            "overlay_images": remaining,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+
+@router.patch("/{location_id}/overlays/order")
+async def reorder_overlay_images(
+    location_id: str,
+    payload: ImageOrder,
+    request: Request,
+) -> Dict[str, Any]:
+    _, loc = await _require_location_access(location_id, request)
+    images = loc.get("overlay_images") or []
+    by_id = {i.get("id"): i for i in images if i.get("id")}
+    ordered: List[Dict[str, Any]] = []
+    seen: set = set()
+    for img_id in payload.image_ids:
+        if img_id in by_id and img_id not in seen:
+            ordered.append(by_id[img_id])
+            seen.add(img_id)
+    for img in images:
+        if img.get("id") not in seen:
+            ordered.append(img)
+    for idx, img in enumerate(ordered):
+        img["order"] = idx
+    await _db.locations.update_one(
+        {"id": location_id},
+        {"$set": {
+            "overlay_images": ordered,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"overlay_images": ordered}
+
+
 # ----- Endpoints: admin assignments -----
 @router.patch("/{location_id}/admins")
 async def set_assignments(
@@ -461,7 +680,7 @@ async def set_assignments(
     access guard ignores them.
     """
     await _require_master(request)
-    loc = await _get_location_or_404(location_id)
+    await _get_location_or_404(location_id)  # 404 if not found
     # Dedupe while preserving order.
     seen = set()
     cleaned: List[str] = []
