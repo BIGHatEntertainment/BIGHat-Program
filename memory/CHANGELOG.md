@@ -7,6 +7,48 @@
 
 ---
 
+## 2026-07-02 — v32.0.0-alpha.33: unified location pipeline + round overlays
+
+### Merchant report (alpha.32)
+1. Added a location in Admin Trivia Setup, but the on-disk `Files/Locations/` folder stayed empty.
+2. Build Wizard "Choose a location" dropdown was empty even though the location existed in the app.
+3. No UI for uploading **round overlays** (semi-transparent images the presenter composites on every round's slides).
+
+### Root cause
+Three disconnected pipelines. `db.locations` was the source of truth for CRUD, uploads wrote to `<assets_root>/02_Locations/`, and `/api/trivia/locations` scanned yet a THIRD path (`<assets_root>/01_Trivia/Web App/00_Builder/02_Locations/`) via the legacy SharePoint client. None of the three folders was visible in the merchant's mental model of `Documents/BIG Hat Entertainment/Files/`.
+
+### Fixes
+**Backend:**
+- `native/locations_router.py` now writes to `<Documents>/BIG Hat Entertainment/Files/Locations/<slug>/branding/` — the exact tree the merchant sees in Windows Explorer.
+- **NEW:** `Files/Locations/<slug>/overlays/` for round overlays.
+- **NEW endpoints:**
+  - `POST /api/native/locations/{id}/overlays` (upload)
+  - `GET /api/native/locations/{id}/overlays/{image_id}/raw`
+  - `DELETE /api/native/locations/{id}/overlays/{image_id}`
+  - `PATCH /api/native/locations/{id}/overlays/order`
+- `db.locations` documents now carry an `overlay_images: []` array on creation.
+- `routes/trivia.py :: get_locations()` rewritten SharePoint-free — reads directly from `db.locations`, returns a non-empty `path` (falls back to `location:<id>` sentinel so Radix `SelectItem` doesn't crash on empty value).
+- One-shot migration `_migrate_legacy_slug_dir()` copies leftover branding files from `<assets_root>/02_Locations/<slug>/` into `Files/Locations/<slug>/` on first hit and stamps a `.alpha33-migrated` marker to prevent re-scans.
+
+**Frontend:**
+- `TriviaSetup.jsx` gains a "Round overlays" section under each location, mirroring the existing branding gallery — upload, drag-reorder, delete, empty-state message.
+- Location card in the sidebar now shows both branding + overlay counts with distinct icons (`ImageIcon` vs `Layers`).
+- `lib/api.js` exposes `uploadLocationOverlay` / `deleteLocationOverlay` / `reorderLocationOverlays` / `locationOverlayRawUrl`.
+
+### Tests
+- `backend/tests/test_alpha33_location_pipeline.py` — 6/6 pass:
+  1. `_branding_dir(slug)` lives under `Files/Locations/…`.
+  2. `_overlays_dir(slug)` mkdir'd under `Files/Locations/…/overlays/`.
+  3. `.alpha33-migrated` marker written on first touch.
+  4. All four overlay endpoints defined.
+  5. `/api/trivia/locations` no longer references `SharePointService` and uses `location:<id>` sentinel fallback.
+  6. `create_location` seeds `overlay_images: []`.
+
+### Release
+Shipped: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.33 (Windows + macOS ARM built first pass — no yarn.lock drift)
+
+
+
 ## 2026-07-01 — v32.0.0-alpha.32: Build Wizard blank-screen fix + global ErrorBoundary
 
 ### Merchant report (alpha.31 install)

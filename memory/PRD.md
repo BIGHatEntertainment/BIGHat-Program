@@ -1018,6 +1018,15 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.33 (2026-07-02)
+- **Unified** location storage under `<Documents>/BIG Hat Entertainment/Files/Locations/<slug>/{branding,overlays}/` — the exact tree the merchant sees in Windows Explorer.
+- **Fixed** empty Build Wizard location dropdown: `/api/trivia/locations` rewritten SharePoint-free, reads directly from `db.locations` with non-empty `location:<id>` sentinel fallback.
+- **Added** round overlays: new `<Files>/Locations/<slug>/overlays/` folder + 4 endpoints (`POST/GET-raw/DELETE/PATCH-order /api/native/locations/{id}/overlays[…]`) + `overlay_images: []` field on the DB doc + full "Round overlays" UI section in `TriviaSetup.jsx` (upload, drag-reorder, delete, empty state).
+- **Added** one-shot alpha.33 migration copying legacy `<assets_root>/02_Locations/<slug>/branding/` → `Files/Locations/<slug>/branding/` with `.alpha33-migrated` marker to prevent repeat scans.
+- **Added** overlay count badge on the location card in the admin sidebar (distinct icon).
+- 6 new regression tests in `backend/tests/test_alpha33_location_pipeline.py`, all passing.
+
+
 ## Shipped — v32.0.0-alpha.32 (2026-07-01)
 - **Fixed** Build Wizard blank-screen crash: `/api/trivia/hosts` now returns a non-empty `path` on every row (falls back to `host:<id>` sentinel when the 16:9 image is not uploaded yet), and the wizard defensively filters empty paths + shows a "No hosts configured yet" note if empty.
 - **Added** global `<ErrorBoundary>` in `frontend/src/components/ErrorBoundary.jsx` — any future component-level crash shows a friendly recovery card ("Try again" / "Reload window") instead of blanking the whole app.

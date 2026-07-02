@@ -151,27 +151,67 @@ async def get_hosts() -> List[Dict[str, str]]:
 
 
 @router.get("/locations")
-async def get_locations() -> List[Dict[str, str]]:
-    """Get list of available locations from SharePoint"""
+async def get_locations() -> List[Dict[str, Any]]:
+    """List locations for the Build Wizard's Choose Location step.
+
+    v32.0.0-alpha.33: switched from the filesystem-scan SharePoint path
+    (which only saw `<assets_root>/01_Trivia/Web App/00_Builder/02_Locations/`)
+    to the authoritative `db.locations` collection populated by the
+    admin Trivia Setup screen. That collection is the ONLY place where
+    the location's display name, slug, branding_images, and overlay_images
+    are actually managed — so it's the ONLY reliable source for the
+    picker.
+
+    Response shape kept backward-compatible for the wizard:
+      { id, name, path, slug, branding_images, overlay_images }
+    `path` is a sentinel `location:<id>` string when no branding image
+    is set (Radix SelectItem cannot handle value=""). The presenter
+    detects that prefix and falls back to just showing the name.
+    """
+    locations: List[Dict[str, Any]] = []
+    db_obj = None
     try:
-        sp = SharePointService()
-        locations_folder = "01_Trivia/Web App/00_Builder/02_Locations"
-        items = sp.list_folder_contents(locations_folder)
-        
-        locations = []
-        for item in items:
-            if item.get('folder'):
-                # Each location is a folder containing intro slide and overlay
-                locations.append({
-                    'id': item['id'],
-                    'name': item['name'],
-                    'path': f"{locations_folder}/{item['name']}"
-                })
-        
-        return locations
+        from native.db_factory import get_db as _get_native_db, is_native as _is_native
+        if _is_native():
+            db_obj = _get_native_db()
     except Exception as e:
-        logger.error(f"Error fetching locations: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(f"[trivia/locations] native db lookup failed: {e}")
+    if db_obj is None:
+        # Cloud mode fallback: still try to serve from the primary db
+        # to keep the merchant unblocked.
+        try:
+            from server import db as _cloud_db  # type: ignore
+            db_obj = _cloud_db
+        except Exception:
+            db_obj = None
+
+    if db_obj is not None:
+        try:
+            docs = await db_obj.locations.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+            for d in docs:
+                loc_id = d.get("id") or d.get("slug")
+                if not loc_id:
+                    continue
+                first_branding = ""
+                brandings = d.get("branding_images") or []
+                if brandings:
+                    # Point at the first branding image URL so the wizard
+                    # can show a quick thumbnail. Presenter uses the full
+                    # list, in order, from the same field.
+                    b0 = brandings[0]
+                    first_branding = f"/api/native/locations/{loc_id}/images/{b0.get('id')}/raw"
+                locations.append({
+                    "id": loc_id,
+                    "name": d.get("name") or d.get("slug") or "Unnamed location",
+                    "path": first_branding or f"location:{loc_id}",
+                    "slug": d.get("slug") or "",
+                    "branding_images": brandings,
+                    "overlay_images": d.get("overlay_images") or [],
+                })
+        except Exception as e:
+            logger.warning(f"[trivia/locations] db.locations query failed: {e}")
+
+    return locations
 
 
 @router.get("/rounds")

@@ -70,6 +70,21 @@ const api = {
     axios.patch(`${API}/api/native/locations/${id}/admins`, { assigned_user_ids: userIds }, { withCredentials: true, headers: authHeaders() }),
   locationImageRawUrl: (id, imageId) =>
     `${API}/api/native/locations/${id}/images/${imageId}/raw`,
+  // Overlay images — alpha.33: parallel API to branding images
+  uploadLocationOverlay: (id, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return axios.post(`${API}/api/native/locations/${id}/overlays`, form, {
+      withCredentials: true,
+      headers: { ...authHeaders() },
+    });
+  },
+  deleteLocationOverlay: (id, imageId) =>
+    axios.delete(`${API}/api/native/locations/${id}/overlays/${imageId}`, { withCredentials: true, headers: authHeaders() }),
+  reorderLocationOverlays: (id, imageIds) =>
+    axios.patch(`${API}/api/native/locations/${id}/overlays/order`, { image_ids: imageIds }, { withCredentials: true, headers: authHeaders() }),
+  locationOverlayRawUrl: (id, imageId) =>
+    `${API}/api/native/locations/${id}/overlays/${imageId}/raw`,
 
   // Backup (master_admin only)
   backupStatus: () =>
