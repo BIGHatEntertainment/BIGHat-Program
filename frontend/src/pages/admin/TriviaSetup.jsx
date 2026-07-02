@@ -17,7 +17,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../lib/api';
 import {
-  MapPin, Plus, Trash2, ImagePlus, Image as ImageIcon,
+  MapPin, Plus, Trash2, ImagePlus, Image as ImageIcon, Layers,
   UserPlus, GripVertical, X, Save, Loader2, AlertTriangle, Check,
 } from 'lucide-react';
 
@@ -113,8 +113,11 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
                     <span className="font-semibold text-sm text-white truncate">{loc.name}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs" style={{ color: PALETTE.textDim }}>
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1" title="Branding images">
                       <ImageIcon size={11} /> {loc.branding_images?.length || 0}
+                    </span>
+                    <span className="flex items-center gap-1" title="Round overlays">
+                      <Layers size={11} /> {loc.overlay_images?.length || 0}
                     </span>
                     {isMaster(currentUser) && (
                       <span className="flex items-center gap-1">
@@ -273,6 +276,7 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
   const [name, setName] = useState(location.name);
   const [savingName, setSavingName] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingOverlay, setUploadingOverlay] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const master = isMaster(currentUser);
 
@@ -303,6 +307,22 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
       setError?.(e.response?.data?.detail || 'Upload failed');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleOverlayFiles = async (files) => {
+    if (!files || !files.length) return;
+    setUploadingOverlay(true);
+    try {
+      for (const f of files) {
+        await api.uploadLocationOverlay(location.id, f);
+      }
+      setSuccess?.(`Uploaded ${files.length} overlay${files.length === 1 ? '' : 's'}`);
+      onChange();
+    } catch (e) {
+      setError?.(e.response?.data?.detail || 'Overlay upload failed');
+    } finally {
+      setUploadingOverlay(false);
     }
   };
 
@@ -385,6 +405,41 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
         />
       </div>
 
+      {/* Round overlays (alpha.33) — semi-transparent images/GIFs
+          composited on top of each round's slides during presentation. */}
+      <div data-testid="overlays-section">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h4 className="text-sm font-semibold text-white">Round overlays</h4>
+            <p className="text-xs" style={{ color: PALETTE.textDim }}>
+              Composited on top of every round&apos;s slides. Drag to reorder.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition"
+                 style={{ backgroundColor: PALETTE.accent, color: PALETTE.bg, opacity: uploadingOverlay ? 0.5 : 1 }}
+                 data-testid="upload-overlay-btn">
+            {uploadingOverlay ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+            {uploadingOverlay ? 'Uploading…' : 'Upload'}
+            <input type="file"
+                   multiple
+                   accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                   className="hidden"
+                   disabled={uploadingOverlay}
+                   onChange={(e) => { handleOverlayFiles(Array.from(e.target.files || [])); e.target.value = ''; }}
+                   data-testid="upload-overlay-input"
+            />
+          </label>
+        </div>
+        <ImageGrid
+          kind="overlays"
+          locationId={location.id}
+          images={location.overlay_images || []}
+          onChange={onChange}
+          setError={setError}
+          setSuccess={setSuccess}
+        />
+      </div>
+
       {/* Admin assignments (master_admin only) */}
       {master && (
         <AdminAssignments
@@ -419,8 +474,23 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
 
 // ---------------------------------------------------------------
 // Image grid with drag-to-reorder + per-image delete
+// v32.0.0-alpha.33: parameterised via `kind` prop so a single grid
+// component powers both the branding-images section AND the new
+// overlay-images section. `kind` is either "branding" or "overlays".
 // ---------------------------------------------------------------
-function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
+function ImageGrid({ locationId, images, onChange, setError, setSuccess, kind = 'branding' }) {
+  const apiCalls = kind === 'overlays'
+    ? {
+        reorder: api.reorderLocationOverlays,
+        remove: api.deleteLocationOverlay,
+        rawUrl: api.locationOverlayRawUrl,
+      }
+    : {
+        reorder: api.reorderLocationImages,
+        remove: api.deleteLocationImage,
+        rawUrl: api.locationImageRawUrl,
+      };
+  const testPrefix = kind === 'overlays' ? 'overlay' : 'branding';
   // We track the visual order locally during drag so the UI is snappy;
   // commit to the server on drop. Re-syncs from `images` prop after the
   // parent refreshes.
@@ -452,7 +522,7 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
     }
     setDraggedId(null);
     try {
-      await api.reorderLocationImages(locationId, order);
+      await apiCalls.reorder(locationId, order);
       setSuccess?.('Reordered');
       onChange();
     } catch (e) {
@@ -464,7 +534,7 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
 
   const removeImage = async (imgId) => {
     try {
-      await api.deleteLocationImage(locationId, imgId);
+      await apiCalls.remove(locationId, imgId);
       onChange();
     } catch (e) {
       setError?.(e.response?.data?.detail || 'Delete failed');
@@ -473,11 +543,13 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
 
   if (!images.length) {
     return (
-      <div data-testid="branding-grid" className="grid grid-cols-1">
+      <div data-testid={`${testPrefix}-grid`} className="grid grid-cols-1">
         <div className="rounded-lg p-6 text-center text-sm"
              style={{ backgroundColor: PALETTE.bg, border: `1px dashed ${PALETTE.border}`, color: PALETTE.textDim }}
-             data-testid="branding-empty">
-          No branding images yet. Drop PNG / JPG / GIF / WEBP files using the Upload button above.
+             data-testid={`${testPrefix}-empty`}>
+          {kind === 'overlays'
+            ? 'No overlay images yet. Drop PNG / JPG / GIF / WEBP files using the Upload button above.'
+            : 'No branding images yet. Drop PNG / JPG / GIF / WEBP files using the Upload button above.'}
         </div>
       </div>
     );
@@ -485,7 +557,7 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-         data-testid="branding-grid">
+         data-testid={`${testPrefix}-grid`}>
       {order.map((id) => {
         const img = byId[id];
         if (!img) return null;
@@ -503,10 +575,10 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
               border: `1px solid ${draggedId === id ? PALETTE.accent : PALETTE.border}`,
               opacity: draggedId === id ? 0.5 : 1,
             }}
-            data-testid={`branding-image-${id}`}
+            data-testid={`${testPrefix}-image-${id}`}
           >
             <img
-              src={api.locationImageRawUrl(locationId, id)}
+              src={apiCalls.rawUrl(locationId, id)}
               alt={img.filename}
               className="block w-full h-32 object-cover"
               draggable={false}
@@ -520,7 +592,7 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess }) {
                 className="absolute top-1 right-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
                 style={{ backgroundColor: 'rgba(239, 68, 68, 0.9)', color: '#fff' }}
                 title="Remove"
-                data-testid={`branding-delete-${id}`}
+                data-testid={`${testPrefix}-delete-${id}`}
               >
                 <Trash2 size={12} />
               </button>
