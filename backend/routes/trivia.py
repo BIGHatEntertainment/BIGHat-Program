@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import logging
 from datetime import datetime
 
@@ -80,6 +80,39 @@ async def get_hosts() -> List[Dict[str, str]]:
     hosts: List[Dict[str, str]] = []
     seen_emails: set[str] = set()
 
+    def _row(u: Dict[str, Any], is_config: bool) -> Dict[str, str]:
+        """Build one host row with a GUARANTEED non-empty `path`.
+
+        Radix UI's `<SelectItem value="">` throws on render, which
+        crashes the Trivia Builder Wizard when the merchant has NOT yet
+        uploaded a 16:9 slide GIF for the host. Falling back to a
+        sentinel string ("host:{id}") keeps the Select stable; the
+        downstream builder detects that prefix and skips the host
+        slide instead of trying to render an empty path as a file.
+        """
+        email = (u.get("email") or "").lower().strip()
+        if is_config:
+            display = u.get("display_name") or (
+                f"{u.get('first_name','')} {u.get('last_name','')}".strip()
+            ) or email
+            host_id = u.get("id") or email
+        else:
+            display = u.get("name") or email
+            host_id = u.get("native_user_id") or str(u.get("_id") or u.get("id") or email)
+        img_16 = u.get("host_image_16x9") or ""
+        img_9 = u.get("host_image_9x16") or ""
+        path = img_16 or f"host:{host_id or email or 'unknown'}"
+        return {
+            "id": host_id or email or "unknown",
+            "name": display or email or "Unknown Host",
+            "path": path,
+            "host_image_16x9": img_16,
+            "host_image_9x16": img_9,
+            "profile_picture": u.get("profile_picture") or "",
+            "home_city": u.get("home_city") or "",
+            "role": u.get("role") or "host",
+        }
+
     # Native config users (source of truth on standalone installs)
     try:
         from native.db_factory import is_native as _is_native
@@ -89,19 +122,7 @@ async def get_hosts() -> List[Dict[str, str]]:
                 email = (u.get("email") or "").lower().strip()
                 if not email or email in seen_emails:
                     continue
-                display = u.get("display_name") or (
-                    f"{u.get('first_name','')} {u.get('last_name','')}".strip()
-                ) or email
-                hosts.append({
-                    "id": u.get("id") or email,
-                    "name": display,
-                    "path": u.get("host_image_16x9") or "",
-                    "host_image_16x9": u.get("host_image_16x9") or "",
-                    "host_image_9x16": u.get("host_image_9x16") or "",
-                    "profile_picture": u.get("profile_picture") or "",
-                    "home_city": u.get("home_city") or "",
-                    "role": u.get("role") or "host",
-                })
+                hosts.append(_row(u, is_config=True))
                 seen_emails.add(email)
     except Exception as e:
         logger.warning(f"[trivia/hosts] native config source failed: {e}")
@@ -118,16 +139,7 @@ async def get_hosts() -> List[Dict[str, str]]:
                 email = (u.get("email") or "").lower().strip()
                 if not email or email in seen_emails:
                     continue
-                hosts.append({
-                    "id": u.get("native_user_id") or str(u.get("_id") or u.get("id") or email),
-                    "name": u.get("name") or email,
-                    "path": u.get("host_image_16x9") or "",
-                    "host_image_16x9": u.get("host_image_16x9") or "",
-                    "host_image_9x16": u.get("host_image_9x16") or "",
-                    "profile_picture": u.get("profile_picture") or "",
-                    "home_city": u.get("home_city") or "",
-                    "role": u.get("role") or "host",
-                })
+                hosts.append(_row(u, is_config=False))
                 seen_emails.add(email)
     except Exception as e:
         logger.warning(f"[trivia/hosts] db.users merge failed: {e}")

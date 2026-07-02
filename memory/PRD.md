@@ -1018,6 +1018,13 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.32 (2026-07-01)
+- **Fixed** Build Wizard blank-screen crash: `/api/trivia/hosts` now returns a non-empty `path` on every row (falls back to `host:<id>` sentinel when the 16:9 image is not uploaded yet), and the wizard defensively filters empty paths + shows a "No hosts configured yet" note if empty.
+- **Added** global `<ErrorBoundary>` in `frontend/src/components/ErrorBoundary.jsx` — any future component-level crash shows a friendly recovery card ("Try again" / "Reload window") instead of blanking the whole app.
+- **Added** `POST /api/native/errors/report` — the ErrorBoundary posts crash telemetry to backend supervisor logs for post-mortem.
+- 3 new regression tests in `backend/tests/test_alpha32_wizard_crash_fix.py`, all passing.
+
+
 ## Shipped — v32.0.0-alpha.31 (2026-07-01)
 - **Fixed** host image upload / profile PATCH 404 in native mode — `_user_query()` in `backend/server.py` now includes `{"_id": user_id}` as a string branch so native UUID `_id`s match.
 - **Fixed** intermittent "Users (0)" in admin panel — `GET /api/users` now hydrates `db.users` from `system_config.json → users[]` on every request in native mode, copying full profile fields (home_city, profile_picture, host_image_16x9/_9x16, phone).

@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-07-01 — v32.0.0-alpha.32: Build Wizard blank-screen fix + global ErrorBoundary
+
+### Merchant report (alpha.31 install)
+Clicking the "Build Wizard" tool blanked the entire app to a navy screen with no recovery — had to close/reopen. Called out the need for a "more robust" client that doesn't intermittently fail.
+
+### Root cause
+The alpha.31 `/api/trivia/hosts` payload returned `path=""` for any host who hadn't yet uploaded a 16:9 slide GIF (which is the fresh-install case — the master admin has to upload their own image). The wizard renders each host as `<SelectItem value={host.path}>`, and Radix UI throws when `SelectItem value=""` (empty string is reserved for the placeholder). That exception propagated to the React root and blanked the whole app, since there was no ErrorBoundary.
+
+### Fixes
+- `backend/routes/trivia.py :: get_hosts()` now guarantees a non-empty `path` on every row. When `host_image_16x9` is missing, `path` falls back to a `host:<id>` sentinel string so Radix stays happy.
+- `frontend TriviaBuilderWizard.jsx` filters out any host with an empty path (defence-in-depth) and shows a "No hosts configured yet" note if the list is empty.
+- **New:** `<ErrorBoundary>` wraps `<App/>` in `frontend/src/index.js`. Any future runtime crash now shows a friendly recovery card with the error text + "Try again" and "Reload window" buttons instead of a blank screen. In dev builds the component stack is included in a `<details>`.
+- **New:** `POST /api/native/errors/report` in `backend/native/router.py` — the ErrorBoundary POSTs the error message + stack + component stack with `keepalive: true` on catch, so `tail -f /var/log/supervisor/backend.err.log` surfaces frontend crashes without DevTools. The endpoint never 500s, always returns `{"ok": True}`.
+
+### Tests
+- `backend/tests/test_alpha32_wizard_crash_fix.py` — 3/3 pass:
+  1. Every host row has non-empty `path`.
+  2. Missing-image hosts fall back to `host:<id>` sentinel.
+  3. `report_frontend_error` accepts nominal, empty, and malformed payloads without raising.
+
+### Release
+Shipped: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.32 (Windows + macOS ARM built first pass — no yarn.lock drift recurrence this time)
+
+
+
 ## 2026-07-01 — v32.0.0-alpha.31: fix host image upload + admin users list + trivia host picker
 
 ### Merchant report (alpha.30 install)

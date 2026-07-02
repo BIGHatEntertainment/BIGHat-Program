@@ -294,11 +294,18 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
                   <SelectValue placeholder="Choose a host..." />
                 </SelectTrigger>
                 <SelectContent className="bg-[#2a2a2a] border-gray-600">
-                  {hosts.map((host) => (
-                    <SelectItem key={host.id} value={host.path} className="text-white hover:bg-[#3a3a3a]">
-                      {host.name}
-                    </SelectItem>
-                  ))}
+                  {hosts
+                    .filter((host) => host && host.path && host.path !== '')
+                    .map((host) => (
+                      <SelectItem key={host.id || host.path} value={host.path} className="text-white hover:bg-[#3a3a3a]">
+                        {host.name || 'Unnamed host'}
+                      </SelectItem>
+                    ))}
+                  {hosts.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-gray-400">
+                      No hosts configured yet — add one under Admin Settings.
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
