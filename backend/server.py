@@ -452,10 +452,44 @@ async def sync_users_from_employees():
 
 
 async def seed_data():
-    """Seed master admin, employees, venues and events"""
-    # Seed master admin user
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower().strip()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    """Seed master admin (cloud SaaS hub only).
+
+    v32.0.0-alpha.35: `admin@example.com` / "Nick Sellards" was
+    silently seeded on every backend boot into `db.users`, then the
+    alpha.31 hydration bridge would surface it in the admin panel
+    alongside the real master_admin created by the native setup
+    wizard. Merchants on fresh standalone installs saw TWO master
+    admins after finishing setup.
+
+    Fix: skip the env seed entirely in native mode — the setup
+    wizard at `/api/native/setup/initialize` is the ONLY authoritative
+    path in standalone. Also skip when the env is unset (defaults still
+    equal to the placeholder), so cloud dev boxes don't accidentally
+    create `admin@example.com` if the deployer forgot to configure it.
+    """
+    # v32.0.0-alpha.35: native mode = setup wizard is the only source of
+    # truth. Never seed the fallback env row.
+    try:
+        from native.db_factory import is_native as _is_native
+        if _is_native():
+            logger.info("[seed] native mode: skipping cloud env master_admin seed")
+            return
+    except Exception as e:
+        logger.warning(f"[seed] is_native() check failed: {e}")
+
+    # Cloud SaaS hub only: require BOTH env vars to be explicitly set.
+    # Falling back to `admin@example.com` / `admin123` would seed a
+    # bogus, insecure user into every cloud deployment.
+    admin_email_raw = os.environ.get("ADMIN_EMAIL")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
+    if not admin_email_raw or not admin_password:
+        logger.info("[seed] ADMIN_EMAIL/ADMIN_PASSWORD not set — skipping master_admin seed")
+        return
+    admin_email = admin_email_raw.lower().strip()
+    if admin_email in ("admin@example.com", "", "changeme@example.com"):
+        logger.warning("[seed] refusing to seed placeholder admin email %r", admin_email)
+        return
+
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
         hashed = hash_password(admin_password)
@@ -498,7 +532,61 @@ async def lifespan(app: FastAPI):
     
     # Seed data
     await seed_data()
-    
+
+    # v32.0.0-alpha.35: purge any legacy `admin@example.com` (and any
+    # placeholder cloud-seeded row) from `db.users` on every native
+    # boot. Merchants who upgraded from alpha.31..34 still had that
+    # bogus row in MontyDB from a prior seed run; this makes the fix
+    # retroactive without asking them to wipe their install.
+    try:
+        from native.db_factory import is_native as _is_native_check
+        if _is_native_check():
+            purge_res = await db.users.delete_many({
+                "$or": [
+                    {"email": "admin@example.com"},
+                    {"email": "changeme@example.com"},
+                ]
+            })
+            deleted = getattr(purge_res, "deleted_count", 0)
+            if deleted:
+                logger.warning(
+                    "[boot-purge] removed %d legacy placeholder master_admin row(s)",
+                    deleted,
+                )
+
+            # Enforce "one master_admin per install" invariant. The native
+            # setup wizard writes the authoritative master_admin into
+            # `system_config.json → users[0]`. Any OTHER `db.users` row
+            # carrying `role: master_admin` is an artefact and must be
+            # downgraded to `admin` so there's a single Source of Truth.
+            try:
+                from native import config_manager
+                cfg_users = config_manager.config.get("users", []) or []
+                cfg_master_email = next(
+                    ((u.get("email") or "").lower().strip()
+                     for u in cfg_users
+                     if u.get("role") == "master_admin"),
+                    None,
+                )
+                if cfg_master_email:
+                    downgrade_res = await db.users.update_many(
+                        {
+                            "role": "master_admin",
+                            "email": {"$ne": cfg_master_email},
+                        },
+                        {"$set": {"role": "admin"}},
+                    )
+                    n = getattr(downgrade_res, "modified_count", 0)
+                    if n:
+                        logger.warning(
+                            "[boot-invariant] downgraded %d extra master_admin row(s) — canonical=%s",
+                            n, cfg_master_email,
+                        )
+            except Exception as e:
+                logger.warning(f"[boot-invariant] master_admin uniqueness check skipped: {e}")
+    except Exception as e:
+        logger.warning(f"[boot-purge] skipped: {e}")
+
     # Initialize error tracker
     try:
         from error_tracker import set_database as set_error_db
@@ -994,6 +1082,26 @@ async def list_users(admin: dict = Depends(require_admin)):
         if _is_native():
             from native import config_manager
             cfg_users = config_manager.config.get("users", []) or []
+
+            # v32.0.0-alpha.35: also PURGE any db.users row that is NOT
+            # backed by system_config.json. The native setup wizard is
+            # the authoritative source for standalone installs; anything
+            # else in db.users came from the legacy seed or a stale
+            # migration. This makes the admin panel stop showing bogus
+            # duplicates like `admin@example.com`.
+            allowed_emails = {(u.get("email") or "").lower().strip()
+                              for u in cfg_users if u.get("email")}
+            if allowed_emails:
+                purge = await db.users.delete_many({
+                    "email": {"$nin": list(allowed_emails)},
+                })
+                purged = getattr(purge, "deleted_count", 0)
+                if purged:
+                    logger.warning(
+                        "[users] pruned %d db.users row(s) not in system_config",
+                        purged,
+                    )
+
             for cfg_u in cfg_users:
                 email = (cfg_u.get("email") or "").lower().strip()
                 if not email:

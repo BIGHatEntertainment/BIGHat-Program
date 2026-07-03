@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-07-03 — v32.0.0-alpha.35: single master admin — kill the `admin@example.com` phantom
+
+### Merchant report (alpha.34)
+After completing setup with `sellards@bighat.live` as master admin, Admin > Users showed TWO master admins: the real one AND a bogus `Nick Sellards` / `admin@example.com` row.
+
+### Root cause
+`server.py :: seed_data()` did:
+```python
+admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower().strip()
+admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+existing = await db.users.find_one({"email": admin_email})
+if existing is None: await db.users.insert_one({..., "role": "master_admin"})
+```
+On a standalone install with no env vars, the fallback defaults kicked in and seeded a bogus master_admin on every boot. The alpha.31 `list_users` hydration bridge then surfaced both the seeded row AND the real setup-wizard user.
+
+### Fixes (defence-in-depth, five layers)
+1. **`seed_data()` short-circuits in native mode.** Native setup wizard is the sole source of truth for standalone installs — cloud seed logic is skipped entirely.
+2. **`seed_data()` refuses placeholder emails.** Even in cloud mode, missing `ADMIN_EMAIL`/`ADMIN_PASSWORD` or values equal to `admin@example.com` / `changeme@example.com` cause the seed to skip with a WARNING log.
+3. **Startup `boot-purge`**: on every native boot, `db.users.delete_many({"email": {"$in": ["admin@example.com", "changeme@example.com"]}})`. Retroactive fix for merchants upgrading from alpha.31..34.
+4. **Startup `boot-invariant`**: enforce ONE `master_admin` per install. Any `db.users` row with `role: master_admin` whose email is not `system_config.json`'s canonical master is downgraded to `admin`. Logged loudly if triggered.
+5. **`list_users()` prunes to config truth**: `db.users` rows whose email is not present in `system_config.json → users[]` are deleted on every list. `system_config.json` becomes the SINGLE source of truth for who exists on this install.
+
+### Tests
+- `backend/tests/test_alpha35_single_master_admin.py` — 5/5 pass:
+  1. `seed_data()` calls `is_native()` and short-circuits.
+  2. Placeholder-email guard in place.
+  3. Both startup `boot-purge` + `boot-invariant` present.
+  4. `list_users` prunes rows outside config.
+  5. The exact `os.environ.get("ADMIN_EMAIL", "admin@example.com")` default-arg pattern is gone.
+
+### Release
+Shipped: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.35 (Windows + macOS ARM built first pass)
+
+
+
 ## 2026-07-03 — v32.0.0-alpha.34: disk auto-hydration + health endpoint + manifest wiring
 
 ### Merchant report (alpha.33)

@@ -1018,6 +1018,13 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.35 (2026-07-03)
+- **Fixed** phantom `admin@example.com` / "Nick Sellards" second master admin appearing on fresh installs after setup — `server.py :: seed_data()` was falling back to `admin@example.com` when `ADMIN_EMAIL` env was unset, seeding a bogus row on every boot.
+- **Enforced** invariant: exactly ONE master_admin per install (the one from setup wizard). Extras get auto-downgraded to `admin` on boot.
+- **Defence-in-depth (5 layers):** native-mode seed short-circuit; placeholder-email refusal; startup `boot-purge` of legacy admin@example.com; startup `boot-invariant` demoting extra masters; `list_users` pruning rows outside `system_config.json → users[]` so config is the single source of truth.
+- 5 new regression tests in `backend/tests/test_alpha35_single_master_admin.py`, all passing.
+
+
 ## Shipped — v32.0.0-alpha.34 (2026-07-03)
 - **Fixed** location "not showing up" on fresh installs — added `_hydrate_from_disk()` in `native/locations_router.py` that reconciles `db.locations` with `Files/Locations/*` folders on every list call. Orphan folders → DB rows, missing folders → mkdir, orphan files → ingested as image records, stale records → dropped. Idempotent, fail-loud (`[locations] hydrate:` WARNING logs).
 - **Fixed** empty wizard dropdown when opened before admin panel — `/api/trivia/locations` now hydrates too.
