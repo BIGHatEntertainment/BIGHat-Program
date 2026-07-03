@@ -289,17 +289,232 @@ async def list_locations(request: Request) -> List[Dict[str, Any]]:
 
     master_admin: every location.
     admin:        only locations where they're in `assigned_user_ids`.
+
+    v32.0.0-alpha.34: on every list call we run `_hydrate_from_disk()`
+    which reconciles `db.locations` with the actual folders under
+    `Files/Locations/`. If a slug folder exists on disk without a DB
+    row (common after a fresh install on a machine where OneDrive
+    restored the folder), we insert a row so the merchant sees it in
+    the admin panel + wizard. If a DB row exists without its folder,
+    we mkdir. Image records missing files are dropped; orphan files
+    are ingested. Nothing fails silently — every reconciliation
+    action is logged with the slug and count.
     """
     user = await _require_admin_or_master(request)
     if _db is None:
         raise HTTPException(500, detail="database_not_initialised")
+
+    await _hydrate_from_disk()  # fail-loud self-heal
 
     query: Dict[str, Any] = {}
     if not _is_master(user):
         query["assigned_user_ids"] = _user_id(user)
 
     docs = await _db.locations.find(query, {"_id": 0}).sort("name", 1).to_list(500)
+    logger.info(
+        "[locations] list_locations: user=%s master=%s -> %d rows",
+        _user_id(user), _is_master(user), len(docs),
+    )
     return [_strip_admin_only(d, user) for d in docs]
+
+
+async def _hydrate_from_disk() -> Dict[str, Any]:
+    """Reconcile `db.locations` with `<Files>/Locations/`.
+
+    Called from `list_locations` (on every read) and `location_health`.
+    Idempotent: no-op when the DB already reflects disk.
+
+    Returns a summary dict for the health endpoint:
+      { db_rows, disk_folders, recovered_folders, created_folders,
+        added_branding, removed_branding, added_overlays,
+        removed_overlays, errors }
+    """
+    summary = {
+        "db_rows": 0, "disk_folders": 0,
+        "recovered_folders": [], "created_folders": [],
+        "added_branding": {}, "removed_branding": {},
+        "added_overlays": {}, "removed_overlays": {},
+        "errors": [],
+    }
+    if _db is None:
+        summary["errors"].append("database_not_initialised")
+        return summary
+
+    root = _files_locations_root()
+    root.mkdir(parents=True, exist_ok=True)
+
+    # 1) Discover on-disk slugs
+    disk_slugs: Dict[str, Path] = {}
+    try:
+        for entry in root.iterdir():
+            if not entry.is_dir():
+                continue
+            if entry.name.startswith(".") or entry.name.startswith("_"):
+                continue  # hidden / marker
+            disk_slugs[entry.name] = entry
+    except OSError as exc:
+        summary["errors"].append(f"scan_failed:{exc}")
+        return summary
+    summary["disk_folders"] = len(disk_slugs)
+
+    # 2) Pull existing DB rows by slug
+    all_docs = await _db.locations.find({}, {"_id": 0}).to_list(1000)
+    summary["db_rows"] = len(all_docs)
+    by_slug = {d.get("slug"): d for d in all_docs if d.get("slug")}
+
+    # 3) Insert DB rows for orphan disk folders
+    for slug, folder in disk_slugs.items():
+        if slug in by_slug:
+            continue
+        name = _humanise_slug(slug)
+        now = datetime.now(timezone.utc).isoformat()
+        doc = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "slug": slug,
+            "branding_images": [],
+            "overlay_images": [],
+            "assigned_user_ids": [],
+            "created_at": now,
+            "updated_at": now,
+            "created_by": "auto-hydrate",
+        }
+        try:
+            await _db.locations.insert_one({"_id": doc["id"], **doc})
+            by_slug[slug] = doc
+            summary["recovered_folders"].append(slug)
+            logger.warning(
+                "[locations] hydrate: recovered orphan folder %r -> DB row id=%s",
+                slug, doc["id"],
+            )
+        except Exception as exc:
+            summary["errors"].append(f"insert_failed:{slug}:{exc}")
+
+    # 4) mkdir for DB rows missing on-disk folder
+    for slug, doc in by_slug.items():
+        if slug in disk_slugs:
+            continue
+        try:
+            _branding_dir(slug)
+            _overlays_dir(slug)
+            summary["created_folders"].append(slug)
+            logger.warning(
+                "[locations] hydrate: DB row %s had no folder; created %s",
+                doc.get("id"), slug,
+            )
+        except OSError as exc:
+            summary["errors"].append(f"mkdir_failed:{slug}:{exc}")
+
+    # 5) Reconcile branding_images + overlay_images vs disk files
+    for slug, doc in by_slug.items():
+        for kind, dir_getter in (
+            ("branding_images", _branding_dir),
+            ("overlay_images", _overlays_dir),
+        ):
+            try:
+                folder = dir_getter(slug)
+            except OSError:
+                continue
+            actual_files = {
+                p.stem: p for p in folder.iterdir()
+                if p.is_file() and not p.name.startswith(".")
+            }
+            recorded = doc.get(kind) or []
+
+            # Drop DB records whose file is missing
+            keep: List[Dict[str, Any]] = []
+            removed: List[str] = []
+            for rec in recorded:
+                if rec.get("id") in actual_files:
+                    keep.append(rec)
+                else:
+                    removed.append(rec.get("id") or "?")
+            if removed:
+                summary_key = "removed_branding" if kind == "branding_images" else "removed_overlays"
+                summary[summary_key][slug] = removed
+                logger.warning(
+                    "[locations] hydrate: %s stale %s records dropped for %s: %s",
+                    len(removed), kind, slug, removed,
+                )
+
+            # Ingest orphan files (uploaded via Explorer / OneDrive sync,
+            # or leftover from an older format that lost its DB record).
+            added: List[Dict[str, Any]] = []
+            existing_stems = {r.get("id") for r in keep}
+            for stem, path in actual_files.items():
+                if stem in existing_stems:
+                    continue
+                ext = path.suffix or ".bin"
+                mime, _ = mimetypes.guess_type(path.name)
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    size = 0
+                added.append({
+                    "id": stem,
+                    "filename": path.name,
+                    "mime": mime or "application/octet-stream",
+                    "size": size,
+                    "order": len(keep) + len(added),
+                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                    "uploaded_by": "auto-hydrate",
+                    "ext": ext,
+                })
+            if added:
+                summary_key = "added_branding" if kind == "branding_images" else "added_overlays"
+                summary[summary_key][slug] = [a["id"] for a in added]
+                logger.warning(
+                    "[locations] hydrate: ingested %s orphan %s files for %s",
+                    len(added), kind, slug,
+                )
+
+            # Persist if anything changed
+            if removed or added:
+                combined = keep + added
+                for i, rec in enumerate(combined):
+                    rec["order"] = i
+                try:
+                    await _db.locations.update_one(
+                        {"id": doc["id"]},
+                        {"$set": {
+                            kind: combined,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }},
+                    )
+                    # keep in-memory copy fresh for subsequent reads within
+                    # this hydrate cycle
+                    doc[kind] = combined
+                except Exception as exc:
+                    summary["errors"].append(f"update_failed:{slug}:{kind}:{exc}")
+
+    return summary
+
+
+def _humanise_slug(slug: str) -> str:
+    """`monkey-pants-bar-grill` -> `Monkey Pants Bar Grill` (approx).
+    Used only to seed a DB row's `name` for a folder discovered on disk
+    with no metadata. The merchant can rename it from the admin UI.
+    """
+    return " ".join(w.capitalize() for w in (slug or "location").split("-"))
+
+
+@router.get("/health")
+async def location_health(request: Request) -> Dict[str, Any]:
+    """Full location-pipeline integrity report.
+
+    Runs hydration + returns counts + inconsistencies. Master admin
+    only — this touches the FS + DB and is meant for support triage.
+    """
+    await _require_master(request)
+    summary = await _hydrate_from_disk()
+    ok = (
+        not summary["errors"]
+        and not summary["removed_branding"]
+        and not summary["removed_overlays"]
+    )
+    summary["ok"] = ok
+    summary["files_root"] = str(_files_locations_root())
+    return summary
 
 
 @router.post("", status_code=201)
