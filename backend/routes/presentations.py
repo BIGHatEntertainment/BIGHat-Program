@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from typing import Any, Dict, List
 import os
 import logging
 import gc
@@ -67,19 +68,46 @@ async def create_presentation(presentation_data: PresentationCreate):
 
 @router.get("")
 async def get_presentations(userName: str, viewAll: bool = False):
+    """List presentations for the Trivia Presenter.
+
+    v32.0.0-alpha.37: also read from `db.trivia_presentations`. The
+    Build Wizard's `POST /import-trivia` writes there (line ~379),
+    but this LIST endpoint historically only read from
+    `db.presentations`, so wizard-built presentations vanished the
+    instant the merchant clicked Confirm. Both collections are now
+    merged, deduplicated by id, and returned in one list. The single
+    presentation getter at `/{id}` already had this fallback — we're
+    just mirroring it here.
+    """
     logger.info(f"get_presentations called with userName={userName}, viewAll={viewAll}")
-    
+
     if viewAll:
-        # View all presentations regardless of creator
         presentations = await db.presentations.find({}, {"_id": 0}).to_list(1000)
-        logger.info(f"Found {len(presentations)} total presentations (view all)")
+        trivia_p = await db.trivia_presentations.find({}, {"_id": 0}).to_list(1000)
     else:
-        # Case-insensitive username match using regex
+        rx = {"$regex": f"^{userName}$", "$options": "i"}
         presentations = await db.presentations.find(
-            {"createdBy": {"$regex": f"^{userName}$", "$options": "i"}},
-            {"_id": 0}
+            {"createdBy": rx}, {"_id": 0},
         ).to_list(1000)
-        logger.info(f"Found {len(presentations)} presentations for {userName} (case-insensitive)")
+        trivia_p = await db.trivia_presentations.find(
+            {"createdBy": rx}, {"_id": 0},
+        ).to_list(1000)
+
+    # Merge + dedupe by id (favor `presentations` collection if both hold
+    # the same id — same author generally wrote to one or the other).
+    seen: set = set()
+    merged: List[Dict[str, Any]] = []
+    for p in presentations + trivia_p:
+        pid = p.get("id")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        merged.append(p)
+    logger.info(
+        "[presentations] list userName=%s viewAll=%s -> presentations=%d trivia=%d merged=%d",
+        userName, viewAll, len(presentations), len(trivia_p), len(merged),
+    )
+    presentations = merged
     
     # Handle different presentation types
     result = []

@@ -1,0 +1,33 @@
+{
+  "summary": "Verified alpha.37 backend fixes for the two merchant bugs via live HTTP tests against the preview backend. All 6 requested scenarios pass, plus native_mode sanity. Created /app/backend/tests/test_alpha37_live_integration.py (7 tests, all green). Pre-existing unit suite test_alpha37_presentation_and_files_tabs.py also re-verified (6/6 green).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_alpha37_live_integration.py",
+    "/app/backend/tests/test_alpha37_presentation_and_files_tabs.py",
+    "/app/test_reports/pytest/alpha37_live.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "presentations.py import_trivia now double-writes: inserts into db.trivia_presentations AND db.presentations (with type=trivia-imported). The list-merge dedupes by id, so the same id appears once — correct behaviour but worth documenting that the two collections purposely share ids.",
+    "files_router.py files_list() no longer requires auth. Confirmed via requirement note that this matches desktop-only usage. Consider adding a lightweight local-only guard in future to prevent enumeration of on-disk slugs from the preview URL.",
+    "presentations import-trivia uses FAST_SLIDE_COUNT env default of 'true' so slide counts are estimates (12/round). Fine for wizard save, but /api/presentations totalSlides values are estimates rather than real counts — merchant expectations should be aligned."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_alpha37_live_integration.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A - skipped per request"},
+  "test_credentials": "Sellards@bighat.live / BigHat2024! (master_admin) — login works.",
+  "seed_data_creation": "Per-run tag TEST_alpha37_<hex8>: one imported trivia presentation in db.trivia_presentations + db.presentations, and one TEST_Loc_<hex8> location (deleted on teardown). Presentation docs are not cleaned up — safe because createdBy is namespaced with the TEST_ prefix.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Live HTTP integration test file /app/backend/tests/test_alpha37_live_integration.py is reusable — uses REACT_APP_BACKEND_URL and Sellards@bighat.live credentials from test_credentials.md. Bug #1 verified: POST /api/presentations/import-trivia writes to trivia_presentations and GET /api/presentations?userName=X (with or without viewAll) returns the id. Bug #2 verified: /api/native/files?folder=Locations returns type=location entries with '1 branding, 1 overlays' summary; /api/native/files?folder=Hosts lists host subfolders; no folder param → aggregate list has NO location/host bleed.",
+  "rca of the issue": "Bug 1 root cause: import_trivia wrote presentations to db.trivia_presentations, but get_presentations only read from db.presentations. Alpha.37 fix at presentations.py:69-110 queries both collections with case-insensitive createdBy regex and dedupes by id. Bug 2 root cause: files_list globbed for *.bighat, but Locations/Hosts store PNG/JPG image folders (branding/, overlays/), so the tabs were legitimately empty. Alpha.37 fix at files_router.py:984-1041 short-circuits canonical in ('Locations','Hosts') to enumerate subfolders with branding/overlay image counts and type='location'|'host' shape."
+}
