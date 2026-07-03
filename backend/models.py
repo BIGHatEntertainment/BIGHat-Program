@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
 
@@ -63,6 +63,17 @@ class TriviaImportRequest(BaseModel):
     roundTypes: Optional[List[str]] = None  # List of round types (MC, REG, MISC, MYS, BIG)
     roundNames: Optional[List[str]] = None  # List of round display names
     presentationName: Optional[str] = None
+    # v32.0.0-alpha.34: full native manifest carried through from the
+    # Trivia Builder Wizard so the presenter (step 9 in the merchant's
+    # flow) can render `host slide -> location branding -> rounds w/
+    # per-round overlay` without a second round-trip to the API. Shape:
+    #   {
+    #     "host":     {id, name, host_image_16x9, host_image_9x16, ...},
+    #     "location": {id, name, slug, branding_images:[{id,url,...}],
+    #                                  overlay_images: [{id,url,...}]},
+    #   }
+    # Optional so cloud + legacy callers keep working.
+    nativeManifest: Optional[Dict[str, Any]] = None
 
 
 class TriviaPresentation(BaseModel):
@@ -82,3 +93,6 @@ class TriviaPresentation(BaseModel):
     sponsorFiles: List[str]  # Sponsor file paths
     totalSlides: int  # Estimated number of slides
     numRounds: Optional[int] = None  # Number of rounds
+    # v32.0.0-alpha.34: mirror of TriviaImportRequest.nativeManifest so
+    # the persisted presentation carries the same launch-ready payload.
+    nativeManifest: Optional[Dict[str, Any]] = None
