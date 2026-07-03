@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-07-03 — v32.0.0-alpha.37: vanishing presentations + empty Locations Files-tab
+
+### Merchant report (alpha.36)
+1. Built a trivia presentation via the Build Wizard, clicked Confirm on the review screen. Opened Trivia Presenter → "No trivia presentations found." Saved presentation went to the void.
+2. Files tool "Locations" tab was empty even though the location's branded image folders existed on disk with content.
+
+### Root causes
+1. `POST /api/presentations/import-trivia` writes to `db.trivia_presentations`, but `GET /api/presentations?userName=X` only read from `db.presentations`. Two different collections → data invisible to the presenter.
+2. Files tool endpoint (`files_router :: files_list`) globs for `*.bighat` files, but Locations store branded image **subfolders** (`branding/*.png` + `overlays/*.png`), never `.bighat`. So the tab was legitimately empty even with real data on disk.
+
+### Fixes
+- **`get_presentations()` merges both collections** (`db.presentations` + `db.trivia_presentations`), dedupes by id, preserves the case-insensitive `createdBy` regex, and honours `viewAll` across both. Emits `[presentations] list ... -> presentations=N trivia=N merged=N` log line every call.
+- **`files_list()` short-circuits Locations + Hosts folders** to subfolder-listing mode: each entry aggregates branding + overlay image counts with a summary string like `"1 branding, 1 overlays"` and `type: "location" | "host"`. Aggregate ("all") listing unchanged — still `.bighat`-only.
+
+### Testing
+- `backend/tests/test_alpha37_presentation_and_files_tabs.py` — 6/6 pass (unit).
+- `backend/tests/test_alpha37_live_integration.py` — 7/7 pass (testing_agent added a live end-to-end integration test).
+- **`testing_agent_v3_fork` verified**: 100% backend pass, retest_needed=False, no critical issues. All 6 requested merchant-flow scenarios green including live import→list roundtrip and Locations tab with real branding/overlay uploads.
+
+### Release
+Windows-only public release: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.37 (macOS ARM DMG bundler flaked on the GH runner mid-build — Windows shipped; macOS retry noted on the release body).
+
+### Ops note
+Yarn.lock drift recurrence #7 auto-remediated pre-ship (local yarn.lock md5 differed from remote → force-pushed, tag recreated, workflow re-fired).
+
+
+
 ## 2026-07-03 — v32.0.0-alpha.36: hardcoded round-type → `Files/Trivia/<TYPE>/*.bighat` mapping
 
 ### Merchant report (alpha.35)

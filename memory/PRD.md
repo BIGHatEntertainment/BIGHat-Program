@@ -1018,6 +1018,14 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.37 (2026-07-03, Windows only — macOS retry pending)
+- **Fixed** trivia presentations vanishing after wizard confirm: `get_presentations` now merges `db.presentations` + `db.trivia_presentations` and dedupes by id. Wizard-built presentations show up in Trivia Presenter immediately.
+- **Fixed** empty Files tool "Locations" tab: `files_list` short-circuits Locations + Hosts folders to a subfolder-listing mode with aggregated branding + overlay image counts.
+- **Verified by testing_agent** (100% backend pass, 6/6 merchant-flow scenarios green, retest_needed=False).
+- 13 new regression tests across 2 files (`test_alpha37_presentation_and_files_tabs.py` + `test_alpha37_live_integration.py`).
+- Yarn.lock drift recurrence #7 auto-remediated pre-ship.
+
+
 ## Shipped — v32.0.0-alpha.36 (2026-07-03)
 - **Fixed** Build Wizard blocked at Step 3 "Please wait for round files to load": `_list_local_round_files()` now reads `.bighat` files directly from `Documents/BIG Hat Entertainment/Files/Trivia/<TYPE>/` with the merchant's hardcoded mapping (`mc→MC/`, `reg→REG/`, `misc→MISC/`, `mys→MYS/`, `big→BIG/`).
 - **Added** fail-loud logging on every fetch — `[trivia] rounds type=X -> N file(s) (native_dir=/…)`.
