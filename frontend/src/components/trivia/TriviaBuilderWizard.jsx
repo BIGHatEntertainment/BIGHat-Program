@@ -235,6 +235,9 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
         ];
       }
       
+      const selectedHostObj = hosts.find(h => h.path === selectedHost) || {};
+      const selectedLocationObj = locations.find(l => l.path === selectedLocation) || {};
+
       const triviaData = {
         userName,
         host: selectedHost,
@@ -245,9 +248,43 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
         roundNames, // Include round names for admin tracking
         presentationName,
         // Additional data for Story Generator save
-        hostName: hosts.find(h => h.path === selectedHost)?.name || 'Unknown',
-        locationFolder: locations.find(l => l.path === selectedLocation)?.name || 'Unknown',
-        locationName: (locations.find(l => l.path === selectedLocation)?.name || 'Unknown').replace(/^\d+_/, '')
+        hostName: selectedHostObj.name || 'Unknown',
+        locationFolder: selectedLocationObj.name || 'Unknown',
+        locationName: (selectedLocationObj.name || 'Unknown').replace(/^\d+_/, ''),
+        // v32.0.0-alpha.34 — full native manifest payload the presenter
+        // consumes to render slides in order:
+        //   host slide -> location branding slides -> rounds (with per-round overlay)
+        // We pass IDs + URLs so the presenter can render without another
+        // round-trip to the API. Empty arrays are fine — presenter skips.
+        nativeManifest: {
+          host: {
+            id: selectedHostObj.id || null,
+            name: selectedHostObj.name || null,
+            host_image_16x9: selectedHostObj.host_image_16x9 || null,
+            host_image_9x16: selectedHostObj.host_image_9x16 || null,
+            profile_picture: selectedHostObj.profile_picture || null,
+            home_city: selectedHostObj.home_city || null,
+          },
+          location: {
+            id: selectedLocationObj.id || null,
+            name: selectedLocationObj.name || null,
+            slug: selectedLocationObj.slug || null,
+            branding_images: (selectedLocationObj.branding_images || []).map((b, i) => ({
+              id: b.id,
+              order: b.order ?? i,
+              filename: b.filename,
+              mime: b.mime,
+              url: `/api/native/locations/${selectedLocationObj.id}/images/${b.id}/raw`,
+            })),
+            overlay_images: (selectedLocationObj.overlay_images || []).map((o, i) => ({
+              id: o.id,
+              order: o.order ?? i,
+              filename: o.filename,
+              mime: o.mime,
+              url: `/api/native/locations/${selectedLocationObj.id}/overlays/${o.id}/raw`,
+            })),
+          },
+        },
       };
 
       await onComplete(triviaData);
