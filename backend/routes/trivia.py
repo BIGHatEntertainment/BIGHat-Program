@@ -186,6 +186,21 @@ async def get_locations() -> List[Dict[str, Any]]:
             db_obj = None
 
     if db_obj is not None:
+        # v32.0.0-alpha.34: proactively hydrate from disk so the wizard
+        # can be opened BEFORE the admin panel and still see all
+        # locations. Auto-heals missing DB rows / missing files /
+        # orphaned files with no user action.
+        try:
+            from native.locations_router import _hydrate_from_disk
+            hydration = await _hydrate_from_disk()
+            if hydration.get("recovered_folders") or hydration.get("errors"):
+                logger.warning(
+                    "[trivia/locations] hydration summary recovered=%s errors=%s",
+                    hydration.get("recovered_folders"), hydration.get("errors"),
+                )
+        except Exception as e:
+            logger.warning(f"[trivia/locations] hydrate skipped: {e}")
+
         try:
             docs = await db_obj.locations.find({}, {"_id": 0}).sort("name", 1).to_list(500)
             for d in docs:
