@@ -1018,6 +1018,14 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.34 (2026-07-03)
+- **Fixed** location "not showing up" on fresh installs — added `_hydrate_from_disk()` in `native/locations_router.py` that reconciles `db.locations` with `Files/Locations/*` folders on every list call. Orphan folders → DB rows, missing folders → mkdir, orphan files → ingested as image records, stale records → dropped. Idempotent, fail-loud (`[locations] hydrate:` WARNING logs).
+- **Fixed** empty wizard dropdown when opened before admin panel — `/api/trivia/locations` now hydrates too.
+- **Added** `GET /api/native/locations/health` (master admin only) — integrity report with counts and inconsistencies.
+- **Wired P1**: `nativeManifest` payload on `TriviaImportRequest` + `TriviaPresentation` — carries host images (16:9 / 9:16 / avatar / home_city) + location branding + overlay arrays with ready-to-render URLs. Populated by `TriviaBuilderWizard`, persisted on the DB row for the presenter to consume.
+- 6 new regression tests in `backend/tests/test_alpha34_location_hydration.py`, all passing.
+
+
 ## Shipped — v32.0.0-alpha.33 (2026-07-02)
 - **Unified** location storage under `<Documents>/BIG Hat Entertainment/Files/Locations/<slug>/{branding,overlays}/` — the exact tree the merchant sees in Windows Explorer.
 - **Fixed** empty Build Wizard location dropdown: `/api/trivia/locations` rewritten SharePoint-free, reads directly from `db.locations` with non-empty `location:<id>` sentinel fallback.

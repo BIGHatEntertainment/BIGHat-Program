@@ -366,7 +366,11 @@ async def import_trivia(request: TriviaImportRequest):
             roundTypes=round_types_list,  # Store round types for Story Generator
             sponsorFiles=sponsor_files,
             totalSlides=total_slide_count,
-            numRounds=len(request.rounds)  # Number of rounds
+            numRounds=len(request.rounds),  # Number of rounds
+            # v32.0.0-alpha.34: pass the native manifest straight through
+            # so the presenter has ready-to-render URLs for the host slide,
+            # location branding, and per-round overlays.
+            nativeManifest=request.nativeManifest,
         )
         
         logger.info(f"Total slides counted: {total_slide_count} (Host: {host_slide_count}, Location: {location_slide_count if location_file else 0}, Rounds: {sum(rf.get('slideCount', 0) for rf in round_files)})")

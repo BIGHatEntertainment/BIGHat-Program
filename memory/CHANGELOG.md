@@ -7,6 +7,51 @@
 
 ---
 
+## 2026-07-03 — v32.0.0-alpha.34: disk auto-hydration + health endpoint + manifest wiring
+
+### Merchant report (alpha.33)
+1. Fresh alpha.33 install has empty DB but OneDrive-synced `monkey-pants-bar-grill/` folder still lives on disk → admin panel shows "No locations yet", Build Wizard dropdown is empty.
+2. Wizard's presentation payload does not carry branding + overlay images, so step 8-9 (build → launch) has no way to know which images belong to the selected location.
+3. Wanted comprehensive integrity checks so nothing fails silently.
+
+### Fixes
+**Backend:**
+- **NEW** `_hydrate_from_disk()` in `native/locations_router.py` — reconciles `db.locations` with `Files/Locations/*` on every list call. Idempotent, fail-loud:
+  - orphan folder on disk → insert DB row with derived name (`humanise_slug`)
+  - DB row missing folder → mkdir
+  - DB record referencing missing file → drop the record
+  - orphan file with no DB record → ingest as an image record
+  - every reconciliation writes a `[locations] hydrate:` WARNING log
+- **NEW** `GET /api/native/locations/health` (master admin only) — runs the hydrator + returns `{db_rows, disk_folders, recovered_folders, created_folders, added_branding, removed_branding, added_overlays, removed_overlays, errors, ok, files_root}` for triage.
+- `/api/trivia/locations` (wizard endpoint) also hydrates before returning so the dropdown works even if the merchant opens the wizard before the admin panel.
+
+**Manifest wiring (P1):**
+- Wizard payload now carries `nativeManifest`:
+  ```
+  {
+    host:     {id, name, host_image_16x9, host_image_9x16, profile_picture, home_city},
+    location: {id, name, slug,
+               branding_images: [{id, order, filename, mime, url}],
+               overlay_images:  [{id, order, filename, mime, url}]}
+  }
+  ```
+- `TriviaImportRequest` + `TriviaPresentation` (in `models.py`) gained `nativeManifest: Optional[Dict[str, Any]]` so the field survives to the persisted row.
+- Presenter (step 9) can now render `host slide → location branding → rounds w/ per-round overlay` with zero extra API calls.
+
+### Tests
+- `backend/tests/test_alpha34_location_hydration.py` — 6/6 pass:
+  1. `/health` endpoint registered.
+  2. `_hydrate_from_disk()` exists + is called by `list_locations()`.
+  3. `/api/trivia/locations` also invokes hydration.
+  4. `TriviaImportRequest.nativeManifest` field defined.
+  5. Wizard JSX populates the full manifest (host images + branding + overlays).
+  6. Live simulation: orphan OneDrive-restored folder is recovered into DB, orphan file is ingested as image record, second run is idempotent.
+
+### Release
+Shipped: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.34 (Windows + macOS ARM built first pass)
+
+
+
 ## 2026-07-02 — v32.0.0-alpha.33: unified location pipeline + round overlays
 
 ### Merchant report (alpha.32)
