@@ -7,6 +7,39 @@
 
 ---
 
+## 2026-07-03 — v32.0.0-alpha.36: hardcoded round-type → `Files/Trivia/<TYPE>/*.bighat` mapping
+
+### Merchant report (alpha.35)
+Build Wizard stuck at Step 3 with red banner "Please wait for round files to load". The `.bighat` files were on disk under `Documents/BIG Hat Entertainment/Files/Trivia/{MC,REG,MISC,MYS,BIG}/` and the Files tool listed them correctly, but the wizard's `/api/trivia/round-files/<type>` endpoint always returned `[]`.
+
+### Root cause
+`_list_local_round_files()` in `backend/routes/trivia.py` was scanning for `.pptx` files under the legacy SharePoint tree `01_Trivia/Web App/00_Builder/01_Rounds/<01_MC|02_REG|...>/`. It never touched the merchant's actual `Files/Trivia/<TYPE>/` folder, so every round-type came back empty and the wizard couldn't advance.
+
+### Fix (per merchant spec — hardcoded mapping)
+- **NEW** `_native_round_dir(round_type)` resolves the exact folder the merchant asked for:
+  - `mc`   → `Files/Trivia/MC/`
+  - `reg`  → `Files/Trivia/REG/`
+  - `misc` → `Files/Trivia/MISC/`
+  - `mys`  → `Files/Trivia/MYS/`
+  - `big`  → `Files/Trivia/BIG/`
+- `_list_local_round_files()` now reads `.bighat` files from that folder first, then falls back to legacy `.pptx` for archived cloud backups.
+- Every fetch logs `[trivia] rounds type=X -> N file(s) (native_dir=/…)` so silent misses can't hide.
+- Unknown types return `[]` without 500-ing.
+
+### Tests
+- `backend/tests/test_alpha36_round_files.py` — 6/6 pass:
+  1. `_native_round_dir` helper exists, uppercases type segment.
+  2. `_list_local_round_files` reads `.bighat` from native dir.
+  3. Legacy `01_MC` / `02_REG` / `03_MISC` / `04_MYS` / `05_BIG` prefixes absent from the new mapping.
+  4. Fail-loud log line on every fetch.
+  5. **End-to-end live test**: drop a `sample-round.bighat` into `Files/Trivia/MC/`, call the helper, assert exactly one round returned with the correct type + name + non-empty path.
+  6. Unknown types return `[]` cleanly (no 500).
+
+### Release
+Shipped: https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.36 (Windows + macOS ARM built first pass)
+
+
+
 ## 2026-07-03 — v32.0.0-alpha.35: single master admin — kill the `admin@example.com` phantom
 
 ### Merchant report (alpha.34)

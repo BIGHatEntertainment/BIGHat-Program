@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import List, Dict, Optional, Any
@@ -18,6 +20,12 @@ def set_database(database):
 
 
 # ----- Local-mode helpers -----
+# v32.0.0-alpha.36: hardcoded round-type → folder mapping per merchant
+# spec. The wizard shows MC/REG/MISC/MYS/BIG choices and each choice
+# maps to EXACTLY these folders under
+# `<Documents>/BIG Hat Entertainment/Files/Trivia/<TYPE>/`. Legacy
+# SharePoint paths (`01_Trivia/Web App/00_Builder/01_Rounds/…`) are
+# preserved as a secondary lookup so pre-alpha.36 backups still work.
 _LOCAL_ROUND_FOLDER_MAP = {
     'mc':   '01_Trivia/Web App/00_Builder/01_Rounds/01_MC',
     'reg':  '01_Trivia/Web App/00_Builder/01_Rounds/02_REG',
@@ -36,27 +44,93 @@ def _is_local_mode() -> bool:
         return False
 
 
+def _native_round_dir(round_type: str) -> Optional[Path]:
+    """Resolve `<Documents>/BIG Hat Entertainment/Files/Trivia/<TYPE>/`.
+    Returns None if the docs root isn't available (unit tests etc.)."""
+    try:
+        from native.files_router import _docs_root
+        return _docs_root() / "Files" / "Trivia" / round_type.upper()
+    except Exception as e:
+        logger.warning("[trivia] _native_round_dir(%s) failed: %s", round_type, e)
+        return None
+
+
 def _list_local_round_files(round_type: str) -> List[Dict[str, str]]:
-    """List .pptx files in the conventional local round folder."""
-    folder = _LOCAL_ROUND_FOLDER_MAP.get(round_type.lower())
-    if not folder:
-        return []
-    sp = SharePointService()  # transparently swapped to LocalAssetService
-    items = sp.list_folder_contents(folder)
+    """Return the wizard-shaped list of rounds for a given type.
+
+    v32.0.0-alpha.36: reads DIRECTLY from
+      <Documents>/BIG Hat Entertainment/Files/Trivia/<TYPE>/*.bighat
+    with the hardcoded mapping the merchant asked for
+    (MC → MC/, REG → REG/, MISC → MISC/, MYS → MYS/, BIG → BIG/).
+
+    Falls back to the legacy SharePoint / LocalAssetService `.pptx`
+    listing so archived cloud accounts still work. Fails LOUDLY into
+    the log if neither source yields any files.
+    """
+    round_type_lc = (round_type or "").lower()
     rounds: List[Dict[str, str]] = []
-    for item in items:
-        if item.get('file') and item['name'].endswith('.pptx'):
-            rounds.append({
-                'id': item['id'],
-                'name': item['name'].replace('.pptx', ''),
-                'path': item['id'],
-                'type': round_type.upper(),
-                'driveId': 'local',
-                'itemId': item['id'],
-                'displayName': item['name'].replace('.pptx', ''),
-                'folder': round_type.upper(),
-                'sharingUrl': '',
-            })
+
+    # ---- Primary: native `.bighat` files at the canonical merchant path
+    native_dir = _native_round_dir(round_type_lc)
+    if native_dir is not None:
+        try:
+            native_dir.mkdir(parents=True, exist_ok=True)
+            for entry in sorted(native_dir.iterdir()):
+                if not entry.is_file():
+                    continue
+                if entry.suffix.lower() != ".bighat":
+                    continue
+                name = entry.stem  # e.g. "mc-01-a"
+                # `path` MUST be non-empty (Radix SelectItem constraint).
+                # We use the absolute path so the presenter can read it
+                # directly without another round-trip.
+                rounds.append({
+                    "id": name,
+                    "name": name,
+                    "path": str(entry),
+                    "type": round_type_lc.upper(),
+                    "driveId": "local",
+                    "itemId": name,
+                    "displayName": name,
+                    "folder": round_type_lc.upper(),
+                    "sharingUrl": "",
+                })
+        except OSError as e:
+            logger.warning(
+                "[trivia] native scan of %s failed: %s", native_dir, e,
+            )
+
+    # ---- Fallback: legacy SharePoint / LocalAssetService `.pptx`
+    if not rounds:
+        folder = _LOCAL_ROUND_FOLDER_MAP.get(round_type_lc)
+        if folder:
+            try:
+                sp = SharePointService()  # LocalAssetService in native mode
+                items = sp.list_folder_contents(folder)
+                for item in items:
+                    if item.get("file") and item["name"].endswith(".pptx"):
+                        name = item["name"].replace(".pptx", "")
+                        rounds.append({
+                            "id": item["id"],
+                            "name": name,
+                            "path": item["id"],
+                            "type": round_type_lc.upper(),
+                            "driveId": "local",
+                            "itemId": item["id"],
+                            "displayName": name,
+                            "folder": round_type_lc.upper(),
+                            "sharingUrl": "",
+                        })
+            except Exception as e:
+                logger.warning(
+                    "[trivia] legacy fallback for type=%s failed: %s",
+                    round_type_lc, e,
+                )
+
+    logger.info(
+        "[trivia] rounds type=%s -> %d file(s) (native_dir=%s)",
+        round_type_lc, len(rounds), native_dir,
+    )
     return rounds
 
 

@@ -1018,6 +1018,13 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.36 (2026-07-03)
+- **Fixed** Build Wizard blocked at Step 3 "Please wait for round files to load": `_list_local_round_files()` now reads `.bighat` files directly from `Documents/BIG Hat Entertainment/Files/Trivia/<TYPE>/` with the merchant's hardcoded mapping (`mc→MC/`, `reg→REG/`, `misc→MISC/`, `mys→MYS/`, `big→BIG/`).
+- **Added** fail-loud logging on every fetch — `[trivia] rounds type=X -> N file(s) (native_dir=/…)`.
+- Legacy SharePoint `.pptx` scan retained as a fallback for archived cloud backups.
+- 6 new regression tests in `backend/tests/test_alpha36_round_files.py`, all passing, including a live drop-a-file-and-fetch end-to-end.
+
+
 ## Shipped — v32.0.0-alpha.35 (2026-07-03)
 - **Fixed** phantom `admin@example.com` / "Nick Sellards" second master admin appearing on fresh installs after setup — `server.py :: seed_data()` was falling back to `admin@example.com` when `ADMIN_EMAIL` env was unset, seeding a bogus row on every boot.
 - **Enforced** invariant: exactly ONE master_admin per install (the one from setup wizard). Extras get auto-downgraded to `admin` on boot.
