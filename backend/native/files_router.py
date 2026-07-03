@@ -976,6 +976,70 @@ async def files_list(folder: str | None = None) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     canonical, target = _resolve_folder(folder)
 
+    # v32.0.0-alpha.37: Locations + Hosts don't store `.bighat` files —
+    # they store branded image folders per location / host. When the
+    # merchant clicks those tabs in the Files tool we should list the
+    # SUBFOLDERS (with image counts), otherwise the tab looks empty
+    # even though the folder has real content on disk.
+    if canonical in ("Locations", "Hosts") and target.is_dir():
+        for sub_dir in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+            if not sub_dir.is_dir():
+                continue
+            if sub_dir.name.startswith(".") or sub_dir.name.startswith("_"):
+                continue
+            try:
+                st = sub_dir.stat()
+                image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+                total_files = 0
+                total_bytes = 0
+                summary_parts: list[str] = []
+                # Iterate a small fixed set of expected child buckets so we
+                # never wander into infinite depth on user-created chaos.
+                for bucket in ("branding", "overlays", ""):
+                    bucket_dir = sub_dir / bucket if bucket else sub_dir
+                    if not bucket_dir.is_dir():
+                        continue
+                    n = 0
+                    for f in bucket_dir.iterdir():
+                        if not f.is_file():
+                            continue
+                        if f.suffix.lower() not in image_exts:
+                            continue
+                        n += 1
+                        total_files += 1
+                        try:
+                            total_bytes += f.stat().st_size
+                        except OSError:
+                            pass
+                    if n and bucket:
+                        summary_parts.append(f"{n} {bucket}")
+                if not summary_parts and total_files:
+                    summary_parts.append(f"{total_files} image(s)")
+                items.append({
+                    "name": sub_dir.name,
+                    "folder": canonical,
+                    "size_bytes": total_bytes,
+                    "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                    "path": str(sub_dir),
+                    "type": "location" if canonical == "Locations" else "host",
+                    "summary": ", ".join(summary_parts) or "no images yet",
+                })
+            except OSError:
+                continue
+        logger.info(
+            "[files] listed %s folder -> %d subfolder entries",
+            canonical, len(items),
+        )
+        return {
+            "ok": True,
+            "folder": str(_base_root()),
+            "selected_folder": canonical,
+            "subfolders": list(SUBFOLDERS),
+            "trivia_round_types": list(TRIVIA_ROUND_TYPES),
+            "count": len(items),
+            "files": items,
+        }
+
     if canonical and target.is_dir():
         if canonical == "Trivia":
             # Aggregating ALL round-type buckets while the merchant
