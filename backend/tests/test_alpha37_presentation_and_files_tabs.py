@@ -85,6 +85,10 @@ def test_files_locations_summary_shape():
 def test_end_to_end_import_and_list(tmp_path, monkeypatch):
     """Mock db, run import-trivia handler → then get_presentations →
     the persisted presentation must come back."""
+    # v32.0.0-alpha.40: pin docs root to tmp so the alpha.38+ disk scan
+    # doesn't leak in `.bighat` files from the real user directory
+    # (which is polluted by dev smoke-test presentations).
+    monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     import sys
     sys.path.insert(0, "/app/backend")
 
