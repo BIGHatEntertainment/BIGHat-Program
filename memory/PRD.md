@@ -1018,6 +1018,24 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.44 (2026-07-04)  🎯 Prototype-parity presenter
+Merchant install feedback on alpha.43 (Presenter lobby now populated ✅):
+"once the trivia is opened" the presenter didn't match the prototype's Editor.jsx flow. The prototype uses a rich Editor with score tracker, overlay manager, section-based navigation — which we already had in `/trivia/editor`, but the Presenter button routed to my stripped-down alpha.40 `/trivia/play` instead.
+
+### Changes
+- **`TriviaPresenterView.jsx`** — reverted to prototype exactly (`Present Live` button → `/trivia/editor`, the full-featured Editor).
+- **`Editor.jsx`** — already identical to prototype (2598 lines).
+- **`ScoreTrackerModal.jsx`** — already identical to prototype (355 lines).
+- **`OverlayManager.jsx`** — already identical to prototype (264 lines).
+- **`TriviaDashboard.jsx`** — kept alpha.43 fixes (Promise.allSettled).
+
+### Backend — native disk fallback for Editor endpoints
+The Editor expects `/api/trivia-import/slides/{id}`, `chunk/{id}/{n}`, `slides-metadata/{id}`. When GridFS is empty (native mode), all three now delegate to `_assemble_slides_native()` — reading the on-disk `.bighat` manifest + round files, chunked at 20 slides per chunk.
+
+### Release
+Windows `.exe` (133.6 MB) + macOS Apple Silicon `.dmg` (116.4 MB).
+https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.44
+
 ## Shipped — v32.0.0-alpha.41 (2026-07-04)  🐛 alpha.40 install feedback
 
 Merchant reported three real bugs after downloading alpha.40:
