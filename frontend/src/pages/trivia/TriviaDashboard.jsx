@@ -52,24 +52,39 @@ export default function TriviaDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [presRes, statsRes] = await Promise.all([
+      // v32.0.0-alpha.43: allSettled so one endpoint failing (e.g.
+      // /admin/stats 500-ing) doesn't wipe the presentations list.
+      const [presRes, statsRes] = await Promise.allSettled([
         axios.get(`${API}/trivia-viewer/list`, { params: { userName, viewAll: isAdmin ? viewAll : false, hostName: fullName } }),
         axios.get(`${API}/admin/stats`, { params: { userName } }),
       ]);
-      setPresentations(presRes.data);
-      setStats(statsRes.data);
+      if (presRes.status === 'fulfilled') {
+        setPresentations(presRes.value.data);
+      } else {
+        console.error('presentations list failed:', presRes.reason);
+        setPresentations([]);
+      }
+      if (statsRes.status === 'fulfilled') {
+        setStats(statsRes.value.data);
+      } else {
+        console.error('admin/stats failed:', statsRes.reason);
+        setStats(null);
+      }
 
       if (isAdmin) {
-        const historyRes = await axios.get(`${API}/admin/round-usage`, { params: { userName } });
-        // Group by location
-        const grouped = {};
-        for (const r of historyRes.data) {
-          const loc = r.location || r.locationName || 'Unknown';
-          if (!grouped[loc]) grouped[loc] = { _id: loc, count: 0, rounds: [] };
-          grouped[loc].count++;
-          grouped[loc].rounds.push(r);
+        try {
+          const historyRes = await axios.get(`${API}/admin/round-usage`, { params: { userName } });
+          const grouped = {};
+          for (const r of historyRes.data) {
+            const loc = r.location || r.locationName || 'Unknown';
+            if (!grouped[loc]) grouped[loc] = { _id: loc, count: 0, rounds: [] };
+            grouped[loc].count++;
+            grouped[loc].rounds.push(r);
+          }
+          setRoundHistory(Object.values(grouped));
+        } catch (err) {
+          console.error('round-usage failed:', err);
         }
-        setRoundHistory(Object.values(grouped));
       }
     } catch (err) {
       console.error('Failed to load trivia data:', err);
