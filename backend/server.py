@@ -2143,6 +2143,7 @@ try:
     from routes import slide_fetcher as trivia_slide_fetcher_routes
     from routes import story_builds as trivia_story_builds_routes
     from routes import scores as trivia_scores_routes
+    from routes import debug_log as debug_log_routes    # v32.0.0-alpha.42
     
     # Set database for all trivia route modules
     for module in [trivia_presentations_routes, trivia_routes, trivia_viewer_routes, 
@@ -2160,6 +2161,7 @@ try:
     api_router.include_router(trivia_overlays_routes.router)
     api_router.include_router(trivia_rounds_routes.router)
     api_router.include_router(trivia_slide_fetcher_routes.router)
+    api_router.include_router(debug_log_routes.router)   # v32.0.0-alpha.42
     api_router.include_router(trivia_story_builds_routes.router)
     api_router.include_router(trivia_scores_routes.router)
     
