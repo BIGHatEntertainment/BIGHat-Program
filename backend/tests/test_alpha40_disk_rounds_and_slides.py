@@ -266,13 +266,16 @@ def test_slide_assembly_end_to_end(tmp_path, monkeypatch):
     assert "round_cover" in types
     # Should have exactly 3 covers (one per round)
     assert types.count("round_cover") == 3
-    # Should have 3 review + 3 answers slides
+    # Should have 3 review + (2 non-BIG answers + 1 big_answers) slides
     assert types.count("review") == 3
-    assert types.count("answers") == 3
+    # BIG round emits big_answers, MC + REG emit answers
+    assert types.count("answers") == 2
+    assert types.count("big_answers") == 1
     # Final slide is final_scores
     assert types[-1] == "final_scores"
-    # Question count matches
-    assert types.count("question") == 3 + 2 + 1
+    # Question count: MC(3) + REG(2) as `question`, BIG(1) as `big_question`
+    assert types.count("question") == 3 + 2
+    assert types.count("big_question") == 1
 
 
 def test_slide_assembly_placeholder_on_missing_round(tmp_path, monkeypatch):
