@@ -320,9 +320,53 @@ class InspectResult(BaseModel):
 
 
 def _parse_bighat(payload: bytes) -> tuple[dict, dict, dict[str, bytes], str]:
-    """Parse a .bighat payload. Returns (manifest, doc, assets, signature)."""
+    """Parse a .bighat payload. Returns (manifest, doc, assets, signature).
+
+    v32.0.0-alpha.41: accept BOTH the legacy ZIP archive AND a plain
+    JSON manifest (which is what the native Build Wizard writes to
+    `Files/Trivia/Rounds/*.bighat` — schema `bighat-presentation/v1` or
+    `bighat-round/v1`). Merchant should be able to re-import a
+    wizard/round file that got moved off-machine without repackaging."""
     if len(payload) > MAX_BIGHAT_BYTES:
         raise HTTPException(413, f".bighat file too large (>{MAX_BIGHAT_BYTES // (1024*1024)} MB)")
+    if len(payload) < 16:
+        raise HTTPException(400, ".bighat file is empty or truncated")
+
+    # ---- Path A: plain JSON (native wizard/round output) ----
+    stripped = payload.lstrip()
+    if stripped.startswith(b"{"):
+        try:
+            doc = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise HTTPException(400, f"Corrupted .bighat JSON: {e}")
+        schema = str(doc.get("schema") or "").lower()
+        if schema.startswith("bighat-presentation"):
+            # Wizard-built presentation manifest.
+            manifest = {
+                "format": "bighat",
+                "version": 2,
+                "app_version": "native",
+                "type": "trivia-presentation",
+                "name": doc.get("name") or "Untitled",
+                "created_at": doc.get("createdAt") or "",
+            }
+            return manifest, doc, {}, ""
+        if schema.startswith("bighat-round"):
+            manifest = {
+                "format": "bighat",
+                "version": 2,
+                "app_version": "native",
+                "type": "round",
+                "name": doc.get("name") or "Untitled",
+                "round_name": doc.get("name") or "",
+                "created_at": doc.get("created_at") or "",
+            }
+            return manifest, doc, {}, ""
+        raise HTTPException(400,
+            "Unrecognized .bighat JSON schema. Expected schema="
+            "'bighat-presentation/v1' or 'bighat-round/v1'.")
+
+    # ---- Path B: legacy ZIP archive ----
     if len(payload) < 64:
         raise HTTPException(400, ".bighat file is empty or truncated")
     try:
@@ -372,6 +416,7 @@ def _parse_bighat(payload: bytes) -> tuple[dict, dict, dict[str, bytes], str]:
     # canonical lowercase names used elsewhere in the codebase.
     KNOWN_TYPES = {
         "round", "presentation", "pack",                # canonical
+        "trivia-presentation",                          # v32.0.0-alpha.41 native
         "mc", "reg", "misc", "mys", "big",              # external generator round codes
     }
     accepted_by_format = fmt in ("bighat", "bighat/round")

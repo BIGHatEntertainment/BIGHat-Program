@@ -37,7 +37,9 @@ def test_trivia_viewer_list_reads_disk():
         "list_trivia_presentations must scan Files/Trivia/Rounds/ on disk"
     )
     assert ".bighat" in body
-    assert "_docs_root" in body
+    # v32.0.0-alpha.41: switched from `_docs_root` import to inline
+    # `_native_docs_root` helper (frozen-build safe).
+    assert "docs_root" in body
 
 
 def test_trivia_viewer_getter_reads_disk_fallback():

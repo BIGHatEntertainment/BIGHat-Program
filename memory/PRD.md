@@ -1018,6 +1018,33 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.41 (2026-07-04)  🐛 alpha.40 install feedback
+
+Merchant reported three real bugs after downloading alpha.40:
+
+1. **Round Maker showed duplicates** — a draft row + a generated row for the same round.  
+   Fix: `list_rounds` now dedupes by `(round_type, slug)`, preferring `status="generated"` over `"draft"`. Two-drafts case keeps the newer `created_at`.
+
+2. **BIG round answers rendered as one long comma-separated line + no tiebreaker slide.**  
+   Fix: new `big_question` / `big_answers` / `tiebreaker` slide types. The `answer` field auto-splits on newline OR comma into an individual list. Tiebreaker slide emitted whenever the round carries either a question or an answer. `TriviaPlay.jsx` now has dedicated renderers for each of these.
+
+3. **Trivia Presenter still empty after wizard-created presentation** (the persistent one).  
+   Root cause: `list_trivia_presentations`, `get_trivia_presentation`, and `_lookup_round` all imported `from native.files_router import _docs_root`. In the PyInstaller frozen Windows build, that cross-module import fails silently — the disk scan raises an exception my `except` catches, and the presenter shows empty.  
+   Fix: introduced `_native_docs_root()` INLINE in `trivia_viewer.py` (uses `Path.home()` directly with `BIGHAT_FILES_DIR` env override). No import dependency. Also: the `createdBy` filter now relaxes — a disk manifest with no host stamp is treated as owned by the current user, not hidden.  
+   Bonus: added `GET /api/trivia-viewer/debug/state` — the merchant can hit `http://127.0.0.1:<port>/api/trivia-viewer/debug/state` from the desktop app to see exactly what the backend sees (docs_root path, exists?, list of every `.bighat` and its metadata).
+
+4. **Manual Import failed with "bad zip"** — `.bighat` files from the Build Wizard are plain JSON, not ZIP archives.  
+   Fix: `_parse_bighat` now dual-parses: JSON first (schema `bighat-presentation/v1` or `bighat-round/v1`), ZIP fallback for legacy round archives.
+
+### Testing
+- 12 new tests in `test_alpha41_dedup_bigrounds_and_debug.py` (all pass).
+- Full alpha.37–41 suite: **38 tests green**.
+
+### Release artifacts
+- Windows `.exe` (133.6 MB)
+- macOS Apple Silicon `.dmg` (116.4 MB)
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.41
+
 ## Shipped — v32.0.0-alpha.40 (2026-07-04)  🎯 Click-to-Play trivia
 **Path A (disk-first rounds + native slide assembly) — the biggest feature milestone since the SharePoint decommission.**
 

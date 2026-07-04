@@ -385,13 +385,10 @@ async def create_round(data: RoundCreate):
 
 @router.get("/rounds", response_model=List[RoundResponse])
 async def list_rounds():
-    # Defensive: any single round missing `round_type` / `status` (e.g. a
-    # row imported from a third-party `.bighat` generator before the
-    # alpha.21 backfill fix) used to make the whole endpoint 500 with a
-    # Pydantic validation error, which the dashboard rendered as "No
-    # rounds yet". Backfill on read and skip rows that are too broken to
-    # represent at all so the list always succeeds.
-    rounds = await db.rounds.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    """v32.0.0-alpha.41 — dedupes drafts when a `generated` version of
+    the same round (same slug OR same id) exists on disk or in DB.
+    The merchant only wants ONE row per round in the Round Maker list."""
+    rounds = await db.rounds.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     # v32.0.0-alpha.40: merge in disk-only `.bighat` rounds — disk is the
     # source of truth per merchant spec (survives DB wipes, portable).
     seen_ids = {r.get("id") for r in rounds if r.get("id")}
@@ -399,18 +396,40 @@ async def list_rounds():
         did = d.get("id")
         if did and did in seen_ids:
             continue
-        # Strip internal fields before mongo-shaped listing.
         clean = {k: v for k, v in d.items() if not k.startswith("_") and k != "schema"}
         rounds.append(clean)
         if did:
             seen_ids.add(did)
 
+    # v32.0.0-alpha.41 — dedupe by (round_type, slug). If two rows share
+    # a slug and one is "generated" and the other is "draft", drop the
+    # draft. If both are the same status, keep the newer `created_at`.
+    def _key(r):
+        return ((r.get("round_type") or "").upper(),
+                _slugify(r.get("name") or ""))
+
+    best: dict = {}
+    for r in rounds:
+        k = _key(r)
+        prev = best.get(k)
+        if prev is None:
+            best[k] = r
+            continue
+        # Prefer generated over draft
+        if r.get("status") == "generated" and prev.get("status") != "generated":
+            best[k] = r
+        elif r.get("status") == prev.get("status"):
+            # Same status → keep newer
+            if (r.get("created_at") or "") > (prev.get("created_at") or ""):
+                best[k] = r
+        # else: previous is generated, keep it
+
+    rounds = list(best.values())
+
     out: List[RoundResponse] = []
     for r in rounds:
         # Hot-patch the minimum required fields for RoundResponse so an
-        # otherwise-valid imported round renders. We persist nothing here;
-        # the next save/edit through the proper endpoints will write the
-        # canonical shape back.
+        # otherwise-valid imported round renders.
         if not r.get("round_type"):
             r["round_type"] = "MC"
         if not r.get("status"):
