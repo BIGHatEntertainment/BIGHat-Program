@@ -108,9 +108,22 @@ async def get_presentations(userName: str, viewAll: bool = False):
     # The JSON files ARE the authoritative artefacts per merchant spec —
     # if the DB got wiped or was never written to (import path erroring
     # out mid-way), the manifest on disk still shows up in the Presenter.
+    # Detection matches the write side at import_trivia(): docs-root
+    # existence is the stronger signal (is_native() can be False during
+    # MongoDB pymongo swap timing in the desktop install).
     try:
-        from native.db_factory import is_native as _is_native
-        if _is_native():
+        from native.files_router import _docs_root as _dr
+        _root = _dr()
+        _disk_scan_enabled = _root.exists() or _root.parent.exists()
+    except Exception:
+        try:
+            from native.db_factory import is_native as _is_native
+            _disk_scan_enabled = _is_native()
+        except Exception:
+            _disk_scan_enabled = False
+
+    try:
+        if _disk_scan_enabled:
             for entry in sorted(_rounds_dir().iterdir()):
                 if not entry.is_file() or entry.suffix.lower() != ".bighat":
                     continue

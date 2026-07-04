@@ -1018,6 +1018,14 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.38 (2026-07-04)
+- **Fixed** merchant-blocking bug: Trivia Build Wizard confirmed a presentation but no `.bighat` JSON file landed in `Files/Trivia/Rounds/`, and the Presenter tool couldn't recall it.
+- **Locked in merchant spec:** the built presentation now writes a single `.bighat` JSON manifest to `<Documents>/BIG Hat Entertainment/Files/Trivia/Rounds/<slug>.bighat` on every wizard confirm. The JSON file is the authoritative artefact — merchant can back it up, share it, hand-edit it. DB row mirrors for cross-tool discovery only.
+- **Root cause:** `import_trivia()` gated the native branch on `is_native()`, which returned False during MongoDB pymongo swap timing. Fix: `_docs_root()` existence check is the stronger native signal; both write side AND read side (get_presentations disk scan) now use it.
+- **Disk-of-truth:** `GET /api/presentations?userName=X` also scans `Files/Trivia/Rounds/*.bighat` so on-disk manifests survive DB wipes.
+- **Testing:** 6 new regression tests in `backend/tests/test_alpha38_trivia_presentation_native.py` (all passing), verified live via `testing_agent_v3_fork` (retest_needed=false).
+- **Release:** shipped with Windows `.exe` (133.6 MB) + macOS Apple Silicon `.dmg` (116.4 MB); macOS Intel leg intentionally skipped.
+
 ## Shipped — v32.0.0-alpha.37 (2026-07-03, Windows only — macOS retry pending)
 - **Fixed** trivia presentations vanishing after wizard confirm: `get_presentations` now merges `db.presentations` + `db.trivia_presentations` and dedupes by id. Wizard-built presentations show up in Trivia Presenter immediately.
 - **Fixed** empty Files tool "Locations" tab: `files_list` short-circuits Locations + Hosts folders to a subfolder-listing mode with aggregated branding + overlay image counts.
