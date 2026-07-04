@@ -18,6 +18,281 @@ def set_database(database):
     db = database
 
 
+# ═══════════════════════════════════════════════════════════════════
+# v32.0.0-alpha.40 — native slide assembly (no SharePoint, no PPTX)
+# ═══════════════════════════════════════════════════════════════════
+
+def _lookup_round(round_ref: Dict) -> Dict | None:
+    """Given a manifest `roundFiles[i]` entry, find the matching round
+    payload. Preferred lookup order:
+      1. `.bighat` on disk at the referenced `file` path (absolute or
+         relative to `<Documents>/BIG Hat Entertainment/Files/Trivia/`)
+      2. Mongo `db.rounds` by `id`  (if the ref carried a UUID)
+      3. Fuzzy: any `.bighat` in `Files/Trivia/<TYPE>/` whose name
+         slug matches the ref's `name` field.
+    Returns the round dict or None."""
+    import json as _json
+    from pathlib import Path as _Path
+    ref_file = (round_ref.get("file") or "").strip()
+
+    # ---- 1. Direct file lookup
+    if ref_file:
+        try:
+            p = _Path(ref_file)
+            if not p.is_absolute():
+                from native.files_router import _docs_root
+                p = _docs_root() / "Files" / "Trivia" / ref_file
+            if p.exists() and p.suffix.lower() == ".bighat":
+                return _json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError, Exception) as e:
+            logger.warning("[trivia-viewer] direct lookup %s failed: %s", ref_file, e)
+
+    # ---- 2. Fuzzy: scan `Files/Trivia/<TYPE>/`
+    ref_type = (round_ref.get("type") or "").upper()
+    ref_name = (round_ref.get("name") or "").strip()
+    if ref_type and ref_name:
+        try:
+            from native.files_router import _docs_root
+            from routes.roundmaker import _slugify
+            target = _docs_root() / "Files" / "Trivia" / ref_type
+            wanted = _slugify(ref_name)
+            if target.exists():
+                for entry in target.iterdir():
+                    if entry.suffix.lower() != ".bighat":
+                        continue
+                    if entry.stem.lower() == wanted:
+                        return _json.loads(entry.read_text(encoding="utf-8"))
+                # last-ditch: any entry containing the wanted slug
+                for entry in target.iterdir():
+                    if entry.suffix.lower() != ".bighat":
+                        continue
+                    if wanted in entry.stem.lower():
+                        return _json.loads(entry.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("[trivia-viewer] fuzzy round lookup failed: %s", e)
+
+    return None
+
+
+def _slide_host(pres: Dict, order: int) -> Dict:
+    return {
+        "order": order,
+        "type": "host",
+        "title": "Tonight's Host",
+        "subtitle": pres.get("host") or "",
+        "image": pres.get("hostFile") or "",
+        "notes": "",
+    }
+
+
+def _slide_location(pres: Dict, order: int) -> Dict:
+    loc = pres.get("location") or ""
+    loc_name = loc.rstrip("/").split("/")[-1] if loc else ""
+    return {
+        "order": order,
+        "type": "location",
+        "title": "Welcome to",
+        "subtitle": loc_name,
+        "image": pres.get("locationFile") or "",
+        "notes": "",
+    }
+
+
+def _slides_for_round(round_data: Dict, round_ref: Dict, start_order: int) -> List[Dict]:
+    """Expand a round's questions into: cover → question×N → review → answers."""
+    slides: List[Dict] = []
+    order = start_order
+    rtype = (round_ref.get("type") or round_data.get("round_type") or "").upper()
+    rname = round_ref.get("name") or round_data.get("name") or ""
+    rorder = round_ref.get("order", 0)
+    questions = round_data.get("questions") or []
+
+    # Cover slide
+    slides.append({
+        "order": order,
+        "type": "round_cover",
+        "roundType": rtype,
+        "roundOrder": rorder,
+        "title": rname,
+        "subtitle": f"Round {rorder}" if rorder else "",
+        "coverImageId": round_data.get("cover_image_id"),
+    })
+    order += 1
+
+    # Question slides
+    for q in questions:
+        slides.append({
+            "order": order,
+            "type": "question",
+            "roundType": rtype,
+            "roundOrder": rorder,
+            "number": q.get("number", 0),
+            "question": q.get("question", ""),
+            "options": q.get("options"),
+            "correctOption": q.get("correctOption"),
+            "answer": q.get("answer", ""),
+        })
+        order += 1
+
+    # Review slide (all questions restated, no answers)
+    slides.append({
+        "order": order,
+        "type": "review",
+        "roundType": rtype,
+        "roundOrder": rorder,
+        "title": f"{rname} — Review",
+        "questions": [
+            {"number": q.get("number", i + 1), "question": q.get("question", "")}
+            for i, q in enumerate(questions)
+        ],
+    })
+    order += 1
+
+    # Answers slide
+    slides.append({
+        "order": order,
+        "type": "answers",
+        "roundType": rtype,
+        "roundOrder": rorder,
+        "title": f"{rname} — Answers",
+        "questions": [
+            {
+                "number": q.get("number", i + 1),
+                "question": q.get("question", ""),
+                "answer": q.get("answer", ""),
+            }
+            for i, q in enumerate(questions)
+        ],
+    })
+    order += 1
+
+    return slides
+
+
+def _slide_sponsor(sponsor_ref: str, order: int, idx: int) -> Dict:
+    return {
+        "order": order,
+        "type": "sponsor",
+        "title": f"Sponsor {idx + 1}",
+        "image": sponsor_ref or "",
+    }
+
+
+def _slide_final(order: int) -> Dict:
+    return {
+        "order": order,
+        "type": "final_scores",
+        "title": "Final Scores",
+        "subtitle": "Thanks for playing!",
+    }
+
+
+async def _assemble_slides_native(presentation_id: str) -> Dict:
+    """Read the manifest, resolve every round `.bighat`, and expand
+    into a flat slide list matching the prototype's canonical order:
+      host → location → rounds(with sponsor before BIG) → final_scores.
+    """
+    # Try DB first, then disk fallback (matches list/get pattern).
+    presentation = None
+    try:
+        presentation = await db.trivia_presentations.find_one({"id": presentation_id})
+        if presentation:
+            presentation.pop("_id", None)
+    except Exception:
+        pass
+    if not presentation:
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            from native.files_router import _docs_root
+            rounds_dir = _docs_root() / "Files" / "Trivia" / "Rounds"
+            if rounds_dir.exists():
+                for e in rounds_dir.iterdir():
+                    if e.suffix.lower() != ".bighat":
+                        continue
+                    try:
+                        d = _json.loads(e.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    if d.get("id") == presentation_id:
+                        presentation = d
+                        break
+        except Exception as e:
+            logger.warning("[trivia-viewer] disk manifest lookup failed: %s", e)
+
+    if not presentation:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+
+    all_slides: List[Dict] = []
+    order = 0
+
+    # 1. Host
+    if presentation.get("host") or presentation.get("hostFile"):
+        all_slides.append(_slide_host(presentation, order))
+        order += 1
+
+    # 2. Location
+    if presentation.get("location") or presentation.get("locationFile"):
+        all_slides.append(_slide_location(presentation, order))
+        order += 1
+
+    # 3. Rounds
+    round_files = presentation.get("roundFiles") or []
+    sponsor_files = presentation.get("sponsorFiles") or []
+    sponsor_idx = 0
+    sponsor_inserted = False
+    num_rounds = presentation.get("numRounds") or len(round_files)
+
+    for i, rf in enumerate(round_files):
+        # Insert sponsor before BIG round (or before last round if no type given).
+        is_big = (rf.get("type") or "").upper() == "BIG" or (i + 1 == num_rounds)
+        if is_big and not sponsor_inserted:
+            if sponsor_idx < len(sponsor_files):
+                all_slides.append(_slide_sponsor(sponsor_files[sponsor_idx], order, sponsor_idx))
+                order += 1
+                sponsor_idx += 1
+            sponsor_inserted = True
+
+        # Resolve round data
+        round_data = _lookup_round(rf) or {}
+        if not round_data:
+            logger.warning("[trivia-viewer] no data for round ref %s", rf)
+            # Emit a placeholder cover so the show doesn't crash
+            all_slides.append({
+                "order": order,
+                "type": "round_cover",
+                "roundType": (rf.get("type") or "").upper(),
+                "roundOrder": rf.get("order", i + 1),
+                "title": rf.get("name") or f"Round {i + 1}",
+                "subtitle": "(round data not found on disk)",
+                "coverImageId": None,
+            })
+            order += 1
+            continue
+
+        round_slides = _slides_for_round(round_data, rf, order)
+        all_slides.extend(round_slides)
+        order += len(round_slides)
+
+    if not sponsor_inserted and sponsor_idx < len(sponsor_files):
+        all_slides.append(_slide_sponsor(sponsor_files[sponsor_idx], order, sponsor_idx))
+        order += 1
+
+    # Final
+    all_slides.append(_slide_final(order))
+    order += 1
+
+    return {
+        "id": presentation.get("id"),
+        "name": presentation.get("name"),
+        "slides": all_slides,
+        "totalSlides": len(all_slides),
+        "aspectRatio": "16:9",
+        "resolution": "1920x1080",
+        "source": "native-disk",
+    }
+
+
 @router.get("/list")
 async def list_trivia_presentations(userName: str = "", viewAll: bool = False, hostName: str = "") -> List[Dict]:
     """List trivia presentations filtered by host assignment.
@@ -250,8 +525,23 @@ async def get_trivia_presentation(presentation_id: str) -> Dict:
 async def get_presentation_slides(presentation_id: str) -> Dict:
     """
     Generate slides for a trivia presentation on-demand.
-    Downloads files from SharePoint, converts to 16:9 images with overlays.
+
+    v32.0.0-alpha.40: native mode assembles slides directly from the
+    on-disk manifest + round `.bighat` files — no SharePoint, no PPTX
+    conversion. The legacy cloud-mode path (below) is preserved for
+    the SaaS build.
     """
+    try:
+        from native.files_router import _docs_root as _dr
+        _root = _dr()
+        _native_ok = _root.exists() or _root.parent.exists()
+    except Exception:
+        _native_ok = False
+
+    if _native_ok:
+        return await _assemble_slides_native(presentation_id)
+
+    # ---- Legacy cloud path (SharePoint + PPTX conversion) ----
     try:
         # Get presentation from database
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
