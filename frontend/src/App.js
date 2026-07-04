@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NativeProvider, useNative } from './context/NativeContext';
+import { installDebugCapture } from './lib/debugLogger';   // v32.0.0-alpha.42
 import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
@@ -161,6 +162,10 @@ function AppRoutes() {
 }
 
 function App() {
+  // v32.0.0-alpha.42 — install the click/axios/route capture ONCE.
+  // Idempotent, so re-renders don't re-install.
+  React.useEffect(() => { installDebugCapture(); }, []);
+
   // Cloud license API server: never expose the desktop host UI publicly.
   // Bypasses Auth + Native providers (no /api/native/* calls — the cloud
   // deploy runs with BIGHAT_CLOUD_MODE=1 where those routes are absent).
