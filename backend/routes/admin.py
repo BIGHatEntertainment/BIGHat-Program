@@ -211,21 +211,52 @@ async def get_admin_stats(userName: Optional[str] = Query(None)) -> Dict:
         })
         expired_usage = total_usage - active_usage
         
-        # Get usage by round type
-        pipeline = [
-            {"$group": {
-                "_id": "$roundType",
-                "count": {"$sum": 1}
-            }}
-        ]
-        usage_by_type = await db.round_usage.aggregate(pipeline).to_list(100)
-        
+        # v32.0.0-alpha.43: MontyDB (native desktop DB shim) returns a
+        # coroutine from `.aggregate()` — not a Motor cursor — so the
+        # `.to_list()` chain 500s the endpoint and (per the merchant's
+        # debug log) that failure was killing the Trivia Presenter
+        # `Promise.all` on the frontend, leaving the presentation list
+        # empty. Wrap in a try/except and fall back to Python-side
+        # grouping so the desktop always gets a usable stats payload.
+        usage_by_type: Dict[str, int] = {}
+        try:
+            pipeline = [
+                {"$group": {"_id": "$roundType", "count": {"$sum": 1}}}
+            ]
+            agg = db.round_usage.aggregate(pipeline)
+            # Motor cursor path
+            if hasattr(agg, "to_list"):
+                docs = await agg.to_list(100)
+            elif hasattr(agg, "__await__"):
+                # MontyDB-style: aggregate() returns a coroutine that
+                # resolves to a list (or a cursor). Unwrap either way.
+                resolved = await agg
+                if hasattr(resolved, "to_list"):
+                    docs = await resolved.to_list(100)
+                else:
+                    docs = list(resolved)
+            else:
+                docs = list(agg)
+            usage_by_type = {d["_id"]: d["count"] for d in docs if d.get("_id")}
+        except Exception as agg_exc:
+            logger.warning("[admin/stats] aggregate fallback: %s", agg_exc)
+            # Fallback: pull all usage rows and group in Python. Cheap
+            # for a solo desktop DB (thousands of rows at most).
+            try:
+                all_rows = await db.round_usage.find({}, {"_id": 0, "roundType": 1}).to_list(5000)
+                for r in all_rows:
+                    rt = r.get("roundType")
+                    if rt:
+                        usage_by_type[rt] = usage_by_type.get(rt, 0) + 1
+            except Exception as fb_exc:
+                logger.warning("[admin/stats] fallback grouping failed: %s", fb_exc)
+
         return {
             "totalUsageRecords": total_usage,
             "activeRecords": active_usage,
             "expiredRecords": expired_usage,
             "totalPresentations": total_presentations,
-            "usageByType": {item['_id']: item['count'] for item in usage_by_type if item['_id']}
+            "usageByType": usage_by_type,
         }
     
     except Exception as e:
