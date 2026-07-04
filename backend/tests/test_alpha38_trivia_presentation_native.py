@@ -99,6 +99,9 @@ def test_native_writer_actually_writes_bighat_file(tmp_path, monkeypatch):
     assert result["name"] == "Vegas Lounge — Test Night"
     assert result["rounds"] == 3
     assert result["disk_path"], "must return the on-disk path"
+    assert result["type"] == "trivia-imported"
+    assert result["createdBy"] == "Sellards"
+    assert result["totalSlides"] > 0
 
     disk = Path(result["disk_path"])
     assert disk.exists(), f"expected .bighat at {disk}"
