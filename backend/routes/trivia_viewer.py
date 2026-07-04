@@ -119,6 +119,44 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False, h
         
         logger.info(f"Found {len(all_pres)} trivia presentations ({len(trivia_pres)} trivia + {len(imported_pres)} imported)")
         
+        # v32.0.0-alpha.39: also scan the on-disk `.bighat` manifest folder.
+        # The disk is the source of truth per merchant spec — if the DB
+        # never got the row (native pymongo swap timing), the presenter
+        # must still surface the file the wizard just wrote.
+        seen_id_set = set(x.get('id', '') for x in all_pres)
+        try:
+            from pathlib import Path
+            import json
+            from native.files_router import _docs_root as _dr
+            _root = _dr()
+            if _root.exists() or _root.parent.exists():
+                rounds_dir = _root / "Files" / "Trivia" / "Rounds"
+                if rounds_dir.exists():
+                    for entry in sorted(rounds_dir.iterdir()):
+                        if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                            continue
+                        try:
+                            disk = json.loads(entry.read_text(encoding="utf-8"))
+                        except (OSError, ValueError) as e:
+                            logger.warning("[trivia-viewer] bad .bighat %s: %s", entry, e)
+                            continue
+                        pid = disk.get("id") or ""
+                        if pid and pid in seen_id_set:
+                            continue
+                        # Filter by userName / hostName unless viewAll
+                        if not viewAll and name_variants:
+                            cb = (disk.get("createdBy") or "").lower()
+                            host = (disk.get("host") or "").lower()
+                            if not any(nv.lower() in cb or nv.lower() in host for nv in name_variants):
+                                continue
+                        if pid:
+                            seen_id_set.add(pid)
+                        disk["_disk_path"] = str(entry)
+                        all_pres.append(disk)
+            logger.info(f"[trivia-viewer] disk scan appended {len(all_pres) - len(trivia_pres) - len(imported_pres)} new entries from Files/Trivia/Rounds/")
+        except Exception as e:
+            logger.warning("[trivia-viewer] disk scan failed: %s", e)
+        
         result = []
         for p in all_pres:
             loc = p.get('location', '')
@@ -154,6 +192,29 @@ async def get_trivia_presentation(presentation_id: str) -> Dict:
         presentation = await db.trivia_presentations.find_one({'id': presentation_id})
         if not presentation:
             presentation = await db.presentations.find_one({'id': presentation_id})
+        if not presentation:
+            # v32.0.0-alpha.39: fall back to the on-disk .bighat manifest.
+            # Disk is source of truth per merchant spec.
+            try:
+                from pathlib import Path
+                import json
+                from native.files_router import _docs_root as _dr
+                _root = _dr()
+                rounds_dir = _root / "Files" / "Trivia" / "Rounds"
+                if rounds_dir.exists():
+                    for entry in rounds_dir.iterdir():
+                        if entry.suffix.lower() != ".bighat":
+                            continue
+                        try:
+                            data = json.loads(entry.read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            continue
+                        if data.get("id") == presentation_id:
+                            presentation = data
+                            presentation["_disk_path"] = str(entry)
+                            break
+            except Exception as e:
+                logger.warning("[trivia-viewer] disk lookup failed: %s", e)
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
