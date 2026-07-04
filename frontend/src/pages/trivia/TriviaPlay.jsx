@@ -169,6 +169,50 @@ function SlideBody({ slide }) {
         </div>
       );
 
+    case 'big_question':
+      return (
+        <div className="w-full h-full flex flex-col p-14">
+          <div className="flex items-center gap-3 mb-6">
+            <Tag color={roundColor}>THE BIG QUESTION</Tag>
+            {slide.answerCount ? <Tag color="#22c55e">{slide.answerCount} ANSWERS</Tag> : null}
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-3xl leading-snug text-white text-center max-w-4xl">{slide.question}</p>
+          </div>
+        </div>
+      );
+
+    case 'big_answers':
+      return (
+        <div className="w-full h-full flex flex-col p-14 overflow-hidden">
+          <Tag color={roundColor}>{slide.title}</Tag>
+          <p className="text-sm mt-3 mb-6" style={{ color: '#8892b0' }}>{slide.question}</p>
+          <div className="flex-1 grid grid-cols-2 gap-x-8 gap-y-2 overflow-hidden">
+            {(slide.answers || []).map((ans, i) => (
+              <div key={i} className="flex gap-3 items-baseline text-white">
+                <span className="font-bold shrink-0" style={{ color: roundColor }}>{i + 1}.</span>
+                <span className="text-lg leading-tight">{ans}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+
+    case 'tiebreaker':
+      return (
+        <div className="w-full h-full flex flex-col p-14">
+          <Tag color="#a855f7">TIEBREAKER</Tag>
+          <div className="flex-1 flex flex-col items-center justify-center text-center gap-6">
+            <p className="text-3xl leading-snug text-white max-w-4xl">{slide.question}</p>
+            {slide.answer ? (
+              <div className="text-xl font-bold px-6 py-3 rounded-xl" style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)' }}>
+                Answer: {slide.answer}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      );
+
     case 'review':
       return (
         <div className="w-full h-full flex flex-col p-14">
