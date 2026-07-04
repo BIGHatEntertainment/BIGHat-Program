@@ -1,0 +1,31 @@
+{
+  "summary": "alpha.38 bug fix validated: Trivia Build Wizard now writes a .bighat JSON manifest to <Documents>/BIG Hat Entertainment/Files/Trivia/Rounds/ on POST /api/presentations/import-trivia, and get_presentations() returns it. 11/12 tests pass; 1 skipped in preview env (disk-scan branch inactive when BIGHAT_CLOUD_MODE=1 wins over BIGHAT_NATIVE_MODE=1). Unit-test suite (test_alpha38_trivia_presentation_native.py) covers the skipped disk-scan case via monkeypatch and passes 6/6.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/presentations", "issue": "Disk-scan branch gated by is_native(); write side uses stronger docs-root check. Inconsistent detection means in cloud-preview mode (BIGHAT_CLOUD_MODE=1) writes still land on disk but disk-only .bighat files never appear in list. In real desktop install (cloud mode off) this works — but the asymmetry is a latent risk."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_alpha38_live_integration.py",
+    "/app/backend/tests/test_alpha38_trivia_presentation_native.py",
+    "/app/test_reports/pytest/alpha38_full.xml"
+  ],
+  "action_items": [
+    "Consider aligning read-side native detection in get_presentations() with the stronger write-side detection (docs-root existence). Right now write path uses `_docs_root().exists() or root.parent.exists()`, read path uses `is_native()`. This creates a scenario (BIGHAT_CLOUD_MODE=1 + writable docs root) where files are written but the disk-of-truth scan is disabled."
+  ],
+  "critical_code_review_comments": [
+    "presentations.py:107-134 disk scan is guarded by `is_native()` while the write branch at line 384-397 uses `_docs_root().exists()`. Both should agree — otherwise disk becomes source of truth only sometimes.",
+    "presentations.py:319-322 datetime->isoformat is done manually on doc, but Mongo's insert_one at line 351 receives the dict that already had the ISO string; if TriviaPresentation.model_dump() nests additional datetimes (e.g. inside nativeManifest), those may still be raw datetime and fail json.dump / round-trip. Add a recursive JSON-safe cast if merchant reports incidental crashes.",
+    "presentations.py:331 collision suffix uses uuid4()[:6] — 24-bit space, sufficient at expected write volumes, but for future-proofing consider `-N` monotonic suffix scanning existing filenames."
+  ],
+  "updated_files": ["/app/backend/tests/test_alpha38_live_integration.py (new)"],
+  "success_rate": {"backend": "100% (11 passed, 1 skipped by design in preview)", "frontend": "N/A - skipped per request"},
+  "test_credentials": "Not needed — endpoints under test have no auth guard.",
+  "seed_data_creation": "Live tests build presentations under userName TEST_alpha38_<hex8>. On-disk cleanup removes any .bighat with matching createdBy after run. DB rows in trivia_presentations/presentations are not cleaned up but are namespaced by userName prefix.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New live-HTTP suite at /app/backend/tests/test_alpha38_live_integration.py hits the preview URL from frontend/.env. It verifies: (1) POST /api/presentations/import-trivia produces a .bighat under /root/Documents/BIG Hat Entertainment/Files/Trivia/Rounds/; (2) response payload has id/name/disk_path/rounds; (3) GET /api/presentations?userName=X returns the new import; (4) same-name builds produce distinct files; (5) Locations tab still enumerates subfolders (alpha.37 regression). The disk-scan-when-DB-empty scenario is skipped in preview because BIGHAT_CLOUD_MODE=1 disables is_native() — covered fully by unit test test_get_presentations_scans_disk_when_db_empty via monkeypatch.",
+  "rca of the issue": "Root cause of merchant bug (alpha.37 → alpha.38): _import_trivia_native was not being invoked in the desktop app because import_trivia() gated the native branch on is_native(), which returned False due to MongoDB pymongo swap timing. Fix (verified): import_trivia() now falls back to a docs-root existence check to enter the native branch, and _import_trivia_native writes a .bighat manifest to Files/Trivia/Rounds/ then mirrors to db.trivia_presentations. get_presentations() also scans the same folder so disk-only manifests are recallable in the Presenter."
+}

@@ -103,6 +103,36 @@ async def get_presentations(userName: str, viewAll: bool = False):
             continue
         seen.add(pid)
         merged.append(p)
+
+    # v32.0.0-alpha.38: also scan the on-disk `.bighat` manifest folder.
+    # The JSON files ARE the authoritative artefacts per merchant spec —
+    # if the DB got wiped or was never written to (import path erroring
+    # out mid-way), the manifest on disk still shows up in the Presenter.
+    try:
+        from native.db_factory import is_native as _is_native
+        if _is_native():
+            for entry in sorted(_rounds_dir().iterdir()):
+                if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                    continue
+                try:
+                    disk = json.loads(entry.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as e:
+                    logger.warning("[presentations] bad .bighat %s: %s", entry, e)
+                    continue
+                # Filter by userName unless viewAll
+                if not viewAll:
+                    if (disk.get("createdBy") or "").lower().strip() != userName.lower().strip():
+                        continue
+                pid = disk.get("id")
+                if pid and pid in seen:
+                    continue
+                if pid:
+                    seen.add(pid)
+                disk["_disk_path"] = str(entry)
+                merged.append(disk)
+    except Exception as e:
+        logger.warning("[presentations] disk scan failed: %s", e)
+
     logger.info(
         "[presentations] list userName=%s viewAll=%s -> presentations=%d trivia=%d merged=%d",
         userName, viewAll, len(presentations), len(trivia_p), len(merged),
@@ -214,13 +244,158 @@ async def delete_presentation(presentation_id: str):
     return {"success": True}
 
 
+import json
+import re
+import uuid
+from pathlib import Path
+
+
+def _rounds_dir() -> Path:
+    """Resolve `<Documents>/BIG Hat Entertainment/Files/Trivia/Rounds/`.
+
+    v32.0.0-alpha.38: the merchant asked for a `.bighat` JSON manifest
+    per presentation, kept next to the round files in Explorer. This
+    folder is where every built presentation lands, and where the
+    Presenter list scans for entries.
+    """
+    from native.files_router import _docs_root
+    p = _docs_root() / "Files" / "Trivia" / "Rounds"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _slugify_presentation(name: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", (name or "").strip()).strip("-").lower()
+    return slug or f"presentation-{uuid.uuid4().hex[:8]}"
+
+
+async def _import_trivia_native(request: "TriviaImportRequest") -> dict:
+    """Write a `.bighat` JSON manifest to `Files/Trivia/Rounds/` and
+    persist a matching row to `db.trivia_presentations` for the
+    Presenter list. The JSON file is the ground truth — DB row exists
+    for cross-tool discovery only. If the disk write fails we still
+    return the DB row so the merchant isn't blocked."""
+    from models import TriviaPresentation
+    presentation_name = (request.presentationName
+                         or f"Trivia — {datetime.utcnow():%Y-%m-%d %H:%M}")
+
+    # Build round_files list the presenter can hand off to the file
+    # reader. `path` is the ABSOLUTE path when we know it (from
+    # /api/trivia/round-files/{type} that alpha.36 fixed to return
+    # native absolute paths), else the raw string from the wizard.
+    round_files: list[dict] = []
+    round_types = request.roundTypes or []
+    round_names = request.roundNames or []
+    for i, rp in enumerate(request.rounds):
+        rname = round_names[i] if i < len(round_names) else Path(rp).stem
+        rtype = round_types[i] if i < len(round_types) else "REG"
+        round_files.append({
+            "order": i + 1,
+            "type": rtype,
+            "name": rname,
+            "path": rp,
+        })
+
+    location_name = (request.nativeManifest or {}).get("location", {}).get("name") or ""
+    host_name = (request.nativeManifest or {}).get("host", {}).get("name") or ""
+
+    presentation = TriviaPresentation(
+        name=presentation_name,
+        createdBy=request.userName,
+        location=location_name or request.location or "Unknown",
+        locationFolder=(request.nativeManifest or {}).get("location", {}).get("slug") or "",
+        host=host_name or "Unknown",
+        hostFile=request.host,
+        locationFile="",
+        roundFiles=round_files,
+        roundNames=[rf["name"] for rf in round_files],
+        roundTypes=[rf["type"] for rf in round_files],
+        sponsorFiles=[],
+        totalSlides=len(round_files) * 12,  # estimate; presenter recounts on launch
+        numRounds=len(round_files),
+        nativeManifest=request.nativeManifest,
+    )
+
+    doc = presentation.model_dump()
+    # datetime → ISO string so JSON.dump doesn't choke
+    if isinstance(doc.get("createdAt"), datetime):
+        doc["createdAt"] = doc["createdAt"].isoformat()
+
+    # --- 1) Write the .bighat JSON to disk ---------------------------
+    slug = _slugify_presentation(presentation_name)
+    filename = f"{slug}.bighat"
+    target = _rounds_dir() / filename
+    # If a file with the same slug exists, append a short suffix so we
+    # never overwrite an existing manifest.
+    if target.exists():
+        target = _rounds_dir() / f"{slug}-{uuid.uuid4().hex[:6]}.bighat"
+    try:
+        target.write_text(
+            json.dumps({
+                "schema": "bighat-presentation/v1",
+                **doc,
+                "_disk_path": str(target),
+            }, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        logger.info(
+            "[presentations] wrote .bighat manifest -> %s (%d rounds)",
+            target, len(round_files),
+        )
+        doc["_disk_path"] = str(target)
+    except OSError as e:
+        logger.warning("[presentations] .bighat write failed for %s: %s", target, e)
+
+    # --- 2) Mirror to db.trivia_presentations for cross-tool discovery
+    try:
+        await db.trivia_presentations.insert_one(doc)
+    except Exception as e:
+        logger.warning("[presentations] DB mirror insert failed (non-fatal): %s", e)
+
+    return {
+        "id": presentation.id,
+        "name": presentation_name,
+        "disk_path": doc.get("_disk_path"),
+        "rounds": len(round_files),
+    }
+
+
 @router.post("/import-trivia", response_model=dict)
 async def import_trivia(request: TriviaImportRequest):
     """
-    Build a trivia presentation from SharePoint files.
-    Stores file references and metadata - images are generated on-demand for viewing.
-    This avoids MongoDB's 16MB document size limit.
+    Build a trivia presentation.
+
+    v32.0.0-alpha.38 (per merchant spec):
+      In native mode, write a JSON `.bighat` manifest file to
+      `<Documents>/BIG Hat Entertainment/Files/Trivia/Rounds/<slug>.bighat`.
+      That file is the authoritative artefact — the Presenter reads it
+      directly, the merchant can back it up / share it / hand-edit it.
+      MongoDB is still populated for cloud parity, but never blocks the
+      write.
+
+    Cloud mode keeps the legacy SharePoint slide-counting machinery.
     """
+    # ---- NATIVE MODE: JSON-file-first path per merchant spec -----
+    # v32.0.0-alpha.38 fix: `is_native()` sometimes reports False even
+    # when the desktop app is running (MongoDB pymongo swap timing).
+    # We short-circuit on the STRONGER signal: if we can resolve a
+    # writable docs root at `_docs_root()`, we're on a native install
+    # and should always write the .bighat JSON manifest to disk.
+    native_mode = False
+    try:
+        from native.files_router import _docs_root
+        root = _docs_root()
+        native_mode = root.exists() or root.parent.exists()
+    except Exception:
+        try:
+            from native.db_factory import is_native as _is_native
+            native_mode = _is_native()
+        except Exception:
+            native_mode = False
+
+    if native_mode:
+        return await _import_trivia_native(request)
+
     from sharepoint_service import SharePointService
     from models import TriviaPresentation
     from pptx import Presentation as PPTXPresentation
