@@ -19,6 +19,26 @@ def set_database(database):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# v32.0.0-alpha.41 — inline docs-root resolver (frozen-build safe)
+# ═══════════════════════════════════════════════════════════════════
+
+def _native_docs_root():
+    """Resolve `<Documents>/BIG Hat Entertainment/` without depending
+    on `native.files_router` (which may fail to import in the frozen
+    PyInstaller build, silently killing our disk scans)."""
+    from pathlib import Path
+    import os
+    override = os.environ.get("BIGHAT_FILES_DIR")
+    if override:
+        return Path(override).expanduser()
+    home = Path.home()
+    base = home / "Documents"
+    if not base.exists():
+        base = home
+    return base / "BIG Hat Entertainment"
+
+
+# ═══════════════════════════════════════════════════════════════════
 # v32.0.0-alpha.40 — native slide assembly (no SharePoint, no PPTX)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -40,8 +60,7 @@ def _lookup_round(round_ref: Dict) -> Dict | None:
         try:
             p = _Path(ref_file)
             if not p.is_absolute():
-                from native.files_router import _docs_root
-                p = _docs_root() / "Files" / "Trivia" / ref_file
+                p = _native_docs_root() / "Files" / "Trivia" / ref_file
             if p.exists() and p.suffix.lower() == ".bighat":
                 return _json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError, Exception) as e:
@@ -52,9 +71,8 @@ def _lookup_round(round_ref: Dict) -> Dict | None:
     ref_name = (round_ref.get("name") or "").strip()
     if ref_type and ref_name:
         try:
-            from native.files_router import _docs_root
             from routes.roundmaker import _slugify
-            target = _docs_root() / "Files" / "Trivia" / ref_type
+            target = _native_docs_root() / "Files" / "Trivia" / ref_type
             wanted = _slugify(ref_name)
             if target.exists():
                 for entry in target.iterdir():
@@ -99,13 +117,17 @@ def _slide_location(pres: Dict, order: int) -> Dict:
 
 
 def _slides_for_round(round_data: Dict, round_ref: Dict, start_order: int) -> List[Dict]:
-    """Expand a round's questions into: cover → question×N → review → answers."""
+    """Expand a round's questions into: cover → question×N → review → answers.
+    v32.0.0-alpha.41: BIG rounds get special treatment — the "answer"
+    string is split into individual line items (one per acceptable
+    answer), and the tiebreaker Q+A gets its own slide."""
     slides: List[Dict] = []
     order = start_order
     rtype = (round_ref.get("type") or round_data.get("round_type") or "").upper()
     rname = round_ref.get("name") or round_data.get("name") or ""
     rorder = round_ref.get("order", 0)
     questions = round_data.get("questions") or []
+    is_big = rtype == "BIG"
 
     # Cover slide
     slides.append({
@@ -121,17 +143,38 @@ def _slides_for_round(round_data: Dict, round_ref: Dict, start_order: int) -> Li
 
     # Question slides
     for q in questions:
-        slides.append({
-            "order": order,
-            "type": "question",
-            "roundType": rtype,
-            "roundOrder": rorder,
-            "number": q.get("number", 0),
-            "question": q.get("question", ""),
-            "options": q.get("options"),
-            "correctOption": q.get("correctOption"),
-            "answer": q.get("answer", ""),
-        })
+        # BIG round: split comma/newline-separated answer into a list.
+        if is_big:
+            raw = (q.get("answer") or "")
+            # Split on newlines first, then commas.
+            if "\n" in raw:
+                lines = [x.strip() for x in raw.split("\n") if x.strip()]
+            elif "," in raw:
+                lines = [x.strip() for x in raw.split(",") if x.strip()]
+            else:
+                lines = [raw.strip()] if raw.strip() else []
+            slides.append({
+                "order": order,
+                "type": "big_question",
+                "roundType": rtype,
+                "roundOrder": rorder,
+                "number": q.get("number", 0),
+                "question": q.get("question", ""),
+                "answers": lines,
+                "answerCount": len(lines),
+            })
+        else:
+            slides.append({
+                "order": order,
+                "type": "question",
+                "roundType": rtype,
+                "roundOrder": rorder,
+                "number": q.get("number", 0),
+                "question": q.get("question", ""),
+                "options": q.get("options"),
+                "correctOption": q.get("correctOption"),
+                "answer": q.get("answer", ""),
+            })
         order += 1
 
     # Review slide (all questions restated, no answers)
@@ -149,22 +192,59 @@ def _slides_for_round(round_data: Dict, round_ref: Dict, start_order: int) -> Li
     order += 1
 
     # Answers slide
-    slides.append({
-        "order": order,
-        "type": "answers",
-        "roundType": rtype,
-        "roundOrder": rorder,
-        "title": f"{rname} — Answers",
-        "questions": [
-            {
-                "number": q.get("number", i + 1),
-                "question": q.get("question", ""),
-                "answer": q.get("answer", ""),
-            }
-            for i, q in enumerate(questions)
-        ],
-    })
-    order += 1
+    if is_big and questions:
+        # BIG: answers as a single vertical list of numbered items.
+        q = questions[0]
+        raw = (q.get("answer") or "")
+        if "\n" in raw:
+            lines = [x.strip() for x in raw.split("\n") if x.strip()]
+        elif "," in raw:
+            lines = [x.strip() for x in raw.split(",") if x.strip()]
+        else:
+            lines = [raw.strip()] if raw.strip() else []
+        slides.append({
+            "order": order,
+            "type": "big_answers",
+            "roundType": rtype,
+            "roundOrder": rorder,
+            "title": f"{rname} — Answers",
+            "question": q.get("question", ""),
+            "answers": lines,
+        })
+        order += 1
+    else:
+        slides.append({
+            "order": order,
+            "type": "answers",
+            "roundType": rtype,
+            "roundOrder": rorder,
+            "title": f"{rname} — Answers",
+            "questions": [
+                {
+                    "number": q.get("number", i + 1),
+                    "question": q.get("question", ""),
+                    "answer": q.get("answer", ""),
+                }
+                for i, q in enumerate(questions)
+            ],
+        })
+        order += 1
+
+    # v32.0.0-alpha.41: tiebreaker slide (BIG rounds only). The prototype
+    # always shows Tiebreaker after the BIG answers so hosts can decide
+    # the winner in real time.
+    tb = round_data.get("tiebreaker") or {}
+    if is_big and (tb.get("question") or tb.get("answer")):
+        slides.append({
+            "order": order,
+            "type": "tiebreaker",
+            "roundType": rtype,
+            "roundOrder": rorder,
+            "title": "Tiebreaker",
+            "question": tb.get("question", ""),
+            "answer": tb.get("answer", ""),
+        })
+        order += 1
 
     return slides
 
@@ -202,10 +282,20 @@ async def _assemble_slides_native(presentation_id: str) -> Dict:
         pass
     if not presentation:
         try:
-            import json as _json
+            import json as _json, os as _os
             from pathlib import Path as _Path
-            from native.files_router import _docs_root
-            rounds_dir = _docs_root() / "Files" / "Trivia" / "Rounds"
+            # v32.0.0-alpha.41: inline path resolution — do not depend on
+            # native.files_router (frozen build may fail this import).
+            override = _os.environ.get("BIGHAT_FILES_DIR")
+            if override:
+                docs_root = _Path(override).expanduser()
+            else:
+                home = _Path.home()
+                base = home / "Documents"
+                if not base.exists():
+                    base = home
+                docs_root = base / "BIG Hat Entertainment"
+            rounds_dir = docs_root / "Files" / "Trivia" / "Rounds"
             if rounds_dir.exists():
                 for e in rounds_dir.iterdir():
                     if e.suffix.lower() != ".bighat":
@@ -394,43 +484,60 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False, h
         
         logger.info(f"Found {len(all_pres)} trivia presentations ({len(trivia_pres)} trivia + {len(imported_pres)} imported)")
         
-        # v32.0.0-alpha.39: also scan the on-disk `.bighat` manifest folder.
-        # The disk is the source of truth per merchant spec — if the DB
-        # never got the row (native pymongo swap timing), the presenter
-        # must still surface the file the wizard just wrote.
+        # v32.0.0-alpha.41: robust on-disk `.bighat` scan.
+        # Path resolution is INLINE (no dep on native.files_router) so a
+        # PyInstaller frozen build with a shifted sys.path still finds
+        # the merchant's presentations. Merchant spec: disk is source of
+        # truth — must succeed even if the DB was never written.
         seen_id_set = set(x.get('id', '') for x in all_pres)
         try:
             from pathlib import Path
-            import json
-            from native.files_router import _docs_root as _dr
-            _root = _dr()
-            if _root.exists() or _root.parent.exists():
-                rounds_dir = _root / "Files" / "Trivia" / "Rounds"
-                if rounds_dir.exists():
-                    for entry in sorted(rounds_dir.iterdir()):
-                        if not entry.is_file() or entry.suffix.lower() != ".bighat":
-                            continue
-                        try:
-                            disk = json.loads(entry.read_text(encoding="utf-8"))
-                        except (OSError, ValueError) as e:
-                            logger.warning("[trivia-viewer] bad .bighat %s: %s", entry, e)
-                            continue
-                        pid = disk.get("id") or ""
-                        if pid and pid in seen_id_set:
-                            continue
-                        # Filter by userName / hostName unless viewAll
-                        if not viewAll and name_variants:
-                            cb = (disk.get("createdBy") or "").lower()
-                            host = (disk.get("host") or "").lower()
+            import json, os
+            override = os.environ.get("BIGHAT_FILES_DIR")
+            if override:
+                docs_root = Path(override).expanduser()
+            else:
+                home = Path.home()
+                base = home / "Documents"
+                if not base.exists():
+                    base = home
+                docs_root = base / "BIG Hat Entertainment"
+
+            rounds_dir = docs_root / "Files" / "Trivia" / "Rounds"
+            logger.info("[trivia-viewer] disk scan: docs_root=%s exists=%s rounds_dir=%s exists=%s",
+                        docs_root, docs_root.exists(), rounds_dir, rounds_dir.exists())
+
+            added = 0
+            if rounds_dir.exists():
+                for entry in sorted(rounds_dir.iterdir()):
+                    if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                        continue
+                    try:
+                        disk = json.loads(entry.read_text(encoding="utf-8"))
+                    except (OSError, ValueError) as e:
+                        logger.warning("[trivia-viewer] bad .bighat %s: %s", entry, e)
+                        continue
+                    pid = disk.get("id") or ""
+                    if pid and pid in seen_id_set:
+                        continue
+                    # v32.0.0-alpha.41: RELAX host filter — if the disk file
+                    # doesn't declare createdBy/host, surface it anyway so
+                    # the merchant can play a legacy manifest.
+                    if not viewAll and name_variants:
+                        cb = (disk.get("createdBy") or "").lower()
+                        host = (disk.get("host") or "").lower()
+                        # No host stamped → treat as owned by current user
+                        if cb or host:
                             if not any(nv.lower() in cb or nv.lower() in host for nv in name_variants):
                                 continue
-                        if pid:
-                            seen_id_set.add(pid)
-                        disk["_disk_path"] = str(entry)
-                        all_pres.append(disk)
-            logger.info(f"[trivia-viewer] disk scan appended {len(all_pres) - len(trivia_pres) - len(imported_pres)} new entries from Files/Trivia/Rounds/")
+                    if pid:
+                        seen_id_set.add(pid)
+                    disk["_disk_path"] = str(entry)
+                    all_pres.append(disk)
+                    added += 1
+            logger.info("[trivia-viewer] disk scan appended %d entries from %s", added, rounds_dir)
         except Exception as e:
-            logger.warning("[trivia-viewer] disk scan failed: %s", e)
+            logger.exception("[trivia-viewer] disk scan failed: %s", e)
         
         result = []
         for p in all_pres:
@@ -531,6 +638,65 @@ async def get_presentation_slides(presentation_id: str) -> Dict:
     conversion. The legacy cloud-mode path (below) is preserved for
     the SaaS build.
     """
+    return await _dispatch_slides(presentation_id)
+
+
+@router.get("/debug/state")
+async def debug_state() -> Dict:
+    """v32.0.0-alpha.41 — diagnostic endpoint.
+    Returns the exact paths + file counts the backend sees so the
+    merchant can confirm why a wizard-built presentation is / isn't
+    surfacing in the Presenter."""
+    from pathlib import Path
+    import os
+    result: Dict = {
+        "cwd": str(Path.cwd()),
+        "home": str(Path.home()),
+        "env_BIGHAT_FILES_DIR": os.environ.get("BIGHAT_FILES_DIR"),
+        "env_BIGHAT_DATA_ROOT": os.environ.get("BIGHAT_DATA_ROOT"),
+    }
+    try:
+        root = _native_docs_root()
+        result["docs_root"] = str(root)
+        result["docs_root_exists"] = root.exists()
+        rounds_dir = root / "Files" / "Trivia" / "Rounds"
+        result["rounds_dir"] = str(rounds_dir)
+        result["rounds_dir_exists"] = rounds_dir.exists()
+        if rounds_dir.exists():
+            files = []
+            for e in sorted(rounds_dir.iterdir()):
+                if e.suffix.lower() != ".bighat":
+                    continue
+                info = {"name": e.name, "size": e.stat().st_size}
+                try:
+                    import json as _json
+                    d = _json.loads(e.read_text(encoding="utf-8"))
+                    info["id"] = d.get("id")
+                    info["title"] = d.get("name")
+                    info["host"] = d.get("host")
+                    info["createdBy"] = d.get("createdBy")
+                    info["roundFiles"] = len(d.get("roundFiles") or [])
+                except Exception as ex:
+                    info["parse_error"] = str(ex)
+                files.append(info)
+            result["rounds_files"] = files
+        # Also list the round-type folders
+        trivia_dir = root / "Files" / "Trivia"
+        result["trivia_dir_exists"] = trivia_dir.exists()
+        if trivia_dir.exists():
+            result["trivia_subfolders"] = {}
+            for rt in ("MC", "REG", "MISC", "MYS", "BIG", "NONSENSE"):
+                d = trivia_dir / rt
+                if d.exists():
+                    result["trivia_subfolders"][rt] = sorted(
+                        [f.name for f in d.iterdir() if f.suffix.lower() == ".bighat"]
+                    )
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+    return result
+
+
+async def _dispatch_slides(presentation_id: str) -> Dict:
     try:
         from native.files_router import _docs_root as _dr
         _root = _dr()
