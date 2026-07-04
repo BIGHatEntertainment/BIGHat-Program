@@ -1018,6 +1018,44 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.40 (2026-07-04)  🎯 Click-to-Play trivia
+**Path A (disk-first rounds + native slide assembly) — the biggest feature milestone since the SharePoint decommission.**
+
+### Round Maker → disk-first `.bighat` files
+- `POST /roundmaker/rounds` now writes `<Documents>/BIG Hat Entertainment/Files/Trivia/<TYPE>/<slug>.bighat` alongside the Mongo insert. Schema: `bighat-round/v1` with `id`, `round_type`, `name`, `questions[]`, `tiebreaker`, `cover_image_id`, `status`.
+- `POST /roundmaker/rounds/{id}/duplicate` mirrors to disk.
+- `POST /roundmaker/rounds/{id}/generate` refreshes disk after PPTX regen.
+- `DELETE /roundmaker/rounds/{id}` deletes the on-disk `.bighat`.
+- `GET /roundmaker/rounds` merges DB + disk (disk-only files still surface).
+- Same-name rounds get unique `-<shortid>.bighat` suffixes so nothing is silently overwritten.
+- **Boot migration:** `server.py` startup runs `migrate_rounds_disk_and_db()` — every DB round without a disk twin gets a `.bighat` file, every disk `.bighat` without a DB row gets inserted. Idempotent by `id`.
+
+### Native slide assembly
+- `GET /api/trivia-viewer/{id}/slides` (native mode) reads the manifest + each referenced round `.bighat` and returns a canonical slide list:
+  `host → location → for each round: (cover → question×N → review → answers) → sponsor-before-BIG → final_scores`
+- Response includes `source: "native-disk"` so the frontend knows this is the local pipeline (no SharePoint).
+- Placeholder cover slides emit when a round ref is unresolvable — no 500s.
+
+### Frontend
+- New route `/trivia/play?id=<pres_id>` — full-screen slide runner with keyboard/click navigation, 16:9 layout, and dedicated renderers per slide type (host, location, round_cover, question, review, answers, sponsor, final_scores).
+- Trivia Presenter card "Play Now" button now opens the native runner directly (previously routed through the external editor).
+
+### Release policy
+- **Every release from alpha.40 onward is public + marked LATEST** (`draft:false`, `prerelease:false`, `make_latest:"true"`). Old alpha.37 will no longer be "latest".
+- alpha.38 & alpha.39 retroactively flipped to full-release + latest via API.
+
+### Housekeeping
+- PATs moved to `/root/.bighat/secrets/` (outside `/app`), purged from all 420 commits via `git-filter-repo`, added to `.gitignore`. "Save to GitHub" now works.
+
+### Testing
+- 16 new tests in `test_alpha40_disk_rounds_and_slides.py` (12 unit + integration).
+- Testing agent ran a fresh live integration suite (13 tests) hitting the preview API and physically inspecting disk after every CRUD op — 13/13 green, retest_needed=false.
+
+### Release artifacts
+- Windows `.exe` (133.6 MB)
+- macOS Apple Silicon `.dmg` (116.4 MB)
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.40
+
 ## Shipped — v32.0.0-alpha.39 (2026-07-04)
 - **Fixed** the P0 blocker from alpha.38 install feedback: the merchant reported the Build Wizard wrote the `.bighat` file to `Files/Trivia/Rounds/` correctly, but the Trivia Presenter still showed "No trivia presentations found."
 - **Root cause:** the Presenter dashboard hits `GET /api/trivia-viewer/list`, NOT `GET /api/presentations`. alpha.38 only patched the latter — the former was still DB-only.
