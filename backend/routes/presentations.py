@@ -368,8 +368,13 @@ async def _import_trivia_native(request: "TriviaImportRequest") -> dict:
     return {
         "id": presentation.id,
         "name": presentation_name,
+        "createdBy": presentation.createdBy,
+        "createdAt": doc.get("createdAt"),
+        "totalSlides": presentation.totalSlides,
+        "type": "trivia-imported",
         "disk_path": doc.get("_disk_path"),
         "rounds": len(round_files),
+        "message": "Presentation created! Ready to import.",
     }
 
 

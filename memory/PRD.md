@@ -1018,6 +1018,14 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.39 (2026-07-04)
+- **Fixed** the P0 blocker from alpha.38 install feedback: the merchant reported the Build Wizard wrote the `.bighat` file to `Files/Trivia/Rounds/` correctly, but the Trivia Presenter still showed "No trivia presentations found."
+- **Root cause:** the Presenter dashboard hits `GET /api/trivia-viewer/list`, NOT `GET /api/presentations`. alpha.38 only patched the latter — the former was still DB-only.
+- **Fix:** `/api/trivia-viewer/list` now merges DB rows + on-disk `.bighat` manifests from `Files/Trivia/Rounds/` (matching the write side). `/api/trivia-viewer/{id}` also falls back to reading the manifest off disk when the DB row is missing.
+- **Response shape:** `POST /api/presentations/import-trivia` now returns the full SharePoint-compatible payload (`createdBy`, `createdAt`, `totalSlides`, `type: trivia-imported`, `message`).
+- **Testing:** 4 new tests in `test_alpha39_trivia_viewer_disk_scan.py` — all 16 alpha.37–39 regression tests pass. Live curl round-trip verified against the preview API (`Alpha39 Live Test` presentation created → listed successfully with all 5 round types).
+- **Release:** shipped with Windows `.exe` (133.6 MB) + macOS Apple Silicon `.dmg` (116.4 MB).
+
 ## Shipped — v32.0.0-alpha.38 (2026-07-04)
 - **Fixed** merchant-blocking bug: Trivia Build Wizard confirmed a presentation but no `.bighat` JSON file landed in `Files/Trivia/Rounds/`, and the Presenter tool couldn't recall it.
 - **Locked in merchant spec:** the built presentation now writes a single `.bighat` JSON manifest to `<Documents>/BIG Hat Entertainment/Files/Trivia/Rounds/<slug>.bighat` on every wizard confirm. The JSON file is the authoritative artefact — merchant can back it up, share it, hand-edit it. DB row mirrors for cross-tool discovery only.
