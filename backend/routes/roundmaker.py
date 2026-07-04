@@ -78,6 +78,215 @@ def set_database(database):
     global db
     db = database
 
+
+# ═══════════════════════════════════════════════════════════════════
+# v32.0.0-alpha.40 — disk-first round `.bighat` files
+# ═══════════════════════════════════════════════════════════════════
+# Merchant spec: every trivia round the user builds must land as a
+# portable `.bighat` JSON manifest at
+#   <Documents>/BIG Hat Entertainment/Files/Trivia/<TYPE>/<slug>.bighat
+# so rounds survive DB wipes, are hand-editable, and are directly
+# usable by the Build Wizard's `_list_local_round_files()` scan
+# (`/api/trivia/round-files/{type}`).
+
+_ROUND_TYPES = {"MC", "REG", "MISC", "MYS", "BIG", "NONSENSE"}
+
+
+def _slugify(name: str) -> str:
+    """Filesystem-safe slug for round names. Preserves case-insensitive
+    uniqueness by lowercasing; strips anything not `[a-z0-9-]`."""
+    import re as _re
+    s = (name or "").lower().strip()
+    s = _re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s or "round"
+
+
+def _round_bighat_dir(round_type: str) -> Optional[Path]:
+    """`<Documents>/BIG Hat Entertainment/Files/Trivia/<TYPE>/` or None
+    if the docs root isn't resolvable (headless unit tests)."""
+    try:
+        from native.files_router import _docs_root
+        rt = (round_type or "").upper()
+        if rt not in _ROUND_TYPES:
+            return None
+        return _docs_root() / "Files" / "Trivia" / rt
+    except Exception as e:
+        logger.warning("[roundmaker] _round_bighat_dir(%s) failed: %s", round_type, e)
+        return None
+
+
+def _write_round_bighat(doc: dict) -> Optional[str]:
+    """Write a canonical `.bighat` JSON to the round's typed subfolder.
+    Returns the absolute path on success, None on failure (non-fatal).
+
+    Same-`id` rewrite overwrites in-place. If a DIFFERENT id already
+    holds the target slug (two rounds share a name) we append a short
+    id suffix so nothing is silently overwritten.
+    """
+    round_type = (doc.get("round_type") or "").upper()
+    target_dir = _round_bighat_dir(round_type)
+    if target_dir is None:
+        return None
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning("[roundmaker] mkdir %s failed: %s", target_dir, e)
+        return None
+
+    doc_id = doc.get("id") or ""
+    slug = _slugify(doc.get("name") or "round")
+    target = target_dir / f"{slug}.bighat"
+
+    # If target exists but belongs to a DIFFERENT round id, suffix it.
+    if target.exists():
+        try:
+            existing = json.loads(target.read_text(encoding="utf-8"))
+            if existing.get("id") and existing.get("id") != doc_id:
+                short = (doc_id[:8] if doc_id else uuid.uuid4().hex[:8])
+                target = target_dir / f"{slug}-{short}.bighat"
+        except (OSError, json.JSONDecodeError):
+            # Broken existing file — just overwrite it.
+            pass
+
+    payload = {
+        "schema": "bighat-round/v1",
+        "id": doc_id or None,
+        "round_type": round_type,
+        "name": doc.get("name") or "",
+        "questions": doc.get("questions") or [],
+        "tiebreaker": doc.get("tiebreaker"),
+        "cover_image_id": doc.get("cover_image_id"),
+        "status": doc.get("status") or "draft",
+        "created_at": doc.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        logger.info("[roundmaker] wrote %s (%d questions)", target, len(payload["questions"]))
+        return str(target)
+    except OSError as e:
+        logger.warning("[roundmaker] write failed for %s: %s", target, e)
+        return None
+
+
+def _delete_round_bighat(doc: dict) -> None:
+    """Delete the on-disk `.bighat` file for a round, if it exists.
+    Looks up by id (canonical) — falls back to name-slug for legacy rounds."""
+    target_dir = _round_bighat_dir(doc.get("round_type") or "")
+    if target_dir is None or not target_dir.exists():
+        return
+    doc_id = doc.get("id") or ""
+    slug = _slugify(doc.get("name") or "round")
+
+    # Preferred: find by id inside each .bighat (survives slug rename).
+    if doc_id:
+        for entry in target_dir.iterdir():
+            if entry.suffix.lower() != ".bighat":
+                continue
+            try:
+                data = json.loads(entry.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if data.get("id") == doc_id:
+                try:
+                    entry.unlink()
+                    logger.info("[roundmaker] deleted %s", entry)
+                except OSError as e:
+                    logger.warning("[roundmaker] delete failed for %s: %s", entry, e)
+                return
+
+    # Fallback: slug-based lookup (legacy rounds without id).
+    target = target_dir / f"{slug}.bighat"
+    try:
+        if target.exists():
+            target.unlink()
+            logger.info("[roundmaker] deleted %s", target)
+    except OSError as e:
+        logger.warning("[roundmaker] delete failed for %s: %s", target, e)
+
+
+def _read_all_disk_rounds() -> List[dict]:
+    """Walk every `Files/Trivia/<TYPE>/*.bighat` and return the parsed
+    round docs. Used by list_rounds and the boot-migration."""
+    out: List[dict] = []
+    try:
+        from native.files_router import _docs_root
+        root = _docs_root() / "Files" / "Trivia"
+    except Exception:
+        return out
+    if not root.exists():
+        return out
+    for rt in _ROUND_TYPES:
+        d = root / rt
+        if not d.exists():
+            continue
+        for entry in sorted(d.iterdir()):
+            if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                continue
+            try:
+                data = json.loads(entry.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning("[roundmaker] bad .bighat %s: %s", entry, e)
+                continue
+            # Some archived rounds may not carry `id`; fall back to
+            # slug-based synthetic id so the presenter can address it.
+            if not data.get("id"):
+                data["id"] = f"disk-{rt.lower()}-{entry.stem}"
+            data["_disk_path"] = str(entry)
+            data["_round_type_dir"] = rt
+            out.append(data)
+    return out
+
+
+async def migrate_rounds_disk_and_db() -> dict:
+    """Two-way reconciliation of `db.rounds` ↔ `Files/Trivia/<TYPE>/`.
+
+    Rules:
+      * Every Mongo round WITHOUT an on-disk twin gets written to disk.
+      * Every disk round WITHOUT a Mongo twin gets inserted into Mongo.
+      * Keyed on `id` so a manual disk edit doesn't collide.
+
+    Called from server.py startup so a freshly-installed alpha.40 back-
+    fills the merchant's existing DB into disk immediately."""
+    if db is None:
+        return {"skipped": True, "reason": "db_not_ready"}
+
+    stats = {"wrote_to_disk": 0, "inserted_to_db": 0, "skipped": 0}
+
+    try:
+        mongo_docs = await db.rounds.find({}, {"_id": 0}).to_list(2000)
+    except Exception as e:
+        logger.warning("[roundmaker migrate] mongo scan failed: %s", e)
+        mongo_docs = []
+    disk_docs = _read_all_disk_rounds()
+    disk_ids = {d.get("id") for d in disk_docs if d.get("id")}
+    for m in mongo_docs:
+        if m.get("id") in disk_ids:
+            stats["skipped"] += 1
+            continue
+        if _write_round_bighat(m):
+            stats["wrote_to_disk"] += 1
+
+    mongo_ids = {m.get("id") for m in mongo_docs if m.get("id")}
+    for d in disk_docs:
+        did = d.get("id")
+        if not did or did in mongo_ids:
+            continue
+        clean = {k: v for k, v in d.items() if not k.startswith("_") and k != "schema"}
+        clean.setdefault("status", "draft")
+        clean.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+        clean.setdefault("pptx_path", None)
+        try:
+            await db.rounds.insert_one(clean)
+            stats["inserted_to_db"] += 1
+        except Exception as e:
+            logger.warning("[roundmaker migrate] insert %s failed: %s", did, e)
+
+    logger.info("[roundmaker migrate] %s", stats)
+    return stats
+
+
 class QuestionItem(BaseModel):
     number: int
     question: str
@@ -170,6 +379,8 @@ async def create_round(data: RoundCreate):
     }
     await db.rounds.insert_one(doc)
     doc.pop("_id", None)
+    # v32.0.0-alpha.40: also persist as a portable `.bighat` on disk.
+    _write_round_bighat(doc)
     return RoundResponse(**doc)
 
 @router.get("/rounds", response_model=List[RoundResponse])
@@ -181,6 +392,19 @@ async def list_rounds():
     # rounds yet". Backfill on read and skip rows that are too broken to
     # represent at all so the list always succeeds.
     rounds = await db.rounds.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    # v32.0.0-alpha.40: merge in disk-only `.bighat` rounds — disk is the
+    # source of truth per merchant spec (survives DB wipes, portable).
+    seen_ids = {r.get("id") for r in rounds if r.get("id")}
+    for d in _read_all_disk_rounds():
+        did = d.get("id")
+        if did and did in seen_ids:
+            continue
+        # Strip internal fields before mongo-shaped listing.
+        clean = {k: v for k, v in d.items() if not k.startswith("_") and k != "schema"}
+        rounds.append(clean)
+        if did:
+            seen_ids.add(did)
+
     out: List[RoundResponse] = []
     for r in rounds:
         # Hot-patch the minimum required fields for RoundResponse so an
@@ -211,9 +435,14 @@ async def get_round(round_id: str):
 
 @router.delete("/rounds/{round_id}")
 async def delete_round(round_id: str):
+    # v32.0.0-alpha.40: look up round FIRST so we can also nuke the
+    # on-disk `.bighat` (need the round_type + slug to build the path).
+    victim = await db.rounds.find_one({"id": round_id}, {"_id": 0})
     result = await db.rounds.delete_one({"id": round_id})
-    if result.deleted_count == 0:
+    if result.deleted_count == 0 and not victim:
         raise HTTPException(status_code=404, detail="Round not found")
+    if victim:
+        _delete_round_bighat(victim)
     return {"status": "deleted"}
 
 @router.post("/rounds/{round_id}/duplicate", response_model=RoundResponse)
@@ -238,6 +467,8 @@ async def duplicate_round(round_id: str):
     }
     await db.rounds.insert_one(doc)
     doc.pop("_id", None)
+    # v32.0.0-alpha.40: mirror the duplicate to disk.
+    _write_round_bighat(doc)
     return RoundResponse(**doc)
 
 # ── PowerPoint Generation ──
@@ -567,6 +798,11 @@ async def generate_round_pptx(round_id: str):
             {"id": round_id},
             {"$set": {"pptx_path": pptx_path, "status": "generated"}}
         )
+        # v32.0.0-alpha.40: refresh the disk `.bighat` too so it carries
+        # the freshly-generated pptx_path + status="generated".
+        doc["pptx_path"] = pptx_path
+        doc["status"] = "generated"
+        _write_round_bighat(doc)
         return FileResponse(
             pptx_path,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",

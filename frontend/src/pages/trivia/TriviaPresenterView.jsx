@@ -52,6 +52,12 @@ export default function TriviaPresenterView() {
     navigate('/trivia/editor');
   };
 
+  // v32.0.0-alpha.40: native slide-runner that reads directly from
+  // the on-disk `.bighat` manifest + round files. No external tools.
+  const handlePlayNative = () => {
+    navigate(`/trivia/play?id=${presId}`);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#000e2a' }}>
@@ -92,9 +98,9 @@ export default function TriviaPresenterView() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={handlePresentLive} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all hover:shadow-lg" style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 15px rgba(251, 221, 104, 0.25)' }} data-testid="present-live-button">
+              <button onClick={handlePlayNative} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all hover:shadow-lg" style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 15px rgba(251, 221, 104, 0.25)' }} data-testid="play-native-button">
                 <Play size={16} />
-                Present Live
+                Play Now
               </button>
             </div>
           </div>
@@ -151,12 +157,16 @@ export default function TriviaPresenterView() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4">
-          <button onClick={handlePresentLive} className="flex-1 flex items-center justify-center gap-3 py-4 rounded-xl text-base font-bold transition-all hover:shadow-lg" style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 20px rgba(251, 221, 104, 0.2)' }} data-testid="present-full-button">
-            <Monitor size={20} />
-            Open in Trivia Presenter
+          <button onClick={handlePlayNative} className="flex-1 flex items-center justify-center gap-3 py-4 rounded-xl text-base font-bold transition-all hover:shadow-lg" style={{ backgroundColor: '#fbdd68', color: '#000e2a', boxShadow: '0 0 20px rgba(251, 221, 104, 0.2)' }} data-testid="play-native-full-button">
+            <Play size={20} />
+            Play Now (Native)
+          </button>
+          <button onClick={handlePresentLive} className="flex items-center justify-center gap-3 px-6 py-4 rounded-xl text-sm font-medium transition-all" style={{ backgroundColor: 'rgba(89, 115, 247, 0.15)', color: '#5973F7', border: '1px solid rgba(89, 115, 247, 0.3)' }} data-testid="present-full-button">
+            <Monitor size={18} />
+            Editor
           </button>
           <button onClick={() => navigate('/trivia')} className="px-8 py-4 rounded-xl text-sm font-medium transition-all" style={{ color: '#8892b0', border: '1px solid rgba(251, 221, 104, 0.15)' }}>
-            Back to Dashboard
+            Back
           </button>
         </div>
 
