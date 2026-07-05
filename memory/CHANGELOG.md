@@ -8,6 +8,96 @@
 ---
 ---
 
+## 2026-02-05 — v32.0.0-alpha.47: Audience View — TV mirror at fixed 1920×1080
+
+### Merchant request
+"the audience view button should open an exact mirror of the screen but
+without any of the information the host is using like the timer or the
+controls. the audience view is a second view that will be dragged to a
+second monitor (the TVs in the bar) while the host controls from their
+laptop. an important note is that the resolution may vary so it should
+always be displayed in a viewport set for 1920x1080 resolution since the
+TVs at every location will vary in size. even if the host computer is
+set to a different resolution, it should always look the same."
+
+### What shipped
+- **`frontend/src/pages/trivia/TriviaAudienceView.jsx`** — brand-new React
+  route at `/trivia/audience`. Renders in a **fixed 1920×1080 virtual
+  stage** that scales uniformly to fill the actual monitor:
+  `scale = Math.min(vw / 1920, vh / 1080)`. Layout is identical across
+  every TV — a 43″ 4K TV, a 32″ 1080p TV, an ultrawide dev monitor —
+  the same slide fills the frame the same way.
+- **`frontend/src/App.js`** — registers `/trivia/audience` route (no
+  auth wrapper — the host controls what the audience sees).
+- **`frontend/src/components/trivia/editor/PresentationMode.jsx`** —
+  the 654-line inline `document.write('<html>...</html>')` blob is
+  DELETED. Replaced with:
+  * **BroadcastChannel** (`bighat-trivia-audience`) as the new primary
+    transport. Every `UPDATE_SLIDE` / `REVEAL_ANSWER` publish goes
+    through a unified `broadcastToAudience()` helper.
+  * **Tauri `WebviewWindow.new(...)`** as the preferred window-spawn
+    path on desktop (falls back to `window.open('/trivia/audience', ...)`
+    in browser / preview builds).
+  * Legacy `window.postMessage` is still fired in parallel so any
+    stale audience view attached via the old flow keeps working.
+
+### Audience view features
+- **Zero host chrome** — no timer, no reveal buttons, no score-tracker
+  toggle, no notifications, no keyboard hint bar. Only the slide, in
+  its exact designed 1920×1080 layout, uniformly scaled.
+- **Waiting state** — before the host publishes the first slide, shows
+  a subtle "BIG Hat / Waiting for the host…" splash.
+- **Fullscreen affordance** — bottom-right click-to-fullscreen chip
+  (browsers require a user gesture to enter fullscreen). Also
+  activated on double-click.
+- **Progressive reveal** — respects the host's per-slide
+  `revealedCount` for answer slides; elements tagged with
+  `id: "answer-N"` or `answerIndex: N` are hidden until the host has
+  revealed at least `N + 1` answers.
+- **Final-scores WINNERS slide** — bespoke leaderboard render (top 10
+  teams, gold gradient for #1).
+- **Disconnect indicator** — subtle red dot bottom-left after 10s of
+  silence from the host.
+
+### Testing
+- `backend/tests/test_alpha47_audience_view.py` — **10/10 pass**. Guards
+  every migration invariant:
+  * Route registered in `App.js`, file exists.
+  * `STAGE_W=1920`, `STAGE_H=1080` constants present.
+  * `Math.min(...)` uniform scaling used.
+  * BroadcastChannel wired to `bighat-trivia-audience` with
+    `UPDATE_SLIDE` / `REVEAL_ANSWER` / `AUDIENCE_READY` messages.
+  * No host chrome in the audience file (ChevronLeft, Pause,
+    Score Tracker, timeRemaining, goNext, goPrev — all forbidden).
+  * `document.write` and `about:blank` gone from PresentationMode.
+  * `openAudienceView` targets `/trivia/audience` + tries
+    `WebviewWindow` before falling back to `window.open`.
+  * All audience publishes flow through `broadcastToAudience()` —
+    no direct `postMessage` calls survive outside the helper.
+- **Live browser smoke**: opened `/trivia/audience` in headless
+  Chromium at 1920×800 viewport, published a Q1 slide via
+  BroadcastChannel from a separate context, confirmed the slide
+  rendered with question, A/B/C/D options, gold header, and radial
+  blue background — pixel-perfect match with the host slide layout.
+- All 12 alpha.46 tests + 7 alpha.45 tests still green.
+
+### Release
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.47
+
+### Follow-ups (alpha.48 candidates)
+- Add Tauri v2 `webview:allow-create-webview` capability if the
+  `WebviewWindow.new` route needs an explicit allowlist entry (verify
+  once the merchant tests the alpha.47 desktop build).
+- Ensure host-published overlays (score tracker overlay, sponsor
+  overlays) survive the BroadcastChannel round-trip cleanly — they're
+  already resolved to `image` type before broadcast, but need
+  merchant confirmation.
+
+---
+
+
+---
+
 ## 2026-02-05 — v32.0.0-alpha.46: DISK IS TRUTH — slides populate + presentations survive restart
 
 ### Merchant report (alpha.45 install)

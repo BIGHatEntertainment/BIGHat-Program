@@ -23,6 +23,43 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
   const isAutoAdvancingRef = useRef(false); // Prevent race condition with keyboard
   const isSyncEnabledRef = useRef(isSyncEnabled); // Keep sync state without causing timer restarts
   const windowCheckIntervalRef = useRef(null); // MEMORY FIX: Track window closed check interval
+  // v32.0.0-alpha.47: BroadcastChannel is the new primary transport to
+  // the audience view (which is now a real /trivia/audience route, not
+  // an inline HTML blob). We keep window.postMessage in parallel for
+  // backwards compatibility during the migration.
+  const audienceChannelRef = useRef(null);
+
+  // Init BroadcastChannel once. Also listen for AUDIENCE_READY so we can
+  // push the current slide the instant the audience window boots.
+  useEffect(() => {
+    let bc = null;
+    try {
+      bc = new BroadcastChannel('bighat-trivia-audience');
+      audienceChannelRef.current = bc;
+    } catch (e) {
+      console.warn('[presenter] BroadcastChannel unsupported:', e);
+    }
+    return () => {
+      if (bc) {
+        try { bc.close(); } catch (_e) { /* noop */ }
+      }
+      audienceChannelRef.current = null;
+    };
+  }, []);
+
+  // Unified helper: publish to BroadcastChannel AND fall back to the
+  // legacy audienceWindow.postMessage (in case a very old audience is
+  // still listening).
+  const broadcastToAudience = useCallback((message) => {
+    if (audienceChannelRef.current) {
+      try { audienceChannelRef.current.postMessage(message); }
+      catch (_e) { /* noop */ }
+    }
+    if (audienceWindowRef.current && !audienceWindowRef.current.closed) {
+      try { audienceWindowRef.current.postMessage(message, '*'); }
+      catch (_e) { /* noop */ }
+    }
+  }, []);
   
   // Calculate scale factor based on viewport width relative to 1920px (standard resolution)
   useEffect(() => {
@@ -281,7 +318,15 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
 
   // Update audience view helper - NOW safe to use isAnswerSlide and getFinalScores
   const updateAudienceView = useCallback((index) => {
-    if (audienceWindowRef.current && !audienceWindowRef.current.closed) {
+    // v32.0.0-alpha.47: broadcast via BroadcastChannel primary + legacy
+    // postMessage fallback. We still gate on audienceWindowRef so we
+    // don't spam the BC when nobody's listening; but if EITHER channel
+    // has a receiver we publish. `audienceChannelRef` receiver may be
+    // in the AudienceView route (different window) OR nowhere yet — the
+    // BroadcastChannel API is fire-and-forget, so it's cheap either way.
+    const hasLegacyReceiver = audienceWindowRef.current && !audienceWindowRef.current.closed;
+    const hasBcReceiver = !!audienceChannelRef.current;
+    if (!hasLegacyReceiver && !hasBcReceiver) return;
       try {
         const slide = slides[index];
         const isAnswer = isAnswerSlide(index);
@@ -316,18 +361,17 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
           };
         }
         
-        audienceWindowRef.current.postMessage({
+        broadcastToAudience({
           type: 'UPDATE_SLIDE',
           slide: resolvedSlide,
           isAnswerSlide: isAnswer,
           revealedCount: revealCount,
           finalScoresData: finalScores
-        }, '*');
+        });
       } catch (error) {
         console.error('Error updating audience view:', error);
       }
-    }
-  }, [slides, isAnswerSlide, revealedAnswers, audienceWindowRef, getFinalScores, overlayCache]);
+  }, [slides, isAnswerSlide, revealedAnswers, getFinalScores, overlayCache, broadcastToAudience]);
 
   // Host navigation - affects audience only if sync is enabled
   const goNext = useCallback(() => {
@@ -383,15 +427,13 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       }));
       
       // Send reveal message to audience
-      if (audienceWindowRef.current && !audienceWindowRef.current.closed) {
-        audienceWindowRef.current.postMessage({
-          type: 'REVEAL_ANSWER',
-          slideIndex: audienceIndex,
-          revealedCount: newRevealed
-        }, '*');
-      }
+      broadcastToAudience({
+        type: 'REVEAL_ANSWER',
+        slideIndex: audienceIndex,
+        revealedCount: newRevealed
+      });
     }
-  }, [audienceIndex, revealedAnswers, getAnswerCount]);
+  }, [audienceIndex, revealedAnswers, getAnswerCount, broadcastToAudience]);
   
   const syncAudienceToHost = useCallback(() => {
     setAudienceIndex(currentIndex);
@@ -476,12 +518,12 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
                 }
                 
                 if (audienceWindowRef.current && !audienceWindowRef.current.closed) {
-                  audienceWindowRef.current.postMessage({
+                  broadcastToAudience({
                     type: 'UPDATE_SLIDE',
                     slide: resolvedSlide,
                     isAnswerSlide: isAnswer,
                     revealedCount: 0
-                  }, '*');
+                  });
                 }
               }
               
@@ -517,653 +559,111 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     };
   }, [currentIndex]); // CRITICAL: Only currentIndex - getAutoAdvanceTime caused race condition
 
+  // v32.0.0-alpha.47: audience view is now a proper /trivia/audience route.
+  // Communication is via BroadcastChannel (see broadcastToAudience helper
+  // above). We only need to spawn the window here; the AudienceView React
+  // component takes over from there.
   const openAudienceView = () => {
-    // Detect if there's a secondary screen
-    const hasSecondScreen = window.screen.availLeft !== 0 || window.screen.availTop !== 0 || 
-                           window.screenLeft !== 0 || window.screenTop !== 0;
-    
-    // Calculate position for extended display
-    // If main screen is at 0,0 and is 1920px wide, secondary screen starts at 1920,0
-    const primaryWidth = window.screen.availWidth;
+    // Try to spawn on the secondary display when one is present.
+    const hasSecondScreen = (window.screen?.availLeft || 0) !== 0
+      || (window.screen?.availTop || 0) !== 0
+      || (window.screenLeft || 0) !== 0
+      || (window.screenTop || 0) !== 0;
+    const primaryWidth = window.screen?.availWidth || 1920;
     const screenLeft = hasSecondScreen ? primaryWidth : 0;
-    
-    // Open window with MAXIMUM chrome-less settings for clean TV display
-    const newWindow = window.open(
-      'about:blank',
-      'AudienceView',
-      `width=${window.screen.availWidth},height=${window.screen.availHeight},left=${screenLeft},top=0,fullscreen=yes,toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=no,resizable=no,titlebar=no`
-    );
+    const audienceUrl = `${window.location.origin}/trivia/audience`;
 
-    if (newWindow) {
-      audienceWindowRef.current = newWindow;
-      
-      // Write the audience view HTML - starts with audience's current slide
-      const initialSlide = slides[audienceIndex];
-      const initialIsAnswerSlide = isAnswerSlide(audienceIndex);
-      const initialRevealCount = revealedAnswers[audienceIndex] || 0;
-      newWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Audience View</title>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>
-            * { 
-              margin: 0; 
-              padding: 0; 
-              box-sizing: border-box; 
-            }
-            html, body { 
-              width: 100%;
-              height: 100%;
-              background: black; 
-              overflow: hidden;
-              font-family: Inter, system-ui, -apple-system, sans-serif;
-            }
-            #fullscreen-prompt {
-              position: fixed;
-              top: 50%;
-              left: 50%;
-              transform: translate(-50%, -50%);
-              background: rgba(255, 215, 0, 0.95);
-              color: black;
-              padding: 40px 60px;
-              border-radius: 12px;
-              font-size: 28px;
-              font-weight: bold;
-              cursor: pointer;
-              z-index: 99999;
-              text-align: center;
-              box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-              display: none;
-            }
-            #fullscreen-prompt:hover {
-              background: rgba(255, 215, 0, 1);
-              transform: translate(-50%, -50%) scale(1.05);
-            }
-            body:-webkit-full-screen {
-              width: 100%;
-              height: 100%;
-            }
-            body:-moz-full-screen {
-              width: 100%;
-              height: 100%;
-            }
-            body:-ms-fullscreen {
-              width: 100%;
-              height: 100%;
-            }
-            body:fullscreen {
-              width: 100%;
-              height: 100%;
-            }
-            #slide-container {
-              width: 100vw;
-              height: 100vh;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              position: fixed;
-              top: 0;
-              left: 0;
-              background: black;
-            }
-            #slide {
-              width: 100%;
-              height: 100%;
-              position: relative;
-            }
-            .element {
-              position: absolute;
-              white-space: pre-wrap;
-              display: flex;
-              align-items: center;
-              background: transparent;
-            }
-            .element img {
-              width: 100%;
-              height: 100%;
-              object-fit: contain;
-              pointer-events: none;
-              background: transparent;
-            }
-          </style>
-        </head>
-        <body>
-          <div id="fullscreen-prompt" onclick="goFullscreen()">
-            🖥️ Click to Enter Fullscreen<br>
-            <span style="font-size: 18px; font-weight: normal;">Remove all bars and borders</span>
-          </div>
-          <div id="slide-container">
-            <div id="slide"></div>
-          </div>
-          <script>
-            // AGGRESSIVE FULLSCREEN MODE - Maximum chrome-less display
-            function enterFullscreen() {
-              const docEl = document.documentElement;
-              const body = document.body;
-              
-              // Method 1: Standard Fullscreen API with all options
-              const fullscreenOptions = {
-                navigationUI: 'hide'  // Hide all browser UI
-              };
-              
-              if (docEl.requestFullscreen) {
-                docEl.requestFullscreen(fullscreenOptions).catch(err => {
-                  docEl.requestFullscreen().catch(err2 => {
-                    // Fullscreen failed silently
-                  });
-                });
-              } else if (docEl.webkitRequestFullscreen) {
-                docEl.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
-              } else if (docEl.mozRequestFullScreen) {
-                docEl.mozRequestFullScreen();
-              } else if (docEl.msRequestFullscreen) {
-                docEl.msRequestFullscreen();
-              }
-              
-              // Method 2: Force window to maximize (fallback)
-              try {
-                window.moveTo(0, 0);
-                window.resizeTo(screen.width, screen.height);
-              } catch (e) {
-                // Window resize failed silently
-              }
-            }
-            
-            // Try multiple times to ensure fullscreen
-            window.addEventListener('load', function() {
-              enterFullscreen();
-              setTimeout(enterFullscreen, 100);
-              setTimeout(enterFullscreen, 500);
-              setTimeout(enterFullscreen, 1000);
-            });
-            
-            // Immediately try as well
-            enterFullscreen();
-            
-            // Prevent exiting fullscreen - re-enter automatically
-            ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(function(eventName) {
-              document.addEventListener(eventName, function() {
-                if (!document.fullscreenElement && !document.webkitFullscreenElement && 
-                    !document.mozFullScreenElement && !document.msFullscreenElement) {
-                  // Re-enter fullscreen if user accidentally exits
-                  setTimeout(enterFullscreen, 300);
-                }
-              });
-            });
-            
-            // F11 key handler - enter/exit fullscreen
-            document.addEventListener('keydown', function(e) {
-              if (e.key === 'F11') {
-                e.preventDefault();
-                enterFullscreen();
-              }
-            });
-            
-            // Keep cursor visible for hosts to click buttons
-            // document.body.style.cursor = 'none'; // Removed - hosts need to see cursor
-            document.addEventListener('contextmenu', function(e) {
-              e.preventDefault();
-              return false;
-            });
-            
-            function renderSlide(slide, revealedCount = 0, isAnswerSlide = false, finalScoresData = null) {
-              if (!slide) return;
-              
-              // HTML escape utility to prevent XSS from user-entered content
-              function esc(str) {
-                if (str == null) return '';
-                return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-              }
-              
-              const slideEl = document.getElementById('slide');
-              slideEl.style.background = slide.background || 'black';
-              
-              // Clear existing elements
-              slideEl.innerHTML = '';
-              
-              // CHECK IF THIS IS THE FINAL SCORES SLIDE (Winners slide 5)
-              const isFinalScoresSlide = slide.metadata?.roundType === 'WINNERS' && slide.metadata?.slideIndexInRound === 4;
-              if (isFinalScoresSlide && finalScoresData && finalScoresData.teams.length > 0) {
-                // MEMORY OPTIMIZED: Render final scores with controlled animation
-                // - Uses CSS transforms with will-change for GPU acceleration
-                // - Animation duration based on team count for smooth scrolling
-                // - Removed duplicate DOM elements for memory efficiency
-                const teamCount = finalScoresData.teams.length;
-                // Dynamic duration: 4 seconds per team, minimum 20s, max 120s
-                const scrollDuration = Math.min(120, Math.max(20, teamCount * 4));
-                // Only enable scrolling if more than 5 teams (won't fit on screen)
-                const needsScrolling = true;
-                
-                const scoresHTML = \`
-                  <style>
-                    @keyframes smoothScroll {
-                      0% { transform: translateY(0); }
-                      100% { transform: translateY(calc(-100% + 70vh)); }
-                    }
-                    .scroll-container {
-                      position: absolute;
-                      inset: 0;
-                      overflow: hidden;
-                      display: flex;
-                      flex-direction: column;
-                      z-index: 100;
-                      background: rgba(0,0,0,0.9);
-                      aspect-ratio: 16/9;
-                      width: 100%;
-                      height: 100%;
-                      padding: 0 5%;
-                      box-sizing: border-box;
-                    }
-                    .scroll-header {
-                      flex-shrink: 0;
-                      padding: 1.5rem 0;
-                    }
-                    .scroll-content-wrapper {
-                      flex: 1;
-                      overflow: hidden;
-                      position: relative;
-                      padding: 0;
-                    }
-                    .scroll-content {
-                      \${needsScrolling ? \`animation: smoothScroll \${scrollDuration}s linear infinite;\` : ''}
-                      will-change: transform;
-                    }
-                    .scroll-content:hover {
-                      animation-play-state: paused;
-                    }
-                    .team-card {
-                      border-radius: 12px;
-                      padding: 1rem 1.5rem;
-                      margin-bottom: 0.75rem;
-                      will-change: auto;
-                    }
-                    .team-info {
-                      display: flex;
-                      align-items: center;
-                      justify-content: space-between;
-                    }
-                    .team-rank {
-                      font-size: 2.5rem;
-                      font-weight: bold;
-                      color: white;
-                      min-width: 60px;
-                    }
-                    .team-name {
-                      font-size: 2rem;
-                      font-weight: bold;
-                      color: white;
-                    }
-                    .team-total {
-                      font-size: 3rem;
-                      font-weight: bold;
-                      color: #FFD700;
-                      font-family: Lemonada, cursive;
-                    }
-                    .round-scores {
-                      display: flex;
-                      gap: 0.75rem;
-                      margin-top: 0.5rem;
-                      flex-wrap: wrap;
-                    }
-                    .round-score {
-                      background: rgba(0,0,0,0.5);
-                      padding: 0.5rem 1rem;
-                      border-radius: 6px;
-                    }
-                    .round-label {
-                      font-size: 0.9rem;
-                      color: #999;
-                    }
-                    .round-value {
-                      font-size: 1.1rem;
-                      font-weight: bold;
-                      color: white;
-                      margin-left: 0.5rem;
-                    }
-                  </style>
-                  <div class="scroll-container">
-                    <div class="scroll-header">
-                      <h2 style="font-size: 3.5rem; font-weight: bold; color: #FFD700; text-align: center; font-family: Lemonada, cursive;">
-                        🏆 Final Scores 🏆
-                      </h2>
-                    </div>
-                    <div class="scroll-content-wrapper">
-                      <div class="scroll-content">
-                        \${finalScoresData.teams.map((team, idx) => \`
-                          <div class="team-card" style="background: linear-gradient(to right, \${idx === 0 ? 'rgba(255,215,0,0.35), rgba(255,165,0,0.35)' : idx === 1 ? 'rgba(192,192,192,0.35), rgba(169,169,169,0.35)' : idx === 2 ? 'rgba(205,127,50,0.35), rgba(160,82,45,0.35)' : 'rgba(0,0,139,0.35), rgba(0,0,70,0.35)'}); border: 2px solid \${idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#0066CC'};">
-                            <div class="team-info">
-                              <div style="display: flex; align-items: center; gap: 1.5rem;">
-                                <span class="team-rank">\${idx + 1}.</span>
-                                <div>
-                                  <h3 class="team-name">\${esc(team.name)}</h3>
-                                  \${team.swag ? \`<p style="font-size: 1rem; color: #ccc;">\${esc(team.swag)}</p>\` : ''}
-                                </div>
-                              </div>
-                              <div style="text-align: right;">
-                                <p class="team-total">\${esc(team.total)}</p>
-                                <p style="font-size: 0.9rem; color: #999;">Total Points</p>
-                              </div>
-                            </div>
-                            <div class="round-scores">
-                              \${team.roundScores.map((score, roundIdx) => \`
-                                <div class="round-score">
-                                  <span class="round-label">\${esc(finalScoresData.rounds[roundIdx].label)}:</span>
-                                  <span class="round-value">\${esc(score)}</span>
-                                </div>
-                              \`).join('')}
-                            </div>
-                          </div>
-                        \`).join('')}
-                      </div>
-                    </div>
-                  </div>
-                \`;
-                slideEl.innerHTML = scoresHTML;
-                return; // Don't render normal slide elements
-              }
-              
-              // Render elements
-              if (slide.elements) {
-                // CALCULATE FONT MULTIPLIER based on round type and slide position
-                // This creates viewport-scaled fonts that work across all TV sizes
-                const roundType = slide.metadata?.roundType;
-                const slideIndex = slide.metadata?.slideIndexInRound || 0;
-                const isWinnersSlide = roundType === 'WINNERS';
-                const isAnswerSlideType = slide.metadata?.isAnswerSlide;
-                
-                // Determine the font multiplier based on requirements:
-                // 1) MC questions: +10% (1.10)
-                // 2) REG, MISC, MYS questions: +15% (1.15)
-                // 3) BIG Question (slide 1) and BIG review (slide 3): +10% (1.10)
-                // 4) All review slides (except BIG): +15% (1.15)
-                // 5) All answer slides: +10% (1.10)
-                // 6) Winners slides: no change (1.0)
-                
-                let fontMultiplier = 1.0;
-                
-                if (isWinnersSlide) {
-                  fontMultiplier = 1.0; // No change for winners
-                } else if (isAnswerSlide || isAnswerSlideType) {
-                  fontMultiplier = 1.10; // Answer slides: +10%
-                } else if (roundType === 'MC') {
-                  // MC questions: +10%
-                  fontMultiplier = 1.10;
-                } else if (roundType === 'REG' || roundType === 'MISC' || roundType === 'MYS') {
-                  // REG, MISC, MYS: Check if it's a question or review slide
-                  // Question slides are typically 1-10, review slides are near the end
-                  // REG/MISC have 14 slides total, MYS has 13 slides
-                  // Question slides: index 1-10, Review slide: second to last (before answer)
-                  const isReviewSlide = (roundType === 'MYS' && slideIndex === 10) || 
-                                        ((roundType === 'REG' || roundType === 'MISC') && slideIndex === 11);
-                  if (isReviewSlide) {
-                    fontMultiplier = 1.15; // Review slides (except BIG): +15%
-                  } else {
-                    fontMultiplier = 1.15; // REG, MISC, MYS questions: +15%
-                  }
-                } else if (roundType === 'BIG') {
-                  // BIG structure: 0=title, 1=question, 2=.gif, 3=review, 4=answers, 5-6=tiebreaker
-                  // BIG has question at index 1 and review at index 3
-                  if (slideIndex === 1 || slideIndex === 3) {
-                    fontMultiplier = 1.10; // BIG question and review: +10%
-                  } else {
-                    fontMultiplier = 1.10; // Other BIG slides: +10%
-                  }
-                } else if (roundType === 'SPONSOR' || roundType === 'SCORE') {
-                  fontMultiplier = 1.10; // Sponsor/Score slides: +10%
-                } else {
-                  fontMultiplier = 1.10; // Default: +10%
-                }
-                
-                if (isAnswerSlide) {
-                  // ANSWER SLIDE LOGIC - Apply reveal
-                  // CRITICAL: Answer slides have NO TITLE - all text elements are answers
-                  const textElements = slide.elements.filter(el => el.type === 'text');
-                  const imageElements = slide.elements.filter(el => el.type === 'image');
-                  
-                  // Sort text by Y position (all are answers, no title)
-                  const sortedText = [...textElements].sort((a, b) => a.y - b.y);
-                  
-                  sortedText.forEach((element, idx) => {
-                    const el = document.createElement('div');
-                    el.className = 'element';
-                    el.style.position = 'absolute';
-                    el.style.left = ((element.x / 1920) * 100) + '%';
-                    el.style.top = ((element.y / 1080) * 100) + '%';
-                    el.style.width = ((element.width / 1920) * 100) + '%';
-                    el.style.height = ((element.height / 1080) * 100) + '%';
-                    
-                    // VIEWPORT-BASED FONT SCALING for readability across all displays
-                    // Uses the pre-calculated fontMultiplier (1.10 for answer slides)
-                    const baseFontSize = (element.fontSize || 16) * fontMultiplier;
-                    const vwSize = (baseFontSize / 1920) * 100;
-                    const minSize = Math.max(baseFontSize * 0.7, 14); // Min 70% of scaled size or 14px
-                    const maxSize = baseFontSize * 1.5; // Max 150% of scaled size
-                    el.style.fontSize = \`clamp(\${minSize}px, \${vwSize}vw, \${maxSize}px)\`;
-                    
-                    // Respect whiteSpace property from element (nowrap prevents unwanted wrapping)
-                    if (element.whiteSpace) {
-                      el.style.whiteSpace = element.whiteSpace;
-                    }
-                    
-                    el.style.fontWeight = element.fontWeight || 'normal';
-                    el.style.color = element.color || '#000000';
-                    el.style.textAlign = element.textAlign || 'left';
-                    el.style.fontFamily = element.fontFamily || 'Inter, sans-serif';
-                    el.style.lineHeight = element.lineHeight || 1.5;
-                    el.style.display = 'flex';
-                    el.style.alignItems = 'center';
-                    el.style.justifyContent = element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start';
-                    el.textContent = element.content || '';
-                    
-                    // CRITICAL FIX: Hide ALL answers that haven't been revealed yet
-                    // Since there's NO title, idx 0 is the first answer
-                    // Hide answer if its index is >= revealCount (0-indexed)
-                    if (idx >= revealedCount) {
-                      el.style.visibility = 'hidden';
-                    }
-                    
-                    slideEl.appendChild(el);
-                  });
-                  
-                  // Render images/overlays (always visible)
-                  imageElements.forEach(element => {
-                    const el = document.createElement('div');
-                    el.className = 'element';
-                    el.style.position = 'absolute';
-                    el.style.left = ((element.x / 1920) * 100) + '%';
-                    el.style.top = ((element.y / 1080) * 100) + '%';
-                    el.style.width = ((element.width / 1920) * 100) + '%';
-                    el.style.height = ((element.height / 1080) * 100) + '%';
-                    el.style.background = 'transparent'; // Ensure overlay transparency
-                    const img = document.createElement('img');
-                    img.src = element.src || '';
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.objectFit = 'contain';
-                    img.style.background = 'transparent'; // Preserve PNG transparency
-                    el.appendChild(img);
-                    slideEl.appendChild(el);
-                  });
-                } else {
-                  // NORMAL SLIDE LOGIC - Render everything normally
-                  // Uses the pre-calculated fontMultiplier based on round type and slide position
-                  
-                  slide.elements.forEach(element => {
-                    const el = document.createElement('div');
-                    el.className = 'element';
-                    el.style.position = 'absolute';
-                    el.style.left = ((element.x / 1920) * 100) + '%';
-                    el.style.top = ((element.y / 1080) * 100) + '%';
-                    el.style.width = ((element.width / 1920) * 100) + '%';
-                    el.style.height = ((element.height / 1080) * 100) + '%';
-                    
-                    // VIEWPORT-BASED FONT SCALING for text elements
-                    // Uses the pre-calculated fontMultiplier based on round type
-                    if (element.type === 'text') {
-                      const baseFontSize = (element.fontSize || 16) * fontMultiplier;
-                      const vwSize = (baseFontSize / 1920) * 100;
-                      const minSize = Math.max(baseFontSize * 0.7, 14);
-                      const maxSize = baseFontSize * 1.5;
-                      el.style.fontSize = \`clamp(\${minSize}px, \${vwSize}vw, \${maxSize}px)\`;
-                      
-                      // Respect whiteSpace property from element (nowrap prevents unwanted wrapping)
-                      if (element.whiteSpace) {
-                        el.style.whiteSpace = element.whiteSpace;
-                      }
-                    }
-                    
-                    el.style.fontWeight = element.fontWeight || 'normal';
-                    el.style.color = element.color || '#000000';
-                    el.style.textAlign = element.textAlign || 'left';
-                    el.style.fontFamily = element.fontFamily || 'Inter, sans-serif';
-                    el.style.lineHeight = element.lineHeight || 1.5;
-                    el.style.display = 'flex';
-                    el.style.alignItems = 'center';
-                    el.style.justifyContent = element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start';
-                    
-                    if (element.type === 'text') {
-                      el.textContent = element.content || '';
-                    } else if (element.type === 'image') {
-                      el.style.background = 'transparent'; // Ensure overlay transparency
-                      const img = document.createElement('img');
-                      img.src = element.src || '';
-                      img.style.width = '100%';
-                      img.style.height = '100%';
-                      img.style.objectFit = 'contain';
-                      img.style.background = 'transparent'; // Preserve PNG transparency
-                      el.appendChild(img);
-                    } else if (element.type === 'video' && element.videoSrc) {
-                      // Video with AUDIO enabled on audience view
-                      const vid = document.createElement('video');
-                      vid.src = element.videoSrc;
-                      vid.style.width = '100%';
-                      vid.style.height = '100%';
-                      vid.style.objectFit = 'contain';
-                      vid.autoplay = true;
-                      vid.loop = true;
-                      vid.playsInline = true;
-                      vid.muted = false; // Audio ON for audience
-                      el.appendChild(vid);
-                    }
-                    
-                    slideEl.appendChild(el);
-                  });
-                }
-              }
-            }
-            
-            // Listen for slide updates and reveals
-            let currentSlideData = null;
-            let currentRevealCount = 0;
-            
-            window.addEventListener('message', function(event) {
-              if (event.data.type === 'UPDATE_SLIDE') {
-                currentSlideData = event.data.slide;
-                currentRevealCount = event.data.revealedCount || 0;
-                renderSlide(event.data.slide, currentRevealCount, event.data.isAnswerSlide, event.data.finalScoresData);
-              } else if (event.data.type === 'REVEAL_ANSWER') {
-                currentRevealCount = event.data.revealedCount;
-                if (currentSlideData) {
-                  renderSlide(currentSlideData, currentRevealCount, true);
-                }
-              }
-            });
-            
-            // FULLSCREEN FUNCTION - Make truly borderless, chrome-less display
-            function goFullscreen() {
-              const elem = document.documentElement;
-              const prompt = document.getElementById('fullscreen-prompt');
-              
-              if (elem.requestFullscreen) {
-                elem.requestFullscreen().then(function() {
-                  prompt.style.display = 'none';
-                }).catch(function() {
-                  // Keep prompt visible if fullscreen fails
-                });
-              } else if (elem.webkitRequestFullscreen) { // Safari
-                elem.webkitRequestFullscreen();
-                prompt.style.display = 'none';
-              } else if (elem.msRequestFullscreen) { // IE11
-                elem.msRequestFullscreen();
-                prompt.style.display = 'none';
-              } else if (elem.mozRequestFullScreen) { // Firefox
-                elem.mozRequestFullScreen();
-                prompt.style.display = 'none';
-              }
-            }
-            
-            // Initial render
-            renderSlide(${JSON.stringify(initialSlide)}, ${initialRevealCount}, ${initialIsAnswerSlide}, null);
-            
-            // AUTOMATIC FULLSCREEN - Try to enter fullscreen immediately
-            setTimeout(function() {
-              goFullscreen();
-            }, 300);
-            
-            // Show prompt if not in fullscreen after 2 seconds
-            setTimeout(function() {
-              if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
-                document.getElementById('fullscreen-prompt').style.display = 'block';
-              }
-            }, 2000);
-            
-            // Keep in fullscreen - prevent accidental exit
-            document.addEventListener('fullscreenchange', function() {
-              const prompt = document.getElementById('fullscreen-prompt');
-              if (!document.fullscreenElement) {
-                // Exited fullscreen - show prompt to re-enter
-                prompt.style.display = 'block';
-              } else {
-                prompt.style.display = 'none';
-              }
-            });
-            
-            // Prevent F11 and ESC from exiting (show prompt instead)
-            document.addEventListener('keydown', function(e) {
-              if (e.key === 'Escape' || e.key === 'F11') {
-                e.preventDefault();
-                if (!document.fullscreenElement) {
-                  document.getElementById('fullscreen-prompt').style.display = 'block';
-                }
-              }
-            });
-          </script>
-        </body>
-        </html>
-      `);
-      newWindow.document.close();
-      
-      // FORCE MOVE TO RIGHT DISPLAY - Enhanced positioning
-      // Use screen.availWidth to calculate right display position
+    // Try Tauri's WebviewWindow first (proper multi-window on desktop).
+    // Fall back to window.open for browser / preview / non-Tauri envs.
+    let opened = null;
+    try {
+      // Tauri v2 exposes @tauri-apps/api/webviewWindow. We access it via
+      // the global window.__TAURI__ shim (available in the desktop
+      // build; undefined in a plain browser / preview).
+      const tauriApi = window.__TAURI__?.webviewWindow || window.__TAURI__?.window || null;
+      if (tauriApi && typeof tauriApi.WebviewWindow === 'function') {
+        const label = 'trivia-audience';
+        const w = new tauriApi.WebviewWindow(label, {
+          url: '/trivia/audience',
+          title: 'BIG Hat — Audience View',
+          width: window.screen?.availWidth || 1920,
+          height: window.screen?.availHeight || 1080,
+          x: screenLeft,
+          y: 0,
+          fullscreen: false,
+          decorations: false,
+          resizable: true,
+        });
+        // WebviewWindow instances have `.close()` — enough for our
+        // audienceWindowRef usage below.
+        opened = { __tauri: true, close: () => { try { w.close(); } catch (_e) { /* noop */ } }, closed: false, postMessage: () => {} };
+      }
+    } catch (e) {
+      console.warn('[presenter] Tauri WebviewWindow unavailable, falling back to window.open:', e);
+    }
+
+    if (!opened) {
+      const winFeatures = `width=${window.screen?.availWidth || 1920},`
+        + `height=${window.screen?.availHeight || 1080},`
+        + `left=${screenLeft},top=0,fullscreen=yes,toolbar=no,location=no,`
+        + `directories=no,status=no,menubar=no,scrollbars=no,resizable=yes,titlebar=no`;
+      opened = window.open(audienceUrl, 'TriviaAudienceView', winFeatures);
+    }
+
+    if (!opened) {
+      // Pop-up blocker (rare in Tauri, common in browser). Toast so the
+      // merchant knows what happened.
+      toast({
+        title: 'Audience view blocked',
+        description: 'Please allow pop-ups for BIG Hat, then try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    audienceWindowRef.current = opened;
+    setAudienceWindow(opened);
+
+    // Best-effort reposition to secondary display (works in Chromium
+    // window.open flows; Tauri handles this via the config above).
+    if (!opened.__tauri && typeof opened.moveTo === 'function') {
       setTimeout(() => {
         try {
-          // Move window to the right display (primary width = left edge of second screen)
-          const rightDisplayX = window.screen.availWidth;
-          newWindow.moveTo(rightDisplayX, 0);
-          
-          // Resize to fill the screen (in case moveTo didn't work perfectly)
-          newWindow.resizeTo(window.screen.availWidth, window.screen.availHeight);
-          
-          // Focus the window to ensure it's active for fullscreen
-          newWindow.focus();
-        } catch (error) {
-          // Window positioning may fail on some browsers/displays
-        }
+          opened.moveTo(screenLeft, 0);
+          if (typeof opened.resizeTo === 'function') {
+            opened.resizeTo(window.screen?.availWidth || 1920, window.screen?.availHeight || 1080);
+          }
+          opened.focus?.();
+        } catch (_) { /* window positioning may fail */ }
       }, 100);
-      
-      setAudienceWindow(newWindow);
-      
-      // MEMORY FIX: Clear any existing interval before creating new one
-      if (windowCheckIntervalRef.current) {
-        clearInterval(windowCheckIntervalRef.current);
-      }
-      
-      // Clean up on window close - store in ref for cleanup
+    }
+
+    // Push the current slide the instant the audience React app
+    // announces it's ready. AudienceView broadcasts `AUDIENCE_READY` on
+    // mount over the BroadcastChannel — we already have `audienceChannelRef`
+    // listening implicitly via broadcastToAudience.
+    const bc = audienceChannelRef.current;
+    if (bc) {
+      const onReady = (e) => {
+        if (e?.data?.type === 'AUDIENCE_READY') {
+          updateAudienceView(audienceIndex);
+        }
+      };
+      bc.addEventListener('message', onReady);
+      // Also fire once after a short delay in case AUDIENCE_READY was
+      // sent before we registered the listener.
+      setTimeout(() => updateAudienceView(audienceIndex), 500);
+    } else {
+      setTimeout(() => updateAudienceView(audienceIndex), 500);
+    }
+
+    // Poll for window closed (browser flow only — Tauri sends its own event).
+    if (windowCheckIntervalRef.current) {
+      clearInterval(windowCheckIntervalRef.current);
+    }
+    if (!opened.__tauri) {
       windowCheckIntervalRef.current = setInterval(() => {
-        if (newWindow.closed) {
+        if (opened.closed) {
           clearInterval(windowCheckIntervalRef.current);
           windowCheckIntervalRef.current = null;
           setAudienceWindow(null);
@@ -1172,7 +672,6 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       }, 1000);
     }
   };
-
   const closeAudienceView = () => {
     // MEMORY FIX: Clear the window check interval
     if (windowCheckIntervalRef.current) {
