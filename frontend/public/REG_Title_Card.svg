@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1657E8"/>
+      <stop offset="35%" stop-color="#1F5EE9"/>
+      <stop offset="100%" stop-color="#050a1a"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#g)"/>
+  <text x="960" y="560" text-anchor="middle" font-family="Impact, 'Arial Black', sans-serif"
+        font-size="360" font-weight="900" fill="#F4C430" filter="url(#glow)"
+        letter-spacing="24">REGULAR</text>
+  <text x="960" y="720" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+        font-size="72" font-weight="700" fill="#ffffff" letter-spacing="16">ROUND</text>
+</svg>
