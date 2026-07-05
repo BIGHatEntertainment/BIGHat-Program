@@ -428,6 +428,25 @@ async def get_sections_list(presentation_id: str):
         
         # Rounds - insert sponsors BEFORE BIG round (always the last round)
         round_files = trivia_pres.get('roundFiles', [])
+
+        # v32.0.0-alpha.48: Enforce canonical round order regardless of how
+        # the wizard wrote them: MC → REG → MISC → (extra REG/MISC) → MYS →
+        # BIG. MYS is always second-to-last, BIG is always last. Ties
+        # within a bucket preserve the wizard's ordering.
+        _ROUND_TYPE_RANK = {"MC": 1, "REG": 2, "MISC": 3, "NONSENSE": 3, "MYS": 98, "BIG": 99}
+        if round_files:
+            round_files = sorted(
+                enumerate(round_files),
+                key=lambda p: (_ROUND_TYPE_RANK.get((p[1].get("type") or "").upper(), 50), p[0]),
+            )
+            round_files = [rf for _idx, rf in round_files]
+            # Re-index the `order` field to reflect the new sequence so
+            # the frontend renders as `round_1, round_2, ...` in the
+            # canonical order.
+            for i, rf in enumerate(round_files, start=1):
+                rf["order"] = i
+            trivia_pres["roundFiles"] = round_files
+
         # Always include sponsors (default master sponsor if none configured)
         num_rounds = trivia_pres.get('numRounds', len(round_files) if round_files else 3)
         sponsors_added = False
