@@ -2,6 +2,53 @@
 
 ---
 
+
+---
+
+## 🛑 DISK STATE IS THE ABSOLUTE SOURCE OF TRUTH — READ BEFORE TOUCHING ANY DATA-LAYER CODE
+
+> Locked in by the merchant 2026-02-05 (during alpha.45 → alpha.46 debug).
+> **The `.bighat` files on the user's disk are the single source of truth for
+> the entire program. The MontyDB / SQLite / any in-process cache is a
+> secondary, disposable index. Any endpoint that touches presentation, round,
+> or slide data MUST read from disk first and fall back to the DB — never the
+> other way around.**
+
+### Why this is the law
+Native mode (`BIGHAT_NATIVE_MODE=1`) starts with a fresh MontyDB on every
+launch. Presentations and rounds the merchant built in a previous session
+live at `C:\Users\<user>\Documents\BIG Hat Entertainment\Files\...` as
+`.bighat` files. If any endpoint checks only the DB and returns 404, the
+merchant sees "Failed to load presentation" for content they can literally
+see on disk. This is the #1 recurring merchant-facing bug and it must
+never happen again.
+
+### Rules for the agent (non-negotiable)
+1. **`GET /api/presentations/{id}`** — check `db.trivia_presentations` +
+   `db.presentations`; if missing, scan `Files/Trivia/Rounds/*.bighat` for a
+   manifest whose id matches, hydrate, return. Only 404 if disk misses too.
+2. **`GET /api/trivia-viewer/{id}` / `GET /api/trivia-viewer/list`** —
+   already disk-first. Keep it that way. Wrap DB touches in try/except with
+   fallback to zero payload (same pattern as `/admin/stats`).
+3. **`POST /api/slide-fetcher/fetch-section/{id}/{section}`** — the round
+   `.bighat` files in `Files/Trivia/<TYPE>/*.bighat` are the source. Do NOT
+   attempt to `open()` a PPTX from a temp path unless one exists on disk.
+   Build the slide payload from the round manifest JSON.
+4. **`POST /api/slide-fetcher/store-all/{id}`** — accept `slides` optional.
+   In native mode, disk is already canonical; storing in the DB is a
+   nice-to-have index, not a requirement.
+5. **New endpoints that touch trivia data** — write a disk-first path
+   FIRST, then optionally cache in DB. Reviewer will reject PRs that
+   check DB first.
+
+### Enforcement
+- Every alpha release from alpha.46 onward MUST include a regression test
+  that: writes a `.bighat` to disk → wipes the in-memory DB → hits the
+  endpoint → asserts the response is populated from disk. See
+  `backend/tests/test_alpha46_*` for the pattern.
+
+---
+
 ## 🛑 CANONICAL DISTRIBUTION FLOW — READ BEFORE ANY BUILD / RELEASE WORK
 
 > Locked in by the merchant 2026-06-24. **Do not invent alternatives. Do not
@@ -1016,6 +1063,31 @@ the whole endpoint. 8 new contract tests in
 `test_bighat_import_list_contract.py`, all passing. Customers on
 alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
+
+
+## Shipped — v32.0.0-alpha.45 (2026-02-05)  🩹 Presenter/Editor blank-list hotfix
+
+Merchant `bighat-debug.log` upload from alpha.44 surfaced three tightly-coupled failures:
+1. `GET /api/admin/stats` → 500 (`'coroutine' object has no attribute 'to_list'` **and** `SQLite objects created in a thread can only be used in that same thread`) → the Trivia Presenter `Promise.all(...)` rejected → presentation list rendered blank.
+2. `DELETE /api/native/files/{name}?folder=Trivia-Rounds` → 400 `invalid_folder: 'Trivia/Rounds'` → delete-card button broken.
+3. `POST /api/bighat/import` → 400 `Unknown content type: trivia-presentation` → wizard-generated manifests couldn't be re-imported.
+
+### Fixes
+- **`backend/routes/admin.py`** — `get_admin_stats()` is BEST-EFFORT. Local `_safe_count` helper wraps every `count_documents` (returns 0 on any error). MontyDB-aware `aggregate()` unwrap (`to_list` / `await` / sync list) with Python-side grouping fallback. Outer `except` returns zero payload — never `HTTPException(500)`.
+- **`backend/native/files_router.py`** — `_resolve_folder` accepts `Trivia/Rounds` and `Trivia-Rounds` alongside the existing round-type buckets.
+- **`backend/routes/bighat_files.py`** — `import_content` normalises `"trivia-presentation"` alias → canonical `presentation` `ContentTypeSpec`.
+
+### Testing
+- `backend/tests/test_alpha45_regressions.py` — 7/7 pass. Locks in the three fixes plus the "no 500 in outer except" contract.
+- Manual curl: `/api/admin/stats?userName=nick` → 200 JSON payload; `DELETE .../Trivia-Rounds/*.bighat` → clean 200 delete.
+
+### Release
+- Windows `.exe` (133.6 MB) + macOS Apple Silicon `.dmg` (116.4 MB) + tarball.
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.45
+- Yarn.lock drift recurrence #9 caught pre-ship (`@tauri-apps/plugin-dialog@2.7.1` missing) — refreshed lockfile included in push.
+
+### Ops lesson learned
+GitHub REST API does **NOT** allow cancelling individual matrix jobs (`POST /actions/jobs/{id}/cancel` returns 404 for scheduled/queued matrix children). Falling back to `POST /actions/runs/{id}/cancel` kills the WHOLE run (learned the hard way — first alpha.45 CI run cancelled). New policy: attempt the job-level cancel, but if it 404s, LET the Intel leg run/fail naturally. Only wait for Windows + macOS_AS to publish.
 
 
 ## Shipped — v32.0.0-alpha.44 (2026-07-04)  🎯 Prototype-parity presenter
