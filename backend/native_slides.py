@@ -110,12 +110,52 @@ def _docs_root() -> Path:
     return base / "BIG Hat Entertainment"
 
 
+def _to_data_url(rel_path: str) -> Optional[str]:
+    """v32.0.0-alpha.49: **Inline the file bytes as a `data:` URL.**
+
+    This program runs on the user's local PC — we have plenty of RAM and
+    disk throughput. Cloud-scale worries about payload size do not apply.
+    Reading an 18.9 MB host GIF and shipping it inline as a data URL is
+    fine; it saves a whole round-trip and dodges the tauri://→http://
+    origin mismatch that killed rendering in alpha.48. Returns None on
+    error so the caller can fall back to text.
+    """
+    docs = _docs_root()
+    p = docs / rel_path
+    if not p.exists() or not p.is_file():
+        return None
+    ext = p.suffix.lower()
+    mime_map = {
+        ".gif": "image/gif", ".png": "image/png",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".svg": "image/svg+xml",
+        ".mp4": "video/mp4", ".webm": "video/webm",
+    }
+    mime = mime_map.get(ext, "application/octet-stream")
+    try:
+        import base64
+        data = p.read_bytes()
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except (OSError, MemoryError) as e:
+        logger.warning("[native-slides] data-URL encode failed for %s: %s", p, e)
+        return None
+
+
 def _to_api_url(rel_path: str) -> str:
-    """Convert a `Files/...` relative path into the API URL that the
-    frontend can `<img>` load. `rel_path` should be forward-slashed."""
-    # The backend serves any file under docs root via /api/native/files/raw
-    # with `path=` set to the docs-relative path. We URL-encode `/` inside
-    # the path as `%2F` so it survives the query-string round-trip.
+    """Return an image URL for a `Files/...` disk path.
+
+    v32.0.0-alpha.49: **Data URL first, network URL last.** In native
+    mode the app lives on the user's PC — their machine has way more
+    resources than a cloud API and no cross-origin routing to worry
+    about. Inlining the bytes is the cleanest, most reliable way to
+    ship the image to whichever webview origin the frontend is on
+    (tauri://, http://127.0.0.1:3000, tauri.localhost, etc). Only falls
+    back to a network URL if the file couldn't be encoded.
+    """
+    data = _to_data_url(rel_path)
+    if data:
+        return data
     from urllib.parse import quote
     return f"/api/native/files/raw?path={quote(rel_path, safe='')}"
 
@@ -132,93 +172,133 @@ def load_host_asset(pres: Dict[str, Any]) -> Dict[str, Any]:
     """Locate the host's 9:16 vertical / 16:9 landscape image on disk.
 
     Returns `{"image_url": str | None, "aspect": "9:16"|"16:9", "raw_path": str|None}`.
-    Reads `Files/Hosts/<slug>/host.json` for `host_image_9x16` (preferred)
-    then `host_image_16x9`. Both live as absolute `/api/native/files/raw?path=…`
-    URLs. If the JSON is missing but a `host-9x16.*` or `host-16x9.*` file
-    exists in the host folder we surface that too.
+
+    v32.0.0-alpha.49: **Filesystem walk is authoritative.** We no longer
+    trust the `host.json` fields alone — if they're missing or stale we
+    still discover `host-9x16.*`, `host-16x9.*`, `avatar.*`, `profile.*`
+    files in the host folder. Priority order:
+        1. `host_image_9x16` from host.json  (if file exists on disk)
+        2. Any `host-9x16.<ext>` file in the host folder
+        3. `host_image_16x9` from host.json  (if file exists on disk)
+        4. Any `host-16x9.<ext>` file in the host folder
+        5. `profile_picture` from host.json  (if file exists on disk)
+        6. `avatar.<ext>` / `profile.<ext>` in the host folder
     """
     from urllib.parse import unquote, urlparse, parse_qs
 
     host_name = pres.get("host") or pres.get("hostName") or ""
     host_email = pres.get("hostEmail") or ""
-    # Presentation manifests sometimes store the email as `host` — accept both.
     candidates = []
     if host_email:
         candidates.append(_slugify(host_email))
     if host_name:
         candidates.append(_slugify(host_name))
-    # Try email-shaped variant on the name (e.g. "Nick Sellards" ->
-    # "sellards@bighat.live" isn't inferable, so we rely on manifest).
 
     docs = _docs_root()
     hosts_root = docs / "Files" / "Hosts"
+    IMG_EXTS = (".gif", ".png", ".jpg", ".jpeg", ".webp")
 
-    def _resolve_from_json(host_json_path: Path):
-        try:
-            data = json.loads(host_json_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+    def _rel_if_exists(val: str, docs_root: Path) -> Optional[str]:
+        """Resolve a host.json path-value to a docs-relative path IFF the
+        file exists on disk. Accepts `/api/native/files/raw?path=Files/...`,
+        `Files/...`, or absolute paths."""
+        if not val:
             return None
-        for key, aspect in (("host_image_9x16", "9:16"),
-                            ("host_image_16x9", "16:9"),
-                            ("profile_picture", "1:1")):
-            val = data.get(key)
-            if not val:
-                continue
-            # `val` is typically an API URL like /api/native/files/raw?path=Files/...
-            # Extract the relative path so we can verify the file exists.
-            rel = None
-            if val.startswith("/api/native/files/raw"):
-                parsed = urlparse(val)
-                q = parse_qs(parsed.query)
-                rel = unquote(q.get("path", [""])[0])
-            elif val.startswith("Files/"):
-                rel = val
-            elif val.startswith("http"):
-                # External URL — trust it as-is.
-                return {"image_url": val, "aspect": aspect, "raw_path": None}
-            if rel:
-                p = docs / rel
-                if p.exists():
-                    return {"image_url": _to_api_url(rel), "aspect": aspect,
-                            "raw_path": str(p)}
+        rel = None
+        if val.startswith("http") and "path=" in val:
+            parsed = urlparse(val)
+            q = parse_qs(parsed.query)
+            rel = unquote(q.get("path", [""])[0])
+        elif val.startswith("/api/native/files/raw"):
+            parsed = urlparse(val)
+            q = parse_qs(parsed.query)
+            rel = unquote(q.get("path", [""])[0])
+        elif val.startswith("Files/"):
+            rel = val
+        elif val.startswith("/") and (docs_root / val.lstrip("/")).exists():
+            rel = val.lstrip("/")
+        if rel and (docs_root / rel).exists():
+            return rel
         return None
 
-    # 1. Try the candidate slug folders
-    if hosts_root.exists():
-        for slug in candidates:
-            if not slug:
-                continue
-            host_dir = hosts_root / slug
-            hj = host_dir / "host.json"
-            if hj.exists():
-                found = _resolve_from_json(hj)
-                if found:
-                    return found
-            # 2. Bare filename fallback in the host folder
-            for stem_aspect in (("host-9x16", "9:16"), ("host-16x9", "16:9"),
-                                ("avatar", "1:1"), ("profile", "1:1")):
-                stem, aspect = stem_aspect
-                for ext in (".gif", ".png", ".jpg", ".jpeg", ".webp"):
-                    p = host_dir / f"{stem}{ext}"
-                    if p.exists():
-                        rel = str(p.relative_to(docs)).replace("\\", "/")
-                        return {"image_url": _to_api_url(rel), "aspect": aspect,
-                                "raw_path": str(p)}
-        # 3. Scan every host folder in case the slug logic missed
-        for host_dir in hosts_root.iterdir():
-            if not host_dir.is_dir():
-                continue
-            hj = host_dir / "host.json"
-            if hj.exists():
-                try:
-                    d = json.loads(hj.read_text(encoding="utf-8"))
-                    if (d.get("name") and host_name
-                            and _slugify(d["name"]) == _slugify(host_name)):
-                        found = _resolve_from_json(hj)
-                        if found:
-                            return found
-                except (OSError, ValueError):
-                    continue
+    def _find_by_stem(host_dir: Path, stems: List[str]) -> Optional[Path]:
+        for stem in stems:
+            for ext in IMG_EXTS:
+                p = host_dir / f"{stem}{ext}"
+                if p.exists():
+                    return p
+        return None
+
+    def _rank_asset(host_dir: Path, host_json_path: Optional[Path]):
+        """Return the best `(rel_path, aspect)` tuple for a given host
+        folder, or None."""
+        json_data = {}
+        if host_json_path and host_json_path.exists():
+            try:
+                json_data = json.loads(host_json_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                json_data = {}
+
+        # Priority 1: JSON says 9x16 AND file exists
+        rel = _rel_if_exists(json_data.get("host_image_9x16", ""), docs)
+        if rel:
+            return rel, "9:16"
+        # Priority 2: host-9x16.* file on disk
+        p = _find_by_stem(host_dir, ["host-9x16", "host_9x16", "9x16"])
+        if p:
+            return str(p.relative_to(docs)).replace("\\", "/"), "9:16"
+        # Priority 3: JSON says 16x9 AND file exists
+        rel = _rel_if_exists(json_data.get("host_image_16x9", ""), docs)
+        if rel:
+            return rel, "16:9"
+        # Priority 4: host-16x9.* file on disk
+        p = _find_by_stem(host_dir, ["host-16x9", "host_16x9", "16x9"])
+        if p:
+            return str(p.relative_to(docs)).replace("\\", "/"), "16:9"
+        # Priority 5: JSON profile_picture
+        rel = _rel_if_exists(json_data.get("profile_picture", ""), docs)
+        if rel:
+            return rel, "1:1"
+        # Priority 6: avatar.* / profile.*
+        p = _find_by_stem(host_dir, ["avatar", "profile"])
+        if p:
+            return str(p.relative_to(docs)).replace("\\", "/"), "1:1"
+        return None
+
+    if not hosts_root.exists():
+        return {"image_url": None, "aspect": None, "raw_path": None}
+
+    # Try the candidate slug folders first
+    for slug in candidates:
+        if not slug:
+            continue
+        host_dir = hosts_root / slug
+        if not host_dir.exists():
+            continue
+        result = _rank_asset(host_dir, host_dir / "host.json")
+        if result:
+            rel, aspect = result
+            return {"image_url": _to_api_url(rel), "aspect": aspect,
+                    "raw_path": str(docs / rel)}
+
+    # Fallback: scan every host folder — match host.json's `name`
+    for host_dir in hosts_root.iterdir():
+        if not host_dir.is_dir():
+            continue
+        hj = host_dir / "host.json"
+        if not hj.exists():
+            continue
+        try:
+            d = json.loads(hj.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (host_name and d.get("name")
+                and _slugify(d["name"]) == _slugify(host_name)):
+            result = _rank_asset(host_dir, hj)
+            if result:
+                rel, aspect = result
+                return {"image_url": _to_api_url(rel), "aspect": aspect,
+                        "raw_path": str(docs / rel)}
     return {"image_url": None, "aspect": None, "raw_path": None}
 
 
@@ -273,7 +353,11 @@ def load_round_title_card(round_type: str, round_name: str = "") -> Optional[str
         1. `Files/Trivia/<TYPE>/title-cards/<round_name>.<ext>` (per-round)
         2. `Files/Trivia/<TYPE>/title-cards/<TYPE>.<ext>`         (per-type)
         3. `Files/Trivia/title-cards/<TYPE>.<ext>`                 (global)
-    Returns an API URL or None.
+        4. **Bundled default** at `/<TYPE>_Title_Card.jpg|.svg` served
+           by the frontend from its `public/` folder (works in Tauri
+           because the built frontend bundle includes them).
+    Returns an image URL (`data:` URL for disk assets, `/<name>.jpg`
+    for bundled defaults). Returns None if nothing found.
     """
     docs = _docs_root()
     rt = (round_type or "").upper()
@@ -297,7 +381,22 @@ def load_round_title_card(round_type: str, round_name: str = "") -> Optional[str
             p = tc_dir / f"{rt}{ext}"
             if p.exists():
                 return _to_api_url(str(p.relative_to(docs)).replace("\\", "/"))
-    return None
+
+    # v32.0.0-alpha.49: bundled defaults shipped in
+    # `frontend/public/<TYPE>_Title_Card.jpg` (MC, BIG, MYS) and
+    # `<TYPE>_Title_Card.svg` (REG, MISC). The frontend loads these from
+    # its own origin — no data-URL round-trip needed for bundled
+    # artwork. This is what the merchant meant by "the assets are RIGHT
+    # THERE" — MC_Title_Card.jpg etc. have always been in public/.
+    _BUNDLED_TITLE_CARDS = {
+        "MC": "/MC_Title_Card.jpg",
+        "REG": "/REG_Title_Card.svg",
+        "MISC": "/MISC_Title_Card.svg",
+        "NONSENSE": "/MISC_Title_Card.svg",
+        "MYS": "/MYS_Title_Card.jpg",
+        "BIG": "/BIG_Title_Card.jpg",
+    }
+    return _BUNDLED_TITLE_CARDS.get(rt)
 
 
 def _rounds_dir() -> Path:
