@@ -6,6 +6,38 @@
 > ARE NOT a fallback and must not be reinstated.
 
 ---
+---
+
+## 2026-02-05 — v32.0.0-alpha.45: three-bug hotfix for the Presenter/Editor blank-list crash
+
+### Merchant report (alpha.44 debug log upload)
+Presentation would not open in the Editor. The `bighat-debug.log` showed three tightly-coupled failures:
+1. `GET /api/admin/stats` → HTTP 500 (`'coroutine' object has no attribute 'to_list'` **and** `SQLite objects created in a thread can only be used in that same thread`). The Trivia Presenter fires `admin/stats` inside a `Promise.all(...)` — any 500 rejects the whole chain and blanks the presentation list.
+2. `DELETE /api/native/files/{name}?folder=Trivia-Rounds` → HTTP 400 `invalid_folder: 'Trivia/Rounds'`. The delete-card button on presentation cards couldn't remove wizard-generated manifests.
+3. `POST /api/bighat/import` → HTTP 400 `Unknown content type: trivia-presentation`. The Build Wizard writes `type: "trivia-presentation"` into its manifest but the import router only accepted the canonical `presentation`.
+
+### Fixes
+- **`backend/routes/admin.py`** — `get_admin_stats()` is now BEST-EFFORT. Every `count_documents` runs through a local `_safe_count(coll, filt)` helper that returns `0` on any exception. The `aggregate()` call has a MontyDB-aware unwrap path (Motor cursor → `to_list()`, coroutine → `await` then unwrap, sync list → wrap) and a Python-side fallback that pulls raw docs and groups locally if aggregate throws. The outer `except` returns a zero payload (`{totalUsageRecords:0, ..., usageByType:{}}`) instead of `HTTPException(500)`, so the frontend `Promise.all` NEVER rejects on this endpoint.
+- **`backend/native/files_router.py :: _resolve_folder`** — extends the `Trivia/<subtype>` allowlist to accept `Trivia/Rounds` (and `Trivia-Rounds` via the dash-separator variant). Same case-insensitive validation pattern as the round-type buckets.
+- **`backend/routes/bighat_files.py :: import_content`** — the `raw_type` normalisation step recognises `"trivia-presentation"` (and the shorter `"presentation"`) and routes both to the canonical `presentation` `ContentTypeSpec`.
+
+### Testing
+- `backend/tests/test_alpha45_regressions.py` — 7/7 pass (unit).
+  - `_resolve_folder` accepts `Trivia/Rounds` and `Trivia-Rounds`, still rejects `Trivia/../etc`.
+  - `BIGHAT_TYPES` contains `presentation`; the alias-normalisation branch maps `trivia-presentation` → `presentation`.
+  - Source-level guard: `get_admin_stats` outer except contains no `HTTPException(status_code=500` and must return the zero payload shape.
+- Manual curl: `/api/admin/stats?userName=nick` → HTTP 200; `DELETE /api/native/files/test-delete.bighat?folder=Trivia-Rounds` → `{"ok":true,"deleted":"test-delete.bighat"}`.
+
+### Release
+- `push_alpha45.py` pushes `VERSION.txt`, `tauri.conf.json`, the three patched routers, the alpha.45 regression test, `frontend/yarn.lock` (includes `@tauri-apps/plugin-dialog@2.7.1` — MUST be pushed to avoid the `--frozen-lockfile` CI failure), and this CHANGELOG entry. Tag `v32.0.0-alpha.45` fires `release.yml`.
+- `wait_and_publish_alpha45.py` waits for macOS-arm64 + Windows legs to succeed, then PATCHes the release `draft:false, prerelease:false, make_latest:true`. Intel leg is intentionally cancelled per the alpha.42+ policy.
+
+### Ops note
+Yarn.lock drift recurrence #9 caught pre-ship (`@tauri-apps/plugin-dialog^2.7.1` was in `package.json` but missing from `yarn.lock` after a stale checkout). `yarn install --check-files` rehydrated locally; the refreshed lockfile is included in the release push.
+
+---
+
+
 
 ## 2026-07-03 — v32.0.0-alpha.37: vanishing presentations + empty Locations Files-tab
 
