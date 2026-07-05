@@ -32,6 +32,26 @@ async def get_slide_chunk(presentation_id: str, chunk_number: int):
                 "slidesCount": len(chunk_data['slides'])
             }
         
+        # v32.0.0-alpha.44: NATIVE fallback — chunk chunk_number of the
+        # on-disk assembled slide list (chunks of 20 slides each).
+        try:
+            from routes.trivia_viewer import _assemble_slides_native
+            native = await _assemble_slides_native(presentation_id)
+            all_slides = native.get("slides") or []
+            CHUNK = 20
+            start = chunk_number * CHUNK
+            end = start + CHUNK
+            piece = all_slides[start:end]
+            if piece:
+                return {
+                    "chunkNumber": chunk_number,
+                    "slides": piece,
+                    "slidesCount": len(piece),
+                    "source": "native-disk",
+                }
+        except Exception as e:
+            logger.warning("[trivia-import chunk] native fallback failed: %s", e)
+
         raise HTTPException(status_code=404, detail=f"Chunk {chunk_number} not found")
     
     except HTTPException:
@@ -57,7 +77,24 @@ async def get_slides_metadata(presentation_id: str):
                 "compressedSize": metadata['compressed_size'],
                 "chunks": metadata['chunks']
             }
-        
+
+        # v32.0.0-alpha.44: fall through to native disk metadata.
+        try:
+            from routes.trivia_viewer import _assemble_slides_native
+            native = await _assemble_slides_native(presentation_id)
+            total = len(native.get("slides") or [])
+            if total:
+                CHUNK = 20
+                total_chunks = max(1, (total + CHUNK - 1) // CHUNK)
+                return {
+                    "hasGridFSSlides": False,
+                    "totalSlides": total,
+                    "totalChunks": total_chunks,
+                    "source": "native-disk",
+                }
+        except Exception as e:
+            logger.warning("[trivia-import metadata] native fallback failed: %s", e)
+
         return {
             "hasGridFSSlides": False,
             "totalSlides": 0,
@@ -180,6 +217,28 @@ async def get_imported_slides(presentation_id: str):
                 "message": "Slides are being generated. Please wait."
             }
         
+        # v32.0.0-alpha.44: NATIVE fallback — assemble slides from the
+        # on-disk `.bighat` manifest + round files. The Editor.jsx expects
+        # this endpoint to return {slides, totalSlides, fromCache} so it
+        # can render without hitting SharePoint. Delegate to the native
+        # assembler already used by `/api/trivia-viewer/{id}/slides`.
+        try:
+            from routes.trivia_viewer import _assemble_slides_native
+            native = await _assemble_slides_native(presentation_id)
+            if native and native.get("slides"):
+                logger.info("[trivia-import] native disk assembly: %d slides for %s",
+                            len(native["slides"]), presentation_id)
+                return {
+                    "slides": native["slides"],
+                    "totalSlides": native["totalSlides"],
+                    "fromCache": False,
+                    "source": "native-disk",
+                }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("[trivia-import] native fallback failed: %s", e)
+
         # No cache and not generating - return error
         raise HTTPException(
             status_code=404, 
