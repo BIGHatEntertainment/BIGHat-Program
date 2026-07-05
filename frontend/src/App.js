@@ -15,6 +15,7 @@ import TriviaDashboard from './pages/trivia/TriviaDashboard';
 import TriviaPresenterView from './pages/trivia/TriviaPresenterView';
 import TriviaPlay from './pages/trivia/TriviaPlay';
 import TriviaEditor from './pages/trivia/Editor';
+import TriviaAudienceView from './pages/trivia/TriviaAudienceView';
 import RoundMakerDashboard from './pages/roundmaker/RoundMakerDashboard';
 import RoundCreator from './pages/roundmaker/RoundCreator';
 import BingoLobby from './pages/bingo/Lobby';
@@ -147,6 +148,11 @@ function AppRoutes() {
         <Route path="/trivia/present" element={<ProtectedRoute><TriviaPresenterView /></ProtectedRoute>} />
         <Route path="/trivia/play" element={<ProtectedRoute><TriviaPlay /></ProtectedRoute>} />
         <Route path="/trivia/editor" element={<ProtectedRoute><TriviaEditor /></ProtectedRoute>} />
+        {/* v32.0.0-alpha.47: audience-facing full-screen mirror for the TV.
+            No auth wrapper — this window is spawned by the host and
+            doesn't need its own login flow; the host controls what the
+            audience sees. */}
+        <Route path="/trivia/audience" element={<TriviaAudienceView />} />
         <Route path="/roundmaker" element={<ProtectedRoute><RoundMakerDashboard /></ProtectedRoute>} />
         <Route path="/roundmaker/create/:roundType" element={<ProtectedRoute><RoundCreator /></ProtectedRoute>} />
         <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
