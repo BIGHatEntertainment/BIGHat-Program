@@ -205,36 +205,68 @@ export default function TriviaAudienceView() {
     return null;
   };
 
-  // --- Final-scores WINNERS slide (leaderboard) — bespoke render --------
+  // --- Final-scores WINNERS slide (leaderboard) — CSS-scrolling render.
+  // v32.0.0-alpha.48: per merchant spec, the final scores slide is
+  // ALWAYS the last slide and animates from bottom-to-top like end credits.
   const renderFinalScores = () => {
     if (!finalScores) return null;
     const teams = Array.isArray(finalScores?.teams) ? finalScores.teams : [];
+    // Duration scales with roster size — enough time to read every team.
+    const scrollSeconds = Math.max(18, teams.length * 2);
     return (
       <div
         data-testid="audience-final-scores"
         style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          padding: 60, color: '#fff',
+          position: 'absolute', inset: 0, overflow: 'hidden',
+          color: '#fff', background: 'transparent',
         }}
       >
-        <h1 style={{ fontSize: 120, fontWeight: 800, color: '#F4C430', marginBottom: 40, letterSpacing: '-1px' }}>
-          Final Scores
-        </h1>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '80%', maxWidth: 1200 }}>
-          {teams.slice(0, 10).map((t, i) => (
+        {/* Sticky header — stays put */}
+        <div
+          style={{
+            position: 'absolute', top: 40, left: 0, right: 0,
+            textAlign: 'center', pointerEvents: 'none', zIndex: 2,
+            background: 'linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 60%, transparent 100%)',
+            padding: '20px 0 40px 0',
+          }}
+        >
+          <div style={{
+            fontSize: 120, fontWeight: 800, color: '#F4C430',
+            letterSpacing: '-1px', lineHeight: 1,
+          }}>
+            Final Scores
+          </div>
+        </div>
+
+        {/* Scrolling leaderboard */}
+        <div
+          data-testid="audience-final-scores-scroll"
+          style={{
+            position: 'absolute', left: 0, right: 0,
+            top: STAGE_H,          // start below the visible frame
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', gap: 16,
+            padding: '0 100px',
+            animation: `bighat-scroll-credits ${scrollSeconds}s linear infinite`,
+          }}
+        >
+          {teams.map((t, i) => (
             <div
               key={t.id || i}
               style={{
+                width: '100%', maxWidth: 1400,
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '14px 30px',
+                padding: '18px 40px',
                 background: i === 0
                   ? 'linear-gradient(90deg, #F4C430 0%, #B8860B 100%)'
-                  : 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.14)',
-                borderRadius: 12,
-                fontSize: 44,
+                  : i === 1
+                    ? 'rgba(192, 192, 192, 0.18)'
+                    : i === 2
+                      ? 'rgba(205, 127, 50, 0.18)'
+                      : 'rgba(255,255,255,0.06)',
+                border: i === 0 ? '2px solid #F4C430' : '1px solid rgba(255,255,255,0.14)',
+                borderRadius: 14,
+                fontSize: i === 0 ? 60 : 44,
                 fontWeight: i === 0 ? 800 : 600,
                 color: i === 0 ? '#111' : '#fff',
               }}
@@ -243,7 +275,23 @@ export default function TriviaAudienceView() {
               <span>{t.total ?? 0}</span>
             </div>
           ))}
+          {/* Sponsor / "thanks for playing" tail */}
+          <div style={{
+            marginTop: 60, padding: '20px 40px',
+            fontSize: 44, color: '#F4C430', fontWeight: 700,
+            textAlign: 'center',
+          }}>
+            Thanks for playing!
+          </div>
         </div>
+
+        {/* Inline keyframes so the audience view is self-contained */}
+        <style>{`
+          @keyframes bighat-scroll-credits {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-${(teams.length + 1) * 90 + 200}px); }
+          }
+        `}</style>
       </div>
     );
   };

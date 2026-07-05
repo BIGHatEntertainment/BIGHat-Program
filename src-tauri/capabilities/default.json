@@ -1,13 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for the BIG Hat Entertainment shell. Intentionally minimal — we only add fine-grained perms when a real-world feature needs them. See lib.rs alpha.3 incident: invalid perm names panic the Builder before setup() runs, killing the windows-subsystem process silently.",
-  "windows": ["main"],
+  "description": "Default capabilities for the BIG Hat Entertainment shell. Intentionally minimal — we only add fine-grained perms when a real-world feature needs them. See lib.rs alpha.3 incident: invalid perm names panic the Builder before setup() runs, killing the windows-subsystem process silently. alpha.48: added core:webview + core:window:allow-create/set-* so PresentationMode.openAudienceView() can spawn the second window via @tauri-apps/api/webviewWindow.",
+  "windows": ["main", "trivia-audience"],
   "permissions": [
     "core:default",
     "core:window:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-fullscreen",
+    "core:webview:default",
+    "core:webview:allow-create-webview-window",
     "shell:default",
     "process:default",
     "dialog:default"
   ]
 }
+

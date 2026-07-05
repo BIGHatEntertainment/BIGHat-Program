@@ -559,11 +559,15 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     };
   }, [currentIndex]); // CRITICAL: Only currentIndex - getAutoAdvanceTime caused race condition
 
-  // v32.0.0-alpha.47: audience view is now a proper /trivia/audience route.
-  // Communication is via BroadcastChannel (see broadcastToAudience helper
-  // above). We only need to spawn the window here; the AudienceView React
-  // component takes over from there.
-  const openAudienceView = () => {
+  // v32.0.0-alpha.48: audience view now uses Tauri v2's proper
+  // WebviewWindow API via dynamic import of `@tauri-apps/api/webviewWindow`.
+  // The `window.__TAURI__` global is NOT injected unless
+  // `withGlobalTauri: true` in tauri.conf.json — which is off by
+  // default. Dynamic import works whether or not the global is set,
+  // and rejects cleanly in browser/preview builds so we fall back to
+  // window.open there. Communication is via BroadcastChannel (see
+  // broadcastToAudience helper above).
+  const openAudienceView = async () => {
     // Try to spawn on the secondary display when one is present.
     const hasSecondScreen = (window.screen?.availLeft || 0) !== 0
       || (window.screen?.availTop || 0) !== 0
@@ -573,17 +577,26 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     const screenLeft = hasSecondScreen ? primaryWidth : 0;
     const audienceUrl = `${window.location.origin}/trivia/audience`;
 
-    // Try Tauri's WebviewWindow first (proper multi-window on desktop).
-    // Fall back to window.open for browser / preview / non-Tauri envs.
+    // ---- Tauri v2 desktop path ------------------------------------------
     let opened = null;
     try {
-      // Tauri v2 exposes @tauri-apps/api/webviewWindow. We access it via
-      // the global window.__TAURI__ shim (available in the desktop
-      // build; undefined in a plain browser / preview).
-      const tauriApi = window.__TAURI__?.webviewWindow || window.__TAURI__?.window || null;
-      if (tauriApi && typeof tauriApi.WebviewWindow === 'function') {
-        const label = 'trivia-audience';
-        const w = new tauriApi.WebviewWindow(label, {
+      // Dynamic import so this file still works in pure browser /
+      // storybook / preview builds. In Tauri v2 the module resolves;
+      // in a plain browser it throws and we fall through.
+      const mod = await import(/* webpackIgnore: true */ '@tauri-apps/api/webviewWindow')
+        .catch(() => null);
+      const WebviewWindow = mod?.WebviewWindow || mod?.default?.WebviewWindow;
+      if (WebviewWindow) {
+        // If a previous audience window is still around under this
+        // label, close it before spawning a new one.
+        try {
+          const prev = await (WebviewWindow.getByLabel
+            ? WebviewWindow.getByLabel('trivia-audience')
+            : null);
+          if (prev && prev.close) await prev.close();
+        } catch (_e) { /* not fatal */ }
+
+        const w = new WebviewWindow('trivia-audience', {
           url: '/trivia/audience',
           title: 'BIG Hat — Audience View',
           width: window.screen?.availWidth || 1920,
@@ -593,26 +606,45 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
           fullscreen: false,
           decorations: false,
           resizable: true,
+          alwaysOnTop: false,
+          focus: true,
+          visible: true,
         });
-        // WebviewWindow instances have `.close()` — enough for our
-        // audienceWindowRef usage below.
-        opened = { __tauri: true, close: () => { try { w.close(); } catch (_e) { /* noop */ } }, closed: false, postMessage: () => {} };
+        // Attach ONCE lifecycle listeners so we can wire up our
+        // audienceWindowRef bookkeeping without leaking listeners.
+        try {
+          w.once('tauri://created', () => {
+            console.log('[presenter] Tauri audience window created');
+          });
+          w.once('tauri://error', (e) => {
+            console.warn('[presenter] Tauri audience window error:', e);
+          });
+          w.once('tauri://destroyed', () => {
+            setAudienceWindow(null);
+            audienceWindowRef.current = null;
+          });
+        } catch (_e) { /* older versions may not have `.once` */ }
+        opened = {
+          __tauri: true,
+          closed: false,
+          close: async () => { try { await w.close(); } catch (_e) { /* noop */ } },
+          postMessage: () => { /* no-op — BroadcastChannel is the transport */ },
+        };
       }
     } catch (e) {
-      console.warn('[presenter] Tauri WebviewWindow unavailable, falling back to window.open:', e);
+      console.warn('[presenter] Tauri WebviewWindow unavailable:', e);
     }
 
+    // ---- Browser / preview fallback -------------------------------------
     if (!opened) {
       const winFeatures = `width=${window.screen?.availWidth || 1920},`
         + `height=${window.screen?.availHeight || 1080},`
-        + `left=${screenLeft},top=0,fullscreen=yes,toolbar=no,location=no,`
-        + `directories=no,status=no,menubar=no,scrollbars=no,resizable=yes,titlebar=no`;
+        + `left=${screenLeft},top=0,toolbar=no,location=no,`
+        + `directories=no,status=no,menubar=no,scrollbars=no,resizable=yes`;
       opened = window.open(audienceUrl, 'TriviaAudienceView', winFeatures);
     }
 
     if (!opened) {
-      // Pop-up blocker (rare in Tauri, common in browser). Toast so the
-      // merchant knows what happened.
       toast({
         title: 'Audience view blocked',
         description: 'Please allow pop-ups for BIG Hat, then try again.',
@@ -624,8 +656,8 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     audienceWindowRef.current = opened;
     setAudienceWindow(opened);
 
-    // Best-effort reposition to secondary display (works in Chromium
-    // window.open flows; Tauri handles this via the config above).
+    // Reposition to secondary display (Chromium fallback only —
+    // Tauri handles this via the config above).
     if (!opened.__tauri && typeof opened.moveTo === 'function') {
       setTimeout(() => {
         try {
@@ -634,14 +666,12 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
             opened.resizeTo(window.screen?.availWidth || 1920, window.screen?.availHeight || 1080);
           }
           opened.focus?.();
-        } catch (_) { /* window positioning may fail */ }
+        } catch (_e) { /* window positioning may fail */ }
       }, 100);
     }
 
     // Push the current slide the instant the audience React app
-    // announces it's ready. AudienceView broadcasts `AUDIENCE_READY` on
-    // mount over the BroadcastChannel — we already have `audienceChannelRef`
-    // listening implicitly via broadcastToAudience.
+    // announces it's ready via AUDIENCE_READY on the BroadcastChannel.
     const bc = audienceChannelRef.current;
     if (bc) {
       const onReady = (e) => {
@@ -650,14 +680,12 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         }
       };
       bc.addEventListener('message', onReady);
-      // Also fire once after a short delay in case AUDIENCE_READY was
-      // sent before we registered the listener.
       setTimeout(() => updateAudienceView(audienceIndex), 500);
     } else {
       setTimeout(() => updateAudienceView(audienceIndex), 500);
     }
 
-    // Poll for window closed (browser flow only — Tauri sends its own event).
+    // Poll for browser-window closed (Tauri emits its own destroyed event).
     if (windowCheckIntervalRef.current) {
       clearInterval(windowCheckIntervalRef.current);
     }
