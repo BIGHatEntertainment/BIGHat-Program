@@ -616,8 +616,20 @@ def _big_answer_lines(raw: str) -> List[str]:
 def render_round_section(
     round_data: Dict[str, Any], round_ref: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """Build the full slide list for one round:
-        cover → Q×N → review → answers → (tiebreaker if BIG)
+    """v32.0.0-alpha.50: VERBATIM PORT of the prototype's slide structure.
+
+    See prototype `components/trivia/editor/PresentationMode.jsx` which
+    documents the exact 0-indexed layout. The Presenter's answer-reveal,
+    auto-advance timer, and "time to grade" flow all key off these
+    positions — any drift breaks the host's grading workflow.
+
+        MC/REG/MISC:  0=title, 1-10=questions, 11=review, 12=.gif(STOP), 13=answers
+        MYS:          0=title, 1-9=questions,  10=review, 11=.gif(STOP), 12=answers
+        BIG:          0=title, 1=question,     2=.gif(STOP), 3=review, 4=answers,
+                      5=tiebreaker-question, 6=tiebreaker-answer
+
+    Answer slides MUST have NO title element — `getAnswerCount` counts ALL
+    text elements as answers. Adding a header would offset the reveal by 1.
     """
     slides: List[Dict[str, Any]] = []
     rtype = (round_ref.get("type") or round_data.get("round_type") or "").upper()
@@ -625,158 +637,215 @@ def render_round_section(
     rorder = round_ref.get("order", 0) or 0
     questions = round_data.get("questions") or []
     is_big = rtype == "BIG"
+    is_mys = rtype == "MYS"
 
-    slide_idx = 0
+    def meta(**extra):
+        return {
+            "roundType": rtype, "roundNumber": rorder,
+            "roundName": rname,
+            **extra,
+        }
 
-    # 0. Title card image (if present on disk) — full-bleed 16:9
+    # ------------------------------------------------------------------
+    # SLIDE 0 — Title card (image if available, else styled cover)
+    # ------------------------------------------------------------------
     title_card_url = load_round_title_card(rtype, rname)
     if title_card_url:
-        tc_elements = [_image(title_card_url, x=0, y=0, w=STAGE_W, h=STAGE_H)]
-        slides.append(_slide(len(slides), tc_elements, background=BG_DARK, metadata={
-            "roundType": rtype, "roundNumber": rorder,
-            "slideIndexInRound": slide_idx, "isRoundTitle": True, "isTitleCard": True,
-        }))
-        slide_idx += 1
-
-    # 1. Cover (always, whether or not a title-card asset was found)
-    cover_elements = [
-        _text(rname or f"Round {rorder}", x=160, y=380, w=1600, h=260, size=170, weight="800"),
-        _text(f"Round {rorder}" if rorder else rtype, x=160, y=680, w=1600, h=100,
-              size=60, color="#F4C430"),
-    ]
-    slides.append(_slide(len(slides), cover_elements, background=BG_BLUE, metadata={
-        "roundType": rtype, "roundNumber": rorder,
-        "slideIndexInRound": slide_idx, "isRoundTitle": not title_card_url,
-    }))
-    slide_idx += 1
-
-    # 1..N. Questions
-    for q in questions:
-        qnum = q.get("number") or q.get("num") or slide_idx
-        qtext = q.get("question", "")
-        options = q.get("options") or []
-        header = f"Question {qnum}"
-        elements: List[Dict[str, Any]] = [
-            _text(header, x=160, y=140, w=1600, h=90, size=54, color="#F4C430", weight="700"),
-            _text(qtext, x=160, y=280, w=1600, h=380, size=64, weight="700"),
+        title_elements = [_image(title_card_url, x=0, y=0, w=STAGE_W, h=STAGE_H)]
+        title_bg = BG_DARK
+    else:
+        title_elements = [
+            _text(rname or f"Round {rorder}", x=160, y=380, w=1600, h=260,
+                  size=170, weight="800"),
+            _text(f"Round {rorder}" if rorder else rtype, x=160, y=680, w=1600, h=100,
+                  size=60, color="#F4C430"),
         ]
-        if is_big:
-            # BIG rounds: show clue only. Answers list appears on the answers slide.
-            pass
-        elif options:
-            # Multiple choice - render as A/B/C/D grid
-            letters = ["A", "B", "C", "D", "E", "F"]
-            for i, opt in enumerate(options[:6]):
-                row = i // 2
-                col = i % 2
-                elements.append(_text(
-                    f"{letters[i]}. {opt}",
-                    x=200 + col * 800, y=720 + row * 100, w=760, h=80,
-                    size=44, weight="600", align="left",
-                ))
-        slides.append(_slide(len(slides), elements, background=BG_BLUE, metadata={
-            "roundType": rtype, "roundNumber": rorder,
-            "slideIndexInRound": slide_idx, "questionNumber": qnum,
-        }))
-        slide_idx += 1
+        title_bg = BG_BLUE
+    slides.append(_slide(0, title_elements, background=title_bg, metadata=meta(
+        slideIndexInRound=0, isRoundTitle=True, isTitleCard=bool(title_card_url),
+    )))
 
-    # Review slide — all questions restated, no answers
-    if questions:
-        review_lines: List[Dict[str, Any]] = [
-            _text(f"{rname} — Review", x=160, y=90, w=1600, h=90, size=56,
-                  color="#F4C430", weight="700"),
+    # ------------------------------------------------------------------
+    # SLIDES 1..N — Questions
+    # ------------------------------------------------------------------
+    if is_big:
+        # BIG has exactly ONE clue question (per prototype spec)
+        q = questions[0] if questions else {}
+        clue_text = q.get("question", "")
+        clue_elements = [
+            _text("The Clue", x=160, y=90, w=1600, h=100, size=64,
+                  color="#F4C430", weight="800"),
+            _text(clue_text, x=160, y=280, w=1600, h=600,
+                  size=72, weight="700"),
         ]
-        max_q = len(questions)
-        row_h = max(50, min(80, (STAGE_H - 260) // max(1, max_q)))
-        for i, q in enumerate(questions):
+        slides.append(_slide(1, clue_elements, background=BG_BLUE, metadata=meta(
+            slideIndexInRound=1, questionNumber=1,
+        )))
+    else:
+        # MC/REG/MISC: expect 10 questions; MYS: expect 9. We render exactly
+        # what's on disk (fewer → shorter round; more → truncate to spec).
+        max_q = 9 if is_mys else 10
+        for i in range(max_q):
+            if i < len(questions):
+                q = questions[i]
+                qnum = q.get("number") or (i + 1)
+                qtext = q.get("question", "")
+                options = q.get("options") or []
+            else:
+                qnum, qtext, options = i + 1, "", []
+            elements: List[Dict[str, Any]] = [
+                _text(f"Question {qnum}", x=160, y=110, w=1600, h=100,
+                      size=54, color="#F4C430", weight="700"),
+                _text(qtext, x=160, y=260, w=1600, h=400,
+                      size=72, weight="700"),
+            ]
+            # MC = 4-option grid. REG/MISC/MYS = no options shown (question only).
+            if rtype == "MC" and options:
+                letters = ["A", "B", "C", "D"]
+                for j, opt in enumerate(options[:4]):
+                    row = j // 2
+                    col = j % 2
+                    elements.append(_text(
+                        f"{letters[j]}. {opt}",
+                        x=200 + col * 800, y=720 + row * 110, w=760, h=100,
+                        size=48, weight="600", align="left",
+                    ))
+            slides.append(_slide(i + 1, elements, background=BG_BLUE, metadata=meta(
+                slideIndexInRound=i + 1, questionNumber=qnum,
+            )))
+
+    # ------------------------------------------------------------------
+    # REVIEW SLIDE (all questions, no answers)
+    # ------------------------------------------------------------------
+    if is_big:
+        review_idx = 3  # BIG spec: review is slide 3 (after gif at 2)
+        review_bg = BG_BLUE
+        # For BIG we don't do a traditional review; skip and instead
+        # place the review AFTER the .gif per prototype spec.
+    else:
+        review_idx = (9 if is_mys else 10) + 1  # MYS=10, MC/REG/MISC=11
+
+    if not is_big:
+        review_elements = [
+            _text(f"{rname} — Review", x=160, y=90, w=1600, h=90,
+                  size=56, color="#F4C430", weight="700"),
+        ]
+        n = min(len(questions), 9 if is_mys else 10)
+        row_h = max(60, min(90, (STAGE_H - 260) // max(1, n)))
+        for i in range(n):
+            q = questions[i]
             qn = q.get("number") or (i + 1)
             qt = q.get("question", "")
-            review_lines.append(_text(
+            review_elements.append(_text(
                 f"{qn}. {qt}",
                 x=160, y=220 + i * row_h, w=1600, h=row_h,
-                size=min(40, row_h - 8), align="left", weight="500",
+                size=min(42, row_h - 8), align="left", weight="500",
             ))
-        slides.append(_slide(len(slides), review_lines, background=BG_BLUE, metadata={
-            "roundType": rtype, "roundNumber": rorder,
-            "slideIndexInRound": slide_idx, "isReview": True,
-        }))
-        slide_idx += 1
+        slides.append(_slide(review_idx, review_elements, background=BG_BLUE,
+                             metadata=meta(slideIndexInRound=review_idx,
+                                           isReview=True)))
 
-    # Answers slide
+    # ------------------------------------------------------------------
+    # .gif(STOP) SLIDE — "Time to grade" pause. Auto-advance stops here;
+    # host manually clicks to reveal answers. Matches prototype exactly.
+    # ------------------------------------------------------------------
+    if is_big:
+        gif_idx = 2
+    elif is_mys:
+        gif_idx = 11
+    else:
+        gif_idx = 12
+
+    # Try to use a bundled overlay GIF; fall back to styled text.
+    gif_url = "/BIG.gif"  # bundled in frontend/public/ (falls back OK if missing)
+    gif_elements = [
+        _image(gif_url, x=560, y=140, w=800, h=800),
+        _text("TIME TO GRADE", x=160, y=960, w=1600, h=100,
+              size=72, weight="800", color="#F4C430"),
+    ]
+    slides.append(_slide(gif_idx, gif_elements, background=BG_DARK,
+                         metadata=meta(slideIndexInRound=gif_idx,
+                                       isGifStop=True, isPreAnswerSlide=True)))
+
+    # For BIG: review slide comes AFTER the gif (index 3)
     if is_big and questions:
+        q = questions[0]
+        review_elements = [
+            _text(f"{rname} — Review", x=160, y=90, w=1600, h=90,
+                  size=56, color="#F4C430", weight="700"),
+            _text(q.get("question", ""), x=160, y=280, w=1600, h=600,
+                  size=64, weight="600"),
+        ]
+        slides.append(_slide(3, review_elements, background=BG_BLUE,
+                             metadata=meta(slideIndexInRound=3, isReview=True)))
+
+    # ------------------------------------------------------------------
+    # ANSWERS SLIDE — **NO TITLE ELEMENT**. All text elements are answers.
+    # Progressive reveal keys off text-element count.
+    # ------------------------------------------------------------------
+    if is_big:
+        ans_idx = 4
+    elif is_mys:
+        ans_idx = 12
+    else:
+        ans_idx = 13
+
+    if is_big and questions:
+        # BIG: one answer, or a list of answers if the clue has multiple.
         q = questions[0]
         raw = q.get("answer") or ""
         lines = _big_answer_lines(raw)
-        elems: List[Dict[str, Any]] = [
-            _text(f"{rname} — Answers", x=160, y=90, w=1600, h=90, size=56,
-                  color="#F4C430", weight="700"),
-            _text(q.get("question", ""), x=160, y=200, w=1600, h=120, size=40, weight="500"),
-        ]
-        row_h = max(40, min(70, (STAGE_H - 380) // max(1, len(lines) or 1)))
+        if not lines:
+            lines = [raw] if raw else ["(no answer)"]
+        # NO TITLE. Each line is a text element = one answer reveal step.
+        ans_elements = []
+        row_h = max(60, min(100, (STAGE_H - 200) // max(1, len(lines))))
         for i, ln in enumerate(lines):
-            elems.append(_text(
-                f"{i + 1}. {ln}",
-                x=200, y=360 + i * row_h, w=1520, h=row_h,
-                size=min(38, row_h - 6), align="left", weight="600",
+            ans_elements.append(_text(
+                ln,
+                x=160, y=100 + i * row_h, w=1600, h=row_h,
+                size=min(64, row_h - 10),
+                weight="700", color="#F4C430", align="center",
             ))
-        slides.append(_slide(len(slides), elems, background=BG_BLUE, metadata={
-            "roundType": rtype, "roundNumber": rorder,
-            "slideIndexInRound": slide_idx, "isAnswers": True,
-        }))
-        slide_idx += 1
+        slides.append(_slide(ans_idx, ans_elements, background=BG_BLUE,
+                             metadata=meta(slideIndexInRound=ans_idx, isAnswers=True)))
 
-        # BIG tiebreaker (if present)
+        # Tiebreaker (BIG-only): slides 5 + 6 = question / answer
         tb = round_data.get("tiebreaker") or {}
-        if tb.get("question") or tb.get("answer"):
-            tb_elems = [
-                _text("Tiebreaker", x=160, y=140, w=1600, h=100, size=72,
+        tb_q = tb.get("question", "")
+        tb_a = tb.get("answer", "")
+        if tb_q or tb_a:
+            slides.append(_slide(5, [
+                _text("Tiebreaker", x=160, y=140, w=1600, h=100, size=88,
                       color="#F4C430", weight="800"),
-                _text(tb.get("question", ""), x=160, y=340, w=1600, h=280,
-                      size=54, weight="600"),
-                _text(f"Answer: {tb.get('answer', '')}", x=160, y=720, w=1600, h=120,
-                      size=48, color="#F4C430", weight="700"),
-            ]
-            slides.append(_slide(len(slides), tb_elems, background=BG_GOLD, metadata={
-                "roundType": rtype, "roundNumber": rorder,
-                "slideIndexInRound": slide_idx, "isTiebreaker": True,
-            }))
-            slide_idx += 1
-    elif questions:
-        elems = [
-            _text(f"{rname} — Answers", x=160, y=90, w=1600, h=90, size=56,
-                  color="#F4C430", weight="700"),
-        ]
-        row_h = max(60, min(90, (STAGE_H - 280) // max(1, len(questions))))
-        for i, q in enumerate(questions):
+                _text(tb_q, x=160, y=340, w=1600, h=500, size=60, weight="600"),
+            ], background=BG_GOLD, metadata=meta(
+                slideIndexInRound=5, isTiebreaker=True,
+            )))
+            slides.append(_slide(6, [
+                # No title — first text element IS the answer reveal
+                _text(tb_a, x=160, y=440, w=1600, h=200, size=90,
+                      weight="800", color="#F4C430"),
+            ], background=BG_GOLD, metadata=meta(
+                slideIndexInRound=6, isTiebreaker=True, isAnswers=True,
+            )))
+    else:
+        # MC/REG/MISC/MYS: N answers, one text element each. NO TITLE.
+        n = min(len(questions), 9 if is_mys else 10)
+        ans_elements = []
+        row_h = max(70, (STAGE_H - 160) // max(1, n))
+        for i in range(n):
+            q = questions[i]
             qn = q.get("number") or (i + 1)
-            qt = q.get("question", "")
             ans = q.get("answer", "")
-            elems.append(_text(
-                f"{qn}. {qt}",
-                x=160, y=220 + i * row_h, w=1000, h=row_h,
-                size=min(34, row_h - 10), align="left", weight="500",
+            ans_elements.append(_text(
+                f"{qn}. {ans}",
+                x=160, y=80 + i * row_h, w=1600, h=row_h,
+                size=min(48, row_h - 12),
+                align="left", weight="700", color="#F4C430",
             ))
-            elems.append(_text(
-                ans,
-                x=1180, y=220 + i * row_h, w=580, h=row_h,
-                size=min(34, row_h - 10), align="left",
-                weight="700", color="#F4C430",
-            ))
-        slides.append(_slide(len(slides), elems, background=BG_BLUE, metadata={
-            "roundType": rtype, "roundNumber": rorder,
-            "slideIndexInRound": slide_idx, "isAnswers": True,
-        }))
-        slide_idx += 1
-
-    # Score slide after non-BIG rounds (frontend places score tracker overlay here)
-    if not is_big:
-        slides.append(_slide(len(slides), [
-            _text(f"Round {rorder} Scores", x=160, y=90, w=1600, h=100, size=64,
-                  color="#F4C430", weight="800"),
-        ], background=BG_BLUE, metadata={
-            "roundType": rtype, "roundNumber": rorder,
-            "slideIndexInRound": slide_idx, "isScoreSlide": True,
-        }))
+        slides.append(_slide(ans_idx, ans_elements, background=BG_BLUE,
+                             metadata=meta(slideIndexInRound=ans_idx, isAnswers=True)))
 
     return slides
 
