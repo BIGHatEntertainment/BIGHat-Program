@@ -8,6 +8,48 @@
 ---
 ---
 
+## 2026-02-05 — v32.0.0-alpha.49: images actually render + audience popup unblocked
+
+### Merchant report (alpha.48 install)
+Screenshots showed the host slide, location slides, and title cards STILL text-only despite the assets being on disk. Audience button showed "Please allow pop-ups". Merchant (rightly) called out: "you do understand that this program lives on a users PC not a server, right? the users PC will have vastly more resources available to render and complete the processes."
+
+### The realization
+Alpha.48 tried to solve the "image src origin mismatch" (Tauri webview at `tauri://localhost` vs backend at `http://127.0.0.1:8001`) by returning absolute URLs. That's cloud-API thinking. **This is a NATIVE APP on the user's PC** — we have all the RAM in the world. Just inline the bytes as `data:` URLs. One request. Zero cross-origin nonsense.
+
+### Fixes
+
+- **`backend/native_slides.py :: _to_data_url` (NEW)** — reads any file under `Files/…` as raw bytes, base64-encodes with the right MIME type, returns a `data:image/gif;base64,…` URL. Works in tauri://, http://, file://, anywhere. Handles PNG/JPG/GIF/WEBP/SVG (+ MP4/WEBM for videos).
+- **`_to_api_url`** — retained for compatibility but now delegates to `_to_data_url` first. Falls back to the network URL only when the file can't be encoded (never happens in practice).
+- **`load_host_asset`** — new priority order: **filesystem walk is authoritative**. Even if `host.json` doesn't declare `host_image_9x16`, if `host-9x16.gif` exists in the host folder we find it. The merchant's actual `host.json` only had `host_image_16x9` — my alpha.48 code missed the 9:16 file on disk. Now: `host.json → filename → host.json → filename → JSON profile_picture → filename fallback`. Every step gates on "file exists on disk" so a stale JSON reference doesn't break the render.
+- **`load_round_title_card`** — **bundled fallback**. When the merchant hasn't uploaded any per-round title-card assets to disk, we return `/MC_Title_Card.jpg`, `/BIG_Title_Card.jpg`, `/MYS_Title_Card.jpg` (already in `frontend/public/`) OR the newly-created `/REG_Title_Card.svg` / `/MISC_Title_Card.svg`. Disk-uploaded assets still win over bundled defaults.
+- **`frontend/public/REG_Title_Card.svg` / `MISC_Title_Card.svg` (NEW)** — SVG defaults so every round type has SOMETHING to render out of the box. Matches the retrowave/dark-radial visual style of the existing JPG title cards.
+- **`frontend/src/components/trivia/editor/PresentationMode.jsx :: openAudienceView`** — reverted from `async` back to synchronous. The alpha.48 version had `await import('@tauri-apps/api/webviewWindow')` BEFORE the `window.open()` call. That await hits the JS event loop and **strips the user-gesture context** that the pop-up blocker requires. Alpha.49 calls `window.open()` FIRST, inside the click handler's synchronous stack — same technique the prototype uses. Toast on failure. Everything else (BroadcastChannel + audienceWindowRef bookkeeping) still fires after.
+- **`src-tauri/capabilities/default.json`** — kept the alpha.48 webview permissions in place. The pop-up now works via sync `window.open`; Tauri WebviewWindow.new remains available for a future upgrade path.
+
+### Testing
+- `backend/tests/test_alpha49_data_urls_and_sync_audience.py` — **8/8 pass**. Locks in:
+  * `_to_data_url` produces `data:image/png;base64,…` / `data:image/gif;base64,…` correctly, returns None on missing files.
+  * `_to_api_url` prefers data URL over network URL.
+  * Bundled title cards exist in `frontend/public/` for every canonical round type.
+  * `load_round_title_card` falls back to the bundled URL when disk is empty AND prefers disk when uploaded.
+  * `openAudienceView` is NOT async and has no `await` before `window.open()`.
+- Plus 43 tests from alpha.45/46/47/48 — **51/51 total**.
+- Manual verification on merchant's actual disk layout: staged `host-9x16.gif` + confirmed 9:16 aspect discovery + confirmed 18.9 MB → base64 data URL in ~100ms (native PCs eat this for breakfast).
+
+### Release
+- Windows `.exe` + macOS Apple Silicon `.dmg` via `push_alpha49.py` + `wait_and_publish_alpha49.py`.
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.49
+
+### Answer to the merchant's core question
+> "why a program i have locally downloaded would be stopped by a popup"
+
+Because Chromium's pop-up blocker gates `window.open()` on being inside a user-gesture call stack — and my alpha.48 `openAudienceView` had `await import(...)` BEFORE `window.open()`. The moment we `await`, control returns to the event loop and the browser considers the click gesture "over". So even though the user clicked the button, by the time `window.open()` runs, we're no longer "inside" the click. Sync-first spawn fixes it.
+
+---
+
+
+---
+
 ## 2026-02-05 — v32.0.0-alpha.48: right questions + working audience window + host/location images
 
 ### Merchant report (alpha.47 install)
