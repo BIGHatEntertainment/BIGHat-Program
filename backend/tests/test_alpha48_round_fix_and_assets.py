@@ -154,7 +154,7 @@ def test_host_asset_lookup_from_host_json(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     hosts = tmp_path / "Files" / "Hosts" / "sellards@bighat.live"
     hosts.mkdir(parents=True)
-    (hosts / "host-9x16.gif").write_bytes(b"GIF89a")
+    (hosts / "host-9x16.gif").write_bytes(b"GIF89a\x01\x00")
     (hosts / "host.json").write_text(json.dumps({
         "email": "sellards@bighat.live", "name": "Nick Sellards",
         "host_image_9x16": "/api/native/files/raw?path=Files/Hosts/sellards@bighat.live/host-9x16.gif",
@@ -169,7 +169,36 @@ def test_host_asset_lookup_from_host_json(tmp_path, monkeypatch):
     asset = load_host_asset(pres)
     assert asset["image_url"] is not None
     assert asset["aspect"] == "9:16"
-    assert "host-9x16.gif" in asset["image_url"]
+    # v32.0.0-alpha.49: image_url must be a data URL (works in any origin)
+    assert asset["image_url"].startswith("data:image/gif;base64,"), (
+        f"alpha.49: expected data URL, got {asset['image_url'][:80]}"
+    )
+
+
+def test_host_asset_auto_discovers_9x16_without_json_field(tmp_path, monkeypatch):
+    """v32.0.0-alpha.49: even when host.json doesn't set host_image_9x16
+    (like the merchant's actual host.json — it only had host_image_16x9),
+    we must still find the host-9x16.gif file that's on disk."""
+    monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
+    hosts = tmp_path / "Files" / "Hosts" / "sellards@bighat.live"
+    hosts.mkdir(parents=True)
+    (hosts / "host-9x16.gif").write_bytes(b"GIF89a\x01\x00")  # on disk
+    # host.json ONLY has 16x9, NOT 9x16 (matches merchant's real file)
+    (hosts / "host.json").write_text(json.dumps({
+        "email": "sellards@bighat.live", "name": "Nick Sellards",
+        "host_image_16x9": "/api/native/files/raw?path=Files/Hosts/sellards@bighat.live/host-16x9.gif",
+    }), encoding="utf-8")
+
+    for name in list(sys.modules):
+        if name.startswith("native_slides"):
+            sys.modules.pop(name, None)
+    from native_slides import load_host_asset
+
+    asset = load_host_asset({"host": "Nick Sellards", "hostEmail": "sellards@bighat.live"})
+    assert asset["aspect"] == "9:16", (
+        "alpha.49: must prefer host-9x16.gif on disk even if host.json "
+        "doesn't declare it (was the merchant's exact scenario)"
+    )
 
 
 def test_location_asset_lookup_scans_branding_and_overlays(tmp_path, monkeypatch):
@@ -177,8 +206,8 @@ def test_location_asset_lookup_scans_branding_and_overlays(tmp_path, monkeypatch
     loc = tmp_path / "Files" / "Locations" / "monkey-pants-bar-grill"
     (loc / "branding").mkdir(parents=True)
     (loc / "overlays").mkdir(parents=True)
-    (loc / "branding" / "welcome.png").write_bytes(b"PNG")
-    (loc / "overlays" / "sponsor.png").write_bytes(b"PNG")
+    (loc / "branding" / "welcome.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (loc / "overlays" / "sponsor.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     for name in list(sys.modules):
         if name.startswith("native_slides"):
@@ -189,6 +218,11 @@ def test_location_asset_lookup_scans_branding_and_overlays(tmp_path, monkeypatch
     assert len(assets) == 2
     kinds = [a["kind"] for a in assets]
     assert kinds == ["branding", "overlay"], "branding must come first"
+    # v32.0.0-alpha.49: image URLs are data URLs (not network URLs)
+    for a in assets:
+        assert a["image_url"].startswith("data:image/"), (
+            f"alpha.49: expected data URL, got {a['image_url'][:80]}"
+        )
 
 
 def test_host_slide_renders_image_when_asset_present(tmp_path, monkeypatch):
@@ -241,7 +275,7 @@ def test_title_card_loader_per_type(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     tc = tmp_path / "Files" / "Trivia" / "MC" / "title-cards"
     tc.mkdir(parents=True)
-    (tc / "MC.png").write_bytes(b"PNG")
+    (tc / "MC.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     for name in list(sys.modules):
         if name.startswith("native_slides"):
@@ -249,7 +283,8 @@ def test_title_card_loader_per_type(tmp_path, monkeypatch):
     from native_slides import load_round_title_card
     url = load_round_title_card("MC", "MC-02-A")
     assert url is not None
-    assert "MC.png" in url
+    # v32.0.0-alpha.49: disk assets return data URLs (works in any origin)
+    assert url.startswith("data:image/png;base64,")
 
 
 def test_round_section_prepends_title_card_when_available(tmp_path, monkeypatch):
@@ -276,13 +311,15 @@ def test_round_section_prepends_title_card_when_available(tmp_path, monkeypatch)
 
 # ---- Bug 2: audience view uses proper Tauri API -------------------------
 
-def test_open_audience_view_dynamic_imports_webview_window():
+def test_open_audience_view_is_sync_window_open():
+    """v32.0.0-alpha.49 revision: openAudienceView must be SYNC so the
+    pop-up blocker doesn't strip the user gesture. The alpha.48 dynamic-
+    import version blocked in Tauri; alpha.49 uses sync window.open."""
     src = (Path(__file__).resolve().parents[2] / "frontend" / "src"
            / "components" / "trivia" / "editor" / "PresentationMode.jsx").read_text()
-    # v32.0.0-alpha.48: dynamic import replaces the window.__TAURI__ shim.
-    assert "@tauri-apps/api/webviewWindow" in src
-    assert "await import(" in src
-    # Should still fall back to window.open() in browser/preview.
+    assert "const openAudienceView = async" not in src, (
+        "alpha.49: openAudienceView must be sync (see alpha.49 CHANGELOG)"
+    )
     assert "window.open(" in src
 
 
