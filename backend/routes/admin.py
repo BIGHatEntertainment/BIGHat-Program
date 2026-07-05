@@ -274,8 +274,19 @@ async def get_admin_stats(userName: Optional[str] = Query(None)) -> Dict:
         }
     
     except Exception as e:
-        logger.error(f"Error fetching admin stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # v32.0.0-alpha.45: NEVER 500 from /admin/stats. Frontend does a
+        # Promise.all(getPresentations, getAdminStats, ...) — a 500 here
+        # rejects the whole chain and leaves the Trivia Presenter list
+        # blank. Return a best-effort zero payload so the UI keeps
+        # rendering while we log the underlying failure for triage.
+        logger.error(f"[admin/stats] top-level fallback (returning zeros): {e}")
+        return {
+            "totalUsageRecords": 0,
+            "activeRecords": 0,
+            "expiredRecords": 0,
+            "totalPresentations": 0,
+            "usageByType": {},
+        }
 
 
 @router.post("/clear-user-cache")

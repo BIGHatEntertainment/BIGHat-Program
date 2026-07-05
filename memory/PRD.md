@@ -1018,6 +1018,31 @@ alpha.20 with already-imported-but-hidden rounds will see them appear
 automatically after upgrading to alpha.21 (no re-import needed).
 
 
+## Shipped — v32.0.0-alpha.45 (2026-02-05)  🩹 Presenter/Editor blank-list hotfix
+
+Merchant `bighat-debug.log` upload from alpha.44 surfaced three tightly-coupled failures:
+1. `GET /api/admin/stats` → 500 (`'coroutine' object has no attribute 'to_list'` **and** `SQLite objects created in a thread can only be used in that same thread`) → the Trivia Presenter `Promise.all(...)` rejected → presentation list rendered blank.
+2. `DELETE /api/native/files/{name}?folder=Trivia-Rounds` → 400 `invalid_folder: 'Trivia/Rounds'` → delete-card button broken.
+3. `POST /api/bighat/import` → 400 `Unknown content type: trivia-presentation` → wizard-generated manifests couldn't be re-imported.
+
+### Fixes
+- **`backend/routes/admin.py`** — `get_admin_stats()` is BEST-EFFORT. Local `_safe_count` helper wraps every `count_documents` (returns 0 on any error). MontyDB-aware `aggregate()` unwrap (`to_list` / `await` / sync list) with Python-side grouping fallback. Outer `except` returns zero payload — never `HTTPException(500)`.
+- **`backend/native/files_router.py`** — `_resolve_folder` accepts `Trivia/Rounds` and `Trivia-Rounds` alongside the existing round-type buckets.
+- **`backend/routes/bighat_files.py`** — `import_content` normalises `"trivia-presentation"` alias → canonical `presentation` `ContentTypeSpec`.
+
+### Testing
+- `backend/tests/test_alpha45_regressions.py` — 7/7 pass. Locks in the three fixes plus the "no 500 in outer except" contract.
+- Manual curl: `/api/admin/stats?userName=nick` → 200 JSON payload; `DELETE .../Trivia-Rounds/*.bighat` → clean 200 delete.
+
+### Release
+- Windows `.exe` (133.6 MB) + macOS Apple Silicon `.dmg` (116.4 MB) + tarball.
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.45
+- Yarn.lock drift recurrence #9 caught pre-ship (`@tauri-apps/plugin-dialog@2.7.1` missing) — refreshed lockfile included in push.
+
+### Ops lesson learned
+GitHub REST API does **NOT** allow cancelling individual matrix jobs (`POST /actions/jobs/{id}/cancel` returns 404 for scheduled/queued matrix children). Falling back to `POST /actions/runs/{id}/cancel` kills the WHOLE run (learned the hard way — first alpha.45 CI run cancelled). New policy: attempt the job-level cancel, but if it 404s, LET the Intel leg run/fail naturally. Only wait for Windows + macOS_AS to publish.
+
+
 ## Shipped — v32.0.0-alpha.44 (2026-07-04)  🎯 Prototype-parity presenter
 Merchant install feedback on alpha.43 (Presenter lobby now populated ✅):
 "once the trivia is opened" the presenter didn't match the prototype's Editor.jsx flow. The prototype uses a rich Editor with score tracker, overlay manager, section-based navigation — which we already had in `/trivia/editor`, but the Presenter button routed to my stripped-down alpha.40 `/trivia/play` instead.
