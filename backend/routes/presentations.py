@@ -181,11 +181,23 @@ async def get_presentations(userName: str, viewAll: bool = False):
 
 @router.get("/{presentation_id}")
 async def get_presentation(presentation_id: str):
-    presentation = await db.presentations.find_one({"id": presentation_id})
+    # v32.0.0-alpha.46: DISK IS TRUTH. Check DB collections first for speed,
+    # but ALWAYS fall back to `Files/Trivia/Rounds/*.bighat` when both DB
+    # tables miss. A fresh MontyDB after app restart won't have anything —
+    # the disk manifest is the only place last-session presentations live.
+    presentation = None
+    try:
+        presentation = await db.presentations.find_one({"id": presentation_id})
+    except Exception as e:
+        logger.warning("[presentations/get] db.presentations lookup failed: %s", e)
     
     # Fallback: check trivia_presentations collection
     if not presentation:
-        trivia_pres = await db.trivia_presentations.find_one({"id": presentation_id})
+        try:
+            trivia_pres = await db.trivia_presentations.find_one({"id": presentation_id})
+        except Exception as e:
+            logger.warning("[presentations/get] db.trivia_presentations lookup failed: %s", e)
+            trivia_pres = None
         if trivia_pres:
             return {
                 'id': trivia_pres['id'],
@@ -206,6 +218,59 @@ async def get_presentation(presentation_id: str):
                 'host': trivia_pres.get('host', ''),
                 'slides': []
             }
+        # v32.0.0-alpha.46: last-resort DISK scan. This is what fixes the
+        # "Presentation not found" 404 the merchant sees after closing +
+        # reopening the app. See PRD § "DISK STATE IS THE ABSOLUTE SOURCE
+        # OF TRUTH — RULE 1: /api/presentations/{id} must never 404 for
+        # content that exists on disk."
+        try:
+            import json as _json, os as _os
+            from pathlib import Path as _Path
+            override = _os.environ.get("BIGHAT_FILES_DIR")
+            if override:
+                docs_root = _Path(override).expanduser()
+            else:
+                home = _Path.home()
+                base = home / "Documents"
+                if not base.exists():
+                    base = home
+                docs_root = base / "BIG Hat Entertainment"
+            rounds_dir = docs_root / "Files" / "Trivia" / "Rounds"
+            if rounds_dir.exists():
+                for entry in rounds_dir.iterdir():
+                    if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                        continue
+                    try:
+                        disk = _json.loads(entry.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    if disk.get("id") == presentation_id:
+                        logger.info(
+                            "[presentations/get] disk fallback HIT for %s at %s",
+                            presentation_id, entry,
+                        )
+                        return {
+                            'id': disk.get('id'),
+                            'name': disk.get('name', ''),
+                            'createdBy': disk.get('createdBy', ''),
+                            'createdAt': disk.get('createdAt', ''),
+                            'type': 'trivia-imported',
+                            'triviaId': disk.get('id'),
+                            'totalSlides': disk.get('totalSlides', 0),
+                            'location': disk.get('location', ''),
+                            'locationFolder': disk.get('locationFolder', ''),
+                            'locationName': disk.get('location', ''),
+                            'numRounds': disk.get('numRounds', len(disk.get('roundFiles') or []) or 5),
+                            'roundTypes': disk.get('roundTypes', []),
+                            'roundNames': disk.get('roundNames', []),
+                            'roundFiles': disk.get('roundFiles', []),
+                            'hostFile': disk.get('hostFile', ''),
+                            'host': disk.get('host', ''),
+                            'slides': [],
+                            'source': 'native-disk',
+                        }
+        except Exception as e:
+            logger.warning("[presentations/get] disk fallback failed: %s", e)
         raise HTTPException(status_code=404, detail="Presentation not found")
     
     # For special presentation types, return metadata without full validation
