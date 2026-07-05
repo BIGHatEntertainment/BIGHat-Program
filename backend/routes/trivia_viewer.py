@@ -559,8 +559,58 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False, h
         return result
     
     except Exception as e:
-        logger.error(f"Error listing presentations: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # v32.0.0-alpha.46: NEVER 500 from /trivia-viewer/list. The Trivia
+        # Presenter fires this inside a Promise.all — a 500 rejects the
+        # whole chain and blanks the presentation list (same failure mode
+        # the alpha.45 /admin/stats hotfix was designed to prevent).
+        # From the merchant's log: `SQLite objects created in a thread
+        # can only be used in that same thread`.
+        logger.error(f"[trivia-viewer/list] top-level fallback (returning empty): {e}")
+        # LAST-DITCH disk-only scan so at least THIS session's manifests
+        # surface even when MontyDB is on fire.
+        try:
+            from pathlib import Path
+            import json, os
+            from datetime import datetime as dt
+            override = os.environ.get("BIGHAT_FILES_DIR")
+            if override:
+                docs_root = Path(override).expanduser()
+            else:
+                home = Path.home()
+                base = home / "Documents"
+                if not base.exists():
+                    base = home
+                docs_root = base / "BIG Hat Entertainment"
+            rounds_dir = docs_root / "Files" / "Trivia" / "Rounds"
+            disk_only = []
+            if rounds_dir.exists():
+                for entry in rounds_dir.iterdir():
+                    if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                        continue
+                    try:
+                        d = json.loads(entry.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    loc = d.get('location', '')
+                    if '/' in loc:
+                        loc = loc.split('/')[-1]
+                    disk_only.append({
+                        'id': d.get('id', ''),
+                        'name': d.get('name', ''),
+                        'createdBy': d.get('createdBy', ''),
+                        'host': d.get('host', ''),
+                        'createdAt': str(d.get('createdAt', '')),
+                        'totalSlides': d.get('totalSlides', 0),
+                        'location': loc,
+                        'roundTypes': d.get('roundTypes', []),
+                        'roundNames': d.get('roundNames', []),
+                        'numRounds': d.get('numRounds', 0),
+                    })
+            logger.info("[trivia-viewer/list] disk-only fallback found %d entries", len(disk_only))
+            return disk_only
+        except Exception as disk_exc:
+            logger.error("[trivia-viewer/list] disk-only fallback failed: %s", disk_exc)
+            return []
 
 
 @router.get("/{presentation_id}")
