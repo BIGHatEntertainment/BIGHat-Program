@@ -2,6 +2,53 @@
 
 ---
 
+
+---
+
+## 🛑 DISK STATE IS THE ABSOLUTE SOURCE OF TRUTH — READ BEFORE TOUCHING ANY DATA-LAYER CODE
+
+> Locked in by the merchant 2026-02-05 (during alpha.45 → alpha.46 debug).
+> **The `.bighat` files on the user's disk are the single source of truth for
+> the entire program. The MontyDB / SQLite / any in-process cache is a
+> secondary, disposable index. Any endpoint that touches presentation, round,
+> or slide data MUST read from disk first and fall back to the DB — never the
+> other way around.**
+
+### Why this is the law
+Native mode (`BIGHAT_NATIVE_MODE=1`) starts with a fresh MontyDB on every
+launch. Presentations and rounds the merchant built in a previous session
+live at `C:\Users\<user>\Documents\BIG Hat Entertainment\Files\...` as
+`.bighat` files. If any endpoint checks only the DB and returns 404, the
+merchant sees "Failed to load presentation" for content they can literally
+see on disk. This is the #1 recurring merchant-facing bug and it must
+never happen again.
+
+### Rules for the agent (non-negotiable)
+1. **`GET /api/presentations/{id}`** — check `db.trivia_presentations` +
+   `db.presentations`; if missing, scan `Files/Trivia/Rounds/*.bighat` for a
+   manifest whose id matches, hydrate, return. Only 404 if disk misses too.
+2. **`GET /api/trivia-viewer/{id}` / `GET /api/trivia-viewer/list`** —
+   already disk-first. Keep it that way. Wrap DB touches in try/except with
+   fallback to zero payload (same pattern as `/admin/stats`).
+3. **`POST /api/slide-fetcher/fetch-section/{id}/{section}`** — the round
+   `.bighat` files in `Files/Trivia/<TYPE>/*.bighat` are the source. Do NOT
+   attempt to `open()` a PPTX from a temp path unless one exists on disk.
+   Build the slide payload from the round manifest JSON.
+4. **`POST /api/slide-fetcher/store-all/{id}`** — accept `slides` optional.
+   In native mode, disk is already canonical; storing in the DB is a
+   nice-to-have index, not a requirement.
+5. **New endpoints that touch trivia data** — write a disk-first path
+   FIRST, then optionally cache in DB. Reviewer will reject PRs that
+   check DB first.
+
+### Enforcement
+- Every alpha release from alpha.46 onward MUST include a regression test
+  that: writes a `.bighat` to disk → wipes the in-memory DB → hits the
+  endpoint → asserts the response is populated from disk. See
+  `backend/tests/test_alpha46_*` for the pattern.
+
+---
+
 ## 🛑 CANONICAL DISTRIBUTION FLOW — READ BEFORE ANY BUILD / RELEASE WORK
 
 > Locked in by the merchant 2026-06-24. **Do not invent alternatives. Do not

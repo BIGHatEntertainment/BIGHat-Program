@@ -8,6 +8,100 @@
 ---
 ---
 
+## 2026-02-05 — v32.0.0-alpha.46: DISK IS TRUTH — slides populate + presentations survive restart
+
+### Merchant report (alpha.45 install)
+"absolutely impressive, real progress — but the slides didn't populate,
+title cards missing, questions missing, formatting missing, and the
+presentation created LAST SESSION won't reopen after closing the app."
+
+Debug log (`bighat-debug.log`) confirmed four tightly-coupled failures:
+1. `GET /api/presentations/{id}` → **404 "Presentation not found"** after
+   app restart. A fresh MontyDB never sees last session's manifests.
+2. `POST /api/slide-fetcher/fetch-section/{id}/host` → **500 "Package not
+   found at C:\\Users\\...\\Temp\\fetch_host_XXX\\file_0.pptx"**. The
+   slide-fetcher was trying to open a PPTX that never got downloaded
+   because there's no SharePoint in native mode.
+3. `POST /api/slide-fetcher/store-all/{id}` → **422 "Field required:
+   slides"**. Wizard's fire-and-forget cache write kept dying.
+4. `GET /api/trivia-viewer/list` → intermittent **500 "SQLite objects
+   created in a thread can only be used in that same thread"**.
+
+### The new law of the codebase (committed to PRD)
+**"Local storage and disk space (especially `.bighat` files) are always
+the first and foremost absolute truths for this program."** Every
+endpoint that touches presentation / round / slide data MUST read
+disk-first and fall back to the DB. Alpha.46 codifies this as PRD
+rule #1 with a full "DISK STATE IS THE ABSOLUTE SOURCE OF TRUTH"
+section including 5 non-negotiable rules and a regression-test
+enforcement policy.
+
+### Fixes
+- **New module `backend/native_slides.py`** (415 lines) — Editor-
+  compatible slide renderer that builds `{id, order, background,
+  elements: [text/image ...], metadata: {roundType, roundNumber,
+  slideIndexInRound, ...}}` slides DIRECTLY from `.bighat` files on
+  disk. Renders every section natively: host, location, sponsors,
+  rounds (cover + Q×N + review + answers + optional tiebreaker +
+  score-slide), winners, final_scores. Full 1920×1080 canvas with
+  proper typography positions. Zero SharePoint dependency.
+- **`backend/routes/slide_fetcher.py :: fetch_section`** — tries the
+  native disk renderer FIRST. If it returns slides, we ship them and
+  skip the SharePoint / PPTX pipeline entirely. SharePoint remains
+  as a fallback for cloud mode.
+- **`backend/routes/slide_fetcher.py :: get_sections_list`** — falls
+  back to `Files/Trivia/Rounds/*.bighat` on disk when the DB misses.
+  Also includes `host` / `location` sections when just the NAME field
+  is set (native renders text; no PPTX file needed).
+- **`backend/routes/slide_fetcher.py :: store_all_slides`** — parses
+  the raw request body ourselves: accepts a raw list, `{slides: [...]}`
+  wrapper, empty `{}`, OR missing body. Empty payload → `{status:
+  "skipped", reason: "empty-body"}` (no more 422). Never 500s.
+- **`backend/routes/presentations.py :: get_presentation`** — last-
+  resort disk scan of `Files/Trivia/Rounds/*.bighat` before returning
+  404. Response includes `source: "native-disk"` so the frontend can
+  tell what path it came from.
+- **`backend/routes/trivia_viewer.py :: list_trivia_presentations`** —
+  top-level `except` no longer raises 500. Falls back to a disk-only
+  scan so at least this-session's manifests always surface even when
+  MontyDB is on fire.
+
+### Testing
+- `backend/tests/test_alpha46_disk_truth_and_native_slides.py` — **12/12
+  pass**. Includes the merchant-facing e2e scenario
+  `test_e2e_presentation_survives_db_wipe`: writes a `.bighat` bundle
+  to disk → boots a fresh TestClient (simulating an app restart) →
+  hits `/api/presentations/{id}` → asserts 200 + `source:
+  native-disk`. This is the exact scenario the merchant hit on
+  alpha.45.
+- All 7 alpha.45 tests still pass.
+
+### Release
+- Windows `.exe` + macOS Apple Silicon `.dmg` via `push_alpha46.py` +
+  `wait_and_publish_alpha46.py`.
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.46
+
+### Known-limitations shipped in alpha.46 (P1 for alpha.47)
+- **Audience View "Open Audience View" button** — `PresentationMode.jsx`
+  uses `window.open()` + `document.write()` + `postMessage()`. Tauri v2
+  needs `webview:allow-create-webview` capability + `WebviewWindow.new`
+  for reliable second-monitor spawning. Merchant needs the prototype-
+  style AudienceView (per `AudienceView.jsx` from the Bingo branch —
+  BroadcastChannel-based, 1920×1080 stage, polling + real-time video
+  mirror). Tracking as P1 for alpha.47.
+- **Native rendering is text/positioning first** — the current renderer
+  produces clean typography but doesn't yet include cover artwork
+  images, sponsor logos, or overlay images from the round manifests.
+  Those fields exist in the `.bighat` (`cover_image_id`,
+  `sponsorFiles: [image-path...]`) but the alpha.46 renderer emits
+  text-only slides. This will be layered in for alpha.47 once the
+  merchant confirms text/data population is landing.
+
+---
+
+
+---
+
 ## 2026-02-05 — v32.0.0-alpha.45: three-bug hotfix for the Presenter/Editor blank-list crash
 
 ### Merchant report (alpha.44 debug log upload)
