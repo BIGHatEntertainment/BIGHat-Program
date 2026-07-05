@@ -7,7 +7,7 @@ Uses HYBRID converter (Rust + Python) for 10-20x faster parsing.
 
 OPTIMIZATION: Resource limits to prevent memory exhaustion
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Body
 from motor.motor_asyncio import AsyncIOMotorDatabase
 import logging
 import tempfile
@@ -15,10 +15,19 @@ import os
 import shutil
 import gc
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 
 from sharepoint_service import SharePointService
 from hybrid_pptx_converter import get_hybrid_converter, RUST_AVAILABLE
 from gridfs_service import get_gridfs_service
+# v32.0.0-alpha.46: DISK-FIRST native slide renderer. See PRD § "DISK STATE
+# IS THE ABSOLUTE SOURCE OF TRUTH". This module builds Editor-compatible
+# slides directly from the `.bighat` files on disk, so the Presenter is
+# not gated on SharePoint availability.
+from native_slides import (
+    native_render_section as _native_render_section,
+    load_presentation_from_disk as _load_pres_from_disk,
+)
 
 router = APIRouter(prefix="/slide-fetcher", tags=["slide-fetcher"])
 logger = logging.getLogger(__name__)
@@ -70,15 +79,65 @@ async def fetch_section(presentation_id: str, section_name: str, request: Reques
         except Exception:
             pass
         
-        # Get presentation data
-        trivia_pres = await db.trivia_presentations.find_one(
-            {"id": presentation_id},
-            {"_id": 0}
-        )
+        # v32.0.0-alpha.46: DISK IS TRUTH. Try DB first for speed, but fall
+        # back to `Files/Trivia/Rounds/*.bighat` on disk if the DB doesn't
+        # have this presentation. A fresh MontyDB (post-restart) will miss
+        # every previous session's work — the disk manifest is what
+        # actually lives across launches.
+        trivia_pres = None
+        try:
+            trivia_pres = await db.trivia_presentations.find_one(
+                {"id": presentation_id},
+                {"_id": 0}
+            )
+        except Exception as db_exc:
+            logger.warning("[slide-fetcher] DB lookup failed, falling to disk: %s", db_exc)
+        if not trivia_pres:
+            trivia_pres = _load_pres_from_disk(presentation_id)
         
         if not trivia_pres:
             raise HTTPException(status_code=404, detail="Presentation not found")
-        
+
+        # v32.0.0-alpha.46: NATIVE DISK RENDER PATH.
+        # For the desktop native build there is no SharePoint. Render the
+        # section directly from `.bighat` data. If the render returns
+        # slides, we return them and skip the SharePoint/PPTX pipeline
+        # entirely. This is what fixes the "Package not found at
+        # C:\Users\...\Temp\fetch_host_XXXX\file_0.pptx" 500 the merchant
+        # saw on alpha.45.
+        try:
+            native_slides = _native_render_section(trivia_pres, section_name, body)
+        except Exception as native_exc:
+            logger.exception("[slide-fetcher] native render failed: %s", native_exc)
+            native_slides = []
+        if native_slides:
+            # Mark section complete in DB best-effort (nice-to-have index).
+            try:
+                await db.section_status.update_one(
+                    {"presentationId": presentation_id, "section": section_name},
+                    {"$set": {
+                        "status": "complete",
+                        "slidesCount": len(native_slides),
+                        "completedAt": datetime.utcnow(),
+                        "source": "native-disk",
+                    }},
+                    upsert=True,
+                )
+            except Exception:
+                pass
+            logger.info(
+                "[slide-fetcher] native render %s → %d slides (disk-first)",
+                section_name, len(native_slides),
+            )
+            return {
+                "section": section_name,
+                "slides": native_slides,
+                "slidesCount": len(native_slides),
+                "status": "complete",
+                "source": "native-disk",
+            }
+
+        # Fall through to SharePoint/PPTX pipeline (legacy cloud mode).
         sp = SharePointService()
         # Use hybrid converter (Rust + Python) for faster parsing
         converter = get_hybrid_converter()
@@ -337,24 +396,34 @@ async def fetch_section(presentation_id: str, section_name: str, request: Reques
 
 @router.get("/sections-list/{presentation_id}")
 async def get_sections_list(presentation_id: str):
-    """Get the list of sections to fetch for a presentation"""
+    """Get the list of sections to fetch for a presentation.
+
+    v32.0.0-alpha.46: falls back to `Files/Trivia/Rounds/*.bighat` on disk
+    when the presentation isn't in the DB (fresh MontyDB after restart).
+    """
     try:
-        trivia_pres = await db.trivia_presentations.find_one(
-            {"id": presentation_id},
-            {"_id": 0}
-        )
+        trivia_pres = None
+        try:
+            trivia_pres = await db.trivia_presentations.find_one(
+                {"id": presentation_id},
+                {"_id": 0}
+            )
+        except Exception as db_exc:
+            logger.warning("[sections-list] DB lookup failed: %s", db_exc)
+        if not trivia_pres:
+            trivia_pres = _load_pres_from_disk(presentation_id)
         
         if not trivia_pres:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
         sections = []
         
-        # Host
-        if trivia_pres.get('hostFile'):
+        # v32.0.0-alpha.46: include Host if host NAME set (native renders
+        # from text — no PPTX required). Same for Location.
+        if trivia_pres.get('hostFile') or trivia_pres.get('host') or trivia_pres.get('hostName'):
             sections.append({"name": "host", "type": "host"})
         
-        # Location
-        if trivia_pres.get('locationFile'):
+        if trivia_pres.get('locationFile') or trivia_pres.get('location'):
             sections.append({"name": "location", "type": "location"})
         
         # Rounds - insert sponsors BEFORE BIG round (always the last round)
@@ -432,16 +501,49 @@ async def get_sections_list(presentation_id: str):
 
 
 @router.post("/store-all/{presentation_id}")
-async def store_all_slides(presentation_id: str, slides: list):
-    """Store all slides in GridFS after frontend has accumulated them"""
+async def store_all_slides(presentation_id: str, request: Request):
+    """Store all slides in GridFS after the frontend has accumulated them.
+
+    v32.0.0-alpha.46: In native mode disk is truth — the DB cache is a
+    nice-to-have index, not a requirement. The frontend calls this at
+    end-of-load as a fire-and-forget best-effort cache. Accept a raw list
+    body (legacy), a `{slides: [...]}` wrapper (new), OR an empty body
+    without 422ing so the Editor's `.catch(() => {})` chain stays clean.
+    """
     try:
+        # Parse the raw body ourselves so we accept: list | {slides: list} | empty.
+        slides: List[Any] = []
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, list):
+            slides = payload
+        elif isinstance(payload, dict):
+            candidate = payload.get("slides")
+            if isinstance(candidate, list):
+                slides = candidate
+
+        if not slides:
+            logger.info(
+                "[slide-fetcher] store-all called with empty payload for %s — "
+                "skipping cache write (disk is truth)", presentation_id,
+            )
+            return {"status": "skipped", "slidesCount": 0, "reason": "empty-body"}
+
         gridfs = get_gridfs_service()
         
-        # Get presentation info for metadata
-        trivia_pres = await db.trivia_presentations.find_one(
-            {"id": presentation_id},
-            {"_id": 0, "name": 1, "location": 1}
-        )
+        # Get presentation info for metadata (best-effort)
+        trivia_pres = None
+        try:
+            trivia_pres = await db.trivia_presentations.find_one(
+                {"id": presentation_id},
+                {"_id": 0, "name": 1, "location": 1}
+            )
+        except Exception:
+            pass
+        if not trivia_pres:
+            trivia_pres = _load_pres_from_disk(presentation_id) or {}
         
         await gridfs.store_slides(
             presentation_id,
@@ -461,7 +563,9 @@ async def store_all_slides(presentation_id: str, slides: list):
     
     except Exception as e:
         logger.error(f"Error storing slides: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # v32.0.0-alpha.46: never 500 on store-all. Disk is truth; the DB
+        # cache is optional. Return a soft-fail so the Editor keeps going.
+        return {"status": "error", "slidesCount": 0, "error": str(e)}
 
 
 async def _fetch_pptx_slides(sp, converter, temp_dir, file_path, start_order, round_type=None, round_order=None):
