@@ -8,6 +8,52 @@
 ---
 ---
 
+## 2026-02-05 — v32.0.0-alpha.48: right questions + working audience window + host/location images
+
+### Merchant report (alpha.47 install)
+Four things wrong. All fixed.
+
+1. **Wrong questions rendering** — merchant added MC-01-A through MC-05-A to the MC folder, chose MC-02-A in the wizard. The Editor showed "MC-02-A / Round 1" on the cover but rendered MC-01-A's questions.
+2. **Audience view button doesn't open a window** — controls light up as if a window opened but nothing appears on screen.
+3. **Slide 1 should be the host's 9:16 gif/image** (currently text-only).
+4. **Slide 2..N should be the location's image slides** (branding + overlays) — currently just a "Welcome to" text card.
+5. **Every round needs a title-card image**, and rounds must be sequenced MC → REG → MISC → MYS → BIG (MYS always second-to-last, BIG always last).
+6. **Final Scores slide** should be a CSS scrolling animation.
+
+### Fixes
+
+- **`backend/native_slides.py :: load_round_from_disk`** — the `file` path in the round-ref is now the **source of truth**. If it exists on disk we return that file's content OUTRIGHT, without checking internal `id`/`name` fields. This exact scenario (copy MC-01-A → MC-02-A, forget to update the internal name field) was reproducing the merchant's bug. The last-resort "return the first same-type file" fallback has been REMOVED — wrong questions is worse than a placeholder.
+- **`backend/native_slides.py`** — new `_norm()` fuzzy matcher (case + hyphen/underscore/space agnostic), plus multi-tier folder scan (exact file → filename → id → internal name). Never a random-return.
+- **`backend/routes/slide_fetcher.py :: get_sections_list`** — enforces canonical round-type order `MC(1) → REG(2) → MISC/NONSENSE(3) → MYS(98) → BIG(99)` regardless of what the wizard emitted. `roundFiles` are sorted + re-indexed before sections are emitted.
+- **`backend/native_slides.py`** — new asset loaders:
+  * `load_host_asset(pres)` — reads `Files/Hosts/<slug>/host.json` for `host_image_9x16` (preferred) → `host_image_16x9` → `profile_picture`. Falls through to bare filenames (`host-9x16.gif`, `avatar.png`, etc.) if the JSON is missing. Returns `{image_url, aspect, raw_path}`.
+  * `load_location_assets(pres)` — scans `Files/Locations/<slug>/branding/` then `overlays/` for `.png|.jpg|.jpeg|.webp|.gif`. Returns ordered list `[{image_url, kind, filename}, ...]`.
+  * `load_round_title_card(round_type, round_name)` — searches (1) per-round `<TYPE>/title-cards/<name>.ext`, (2) per-type `<TYPE>/title-cards/<TYPE>.ext`, (3) global `title-cards/<TYPE>.ext`.
+- **`render_host_section`** — if 9:16 asset exists, embeds it as a portrait image centered on the 16:9 stage (607×1080 centered at x=656). 16:9 asset → full-bleed. Falls back to text card if nothing on disk.
+- **`render_location_section`** — one full-bleed 16:9 image slide per branding/overlay asset. Branding first (welcome), overlays follow.
+- **`render_round_section`** — if a title-card asset exists it becomes slide #0 (full-bleed image). The text cover follows as slide #1 (so merchants always see the round name even when there's no title-card art yet).
+- **`frontend/src/components/trivia/editor/PresentationMode.jsx :: openAudienceView`** — switched from the `window.__TAURI__` global (which isn't injected in Tauri v2 by default) to a dynamic `import('@tauri-apps/api/webviewWindow')`. Resolves cleanly whether we're in Tauri, browser, or preview. Registers Tauri lifecycle listeners (`tauri://created`, `tauri://error`, `tauri://destroyed`) for clean bookkeeping.
+- **`src-tauri/capabilities/default.json`** — added `core:webview:default`, `core:webview:allow-create-webview-window`, `core:window:allow-create/close/set-focus/set-fullscreen`. Added `"trivia-audience"` to the `windows` allow-list so the second window inherits the capability set.
+- **`frontend/src/pages/trivia/TriviaAudienceView.jsx`** — final scores WINNERS slide is now a **CSS `@keyframes bighat-scroll-credits`** animation. Sticky "Final Scores" header at top, bottom-to-top infinite scroll for the leaderboard (duration = `max(18, teams * 2)`s so every team gets on-screen time). Gold/silver/bronze accent for the top 3.
+
+### Testing
+- `backend/tests/test_alpha48_round_fix_and_assets.py` — **13/13 pass**. Includes the exact merchant-repro scenario (`test_round_file_path_is_source_of_truth`: two MC files with the same internal name, manifest points to MC-02-A → we assert MC-02-A's questions are returned).
+- All 29 alpha.45/46/47 tests still pass (42 total).
+
+### Release
+- Windows `.exe` + macOS Apple Silicon `.dmg` via `push_alpha48.py` + `wait_and_publish_alpha48.py`.
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.48
+
+### For the merchant
+Two things to put on disk that alpha.48 will now render:
+1. **Host portrait**: drop a `host-9x16.gif` (or .png/.jpg) in `C:\Users\<you>\Documents\BIG Hat Entertainment\Files\Hosts\<your-email-slug>\` — OR update your `host.json` to point `host_image_9x16` at the file. Slide 1 will render it centered.
+2. **Title cards** (per your request): drop `MC.png`, `REG.png`, `MISC.png`, `MYS.png`, `BIG.png` in either `Files\Trivia\<TYPE>\title-cards\` (per-type folder) OR `Files\Trivia\title-cards\` (global). Each round will prepend its title-card as slide #0.
+
+---
+
+
+---
+
 ## 2026-02-05 — v32.0.0-alpha.47: Audience View — TV mirror at fixed 1920×1080
 
 ### Merchant request
