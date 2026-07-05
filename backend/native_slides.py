@@ -757,11 +757,12 @@ def render_round_section(
         gif_idx = 12
 
     # Try to use a bundled overlay GIF; fall back to styled text.
-    gif_url = "/BIG.gif"  # bundled in frontend/public/ (falls back OK if missing)
+    # v32.0.0-alpha.50: bundled SVG stop-card (animated) in
+    # `frontend/public/Time_To_Grade.svg`. Renders identically on every
+    # install regardless of merchant asset uploads.
+    gif_url = "/Time_To_Grade.svg"
     gif_elements = [
-        _image(gif_url, x=560, y=140, w=800, h=800),
-        _text("TIME TO GRADE", x=160, y=960, w=1600, h=100,
-              size=72, weight="800", color="#F4C430"),
+        _image(gif_url, x=0, y=0, w=STAGE_W, h=STAGE_H),
     ]
     slides.append(_slide(gif_idx, gif_elements, background=BG_DARK,
                          metadata=meta(slideIndexInRound=gif_idx,
