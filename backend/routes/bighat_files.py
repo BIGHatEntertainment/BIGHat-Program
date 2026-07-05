@@ -689,6 +689,10 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
         # Stash the original code so the round_type backfill below can
         # promote "MC" / "BIG" / ... to `RoundResponse.round_type`.
         manifest.setdefault("round_type", raw_type.upper() if raw_type.lower() != "round" else None)
+    elif raw_type.lower() in ("trivia-presentation", "presentation"):
+        # v32.0.0-alpha.45: wizard-generated presentation manifests.
+        # Route to the "presentation" spec.
+        content_type = "presentation"
     else:
         content_type = raw_type
     if content_type not in BIGHAT_TYPES:

@@ -200,16 +200,30 @@ async def get_admin_stats(userName: Optional[str] = Query(None)) -> Dict:
     """
     if not verify_admin(userName):
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
+    # v32.0.0-alpha.45: EVERY count_documents/aggregate call is wrapped
+    # in try/except with a fallback. The desktop MontyDB shim throws
+    # two distinct errors under load: `'coroutine' object has no
+    # attribute 'to_list'` AND `SQLite objects created in a thread
+    # can only be used in that same thread`. Either kills the endpoint
+    # and cascades to the Presenter list via Promise.all. From now on
+    # this endpoint is BEST-EFFORT — never 500, never blocks the UI.
+    async def _safe_count(coll, filt=None):
+        try:
+            if filt is not None:
+                return await coll.count_documents(filt)
+            return await coll.count_documents({})
+        except Exception as e:
+            logger.warning("[admin/stats] count fallback (%s): %s", getattr(coll, "name", "?"), e)
+            return 0
+
     try:
-        total_usage = await db.round_usage.count_documents({})
-        total_presentations = await db.trivia_presentations.count_documents({})
-        
+        total_usage = await _safe_count(db.round_usage)
+        total_presentations = await _safe_count(db.trivia_presentations)
+
         cutoff_date = datetime.utcnow()
-        active_usage = await db.round_usage.count_documents({
-            'expiresDate': {'$gt': cutoff_date}
-        })
-        expired_usage = total_usage - active_usage
+        active_usage = await _safe_count(db.round_usage, {'expiresDate': {'$gt': cutoff_date}})
+        expired_usage = max(0, total_usage - active_usage)
         
         # v32.0.0-alpha.43: MontyDB (native desktop DB shim) returns a
         # coroutine from `.aggregate()` — not a Motor cursor — so the
