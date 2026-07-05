@@ -8,6 +8,62 @@
 ---
 ---
 
+## 2026-02-05 — v32.0.0-alpha.50: VERBATIM prototype slide-structure port
+
+### Merchant directive
+"Yes, port the entire prototype logic verbatim. Also: text formatting overhaul + prototype slide structure parity (title + Q + review + .gif(STOP) + answers per round — 14 slides for MC, not 7)."
+
+### The rewrite
+`backend/native_slides.py :: render_round_section` is now a **verbatim port** of the prototype's slide-per-round spec from `components/trivia/editor/PresentationMode.jsx`:
+
+| Round Type | Slides | Positions |
+|---|---|---|
+| MC / REG / MISC | **14** | 0=title, 1-10=questions, 11=review, 12=.gif(STOP), 13=answers |
+| MYS | **13** | 0=title, 1-9=questions, 10=review, 11=.gif(STOP), 12=answers |
+| BIG (with tiebreaker) | **7** | 0=title, 1=question, 2=.gif(STOP), 3=review, 4=answers, 5=TB-Q, 6=TB-A |
+| BIG (without) | **5** | 0=title, 1=question, 2=.gif(STOP), 3=review, 4=answers |
+
+### Critical prototype invariants now enforced
+- **Answer slides have NO title element.** Per prototype's `getAnswerCount` comment ("Answer slides have NO title - ALL text elements are answers"), any header text would offset the progressive-reveal by 1 and break the whole grading UX. Now every answer slide is JUST answer texts, one text element per answer.
+- **`.gif(STOP) slide always at position N-1 before answers.** Renders `/BIG.gif` (bundled) + a "TIME TO GRADE" caption. The Presenter's auto-advance timer STOPS here — host manually advances to reveal answers.
+- **MC gets A/B/C/D grid; REG/MISC/MYS show question-only** (no options rendered — the answer sheet has the multi-choice).
+- **BIG rounds render as a single "The Clue" question**, then gif → review → answers → tiebreaker Q + A.
+- **Question padding**: MC/REG/MISC always render 10 question slides even if fewer questions exist on disk (the prototype's fixed-index answer-reveal keys off slide position, not question count). MYS renders 9.
+
+### Typography (pulled from prototype PresentationMode.jsx conventions)
+- Round title: 170px / weight 800 (when no title-card image) OR full-bleed image
+- Question header ("Question N"): 54px / weight 700 / gold (`#F4C430`)
+- Question body: 72px / weight 700 (was 64px — bumped for TV legibility)
+- MC option grid: 48px / weight 600 / left-aligned in a 2×2 layout at y=720/y=830
+- Review list: adaptive 42px max, weight 500
+- Answer text: 48px / weight 700 / gold (was mixed left/right two-column layout — now single-line per answer for cleaner progressive reveal)
+- BIG clue: 72px / weight 700 body under 64px gold header ("The Clue")
+
+### Testing
+- `backend/tests/test_alpha50_prototype_slide_parity.py` — **12/12 pass**. Locks in every prototype invariant:
+  * Exact slide counts per round type (14/14/14/13/7/5)
+  * Exact slideIndexInRound positions per prototype spec
+  * MC answer slide has EXACTLY 10 text elements (no title)
+  * MYS answer slide has EXACTLY 9 text elements
+  * BIG answer slide has NO header text
+  * `.gif(STOP)` slide flagged with `isGifStop=True` at the correct position for every round type
+- All 51 prior alpha.45-49 tests still pass — **63/63 total**.
+
+### Release
+- Windows `.exe` + macOS Apple Silicon `.dmg` via `push_alpha50.py` + `wait_and_publish_alpha50.py`.
+- https://github.com/BIGHatEntertainment/BIGHat-Program/releases/tag/v32.0.0-alpha.50
+
+### What you'll see when you install alpha.50
+- Every round now has **14 slides for MC/REG/MISC**, **13 for MYS**, **7 for BIG** (with tiebreaker) — this is the EXACT count from the prototype.
+- The "TIME TO GRADE" `.gif(STOP)` slide appears right before answers. The auto-advance timer stops here so you can grade.
+- Answer slides no longer have a "MC-02-A Answers" header at the top — just the answers, one per line, ready for the prototype's progressive reveal.
+- BIG rounds now include the tiebreaker Q/A slides (positions 5 + 6).
+
+---
+
+
+---
+
 ## 2026-02-05 — v32.0.0-alpha.49: images actually render + audience popup unblocked
 
 ### Merchant report (alpha.48 install)
