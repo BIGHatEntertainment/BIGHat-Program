@@ -535,6 +535,11 @@ def _resolve_folder(folder: str | None) -> tuple[str, Path]:
                 # Preserve the on-disk casing of `_Other` if requested.
                 tail_disk = TRIVIA_DEFAULT_ROUND_TYPE if tail_up == TRIVIA_DEFAULT_ROUND_TYPE.upper() else tail_up
                 return f"Trivia/{tail_disk}", base / "Trivia" / tail_disk
+            # v32.0.0-alpha.45: allow the Presenter's delete-card action
+            # to hit `Trivia/Rounds` (the folder where the Build Wizard
+            # drops presentation manifests). Same allowlist pattern.
+            if tail.strip().lower() == "rounds":
+                return "Trivia/Rounds", base / "Trivia" / "Rounds"
 
     # Case-insensitive match against allow-list — never trust raw input.
     for name in SUBFOLDERS:
