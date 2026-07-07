@@ -8,6 +8,51 @@
 ---
 ---
 
+## 2026-02-06 — v32.0.0-alpha.51: `.bighat` ZIP extraction + 16:9 host image priority
+
+### Root cause of alpha.50's missing images / empty questions
+The merchant's latest `.bighat` uploads (post round-generator update) are **ZIP archives** — magic bytes `PK\x03\x04` — not the bare-JSON files the desktop app was expecting. The archives contain:
+
+```
+manifest.json    # format_version, content_id, round_type, source
+payload.json     # name, round_type, questions[], cover_image (asset ref)
+assets/          # cover.jpg (round title card) + optional per-Q media
+```
+
+The payload's question objects also use `prompt` / `n` / `correct_index` instead of the legacy `question` / `number` / `correctOption` keys. Because `native_slides._read_bighat_round` was doing a naive `json.loads()`, it hit `UnicodeDecodeError` on the ZIP bytes, silently returned `None`, and the presenter fell through to placeholder-only slides.
+
+### The fix (backend/native_slides.py)
+- `_read_bighat_round(path)` now sniffs the first 4 bytes: `PK` → unzip and read `payload.json`; anything else → legacy bare-JSON path (backwards compat).
+- Extracts `assets/cover.<ext>` and inlines it as a `data:image/...;base64,...` URL under `cover_image_data_url`.
+- Extracts per-question `media` assets (supports both bare-string `"assets/q1.gif"` and dict `{"image": "assets/q1.gif"}` shapes) into `media_url`.
+- Normalises every question field to the renderer's expected shape:
+  * `n` → `number`
+  * `prompt` → `question`
+  * `correct_index` → `correctOption`
+  * `answer`, `options`, `category`, `points` — passthrough.
+- `render_round_section` slide 0 now prefers the `.bighat`'s **own** embedded `cover_image_data_url` over any disk-side title-card fallback. The round generator is the source of artistic truth.
+
+### Host image aspect priority — 16:9 wins over 9:16
+`load_host_asset._rank_asset` now returns the 16:9 landscape asset first (JSON key `host_image_16x9` → file `host-16x9.*`), falling back to 9:16 portrait only if no landscape exists. The merchant's spec is a wide-view host image; the 9:16 portrait remains for hosts that only supplied a vertical asset.
+
+### Testing
+- `backend/tests/test_alpha51_bighat_zip_and_host_1610.py` — **7/7 pass**. Locks in:
+  * Real-fixture ZIP extraction (mc-01-a.bighat, big-cactus-league-easy.bighat, arizona-1.bighat) with `prompt`/`answer`/`options`/`correct_index` normalisation.
+  * `cover_image` inlined as a `data:image/...;base64,...` URL.
+  * Per-question media inlining for both bare-string and dict shapes.
+  * Legacy bare-JSON `.bighat` files still parse (backwards compat).
+  * Slide 0 uses the embedded cover as the title-card `image` element.
+  * `_rank_asset` prefers 16:9 over 9:16 when both exist; falls back to 9:16 when only portrait is present.
+- All alpha.45-50 tests still pass — **70/70 total** in the alpha series.
+
+### Files touched
+- `backend/native_slides.py` — `_read_bighat_round` (ZIP + normalisation), `_rank_asset` (16:9 priority), `render_round_section` slide 0.
+- `backend/tests/test_alpha51_bighat_zip_and_host_1610.py` — new.
+- `backend/VERSION.txt`, `src-tauri/tauri.conf.json` — bump to `32.0.0-alpha.51`.
+
+---
+---
+
 ## 2026-02-05 — v32.0.0-alpha.50: VERBATIM prototype slide-structure port
 
 ### Merchant directive
