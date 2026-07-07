@@ -231,7 +231,13 @@ def load_host_asset(pres: Dict[str, Any]) -> Dict[str, Any]:
 
     def _rank_asset(host_dir: Path, host_json_path: Optional[Path]):
         """Return the best `(rel_path, aspect)` tuple for a given host
-        folder, or None."""
+        folder, or None.
+
+        v32.0.0-alpha.51: **PREFER 16:9 over 9:16.** Slide 1 is a
+        landscape wide-view host image per the merchant's current spec.
+        The 9:16 portrait variant is a fallback (some hosts only have
+        the vertical asset).
+        """
         json_data = {}
         if host_json_path and host_json_path.exists():
             try:
@@ -239,22 +245,22 @@ def load_host_asset(pres: Dict[str, Any]) -> Dict[str, Any]:
             except (OSError, ValueError):
                 json_data = {}
 
-        # Priority 1: JSON says 9x16 AND file exists
-        rel = _rel_if_exists(json_data.get("host_image_9x16", ""), docs)
-        if rel:
-            return rel, "9:16"
-        # Priority 2: host-9x16.* file on disk
-        p = _find_by_stem(host_dir, ["host-9x16", "host_9x16", "9x16"])
-        if p:
-            return str(p.relative_to(docs)).replace("\\", "/"), "9:16"
-        # Priority 3: JSON says 16x9 AND file exists
+        # Priority 1: JSON says 16x9 AND file exists (LANDSCAPE — wide view)
         rel = _rel_if_exists(json_data.get("host_image_16x9", ""), docs)
         if rel:
             return rel, "16:9"
-        # Priority 4: host-16x9.* file on disk
+        # Priority 2: host-16x9.* file on disk
         p = _find_by_stem(host_dir, ["host-16x9", "host_16x9", "16x9"])
         if p:
             return str(p.relative_to(docs)).replace("\\", "/"), "16:9"
+        # Priority 3: JSON says 9x16 AND file exists (portrait fallback)
+        rel = _rel_if_exists(json_data.get("host_image_9x16", ""), docs)
+        if rel:
+            return rel, "9:16"
+        # Priority 4: host-9x16.* file on disk
+        p = _find_by_stem(host_dir, ["host-9x16", "host_9x16", "9x16"])
+        if p:
+            return str(p.relative_to(docs)).replace("\\", "/"), "9:16"
         # Priority 5: JSON profile_picture
         rel = _rel_if_exists(json_data.get("profile_picture", ""), docs)
         if rel:
@@ -425,19 +431,126 @@ def load_presentation_from_disk(presentation_id: str) -> Optional[Dict[str, Any]
     return None
 
 
+def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
+    """v32.0.0-alpha.51: `.bighat` files are ZIP archives (magic bytes
+    `PK\\x03\\x04`), NOT bare JSON. Each contains:
+        manifest.json — format_version, content_id, round_type, source
+        payload.json  — name, round_type, questions[], cover_image (asset ref)
+        assets/*      — bundled images (cover.jpg = round title card)
+
+    This function unzips, reads `payload.json`, extracts the cover
+    image as a data URL, normalises the question field names to what
+    `render_round_section` expects, and returns a merged dict.
+
+    Field-name normalisation (payload.json → renderer):
+        n              → number
+        prompt         → question
+        correct_index  → correctOption
+        media          → media (passthrough — merchant-embedded per-Q images)
+        (answer, options are already the right names)
+    """
+    import zipfile
+    from base64 import b64encode
+
+    try:
+        with open(path, "rb") as f:
+            header = f.read(4)
+    except OSError:
+        return None
+    if not header.startswith(b"PK"):
+        # Legacy bare-JSON .bighat (created before the ZIP format). Fall
+        # back to plain read.
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = set(zf.namelist())
+            if "payload.json" not in names:
+                return None
+            payload = json.loads(zf.read("payload.json").decode("utf-8"))
+            manifest = {}
+            if "manifest.json" in names:
+                try:
+                    manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+                except (ValueError, KeyError):
+                    manifest = {}
+
+            # Extract cover image as a data URL if present
+            cover_data_url = None
+            cover_ref = payload.get("cover_image") or ""
+            if cover_ref and cover_ref in names:
+                raw = zf.read(cover_ref)
+                ext = Path(cover_ref).suffix.lower()
+                mime = {".gif": "image/gif", ".png": "image/png",
+                        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".webp": "image/webp", ".svg": "image/svg+xml"
+                        }.get(ext, "application/octet-stream")
+                cover_data_url = f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+
+            # Extract per-question media assets (some questions embed images).
+            # `media` may be a bare string ("assets/q1.gif") OR a dict
+            # ({"image": "assets/q1.gif"} / {"video": "assets/x.mp4"}).
+            questions_norm: List[Dict[str, Any]] = []
+            for q in (payload.get("questions") or []):
+                media_url = None
+                raw_media = q.get("media")
+                media_ref = ""
+                if isinstance(raw_media, str):
+                    media_ref = raw_media
+                elif isinstance(raw_media, dict):
+                    for k in ("image", "video", "gif", "src", "path"):
+                        v = raw_media.get(k)
+                        if isinstance(v, str) and v:
+                            media_ref = v
+                            break
+                if media_ref and media_ref in names:
+                    raw = zf.read(media_ref)
+                    ext = Path(media_ref).suffix.lower()
+                    mime = {".gif": "image/gif", ".png": "image/png",
+                            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                            ".webp": "image/webp",
+                            ".mp4": "video/mp4", ".webm": "video/webm",
+                            }.get(ext, "application/octet-stream")
+                    media_url = f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+
+                # Merge legacy + new field names so downstream code works
+                # regardless of which format the .bighat used.
+                questions_norm.append({
+                    "number": q.get("n") or q.get("number") or (len(questions_norm) + 1),
+                    "question": q.get("prompt") or q.get("question") or "",
+                    "answer": q.get("answer", ""),
+                    "options": q.get("options") or [],
+                    "correctOption": q.get("correct_index",
+                                          q.get("correctOption", 0)),
+                    "category": q.get("category", ""),
+                    "points": q.get("points"),
+                    "media_url": media_url,
+                    "media_ref": media_ref,
+                })
+
+            return {
+                "id": manifest.get("content_id") or payload.get("id"),
+                "name": payload.get("name") or manifest.get("round_name") or "",
+                "round_type": payload.get("round_type") or manifest.get("round_type") or "",
+                "questions": questions_norm,
+                "tiebreaker": payload.get("tiebreaker") or {},
+                "cover_image_data_url": cover_data_url,
+                "_manifest": manifest,
+                "_source_format": "bighat-zip",
+            }
+    except (zipfile.BadZipFile, KeyError, ValueError, OSError) as e:
+        logger.warning("[native-slides] .bighat unzip failed for %s: %s", path, e)
+        return None
+
+
 def load_round_from_disk(round_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Resolve a round `.bighat` file referenced from a presentation manifest.
+    """Resolve a round `.bighat` file. The `file` path is source of truth.
 
-    `round_ref` is a dict from `presentation.roundFiles`, typically:
-        {file: "MC/MC-02-A.bighat", type: "MC", order: 1, name: "MC_02_A", id: "..."}
-
-    v32.0.0-alpha.48: **The `file` path is the source of truth.** If it
-    exists on disk we return its content OUTRIGHT — even if the file's
-    internal `name` / `id` fields drift (which happens all the time when
-    the merchant copies MC-01-A to bootstrap MC-02-A and forgets to update
-    the internal name). Previously we'd skip that file and fall back to
-    the first same-type round we found, so MC-02-A ended up rendering
-    MC-01-A's questions. Bug reproduced by the merchant on alpha.47.
+    v32.0.0-alpha.51: Now uses `_read_bighat_round` which correctly
+    unzips the archive and extracts cover.jpg as a data URL.
     """
     docs = _docs_root()
     rid = round_ref.get("id") or ""
@@ -445,72 +558,53 @@ def load_round_from_disk(round_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     rtype = (round_ref.get("type") or "").upper()
     rfile = round_ref.get("file") or ""
 
-    # ---- 1. Exact file-path match (TRUST) ---------------------------------
+    # 1. Exact file-path match (TRUST)
     if rfile:
         exact = docs / "Files" / "Trivia" / rfile
         if exact.exists():
-            try:
-                return json.loads(exact.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as e:
-                logger.warning("[native-slides] exact file %s unreadable: %s", exact, e)
-        # Also try the bare filename in the type folder in case the
-        # manifest stored a relative path we don't expect.
+            doc = _read_bighat_round(exact)
+            if doc is not None:
+                return doc
         bare = _trivia_type_dir(rtype) / Path(rfile).name
         if bare != exact and bare.exists():
-            try:
-                return json.loads(bare.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as e:
-                logger.warning("[native-slides] bare file %s unreadable: %s", bare, e)
+            doc = _read_bighat_round(bare)
+            if doc is not None:
+                return doc
 
-    # ---- 2. Scan the type folder, match by id or fuzzy name --------------
+    # 2. Scan the type folder
     if rtype:
         type_dir = _trivia_type_dir(rtype)
         if type_dir.exists():
-            # Try by-filename first — if a round is named "MC-02-A" in the
-            # manifest and the file is `MC-02-A.bighat` on disk, we want
-            # that even if the internal name field says something else.
+            # By-filename first
             if rname:
                 for e in type_dir.iterdir():
                     if not (e.is_file() and e.suffix.lower() == ".bighat"):
                         continue
-                    stem = e.stem
-                    if _norm(stem) == _norm(rname):
-                        try:
-                            return json.loads(e.read_text(encoding="utf-8"))
-                        except (OSError, ValueError):
-                            continue
-
-            # Then try by id (internal id in the round doc)
+                    if _norm(e.stem) == _norm(rname):
+                        doc = _read_bighat_round(e)
+                        if doc is not None:
+                            return doc
+            # By-id
             for e in type_dir.iterdir():
                 if not (e.is_file() and e.suffix.lower() == ".bighat"):
                     continue
-                try:
-                    doc = json.loads(e.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
+                doc = _read_bighat_round(e)
+                if doc is None:
                     continue
                 if rid and doc.get("id") == rid:
                     return doc
-
-            # Finally try by internal `name` field (weakest signal)
+            # By-internal-name
             if rname:
                 for e in type_dir.iterdir():
                     if not (e.is_file() and e.suffix.lower() == ".bighat"):
                         continue
-                    try:
-                        doc = json.loads(e.read_text(encoding="utf-8"))
-                    except (OSError, ValueError):
+                    doc = _read_bighat_round(e)
+                    if doc is None:
                         continue
                     if _norm(doc.get("name", "")) == _norm(rname):
                         return doc
 
-    # v32.0.0-alpha.48: **NO MORE LAST-RESORT RANDOM RETURN.** If we
-    # can't identify the exact round the merchant chose, we return None
-    # and let the renderer emit a "file not found" placeholder. Returning
-    # the wrong round's questions is worse than showing an obvious error.
-    logger.warning(
-        "[native-slides] round not found for ref %s (file=%s, name=%s, id=%s, type=%s)",
-        round_ref, rfile, rname, rid, rtype,
-    )
+    logger.warning("[native-slides] round not found for ref %s", round_ref)
     return None
 
 
@@ -647,9 +741,18 @@ def render_round_section(
         }
 
     # ------------------------------------------------------------------
-    # SLIDE 0 — Title card (image if available, else styled cover)
+    # SLIDE 0 — Title card. Priority per merchant spec:
+    #   1. The .bighat's OWN embedded cover_image (assets/cover.jpg)
+    #   2. Per-round asset on disk (Files/Trivia/<TYPE>/title-cards/...)
+    #   3. Bundled default in frontend/public/<TYPE>_Title_Card.jpg|svg
+    # v32.0.0-alpha.51: `.bighat` files are ZIP archives — the round-
+    # generator's title-card artwork is BUNDLED INSIDE. Always prefer it.
     # ------------------------------------------------------------------
-    title_card_url = load_round_title_card(rtype, rname)
+    embedded_cover = round_data.get("cover_image_data_url")
+    if embedded_cover:
+        title_card_url = embedded_cover
+    else:
+        title_card_url = load_round_title_card(rtype, rname)
     if title_card_url:
         title_elements = [_image(title_card_url, x=0, y=0, w=STAGE_W, h=STAGE_H)]
         title_bg = BG_DARK

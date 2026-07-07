@@ -1,5 +1,12 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **Current release: `v32.0.0-alpha.51` (2026-02-06).** See
+> `/app/memory/CHANGELOG.md` for the full per-release history. The active
+> release script pair is `scripts/push_alpha51.py` + `scripts/wait_and_publish_alpha51.py`.
+> After alpha.51 publishes, the sweep step in `wait_and_publish_alpha51.py`
+> also publishes any lingering DRAFT releases (as prereleases) — the
+> merchant does not want drafts sitting around in GitHub.
+
 ---
 
 

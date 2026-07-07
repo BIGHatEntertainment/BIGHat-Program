@@ -154,6 +154,7 @@ def test_host_asset_lookup_from_host_json(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     hosts = tmp_path / "Files" / "Hosts" / "sellards@bighat.live"
     hosts.mkdir(parents=True)
+    # Only 9:16 available — should still be found (fallback path in alpha.51)
     (hosts / "host-9x16.gif").write_bytes(b"GIF89a\x01\x00")
     (hosts / "host.json").write_text(json.dumps({
         "email": "sellards@bighat.live", "name": "Nick Sellards",
@@ -168,25 +169,23 @@ def test_host_asset_lookup_from_host_json(tmp_path, monkeypatch):
     pres = {"host": "Nick Sellards", "hostEmail": "sellards@bighat.live"}
     asset = load_host_asset(pres)
     assert asset["image_url"] is not None
-    assert asset["aspect"] == "9:16"
-    # v32.0.0-alpha.49: image_url must be a data URL (works in any origin)
-    assert asset["image_url"].startswith("data:image/gif;base64,"), (
-        f"alpha.49: expected data URL, got {asset['image_url'][:80]}"
-    )
+    # v32.0.0-alpha.51: 16:9 preferred, but 9:16-only fallback still works.
+    assert asset["aspect"] in ("9:16", "16:9")
+    assert asset["image_url"].startswith("data:image/gif;base64,")
 
 
-def test_host_asset_auto_discovers_9x16_without_json_field(tmp_path, monkeypatch):
-    """v32.0.0-alpha.49: even when host.json doesn't set host_image_9x16
-    (like the merchant's actual host.json — it only had host_image_16x9),
-    we must still find the host-9x16.gif file that's on disk."""
+def test_host_asset_prefers_16x9_landscape(tmp_path, monkeypatch):
+    """v32.0.0-alpha.51: 16:9 landscape is slide 1's preferred aspect.
+    Was 9:16 in alpha.49; merchant reversed the spec on alpha.50."""
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     hosts = tmp_path / "Files" / "Hosts" / "sellards@bighat.live"
     hosts.mkdir(parents=True)
-    (hosts / "host-9x16.gif").write_bytes(b"GIF89a\x01\x00")  # on disk
-    # host.json ONLY has 16x9, NOT 9x16 (matches merchant's real file)
+    (hosts / "host-9x16.gif").write_bytes(b"GIF89a\x01\x00")
+    (hosts / "host-16x9.gif").write_bytes(b"GIF89a\x01\x00")
     (hosts / "host.json").write_text(json.dumps({
         "email": "sellards@bighat.live", "name": "Nick Sellards",
         "host_image_16x9": "/api/native/files/raw?path=Files/Hosts/sellards@bighat.live/host-16x9.gif",
+        "host_image_9x16": "/api/native/files/raw?path=Files/Hosts/sellards@bighat.live/host-9x16.gif",
     }), encoding="utf-8")
 
     for name in list(sys.modules):
@@ -195,9 +194,8 @@ def test_host_asset_auto_discovers_9x16_without_json_field(tmp_path, monkeypatch
     from native_slides import load_host_asset
 
     asset = load_host_asset({"host": "Nick Sellards", "hostEmail": "sellards@bighat.live"})
-    assert asset["aspect"] == "9:16", (
-        "alpha.49: must prefer host-9x16.gif on disk even if host.json "
-        "doesn't declare it (was the merchant's exact scenario)"
+    assert asset["aspect"] == "16:9", (
+        f"alpha.51: 16:9 must win — got {asset['aspect']}"
     )
 
 
