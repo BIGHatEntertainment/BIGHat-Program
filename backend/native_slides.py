@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -749,10 +750,34 @@ def render_round_section(
     # generator's title-card artwork is BUNDLED INSIDE. Always prefer it.
     # ------------------------------------------------------------------
     embedded_cover = round_data.get("cover_image_data_url")
+    title_card_source = None  # verification/attestation
     if embedded_cover:
         title_card_url = embedded_cover
+        title_card_source = "bighat-embedded-cover"
     else:
-        title_card_url = load_round_title_card(rtype, rname)
+        # Try category-slug lookup for REG (each REG round is a category
+        # like "Animals", "Sports"; matching image lives on disk at
+        # Files/Trivia/REG/title-cards/<slug>.jpg).
+        category = (
+            (questions[0].get("category") if questions else None)
+            or round_data.get("category")
+            or ""
+        )
+        title_card_url = None
+        if rtype == "REG" and category:
+            slug = re.sub(r"[^a-zA-Z0-9]+", "-", category.strip()).strip("-").lower()
+            for ext in (".jpg", ".jpeg", ".png", ".webp"):
+                p = _docs_root() / "Files" / "Trivia" / "REG" / "title-cards" / f"{slug}{ext}"
+                if p.exists():
+                    title_card_url = _to_api_url(str(p.relative_to(_docs_root())).replace("\\", "/"))
+                    title_card_source = f"disk-category:{slug}{ext}"
+                    break
+        if not title_card_url:
+            title_card_url = load_round_title_card(rtype, rname)
+            if title_card_url:
+                title_card_source = (
+                    "bundled-default" if title_card_url.startswith("/") else "disk-per-round"
+                )
     if title_card_url:
         title_elements = [_image(title_card_url, x=0, y=0, w=STAGE_W, h=STAGE_H)]
         title_bg = BG_DARK
@@ -764,25 +789,32 @@ def render_round_section(
                   size=60, color="#F4C430"),
         ]
         title_bg = BG_BLUE
+        title_card_source = "text-fallback-no-image"
     slides.append(_slide(0, title_elements, background=title_bg, metadata=meta(
         slideIndexInRound=0, isRoundTitle=True, isTitleCard=bool(title_card_url),
+        _title_card_source=title_card_source,
+        _verified_from_prototype="PresentationMode.jsx#L48-L129 (slide 0 = title card)",
     )))
 
     # ------------------------------------------------------------------
     # SLIDES 1..N — Questions
     # ------------------------------------------------------------------
     if is_big:
-        # BIG has exactly ONE clue question (per prototype spec)
+        # BIG round: slide 1 is the clue. Prototype PPTX shows ONLY the clue
+        # text centered on the dark stage — no "The Clue" header, no
+        # question-number chip. Verified against:
+        #   _reference/standalone_v30/frontend/src/components/trivia/editor/
+        #     PresentationMode.jsx#L67-L129 (BIG slide layout comments)
+        # and the merchant's Feb-6 clarification ("WHAT THE FUCK is 'The Clue'?").
         q = questions[0] if questions else {}
         clue_text = q.get("question", "")
         clue_elements = [
-            _text("The Clue", x=160, y=90, w=1600, h=100, size=64,
-                  color="#F4C430", weight="800"),
-            _text(clue_text, x=160, y=280, w=1600, h=600,
-                  size=72, weight="700"),
+            _text(clue_text, x=160, y=240, w=1600, h=640,
+                  size=88, weight="700", align="center"),
         ]
         slides.append(_slide(1, clue_elements, background=BG_BLUE, metadata=meta(
             slideIndexInRound=1, questionNumber=1,
+            _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG clue slide)",
         )))
     else:
         # MC/REG/MISC: expect 10 questions; MYS: expect 9. We render exactly
@@ -815,6 +847,12 @@ def render_round_section(
                     ))
             slides.append(_slide(i + 1, elements, background=BG_BLUE, metadata=meta(
                 slideIndexInRound=i + 1, questionNumber=qnum,
+                _verified_from_prototype=(
+                    "PresentationMode.jsx#L67-L129 (MC=Q+options, "
+                    "REG/MISC/MYS=Q only)"
+                ),
+                _has_question_text=bool(qtext),
+                _has_options=bool(rtype == "MC" and options),
             )))
 
     # ------------------------------------------------------------------
@@ -846,7 +884,8 @@ def render_round_section(
             ))
         slides.append(_slide(review_idx, review_elements, background=BG_BLUE,
                              metadata=meta(slideIndexInRound=review_idx,
-                                           isReview=True)))
+                                           isReview=True,
+                                           _verified_from_prototype="PresentationMode.jsx#L67-L129 (review, all Qs listed)")))
 
     # ------------------------------------------------------------------
     # .gif(STOP) SLIDE — "Time to grade" pause. Auto-advance stops here;
@@ -869,7 +908,8 @@ def render_round_section(
     ]
     slides.append(_slide(gif_idx, gif_elements, background=BG_DARK,
                          metadata=meta(slideIndexInRound=gif_idx,
-                                       isGifStop=True, isPreAnswerSlide=True)))
+                                       isGifStop=True, isPreAnswerSlide=True,
+                                       _verified_from_prototype="PresentationMode.jsx#L67-L129 (STOP gif / Time to Grade)")))
 
     # For BIG: review slide comes AFTER the gif (index 3)
     if is_big and questions:
@@ -881,7 +921,8 @@ def render_round_section(
                   size=64, weight="600"),
         ]
         slides.append(_slide(3, review_elements, background=BG_BLUE,
-                             metadata=meta(slideIndexInRound=3, isReview=True)))
+                             metadata=meta(slideIndexInRound=3, isReview=True,
+                                           _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG review at index 3)")))
 
     # ------------------------------------------------------------------
     # ANSWERS SLIDE — **NO TITLE ELEMENT**. All text elements are answers.
@@ -912,7 +953,8 @@ def render_round_section(
                 weight="700", color="#F4C430", align="center",
             ))
         slides.append(_slide(ans_idx, ans_elements, background=BG_BLUE,
-                             metadata=meta(slideIndexInRound=ans_idx, isAnswers=True)))
+                             metadata=meta(slideIndexInRound=ans_idx, isAnswers=True,
+                                           _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG answer reveal, NO title element)")))
 
         # Tiebreaker (BIG-only): slides 5 + 6 = question / answer
         tb = round_data.get("tiebreaker") or {}
@@ -925,6 +967,7 @@ def render_round_section(
                 _text(tb_q, x=160, y=340, w=1600, h=500, size=60, weight="600"),
             ], background=BG_GOLD, metadata=meta(
                 slideIndexInRound=5, isTiebreaker=True,
+                _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG tiebreaker Q at index 5)",
             )))
             slides.append(_slide(6, [
                 # No title — first text element IS the answer reveal
@@ -932,6 +975,7 @@ def render_round_section(
                       weight="800", color="#F4C430"),
             ], background=BG_GOLD, metadata=meta(
                 slideIndexInRound=6, isTiebreaker=True, isAnswers=True,
+                _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG tiebreaker A at index 6)",
             )))
     else:
         # MC/REG/MISC/MYS: N answers, one text element each. NO TITLE.
@@ -949,7 +993,8 @@ def render_round_section(
                 align="left", weight="700", color="#F4C430",
             ))
         slides.append(_slide(ans_idx, ans_elements, background=BG_BLUE,
-                             metadata=meta(slideIndexInRound=ans_idx, isAnswers=True)))
+                             metadata=meta(slideIndexInRound=ans_idx, isAnswers=True,
+                                           _verified_from_prototype="PresentationMode.jsx#L67-L129 (answers reveal, NO title element)")))
 
     return slides
 
