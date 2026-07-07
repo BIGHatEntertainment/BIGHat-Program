@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -878,6 +878,46 @@ async def reorder_overlay_images(
         }},
     )
     return {"overlay_images": ordered}
+
+
+@router.patch("/{location_id}/overlays/{image_id}/tags")
+async def tag_overlay_image(
+    location_id: str,
+    image_id: str,
+    payload: Dict[str, Any] = Body(...),
+    request: Request = None,
+) -> Dict[str, Any]:
+    """v32.0.0-alpha.53 — Tag an overlay with the round-types it applies to.
+
+    Payload: `{"applies_to_round_types": ["MC","REG","MISC","MYS","BIG"]}`
+
+    An empty list or omitted key means "applies to no rounds" (dormant).
+    An UNTAGGED overlay (never PATCHed) is treated as "applies to every
+    round type" for backwards compatibility with pre-alpha.53 uploads.
+    """
+    _, loc = await _require_location_access(location_id, request)
+    tags_raw = payload.get("applies_to_round_types") or []
+    allowed = {"MC", "REG", "MISC", "MYS", "BIG"}
+    tags = []
+    for t in tags_raw:
+        u = (t or "").strip().upper()
+        if u and u in allowed:
+            tags.append(u)
+        elif u and u not in allowed:
+            raise HTTPException(400, detail=f"invalid round type {u!r}")
+    images = loc.get("overlay_images") or []
+    img = next((i for i in images if i.get("id") == image_id), None)
+    if not img:
+        raise HTTPException(404, detail="overlay_not_found")
+    img["applies_to_round_types"] = tags
+    await _db.locations.update_one(
+        {"id": location_id},
+        {"$set": {
+            "overlay_images": images,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"id": image_id, "applies_to_round_types": tags}
 
 
 # ----- Endpoints: admin assignments -----
