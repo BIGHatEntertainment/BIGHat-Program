@@ -98,6 +98,21 @@ async def fetch_section(presentation_id: str, section_name: str, request: Reques
         if not trivia_pres:
             raise HTTPException(status_code=404, detail="Presentation not found")
 
+        # v32.0.0-alpha.53: fetch location overlays ONCE per section-request
+        # (async-safe) and pass into the renderer via `body` so the renderer
+        # can stay synchronous.
+        location_id = trivia_pres.get("location_id")
+        if location_id and section_name.startswith("round_"):
+            try:
+                loc_doc = await db.locations.find_one(
+                    {"id": location_id}, {"_id": 0, "overlay_images": 1},
+                )
+                if loc_doc:
+                    body = dict(body)
+                    body["_location_overlays"] = loc_doc.get("overlay_images") or []
+            except Exception as loc_exc:
+                logger.warning("[slide-fetcher] overlay prefetch failed: %s", loc_exc)
+
         # v32.0.0-alpha.46: NATIVE DISK RENDER PATH.
         # For the desktop native build there is no SharePoint. Render the
         # section directly from `.bighat` data. If the render returns
