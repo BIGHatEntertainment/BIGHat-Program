@@ -1065,6 +1065,8 @@ def native_render_section(
             return render_host_section(presentation)
         if sn == "location":
             return render_location_section(presentation)
+        if sn in ("intros", "intro", "trivia_intros", "trivia-intros"):
+            return render_intros_section(presentation)
         if sn == "sponsors":
             return render_sponsors_section(presentation)
         if sn == "winners":
@@ -1101,8 +1103,108 @@ def native_render_section(
                     "roundNumber": round_num,
                     "slideIndexInRound": 0, "isRoundTitle": True,
                 })]
-            return render_round_section(round_data, round_ref)
+            slides = render_round_section(round_data, round_ref)
+            # v32.0.0-alpha.53 — apply location overlays to Q + A slides
+            # (spec step 17, filter option 3b: question + answer slides only).
+            # Overlays are pre-fetched by the slide-fetcher endpoint and
+            # passed in via `body["_location_overlays"]` so this renderer
+            # stays synchronous (no async DB access here).
+            overlays = body.get("_location_overlays") if body else None
+            if overlays:
+                slides = _apply_location_overlays(
+                    slides, overlays, presentation.get("location_id"), round_ref,
+                )
+            return slides
     except Exception as e:
         logger.exception("[native-slides] renderer failed for section %s: %s", sn, e)
         return []
     return []
+
+
+# ---------------------------------------------------------------------------
+# v32.0.0-alpha.53 — Trivia intro-slides section (spec step 15).
+# ---------------------------------------------------------------------------
+
+def render_intros_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Load the presentation's intro-pack from `Files/Trivia/Intros/` and
+    return its slides in order. Merchant spec: the intros go AFTER the
+    location section, BEFORE round 1. If no pack is bound, returns []."""
+    intro_id = pres.get("intro_pack_id")
+    if not intro_id:
+        return []
+    try:
+        from presentation_builder import load_intro_pack
+    except ImportError:
+        return []
+    pack = load_intro_pack(intro_id)
+    if not pack:
+        logger.warning("[intros] pack %s not found on disk", intro_id)
+        return []
+    out = []
+    for i, s in enumerate(pack.get("slides") or []):
+        s = dict(s)
+        md = dict(s.get("metadata") or {})
+        md.setdefault("slideIndexInRound", i)
+        md.setdefault("_section", "intros")
+        md.setdefault("_verified_from_prototype",
+                      "presentation_builder.render_intros_section (pack-driven)")
+        s["metadata"] = md
+        out.append(s)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# v32.0.0-alpha.53 — Location overlay compositing (spec step 17).
+# ---------------------------------------------------------------------------
+
+def _apply_location_overlays(
+    slides: List[Dict[str, Any]],
+    overlays: List[Dict[str, Any]],
+    location_id: Optional[str],
+    round_ref: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Composite the location's round-type-tagged overlays on top of
+    QUESTION + ANSWER slides only (option 3b, merchant spec).
+
+    `overlays` is the pre-fetched `locations.overlay_images` list (from
+    the slide-fetcher endpoint). Each overlay may carry
+    `applies_to_round_types: ["MC","REG",...]`; untagged overlays apply
+    to ALL round types (backwards compat).
+    """
+    if not overlays or not location_id:
+        return slides
+    try:
+        from presentation_builder import overlays_for_round_type
+    except ImportError:
+        return slides
+    rtype = (round_ref.get("type") or "").upper()
+    matched = overlays_for_round_type(overlays, rtype)
+    if not matched:
+        return slides
+
+    def _overlay_url(loc_id: str, img: Dict[str, Any]) -> str:
+        return f"/api/native/locations/{loc_id}/overlays/{img['id']}/raw"
+
+    out: List[Dict[str, Any]] = []
+    for s in slides:
+        md = s.get("metadata") or {}
+        is_q = (md.get("questionNumber") is not None
+                and not md.get("isAnswers") and not md.get("isReview"))
+        is_a = bool(md.get("isAnswers"))
+        if not (is_q or is_a):
+            out.append(s)
+            continue
+        s = dict(s)
+        elements = list(s.get("elements") or [])
+        for ov in matched:
+            elements.append(_image(
+                _overlay_url(location_id, ov),
+                x=0, y=0, w=STAGE_W, h=STAGE_H,
+            ))
+        s["elements"] = elements
+        md = dict(md)
+        md["_location_overlays_applied"] = [ov["id"] for ov in matched]
+        s["metadata"] = md
+        out.append(s)
+    return out
+

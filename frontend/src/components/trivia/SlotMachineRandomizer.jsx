@@ -937,6 +937,47 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
         presentationName: `${locationName} - ${new Date().toLocaleDateString()}`
       };
       
+      // v32.0.0-alpha.53 — HARDCODED ROULETTE PIPELINE. Post to the
+      // backend roulette endpoint. Backend enforces spec + writes the
+      // .bighat with the picks + returns the document.
+      const roundFileRef = (p) => {
+        const parts = String(p || '').split(/[\\/]/);
+        return parts[parts.length - 1] || String(p || '');
+      };
+      const regPool = (selectedRoundPaths.REG || []).map(roundFileRef);
+      const miscPool = (selectedRoundPaths.MISC || []).map(roundFileRef);
+      const bigPool = (selectedRoundPaths.BIG || []).map(roundFileRef);
+      const selectedHostObj_rr = { id: selectedHost, email: selectedHost };
+      let hardcodedRouletteDoc = null;
+      try {
+        const rouletteResp = await axios.post(
+          `${API}/native/presentations/roulette`,
+          {
+            name: triviaData.presentationName,
+            host_id: selectedHost,
+            location_id: selectedLocationPath || selectedLocation,
+            round_count: numRounds,
+            reg_pool: regPool.length ? regPool : ['reg-01.bighat'],
+            misc_pool: miscPool.length ? miscPool : ['misc-01.bighat'],
+            big_pool: bigPool.length ? bigPool : ['big-01.bighat'],
+          },
+        );
+        hardcodedRouletteDoc = rouletteResp.data;
+        console.log('[roulette] hardcoded build succeeded:', hardcodedRouletteDoc.id);
+      } catch (rouletteErr) {
+        const detail = rouletteErr?.response?.data?.detail || rouletteErr.message;
+        const proceed = window.confirm(
+          `Check failed while building roulette presentation:\n\n${detail}\n\n` +
+          'Continue with legacy (unchecked) build anyway?'
+        );
+        if (!proceed) {
+          setBuilding(false);
+          return;
+        }
+        console.warn('[roulette] hardcoded build failed, continuing legacy:', detail);
+      }
+      triviaData.hardcodedRouletteDoc = hardcodedRouletteDoc;
+
       // Call the same API as the manual wizard
       await axios.post(`${API}/presentations/import-trivia`, triviaData);
       

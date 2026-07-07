@@ -627,3 +627,146 @@ async def attest_presentation(presentation_id: str):
         },
         "slides": slides_summary,
     }
+
+
+
+# ---------------------------------------------------------------------------
+# v32.0.0-alpha.53 — Hardcoded Build Wizard + Round Roulette endpoints.
+#
+# Full spec: see `/app/backend/presentation_builder.py` module docstring.
+# Every rule the merchant listed on 2026-02-06 (17-step flow) is encoded
+# in that module; these endpoints are thin HTTP adapters over it.
+# ---------------------------------------------------------------------------
+
+
+class WizardBuildRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    host_id: str = Field(..., min_length=1)
+    location_id: str = Field(..., min_length=1)
+    round_count: int = Field(..., ge=5, le=6)
+    round_files: List[str]
+    intro_pack_id: Optional[str] = None
+
+
+class RouletteBuildRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    host_id: str = Field(..., min_length=1)
+    location_id: str = Field(..., min_length=1)
+    round_count: int = Field(..., ge=5, le=6)
+    reg_pool: List[str] = Field(..., min_length=1)
+    misc_pool: List[str] = Field(..., min_length=1)
+    big_pool: List[str] = Field(..., min_length=1)
+    mc_pool: Optional[List[str]] = None
+    mys_pool: Optional[List[str]] = None
+    seed: Optional[int] = None
+    intro_pack_id: Optional[str] = None
+
+
+class IntroPackCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    slides: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class OverlayTagRequest(BaseModel):
+    applies_to_round_types: List[str] = Field(default_factory=list)
+
+    @field_validator("applies_to_round_types")
+    @classmethod
+    def _upper(cls, v: List[str]) -> List[str]:
+        allowed = {"MC", "REG", "MISC", "MYS", "BIG"}
+        cleaned = [(t or "").strip().upper() for t in v]
+        bad = [t for t in cleaned if t and t not in allowed]
+        if bad:
+            raise ValueError(f"unknown round types: {bad}")
+        return [t for t in cleaned if t]
+
+
+@router.post("/presentations/build")
+async def build_presentation_from_wizard(payload: WizardBuildRequest = Body(...)):
+    """Step 12 of the merchant's spec — Build Wizard confirms → this
+    endpoint writes the presentation `.bighat` on disk and returns it."""
+    try:
+        from presentation_builder import build_from_wizard, BuildValidationError
+    except ImportError as e:
+        raise HTTPException(500, detail=f"presentation_builder import failed: {e}")
+    try:
+        return build_from_wizard(
+            name=payload.name,
+            host_id=payload.host_id,
+            location_id=payload.location_id,
+            round_count=payload.round_count,
+            round_files=payload.round_files,
+            intro_pack_id=payload.intro_pack_id,
+        )
+    except BuildValidationError as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@router.post("/presentations/roulette")
+async def build_presentation_from_roulette(payload: RouletteBuildRequest = Body(...)):
+    """Round Roulette — slot machine confirms → this endpoint spins,
+    picks, writes the presentation `.bighat`, and returns picks + doc."""
+    try:
+        from presentation_builder import build_from_roulette, BuildValidationError
+    except ImportError as e:
+        raise HTTPException(500, detail=f"presentation_builder import failed: {e}")
+    try:
+        return build_from_roulette(
+            name=payload.name,
+            host_id=payload.host_id,
+            location_id=payload.location_id,
+            round_count=payload.round_count,
+            reg_pool=payload.reg_pool,
+            misc_pool=payload.misc_pool,
+            big_pool=payload.big_pool,
+            mc_pool=payload.mc_pool,
+            mys_pool=payload.mys_pool,
+            seed=payload.seed,
+            intro_pack_id=payload.intro_pack_id,
+        )
+    except BuildValidationError as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@router.get("/round-pool/{round_type}")
+async def list_round_pool(round_type: str):
+    """List available `.bighat` files in a specific round-type folder.
+    Used by the Wizard and Roulette dropdowns."""
+    from presentation_builder import _list_round_files_of_type
+    rt = round_type.upper()
+    if rt not in ("MC", "REG", "MISC", "MYS", "BIG"):
+        raise HTTPException(400, detail=f"invalid round type {rt!r}")
+    files = _list_round_files_of_type(rt)
+    return {
+        "round_type": rt,
+        "count": len(files),
+        "files": [f.name for f in files],
+    }
+
+
+@router.get("/intros")
+async def list_intros_endpoint():
+    from presentation_builder import list_intro_packs
+    return {"packs": list_intro_packs()}
+
+
+@router.get("/intros/{intro_id}")
+async def get_intro_pack(intro_id: str):
+    from presentation_builder import load_intro_pack
+    doc = load_intro_pack(intro_id)
+    if not doc:
+        raise HTTPException(404, detail=f"intro_pack {intro_id!r} not found")
+    return doc
+
+
+@router.post("/intros")
+async def create_intro_pack(payload: IntroPackCreateRequest = Body(...)):
+    from presentation_builder import save_intro_pack
+    return save_intro_pack(payload.name, payload.slides)
+
+
+@router.delete("/intros/{intro_id}", status_code=204)
+async def delete_intro_pack_endpoint(intro_id: str):
+    from presentation_builder import delete_intro_pack
+    if not delete_intro_pack(intro_id):
+        raise HTTPException(404, detail=f"intro_pack {intro_id!r} not found")

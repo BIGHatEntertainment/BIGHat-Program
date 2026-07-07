@@ -1,17 +1,19 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.52` (2026-02-06).** See
+> **Current release: `v32.0.0-alpha.53` (2026-02-06).** See
 > `/app/memory/CHANGELOG.md` for the full per-release history. The active
-> release script pair is `scripts/push_alpha52.py` + `scripts/wait_and_publish_alpha52.py`.
-> After alpha.52 publishes, the sweep step in `wait_and_publish_alpha52.py`
-> also publishes any lingering DRAFT releases (as prereleases) — the
-> merchant does not want drafts sitting around in GitHub.
+> release script pair is `scripts/push_alpha53.py` + `scripts/wait_and_publish_alpha53.py`.
 >
-> **Prototype-provenance flags are now MANDATORY.** Every rendered slide's
+> **The 17-step build flow is now HARDCODED in `backend/presentation_builder.py`.**
+> Round-count is locked to 5 or 6. MC first, BIG last, MYS second-to-last.
+> Slot-3 in 6-round mode is the only variable slot (REG or MISC). Cross-pool
+> picking is REJECTED — MC files can ONLY come from `Files/Trivia/MC/`.
+> `backend/tests/test_alpha53_build_pipeline_and_overlays.py` has 24 tests
+> that map to the merchant's numbered spec steps.
+>
+> **Prototype-provenance flags are MANDATORY.** Every rendered slide's
 > `metadata` must carry `_verified_from_prototype: "file.jsx#Lstart-Lend"`
-> or (for title slides) `_title_card_source: "..."`. If a future agent
-> ships an invented layout, `test_alpha52_no_the_clue_and_attestation.py`
-> will break the CI before the release goes out. New endpoint
+> or (for title slides) `_title_card_source: "..."`. New endpoint
 > `GET /api/native/attest/{presentation_id}` returns a full audit report.
 > Never re-invent slide contents that aren't in the prototype.
 

@@ -8,6 +8,79 @@
 ---
 ---
 
+## 2026-02-06 — v32.0.0-alpha.53: HARDCODED build pipeline — Wizard + Roulette + Intros + Overlay round-type tagging
+
+### Merchant demand
+> "let me make this more clear, please hardcode this: 1) the user logs in, 2) creates a presentation based off the .bighat files they have purchased… [17-step spec follows]"
+
+The merchant gave a 17-step spec covering every step from login through slide-composite. This release makes that spec **the code**, not the docs. Every rule is either an assertion in `presentation_builder.py` or a locked-in CI test in `test_alpha53_build_pipeline_and_overlays.py`.
+
+### Round-count rules (hardcoded, no override)
+```
+5 rounds → MC → REG → MISC → MYS → BIG
+6 rounds → MC → REG → (REG or MISC) → MISC → MYS → BIG
+```
+`presentation_builder.validate_round_sequence()` raises `BuildValidationError` on any deviation. Slot-3 in 6-round mode is the only variable slot. Cross-pool picking (e.g. passing a `misc-*.bighat` into the MC slot) is REJECTED at file resolution — spec quote: "only pulls from the XX folder".
+
+### New backend module: `backend/presentation_builder.py`
+- `build_from_wizard(name, host_id, location_id, round_count, round_files[], intro_pack_id?)` — 12-step Build Wizard entry.
+- `build_from_roulette(name, host_id, location_id, round_count, reg_pool[], misc_pool[], big_pool[], seed?)` — slot-machine. Merchant spec: host picks 5 from REG / 5 from MISC / 5 from BIG; MC and MYS are auto-picked from their pools; if 6 rounds, slot-3 is auto-picked from remaining REG-or-MISC.
+- `save_intro_pack / list_intro_packs / load_intro_pack / delete_intro_pack` — new `Files/Trivia/Intros/` library.
+- `overlays_for_round_type(overlays, round_type)` — returns overlays whose `applies_to_round_types` tag list matches. Untagged overlays default to "applies everywhere" (legacy compat).
+
+### New endpoints (`backend/native/router.py`)
+- `POST /api/native/presentations/build` — the wizard's "Confirm" step (spec step 12).
+- `POST /api/native/presentations/roulette` — Round Roulette's "Confirm" (writes .bighat with `_roulette_picks` metadata).
+- `GET /api/native/round-pool/{MC|REG|MISC|MYS|BIG}` — lists just that type's folder, so the wizard dropdowns can never see cross-type files.
+- `GET /api/native/intros` / `POST /api/native/intros` / `GET/{id}` / `DELETE/{id}` — Trivia Intro Slides library.
+
+### New endpoint (`backend/native/locations_router.py`)
+- `PATCH /api/native/locations/{loc_id}/overlays/{img_id}/tags` — sets `applies_to_round_types: ["MC","REG",…]` on an overlay. This is the metadata/tagging feature the merchant demanded so each overlay goes to the correct round at the correct location (spec step 17).
+
+### Renderer changes (`backend/native_slides.py`)
+- New `render_intros_section(pres)` — reads the presentation's bound `intro_pack_id` and returns its slides, stamped with `_verified_from_prototype: presentation_builder.render_intros_section (pack-driven)`. Section dispatch key: `intros`.
+- New `_apply_location_overlays(slides, overlays, location_id, round_ref)` — composites overlays onto **question + answer slides ONLY** (spec option 3b). Filters by round-type tag. Skips title / gif / review slides. Every touched slide is stamped `_location_overlays_applied: [id,…]` so the attestation endpoint can audit exactly where overlays landed.
+- `native_render_section` accepts `body["_location_overlays"]` (pre-fetched by the slide-fetcher endpoint) so the renderer stays synchronous — no async DB access inside the renderer.
+- `slide_fetcher.fetch_section` pre-fetches location overlays once per section and passes them through — one Mongo query per section, not per slide.
+
+### Frontend
+- **`TriviaBuilderWizard.jsx`** — now POSTs to `/api/native/presentations/build` at the confirm step. On backend rejection: shows a `window.confirm` modal ("Check failed — continue anyway?") — spec answer 4b. Preserves the legacy `onComplete` path so nothing else breaks.
+- **`SlotMachineRandomizer.jsx`** — same treatment: POSTs to `/api/native/presentations/roulette` at confirm, "continue anyway?" modal on failure.
+- **`TriviaIntrosTab.jsx`** (new) — Trivia Admin > "Trivia Intro Slides" sub-tab. Creates / lists / deletes intro packs. Merchant spec answer 2: "another tab in the trivia admin. this way there is one set of global trivia intro material that all the presentations will pull from on that account." Slide editing lands in a follow-up alpha (backend already supports it via `POST /api/native/intros` `{name, slides:[…]}`).
+- **`TriviaDashboard.jsx`** — new "Trivia Intro Slides" sub-tab in the Admin panel.
+
+### Testing (100/100 pass, alpha.45–53 series)
+`test_alpha53_build_pipeline_and_overlays.py` has 24 tests, mapping to the merchant's 17 numbered steps:
+- Step 6 → round-count 5 or 6 only.
+- Steps 7-11 → per-slot type enforcement, cross-pool rejection.
+- Step 12 → wizard writes `.bighat` with all metadata.
+- Round Roulette → determinism (seed), auto slot-3 for 6-round.
+- Step 15 → `render_intros_section` returns pack slides with provenance stamps.
+- Step 17 → overlays composite on Q+A only, filtered by round-type tag, never on title/gif/review.
+- Contract tests → wizard endpoint rejects `round_count=4`, roulette endpoint returns `_source: "round-roulette"`, `round-pool/MC` contains ONLY MC files, intros endpoint full CRUD.
+
+### Files touched
+- `backend/presentation_builder.py` — new (17-step hardcoded pipeline, 380 lines).
+- `backend/native/router.py` — 6 new endpoints.
+- `backend/native/locations_router.py` — overlay-tags PATCH.
+- `backend/native_slides.py` — intros section + overlay compositor + slide-fetcher body plumbing.
+- `backend/routes/slide_fetcher.py` — overlay pre-fetch.
+- `backend/tests/test_alpha53_build_pipeline_and_overlays.py` — new (24 tests).
+- `frontend/src/components/trivia/TriviaBuilderWizard.jsx` — POST to `/api/native/presentations/build`.
+- `frontend/src/components/trivia/SlotMachineRandomizer.jsx` — POST to `/api/native/presentations/roulette`.
+- `frontend/src/components/trivia/TriviaIntrosTab.jsx` — new.
+- `frontend/src/pages/trivia/TriviaDashboard.jsx` — mount intros tab.
+- `backend/VERSION.txt`, `src-tauri/tauri.conf.json` → `32.0.0-alpha.53`.
+
+### What's deliberately deferred to alpha.54
+- The overlay round-type **tagging UI** in the Locations admin (backend API is live; UI comes next).
+- Intro pack **slide editor** UI (backend accepts `slides[]`; UI to add/edit/reorder slides comes next).
+- The "check failed — continue anyway?" **modal styling** (currently `window.confirm`; a proper shadcn Dialog lands next).
+- White-glove / custom round-count support.
+
+---
+---
+
 ## 2026-02-06 — v32.0.0-alpha.52: kill "The Clue" hallucination, prototype provenance flags, `/api/native/attest` endpoint
 
 ### The merchant's charge (Feb 6, second batch)
