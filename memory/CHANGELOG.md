@@ -8,6 +8,52 @@
 ---
 ---
 
+## 2026-02-06 — v32.0.0-alpha.54: REG round title cards come from the round-maker upload folder
+
+### Merchant charge
+> "the title images are still not being grabbed and loaded into the presentations. i know they are there because they show up in the round generators preview area. that image is the title card for that round so when that round is used in a presentation that same exact image in that rounds preview better in that rounds title card slide"
+
+### Root cause
+The round-generator writes bare-JSON `.bighat` files with `cover_image_id` pointing to a UUID stem in `backend/roundmaker_uploads/<uuid>.<ext>`. That's the exact file the round-editor preview shows. But the presentation renderer never opened that folder — it only looked for ZIP-embedded `assets/cover.jpg`. Result: slide 0 fell through to the "REGULAR ROUND" text placeholder.
+
+Verified against real merchant data on the running preview:
+```
+animals-1-5b9b94f4.bighat: cover_image_id='75fc7283-...'
+  → /app/backend/roundmaker_uploads/75fc7283-...jpg (405 KB) ✓ EXISTS
+```
+The image is right there. The renderer just wasn't reading it.
+
+### The fix
+- New helper `native_slides._inline_roundmaker_upload(cover_image_id)` — walks the roundmaker uploads dir (any of `.jpg/.jpeg/.png/.gif/.webp`), reads the file, and returns it as a `data:image/…;base64,…` URL. Path-traversal input is rejected.
+- Env override `BIGHAT_ROUNDMAKER_UPLOADS` for tests + white-glove installs; default lookup is `Path(__file__).parent / "roundmaker_uploads"`.
+- `_read_bighat_round` bare-JSON branch now calls the helper when the doc has a `cover_image_id` and no pre-existing `cover_image_data_url`; writes the result under `cover_image_data_url` and stamps `_title_card_source_hint: "roundmaker-upload"`.
+- Slide 0 was already programmed to prefer the embedded cover — no changes to `render_round_section` needed; the fix flows through automatically.
+
+### Verified against real user round on the running backend
+```
+name: Animals_1
+cover_image_id: 75fc7283-26a4-4e21-87a3-5fa00a028d92
+_title_card_source: bighat-embedded-cover
+Slide 0 image count: 1 (data:image/jpeg;base64,/9j/4AAQ… size 1920×1080)
+```
+
+### Testing (7 new, 107 total in alpha series)
+- `test_inline_roundmaker_upload_returns_jpeg_data_url`
+- `test_inline_returns_none_for_unknown_uuid`
+- `test_inline_rejects_path_traversal` (security)
+- `test_inline_supports_multiple_extensions` (jpg/jpeg/png/gif/webp)
+- `test_bare_json_bighat_with_cover_image_id_gets_data_url` ← the merchant regression
+- `test_bare_json_bighat_without_matching_upload_returns_no_url` (graceful fallback)
+- `test_reg_slide0_is_the_roundmaker_uploaded_image` — end-to-end: slide 0 is a 1920×1080 data-URL image, `_title_card_source = "bighat-embedded-cover"`, and the string "REGULAR" is NOT in the slide text.
+
+### Files touched
+- `backend/native_slides.py` — new `_inline_roundmaker_upload()` helper; bare-JSON branch inlines the upload.
+- `backend/tests/test_alpha54_reg_title_from_roundmaker_uploads.py` — new (7 tests).
+- `backend/VERSION.txt`, `src-tauri/tauri.conf.json` → `32.0.0-alpha.54`.
+
+---
+---
+
 ## 2026-02-06 — v32.0.0-alpha.53: HARDCODED build pipeline — Wizard + Roulette + Intros + Overlay round-type tagging
 
 ### Merchant demand
