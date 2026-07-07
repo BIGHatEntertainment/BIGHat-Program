@@ -238,6 +238,47 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
       const selectedHostObj = hosts.find(h => h.path === selectedHost) || {};
       const selectedLocationObj = locations.find(l => l.path === selectedLocation) || {};
 
+      // v32.0.0-alpha.53 — HARDCODED PIPELINE. Post the wizard payload to
+      // the backend Build endpoint. The backend enforces every rule from
+      // the merchant's 17-step spec and writes the .bighat to disk. If it
+      // succeeds, we hand the returned document to onComplete so the
+      // Editor loads it. If the backend rejects the input, we surface the
+      // "Check failed — continue anyway?" modal (option 4b).
+      const roundFileRefs = rounds.map(p => {
+        // Path is a full disk path like ".../Files/Trivia/MC/mc-01-a.bighat";
+        // strip to bare filename — the backend re-resolves against the pool.
+        const parts = String(p).split(/[\\/]/);
+        return parts[parts.length - 1] || String(p);
+      });
+      const selectedHostObj2 = selectedHostObj;  // avoid alias warning
+      const selectedLocObj2 = selectedLocationObj;
+      let hardcodedBuildDoc = null;
+      try {
+        const buildResp = await axios.post(
+          `${API_BASE}/native/presentations/build`,
+          {
+            name: presentationName || `${selectedHostObj2.name || 'Show'} — ${new Date().toISOString().slice(0, 10)}`,
+            host_id: selectedHostObj2.id || selectedHostObj2.email || selectedHost,
+            location_id: selectedLocObj2.id || selectedLocObj2.slug || selectedLocation,
+            round_count: numRounds,
+            round_files: roundFileRefs,
+          },
+        );
+        hardcodedBuildDoc = buildResp.data;
+        console.log('[wizard] hardcoded build succeeded:', hardcodedBuildDoc.id);
+      } catch (buildErr) {
+        const detail = buildErr?.response?.data?.detail || buildErr.message;
+        const proceed = window.confirm(
+          `Check failed while building presentation:\n\n${detail}\n\n` +
+          'Continue with legacy (unchecked) build anyway?'
+        );
+        if (!proceed) {
+          setBuilding(false);
+          return;
+        }
+        console.warn('[wizard] hardcoded build failed, continuing legacy:', detail);
+      }
+
       const triviaData = {
         userName,
         host: selectedHost,
@@ -247,6 +288,8 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
         roundTypes, // Include round types for proper metadata
         roundNames, // Include round names for admin tracking
         presentationName,
+        // Hardcoded pipeline output — Editor consumes this preferentially
+        hardcodedBuildDoc,
         // Additional data for Story Generator save
         hostName: selectedHostObj.name || 'Unknown',
         locationFolder: selectedLocationObj.name || 'Unknown',
