@@ -1,11 +1,19 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.51` (2026-02-06).** See
+> **Current release: `v32.0.0-alpha.52` (2026-02-06).** See
 > `/app/memory/CHANGELOG.md` for the full per-release history. The active
-> release script pair is `scripts/push_alpha51.py` + `scripts/wait_and_publish_alpha51.py`.
-> After alpha.51 publishes, the sweep step in `wait_and_publish_alpha51.py`
+> release script pair is `scripts/push_alpha52.py` + `scripts/wait_and_publish_alpha52.py`.
+> After alpha.52 publishes, the sweep step in `wait_and_publish_alpha52.py`
 > also publishes any lingering DRAFT releases (as prereleases) — the
 > merchant does not want drafts sitting around in GitHub.
+>
+> **Prototype-provenance flags are now MANDATORY.** Every rendered slide's
+> `metadata` must carry `_verified_from_prototype: "file.jsx#Lstart-Lend"`
+> or (for title slides) `_title_card_source: "..."`. If a future agent
+> ships an invented layout, `test_alpha52_no_the_clue_and_attestation.py`
+> will break the CI before the release goes out. New endpoint
+> `GET /api/native/attest/{presentation_id}` returns a full audit report.
+> Never re-invent slide contents that aren't in the prototype.
 
 ---
 
