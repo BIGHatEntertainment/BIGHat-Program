@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import BIGHatFileButtons from '../../components/BIGHatFileButtons';
+import TriviaIntrosTab from '../../components/trivia/TriviaIntrosTab';
 import {
   HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock, ExternalLink,
   ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Shield, RefreshCw, AlertTriangle
@@ -552,7 +553,14 @@ function TriviaAdminPanel({ userName, onRefresh }) {
         <button onClick={() => setAdminSubTab('scores')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: adminSubTab === 'scores' ? 'rgba(251, 221, 104, 0.15)' : 'rgba(20, 27, 80, 0.4)', color: adminSubTab === 'scores' ? '#fbdd68' : '#8892b0', border: `1px solid ${adminSubTab === 'scores' ? 'rgba(251, 221, 104, 0.3)' : 'rgba(251, 221, 104, 0.08)'}` }}>
           Score Files ({scoreFiles.reduce((sum, f) => sum + f.fileCount, 0)})
         </button>
+        <button onClick={() => setAdminSubTab('intros')} data-testid="admin-tab-intros" className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: adminSubTab === 'intros' ? 'rgba(251, 221, 104, 0.15)' : 'rgba(20, 27, 80, 0.4)', color: adminSubTab === 'intros' ? '#fbdd68' : '#8892b0', border: `1px solid ${adminSubTab === 'intros' ? 'rgba(251, 221, 104, 0.3)' : 'rgba(251, 221, 104, 0.08)'}` }}>
+          Trivia Intro Slides
+        </button>
       </div>
+
+      {adminSubTab === 'intros' && (
+        <TriviaIntrosTab />
+      )}
 
       {adminSubTab === 'rounds' && (
       <>
