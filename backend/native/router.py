@@ -510,3 +510,120 @@ async def report_frontend_error(payload: Dict[str, Any] = Body(...)):
     except Exception as e:  # pragma: no cover
         logger.warning("[frontend-error-boundary] failed to log report: %s", e)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# v32.0.0-alpha.52 — Slide attestation endpoint.
+#
+# The merchant demanded flags to verify that slides are truly ported from
+# the prototype and not fabricated. This endpoint returns a summary of
+# every slide's provenance for a given presentation on disk:
+#
+#   - which round each slide belongs to
+#   - which `.bighat` file on disk sourced it (with format: ZIP vs bare-JSON)
+#   - whether the title card was: embedded / disk-per-category / disk-per-round
+#     / bundled-default / text-fallback
+#   - the `_verified_from_prototype` line-range citation for each slide
+#   - simple health flags (does every question slide have text? etc.)
+#
+# GET /api/native/attest/{presentation_id}
+# ---------------------------------------------------------------------------
+@router.get("/attest/{presentation_id}")
+async def attest_presentation(presentation_id: str):
+    """Return provenance report for a presentation's rendered slides."""
+    try:
+        import native_slides as ns
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"native_slides import failed: {e}")
+
+    pres = ns.load_presentation_from_disk(presentation_id)
+    if not pres:
+        raise HTTPException(status_code=404, detail=f"presentation {presentation_id} not on disk")
+
+    round_files = pres.get("roundFiles") or []
+    rounds_report: list = []
+    slides_summary: list = []
+
+    for rf in round_files:
+        rtype = (rf.get("type") or "").upper()
+        rorder = rf.get("order")
+        rpath = rf.get("file") or rf.get("path") or ""
+        doc = ns.load_round_from_disk({
+            "type": rtype, "name": rf.get("name"),
+            "id": rf.get("id"), "file": rpath,
+        })
+        source_format = "missing"
+        if doc is not None:
+            source_format = doc.get("_source_format", "bare-json")
+
+        if not doc:
+            rounds_report.append({
+                "round_order": rorder, "round_type": rtype,
+                "file": rpath, "source_format": source_format,
+                "num_questions": 0, "num_slides_rendered": 0,
+                "has_embedded_cover": False,
+            })
+            continue
+
+        slides = ns.render_round_section(
+            doc, {"type": rtype, "name": doc.get("name"), "order": rorder},
+        )
+        cover_source = None
+        for s in slides:
+            md = s.get("metadata") or {}
+            if md.get("isRoundTitle"):
+                cover_source = md.get("_title_card_source")
+                break
+
+        rounds_report.append({
+            "round_order": rorder, "round_type": rtype,
+            "file": rpath, "source_format": source_format,
+            "num_questions": len(doc.get("questions") or []),
+            "num_slides_rendered": len(slides),
+            "has_embedded_cover": bool(doc.get("cover_image_data_url")),
+            "title_card_source": cover_source,
+        })
+        for s in slides:
+            md = s.get("metadata") or {}
+            slides_summary.append({
+                "round": rorder, "round_type": rtype,
+                "slide_in_round": md.get("slideIndexInRound"),
+                "is_round_title": bool(md.get("isRoundTitle")),
+                "is_title_card_image": bool(md.get("isTitleCard")),
+                "title_card_source": md.get("_title_card_source"),
+                "question_number": md.get("questionNumber"),
+                "has_question_text": md.get("_has_question_text"),
+                "has_options": md.get("_has_options"),
+                "verified_from_prototype": md.get("_verified_from_prototype"),
+                "num_elements": len(s.get("elements") or []),
+            })
+
+    # Health flags
+    total_slides = len(slides_summary)
+    slides_with_image_title = sum(1 for s in slides_summary
+                                  if s["is_round_title"] and s["is_title_card_image"])
+    text_fallback_titles = sum(1 for s in slides_summary
+                               if s["is_round_title"] and s["title_card_source"] == "text-fallback-no-image")
+    missing_question_text = [
+        {"round": s["round"], "q": s["question_number"]}
+        for s in slides_summary
+        if s["question_number"] is not None and s["has_question_text"] is False
+    ]
+    all_slides_stamped = all(
+        s["verified_from_prototype"] or s["is_round_title"] for s in slides_summary
+    )
+
+    return {
+        "presentation_id": presentation_id,
+        "presentation_name": pres.get("name"),
+        "num_rounds": len(round_files),
+        "rounds": rounds_report,
+        "health": {
+            "total_slides": total_slides,
+            "title_slides_with_image": slides_with_image_title,
+            "title_slides_fallback_to_text": text_fallback_titles,
+            "questions_missing_text": missing_question_text,
+            "all_slides_prototype_stamped": all_slides_stamped,
+        },
+        "slides": slides_summary,
+    }
