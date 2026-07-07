@@ -1,15 +1,16 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.53` (2026-02-06).** See
-> `/app/memory/CHANGELOG.md` for the full per-release history. The active
-> release script pair is `scripts/push_alpha53.py` + `scripts/wait_and_publish_alpha53.py`.
+> **Current release: `v32.0.0-alpha.54` (2026-02-06).** REG round title
+> cards now inline from `backend/roundmaker_uploads/<cover_image_id>.<ext>`
+> — the same image the round-editor preview shows.
+> See `/app/memory/CHANGELOG.md` for the full per-release history. The
+> active release script pair is `scripts/push_alpha54.py` +
+> `scripts/wait_and_publish_alpha54.py`.
 >
-> **The 17-step build flow is now HARDCODED in `backend/presentation_builder.py`.**
-> Round-count is locked to 5 or 6. MC first, BIG last, MYS second-to-last.
-> Slot-3 in 6-round mode is the only variable slot (REG or MISC). Cross-pool
-> picking is REJECTED — MC files can ONLY come from `Files/Trivia/MC/`.
-> `backend/tests/test_alpha53_build_pipeline_and_overlays.py` has 24 tests
-> that map to the merchant's numbered spec steps.
+> **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
+> Round-count locked to 5 or 6. Cross-pool picking rejected at file
+> resolution. `backend/tests/test_alpha53_build_pipeline_and_overlays.py`
+> has 24 tests that map to the merchant's numbered spec steps.
 >
 > **Prototype-provenance flags are MANDATORY.** Every rendered slide's
 > `metadata` must carry `_verified_from_prototype: "file.jsx#Lstart-Lend"`

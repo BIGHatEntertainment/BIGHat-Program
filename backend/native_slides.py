@@ -355,6 +355,53 @@ def load_location_assets(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
     return assets
 
 
+def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
+    """v32.0.0-alpha.54: For legacy bare-JSON .bighat files, the
+    round-maker stores the title-card image at
+    ``backend/roundmaker_uploads/<cover_image_id>.<ext>``. When the round
+    generator preview shows a "POP-CULTURE" image, THAT is the file the
+    presentation renderer must inline as slide 0. This helper does the
+    disk lookup + base64 inlining.
+    """
+    if not cover_image_id:
+        return None
+    # Never let a caller sneak a path traversal through the ID.
+    if "/" in cover_image_id or "\\" in cover_image_id or ".." in cover_image_id:
+        return None
+    from base64 import b64encode
+    # `roundmaker_uploads/` lives next to server.py. Resolve relative to
+    # THIS module so it works whether we're running from `/app/backend`,
+    # from the Tauri sidecar bundle, or from a pytest tmp_path.
+    module_dir = Path(__file__).resolve().parent
+    upload_dirs = [
+        module_dir / "roundmaker_uploads",
+        # Some packaging layouts put backend/ one level deeper.
+        module_dir.parent / "backend" / "roundmaker_uploads",
+    ]
+    # Env override for tests + white-glove installs.
+    import os as _os
+    env_dir = _os.environ.get("BIGHAT_ROUNDMAKER_UPLOADS")
+    if env_dir:
+        upload_dirs.insert(0, Path(env_dir))
+    for up in upload_dirs:
+        if not up.is_dir():
+            continue
+        for entry in up.iterdir():
+            if entry.stem != cover_image_id:
+                continue
+            try:
+                raw = entry.read_bytes()
+            except OSError:
+                continue
+            ext = entry.suffix.lower()
+            mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                    ".png": "image/png", ".gif": "image/gif",
+                    ".webp": "image/webp"}.get(ext, "image/jpeg")
+            return f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+    return None
+
+
+
 def load_round_title_card(round_type: str, round_name: str = "") -> Optional[str]:
     """Look for a title-card image for a round. Priority:
         1. `Files/Trivia/<TYPE>/title-cards/<round_name>.<ext>` (per-round)
@@ -460,11 +507,24 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
         return None
     if not header.startswith(b"PK"):
         # Legacy bare-JSON .bighat (created before the ZIP format). Fall
-        # back to plain read.
+        # back to plain read + inline the `cover_image_id` asset when it
+        # points to a file in the round-maker's `roundmaker_uploads/`
+        # folder (spec: the exact image shown in the round preview MUST
+        # be the title-card slide in the presentation).
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            doc = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+        try:
+            cid = doc.get("cover_image_id")
+            if cid and not doc.get("cover_image_data_url"):
+                data_url = _inline_roundmaker_upload(cid)
+                if data_url:
+                    doc["cover_image_data_url"] = data_url
+                    doc["_title_card_source_hint"] = "roundmaker-upload"
+        except Exception as e:  # pragma: no cover
+            logger.warning("[bighat] cover-inline failed for %s: %s", path, e)
+        return doc
 
     try:
         with zipfile.ZipFile(path, "r") as zf:
