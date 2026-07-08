@@ -3005,17 +3005,17 @@ Same as v31.0.10. All four artifacts in this release.
 
 The frontend build orchestrator was running `yarn build` with the
 preview environment's `REACT_APP_BACKEND_URL` baked into the JS bundle
-(`https://standalone-tools.preview.emergentagent.com`). On a customer
+(`https://prototype-ui-audit.preview.emergentagent.com`). On a customer
 machine:
 
-* `axios.get('https://standalone-tools.preview.emergentagent.com/api/native/info')`
+* `axios.get('https://prototype-ui-audit.preview.emergentagent.com/api/native/info')`
   — they have no access to our preview env. `NativeContext.refresh()`
   failed → fail-open path set `native_mode=false`. The LoginPage
   `!nativeMode` gate (added in v31.0.7 to hide the Google button on
   desktop installs) then rendered the Google button anyway, sending
   the user to the Emergent OAuth page that titles itself "LOG IN TO
   127" (the redirect hostname `127.0.0.1` is truncated visually).
-* `axios.post('https://standalone-tools.preview.emergentagent.com/api/auth/login')`
+* `axios.post('https://prototype-ui-audit.preview.emergentagent.com/api/auth/login')`
   — same target. Our preview server has no user named
   `sellards@bighat.live`, so it returned 401. The customer's actual
   `sellards@bighat.live` lives in their LOCAL Mongo / MontyDB, which

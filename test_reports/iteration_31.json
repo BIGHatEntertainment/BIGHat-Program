@@ -1,5 +1,5 @@
 {
-  "summary": "v32.0.0-alpha.40 backend validation — Path A (disk-first rounds + native slide assembly). Ran the existing unit suite (test_alpha40_disk_rounds_and_slides.py, 12/12 green) and authored a new LIVE integration suite (test_alpha40_live_disk_rounds.py, 13/13 green) that hits https://standalone-tools.preview.emergentagent.com and physically inspects /root/Documents/BIG Hat Entertainment/Files/Trivia/<TYPE>/ before and after every CRUD op. All alpha.40 requirements verified end-to-end.",
+  "summary": "v32.0.0-alpha.40 backend validation — Path A (disk-first rounds + native slide assembly). Ran the existing unit suite (test_alpha40_disk_rounds_and_slides.py, 12/12 green) and authored a new LIVE integration suite (test_alpha40_live_disk_rounds.py, 13/13 green) that hits https://prototype-ui-audit.preview.emergentagent.com and physically inspects /root/Documents/BIG Hat Entertainment/Files/Trivia/<TYPE>/ before and after every CRUD op. All alpha.40 requirements verified end-to-end.",
   "backend_issues": {
     "critical": [],
     "minor": []

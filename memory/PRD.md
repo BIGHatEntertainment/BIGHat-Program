@@ -981,7 +981,7 @@ customer owns, not opaque rows in a SQLite database.
 - Two production-blocking bugs found by user:
   1. Every installed v31.0.5–v31.0.9 app talked to OUR preview env, not
      to its own embedded backend, because the React bundle had
-     `REACT_APP_BACKEND_URL=https://standalone-tools.preview.emergentagent.com`
+     `REACT_APP_BACKEND_URL=https://prototype-ui-audit.preview.emergentagent.com`
      baked in. Resulted in "LOG IN TO 127" Google OAuth screen + "Auth
      failed" on password login.
   2. Default employee password literal was hardcoded 11× in

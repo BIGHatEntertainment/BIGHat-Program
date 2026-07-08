@@ -16,7 +16,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://standalone-tools.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://prototype-ui-audit.preview.emergentagent.com").rstrip("/")
 
 MASTER_EMAIL = "sellards@bighat.live"
 MASTER_PASSWORD = "B1GHat"

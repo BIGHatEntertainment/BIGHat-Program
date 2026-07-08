@@ -14,7 +14,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get(
-    "REACT_APP_BACKEND_URL", "https://standalone-tools.preview.emergentagent.com"
+    "REACT_APP_BACKEND_URL", "https://prototype-ui-audit.preview.emergentagent.com"
 ).rstrip("/")
 EMAIL = "Sellards@bighat.live"
 PASSWORD = "BigHat2024!"

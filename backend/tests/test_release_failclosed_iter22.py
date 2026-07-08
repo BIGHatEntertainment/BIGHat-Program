@@ -252,7 +252,7 @@ class TestBackendSmoke:
     def test_api_root_200(self):
         base = os.environ.get(
             "REACT_APP_BACKEND_URL",
-            "https://standalone-tools.preview.emergentagent.com",
+            "https://prototype-ui-audit.preview.emergentagent.com",
         ).rstrip("/")
         r = requests.get(f"{base}/api/", timeout=15)
         assert r.status_code == 200, f"Got {r.status_code}: {r.text[:200]}"

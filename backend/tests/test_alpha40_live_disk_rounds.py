@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://standalone-tools.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://prototype-ui-audit.preview.emergentagent.com").rstrip("/")
 DOCS_ROOT = Path("/root/Documents/BIG Hat Entertainment")
 TRIVIA_ROOT = DOCS_ROOT / "Files" / "Trivia"
 

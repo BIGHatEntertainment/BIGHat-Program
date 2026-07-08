@@ -6,7 +6,7 @@ import pytest
 import requests
 from pathlib import Path
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://standalone-tools.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://prototype-ui-audit.preview.emergentagent.com").rstrip("/")
 FIXTURES = Path("/app/backend/tests/fixtures/bighat")
 EMAIL = "Sellards@bighat.live"
 PASSWORD = "BigHat2024!"
