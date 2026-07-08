@@ -23,11 +23,26 @@ logger = logging.getLogger(__name__)
 db: AsyncIOMotorDatabase = None
 
 BACKEND_DIR = Path(__file__).parent.parent
-UPLOAD_DIR = BACKEND_DIR / "roundmaker_uploads"
-GENERATED_DIR = BACKEND_DIR / "roundmaker_generated"
+# v32.0.0-alpha.55: in PyInstaller-frozen builds BACKEND_DIR is a per-launch
+# _MEIxxxx temp dir, so anything written next to it evaporates on app close.
+# The launcher pins these env vars to the persistent per-user data dir in
+# frozen mode; dev keeps the legacy in-repo folders.
+def _resolve_upload_dir() -> Path:
+    return Path(os.environ.get("BIGHAT_ROUNDMAKER_UPLOADS") or (BACKEND_DIR / "roundmaker_uploads"))
+
+
+def _resolve_generated_dir() -> Path:
+    return Path(os.environ.get("BIGHAT_ROUNDMAKER_GENERATED") or (BACKEND_DIR / "roundmaker_generated"))
+
+
+UPLOAD_DIR = _resolve_upload_dir()
+GENERATED_DIR = _resolve_generated_dir()
 ASSETS_DIR = BACKEND_DIR / "roundmaker_assets"
-UPLOAD_DIR.mkdir(exist_ok=True)
-GENERATED_DIR.mkdir(exist_ok=True)
+try:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+except OSError as _e:
+    logging.getLogger(__name__).warning("roundmaker dirs not writable: %s", _e)
 
 
 def _is_local_mode() -> bool:
@@ -160,6 +175,20 @@ def _write_round_bighat(doc: dict) -> Optional[str]:
         "created_at": doc.get("created_at") or datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # v32.0.0-alpha.55: embed the cover image INTO the .bighat so the file
+    # is fully self-contained (disk is the absolute source of truth). The
+    # cover_image_id lookup depends on the uploads folder still existing —
+    # embedding survives folder wipes, machine moves, and app upgrades.
+    cover_data_url = doc.get("cover_image_data_url")
+    if not cover_data_url and doc.get("cover_image_id"):
+        try:
+            from native_slides import _inline_roundmaker_upload
+            cover_data_url = _inline_roundmaker_upload(doc["cover_image_id"])
+        except Exception as e:
+            logger.warning("[roundmaker] cover embed failed for %s: %s", doc_id, e)
+    if cover_data_url:
+        payload["cover_image_data_url"] = cover_data_url
 
     try:
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -714,7 +743,7 @@ def _add_gif_slide(prs):
 
 def _find_cover_image(file_id):
     """Find uploaded cover image by file_id."""
-    if not file_id:
+    if not file_id or not UPLOAD_DIR.is_dir():
         return None
     for f in UPLOAD_DIR.iterdir():
         if f.stem == file_id:
