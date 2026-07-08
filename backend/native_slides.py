@@ -369,6 +369,20 @@ def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
     if "/" in cover_image_id or "\\" in cover_image_id or ".." in cover_image_id:
         return None
     from base64 import b64encode
+
+    IMG_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+    def _encode(entry: Path) -> Optional[str]:
+        try:
+            raw = entry.read_bytes()
+        except OSError:
+            return None
+        ext = entry.suffix.lower()
+        mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".png": "image/png", ".gif": "image/gif",
+                ".webp": "image/webp"}.get(ext, "image/jpeg")
+        return f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+
     # `roundmaker_uploads/` lives next to server.py. Resolve relative to
     # THIS module so it works whether we're running from `/app/backend`,
     # from the Tauri sidecar bundle, or from a pytest tmp_path.
@@ -378,7 +392,8 @@ def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
         # Some packaging layouts put backend/ one level deeper.
         module_dir.parent / "backend" / "roundmaker_uploads",
     ]
-    # Env override for tests + white-glove installs.
+    # Env override (set by the launcher in frozen builds — the persistent
+    # per-user dir) + tests.
     import os as _os
     env_dir = _os.environ.get("BIGHAT_ROUNDMAKER_UPLOADS")
     if env_dir:
@@ -389,16 +404,42 @@ def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
         for entry in up.iterdir():
             if entry.stem != cover_image_id:
                 continue
-            try:
-                raw = entry.read_bytes()
-            except OSError:
+            url = _encode(entry)
+            if url:
+                return url
+
+    # v32.0.0-alpha.55 RECOVERY FALLBACK: for rounds created before the
+    # uploads dir was made persistent, the upload copy is gone — but the
+    # ORIGINAL title-card artwork still lives in the local assets folder
+    # (that's what the round-maker preview reads, which is why the preview
+    # kept working). For REG rounds `cover_image_id` is the artwork's
+    # filename stem (e.g. "1970s"), so a stem match inside the TitleCards
+    # tree recovers the exact same image.
+    tc_root = _assets_root() / "01_Trivia" / "Web App" / "00_Builder" / "04_TitleCards"
+    if tc_root.is_dir():
+        for entry in sorted(tc_root.rglob("*")):
+            if not entry.is_file() or entry.suffix.lower() not in IMG_EXTS:
                 continue
-            ext = entry.suffix.lower()
-            mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                    ".png": "image/png", ".gif": "image/gif",
-                    ".webp": "image/webp"}.get(ext, "image/jpeg")
-            return f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+            if entry.stem != cover_image_id:
+                continue
+            url = _encode(entry)
+            if url:
+                logger.info("[bighat] cover %s recovered from TitleCards assets: %s",
+                            cover_image_id, entry)
+                return url
     return None
+
+
+def _assets_root() -> Path:
+    """Local assets root (mirrors routes.roundmaker._local_assets_root)."""
+    try:
+        from native.config import config_manager
+        p = config_manager.config.get("paths", {}).get("assets")
+        if p:
+            return Path(p)
+    except Exception:
+        pass
+    return Path(__file__).resolve().parent / "native" / "data" / "assets"
 
 
 
@@ -550,6 +591,11 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
                         ".webp": "image/webp", ".svg": "image/svg+xml"
                         }.get(ext, "application/octet-stream")
                 cover_data_url = f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+            # v32.0.0-alpha.55: ZIP payloads that reference a cover by
+            # `cover_image_id` (no bundled asset) get the same disk lookup
+            # as legacy bare-JSON rounds.
+            if not cover_data_url and payload.get("cover_image_id"):
+                cover_data_url = _inline_roundmaker_upload(payload["cover_image_id"])
 
             # Extract per-question media assets (some questions embed images).
             # `media` may be a bare string ("assets/q1.gif") OR a dict
