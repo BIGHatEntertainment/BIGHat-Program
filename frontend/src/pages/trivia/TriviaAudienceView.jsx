@@ -1,12 +1,12 @@
 /**
- * v32.0.0-alpha.47 — Trivia Audience View
+ * v32.0.0-alpha.55 — Trivia Audience View
  *
- * Second-monitor mirror of the host's slide. Meant to be dragged onto
- * the bar TV. Always renders in a 1920×1080 stage, uniformly scaled to
- * fit the actual monitor's resolution (min of vw/1920, vh/1080) so
- * every TV in every bar shows the SAME layout regardless of physical
- * pixel dimensions. No host chrome, no timer, no controls — just the
- * slide.
+ * VERBATIM PORT of the v30 prototype's audience-window `renderSlide()`
+ * (see _reference/standalone_v30 .. PresentationMode.jsx). Every visual
+ * decision here — the per-round-type font multipliers, the clamp()
+ * viewport font scaling, the Y-sorted answer reveal with
+ * `visibility:hidden`, the final-scores credit scroll — comes straight
+ * from the prototype. DO NOT invent layouts.
  *
  * Receives state from the host via:
  *   1. BroadcastChannel("bighat-trivia-audience") — primary
@@ -17,45 +17,90 @@
  *   { type: 'REVEAL_ANSWER', slideIndex, revealedCount }
  *   { type: 'CLOSE' }               // host is closing audience
  *   { type: 'PING' }                // heartbeat
- *
- * Host publishes to BOTH channels; audience reads from BOTH.
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Maximize } from 'lucide-react';
-
-// Fixed stage — every slide is designed at 1920×1080. Scaling keeps
-// aspect ratio identical across a 32" monitor and a 65" TV.
-const STAGE_W = 1920;
-const STAGE_H = 1080;
 
 const BC_NAME = 'bighat-trivia-audience';
+
+// _verified_from_prototype: PresentationMode.jsx renderSlide() fontMultiplier
+// 1) MC questions: +10% (1.10)
+// 2) REG, MISC, MYS questions: +15% (1.15)
+// 3) BIG Question (slide 1) and BIG review (slide 3): +10% (1.10)
+// 4) All review slides (except BIG): +15% (1.15)
+// 5) All answer slides: +10% (1.10)
+// 6) Winners slides: no change (1.0)
+function getFontMultiplier(slide, isAnswerSlide) {
+  const roundType = slide.metadata?.roundType;
+  const isWinnersSlide = roundType === 'WINNERS';
+  const isAnswerSlideType = slide.metadata?.isAnswerSlide;
+  if (isWinnersSlide) return 1.0;
+  if (isAnswerSlide || isAnswerSlideType) return 1.10;
+  if (roundType === 'MC') return 1.10;
+  if (roundType === 'REG' || roundType === 'MISC' || roundType === 'MYS') return 1.15;
+  // BIG, SPONSOR, SCORE, default: +10%
+  return 1.10;
+}
+
+// _verified_from_prototype: VIEWPORT-BASED FONT SCALING
+// clamp(max(base*0.7,14)px, (base/1920*100)vw, base*1.5px)
+function clampFontSize(element, fontMultiplier) {
+  const baseFontSize = (element.fontSize || 16) * fontMultiplier;
+  const vwSize = (baseFontSize / 1920) * 100;
+  const minSize = Math.max(baseFontSize * 0.7, 14);
+  const maxSize = baseFontSize * 1.5;
+  return `clamp(${minSize}px, ${vwSize}vw, ${maxSize}px)`;
+}
+
+// _verified_from_prototype: `.element` positioning is %-based against the
+// full-viewport slide, coordinates authored at 1920×1080.
+function positionStyle(element) {
+  return {
+    position: 'absolute',
+    left: (element.x / 1920) * 100 + '%',
+    top: (element.y / 1080) * 100 + '%',
+    width: (element.width / 1920) * 100 + '%',
+    height: (element.height / 1080) * 100 + '%',
+  };
+}
+
+function textStyle(element, fontMultiplier) {
+  return {
+    ...positionStyle(element),
+    fontSize: clampFontSize(element, fontMultiplier),
+    // `.element` class default is pre-wrap; element.whiteSpace overrides.
+    whiteSpace: element.whiteSpace || 'pre-wrap',
+    fontWeight: element.fontWeight || 'normal',
+    color: element.color || '#000000',
+    textAlign: element.textAlign || 'left',
+    fontFamily: element.fontFamily || 'Inter, sans-serif',
+    lineHeight: element.lineHeight || 1.5,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: element.textAlign === 'center'
+      ? 'center'
+      : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+    background: 'transparent',
+  };
+}
+
+const IMG_STYLE = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'contain',
+  pointerEvents: 'none',
+  background: 'transparent',
+};
 
 export default function TriviaAudienceView() {
   const [slide, setSlide] = useState(null);
   const [isAnswer, setIsAnswer] = useState(false);
   const [revealCount, setRevealCount] = useState(0);
   const [finalScores, setFinalScores] = useState(null);
-  const [stageScale, setStageScale] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(true);
   const [lastMessageAt, setLastMessageAt] = useState(null);
 
   const bcRef = useRef(null);
-
-  // --- Uniform viewport scaling (1920×1080 → whatever the TV is) --------
-  useEffect(() => {
-    const computeScale = () => {
-      const s = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
-      setStageScale(s);
-    };
-    computeScale();
-    window.addEventListener('resize', computeScale);
-    window.addEventListener('orientationchange', computeScale);
-    return () => {
-      window.removeEventListener('resize', computeScale);
-      window.removeEventListener('orientationchange', computeScale);
-    };
-  }, []);
 
   // --- Fullscreen state tracking ---------------------------------------
   useEffect(() => {
@@ -71,10 +116,14 @@ export default function TriviaAudienceView() {
   const enterFullscreen = useCallback(async () => {
     try {
       if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
       }
     } catch (e) {
-      console.warn('[audience] fullscreen request denied:', e);
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (e2) {
+        console.warn('[audience] fullscreen request denied:', e2);
+      }
     }
     setShowFullscreenPrompt(false);
   }, []);
@@ -97,7 +146,6 @@ export default function TriviaAudienceView() {
         window.close();
         break;
       case 'PING':
-        // Respond so host knows we're alive
         if (bcRef.current) bcRef.current.postMessage({ type: 'PONG', at: Date.now() });
         break;
       default:
@@ -130,244 +178,304 @@ export default function TriviaAudienceView() {
     };
   }, [handleMessage]);
 
-  // --- Progressive reveal: hide questions past revealCount on answer
-  //     slides (matches host's answer-reveal UX).
-  const renderElement = (element, idx) => {
-    if (!element) return null;
+  const fontMultiplier = slide ? getFontMultiplier(slide, isAnswer) : 1.0;
 
-    // Determine if this element should be hidden on progressive reveal.
-    // Elements tagged with `id` starting with "answer-N" (or metadata
-    // `answerIndex`) get hidden if idx >= revealCount on answer slides.
-    if (isAnswer) {
-      const answerIdx = element.answerIndex ?? (
-        typeof element.id === 'string' && element.id.startsWith('answer-')
-          ? parseInt(element.id.split('-')[1], 10)
-          : null
-      );
-      if (answerIdx !== null && !Number.isNaN(answerIdx) && answerIdx >= revealCount) {
-        return null;
-      }
-    }
-
-    const style = {
-      position: 'absolute',
-      left: (element.x / STAGE_W) * 100 + '%',
-      top: (element.y / STAGE_H) * 100 + '%',
-      width: (element.width / STAGE_W) * 100 + '%',
-      height: (element.height / STAGE_H) * 100 + '%',
-      fontSize: element.fontSize ? element.fontSize + 'px' : undefined,
-      fontWeight: element.fontWeight,
-      color: element.color,
-      textAlign: element.textAlign,
-      fontFamily: element.fontFamily,
-      lineHeight: element.lineHeight || 1.2,
-      whiteSpace: element.whiteSpace || 'pre-wrap',
-      display: 'flex',
-      alignItems: element.verticalAlign === 'top'
-        ? 'flex-start'
-        : element.verticalAlign === 'bottom' ? 'flex-end' : 'center',
-      justifyContent: element.textAlign === 'center'
-        ? 'center'
-        : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
-      zIndex: element.zIndex ?? undefined,
-      overflow: element.overflow || 'hidden',
-    };
-
-    if (element.type === 'text') {
-      return <div key={element.id || idx} style={style}>{element.content}</div>;
-    }
-    if (element.type === 'image' && element.src) {
-      return (
-        <div key={element.id || idx} style={style}>
-          <img
-            src={element.src}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'contain', background: 'transparent' }}
-          />
-        </div>
-      );
-    }
-    if (element.type === 'video' && element.videoSrc) {
-      return (
-        <div key={element.id || idx} style={style}>
-          <video
-            src={element.videoSrc}
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-            autoPlay
-            loop
-            playsInline
-          />
-        </div>
-      );
-    }
-    // Note: overlay elements should have been resolved to `image` by the
-    // host before broadcast — see PresentationMode.updateAudienceView.
-    return null;
+  // --- ANSWER SLIDE LOGIC — _verified_from_prototype -------------------
+  // CRITICAL: Answer slides have NO TITLE - all text elements are answers.
+  // Sort text by Y position; hide answer if its index >= revealCount via
+  // `visibility: hidden` (element keeps its slot — no reflow).
+  const renderAnswerSlide = () => {
+    const elements = Array.isArray(slide.elements) ? slide.elements : [];
+    const textElements = elements.filter((el) => el.type === 'text');
+    const imageElements = elements.filter((el) => el.type === 'image');
+    const sortedText = [...textElements].sort((a, b) => a.y - b.y);
+    return (
+      <>
+        {sortedText.map((element, idx) => (
+          <div
+            key={element.id || `answer-${idx}`}
+            style={{
+              ...textStyle(element, fontMultiplier),
+              visibility: idx >= revealCount ? 'hidden' : 'visible',
+            }}
+          >
+            {element.content || ''}
+          </div>
+        ))}
+        {imageElements.map((element, idx) => (
+          <div key={element.id || `img-${idx}`} style={{ ...positionStyle(element), background: 'transparent' }}>
+            <img src={element.src || ''} alt="" style={IMG_STYLE} />
+          </div>
+        ))}
+      </>
+    );
   };
 
-  // --- Final-scores WINNERS slide (leaderboard) — CSS-scrolling render.
-  // v32.0.0-alpha.48: per merchant spec, the final scores slide is
-  // ALWAYS the last slide and animates from bottom-to-top like end credits.
+  // --- NORMAL SLIDE LOGIC — _verified_from_prototype --------------------
+  const renderNormalSlide = () => {
+    const elements = Array.isArray(slide.elements) ? slide.elements : [];
+    return elements.map((element, idx) => {
+      if (element.type === 'text') {
+        return (
+          <div key={element.id || idx} style={textStyle(element, fontMultiplier)}>
+            {element.content || ''}
+          </div>
+        );
+      }
+      if (element.type === 'image') {
+        return (
+          <div key={element.id || idx} style={{ ...positionStyle(element), background: 'transparent' }}>
+            <img src={element.src || ''} alt="" style={IMG_STYLE} />
+          </div>
+        );
+      }
+      if (element.type === 'video' && element.videoSrc) {
+        return (
+          <div key={element.id || idx} style={positionStyle(element)}>
+            {/* Video with AUDIO enabled on audience view */}
+            <video
+              src={element.videoSrc}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              autoPlay
+              loop
+              playsInline
+              muted={false}
+            />
+          </div>
+        );
+      }
+      return null;
+    });
+  };
+
+  // --- FINAL SCORES — _verified_from_prototype (scoresHTML) --------------
   const renderFinalScores = () => {
-    if (!finalScores) return null;
     const teams = Array.isArray(finalScores?.teams) ? finalScores.teams : [];
-    // Duration scales with roster size — enough time to read every team.
-    const scrollSeconds = Math.max(18, teams.length * 2);
+    const rounds = Array.isArray(finalScores?.rounds) ? finalScores.rounds : [];
+    const teamCount = teams.length;
+    // Dynamic duration: 4 seconds per team, minimum 20s, max 120s
+    const scrollDuration = Math.min(120, Math.max(20, teamCount * 4));
     return (
-      <div
-        data-testid="audience-final-scores"
-        style={{
-          position: 'absolute', inset: 0, overflow: 'hidden',
-          color: '#fff', background: 'transparent',
-        }}
-      >
-        {/* Sticky header — stays put */}
-        <div
-          style={{
-            position: 'absolute', top: 40, left: 0, right: 0,
-            textAlign: 'center', pointerEvents: 'none', zIndex: 2,
-            background: 'linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 60%, transparent 100%)',
-            padding: '20px 0 40px 0',
-          }}
-        >
-          <div style={{
-            fontSize: 120, fontWeight: 800, color: '#F4C430',
-            letterSpacing: '-1px', lineHeight: 1,
-          }}>
-            Final Scores
-          </div>
-        </div>
-
-        {/* Scrolling leaderboard */}
-        <div
-          data-testid="audience-final-scores-scroll"
-          style={{
-            position: 'absolute', left: 0, right: 0,
-            top: STAGE_H,          // start below the visible frame
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', gap: 16,
-            padding: '0 100px',
-            animation: `bighat-scroll-credits ${scrollSeconds}s linear infinite`,
-          }}
-        >
-          {teams.map((t, i) => (
-            <div
-              key={t.id || i}
-              style={{
-                width: '100%', maxWidth: 1400,
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '18px 40px',
-                background: i === 0
-                  ? 'linear-gradient(90deg, #F4C430 0%, #B8860B 100%)'
-                  : i === 1
-                    ? 'rgba(192, 192, 192, 0.18)'
-                    : i === 2
-                      ? 'rgba(205, 127, 50, 0.18)'
-                      : 'rgba(255,255,255,0.06)',
-                border: i === 0 ? '2px solid #F4C430' : '1px solid rgba(255,255,255,0.14)',
-                borderRadius: 14,
-                fontSize: i === 0 ? 60 : 44,
-                fontWeight: i === 0 ? 800 : 600,
-                color: i === 0 ? '#111' : '#fff',
-              }}
-            >
-              <span>{i + 1}. {t.name || `Team ${i + 1}`}</span>
-              <span>{t.total ?? 0}</span>
-            </div>
-          ))}
-          {/* Sponsor / "thanks for playing" tail */}
-          <div style={{
-            marginTop: 60, padding: '20px 40px',
-            fontSize: 44, color: '#F4C430', fontWeight: 700,
-            textAlign: 'center',
-          }}>
-            Thanks for playing!
-          </div>
-        </div>
-
-        {/* Inline keyframes so the audience view is self-contained */}
+      <div data-testid="audience-final-scores">
         <style>{`
-          @keyframes bighat-scroll-credits {
+          @keyframes smoothScroll {
             0% { transform: translateY(0); }
-            100% { transform: translateY(-${(teams.length + 1) * 90 + 200}px); }
+            100% { transform: translateY(calc(-100% + 70vh)); }
+          }
+          .scroll-container {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            background: rgba(0,0,0,0.9);
+            aspect-ratio: 16/9;
+            width: 100%;
+            height: 100%;
+            padding: 0 5%;
+            box-sizing: border-box;
+          }
+          .scroll-header {
+            flex-shrink: 0;
+            padding: 1.5rem 0;
+          }
+          .scroll-content-wrapper {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            padding: 0;
+          }
+          .scroll-content {
+            animation: smoothScroll ${scrollDuration}s linear infinite;
+            will-change: transform;
+          }
+          .scroll-content:hover {
+            animation-play-state: paused;
+          }
+          .team-card {
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 0.75rem;
+            will-change: auto;
+          }
+          .team-info {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
+          .team-rank {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: white;
+            min-width: 60px;
+          }
+          .team-name {
+            font-size: 2rem;
+            font-weight: bold;
+            color: white;
+          }
+          .team-total {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #FFD700;
+            font-family: Lemonada, cursive;
+          }
+          .round-scores {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+          }
+          .round-score {
+            background: rgba(0,0,0,0.5);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+          }
+          .round-label {
+            font-size: 0.9rem;
+            color: #999;
+          }
+          .round-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: white;
+            margin-left: 0.5rem;
           }
         `}</style>
+        <div className="scroll-container">
+          <div className="scroll-header">
+            <h2 style={{
+              fontSize: '3.5rem', fontWeight: 'bold', color: '#FFD700',
+              textAlign: 'center', fontFamily: 'Lemonada, cursive',
+            }}>
+              🏆 Final Scores 🏆
+            </h2>
+          </div>
+          <div className="scroll-content-wrapper">
+            <div className="scroll-content" data-testid="audience-final-scores-scroll">
+              {teams.map((team, idx) => (
+                <div
+                  key={team.id || idx}
+                  className="team-card"
+                  style={{
+                    background: `linear-gradient(to right, ${
+                      idx === 0 ? 'rgba(255,215,0,0.35), rgba(255,165,0,0.35)'
+                        : idx === 1 ? 'rgba(192,192,192,0.35), rgba(169,169,169,0.35)'
+                          : idx === 2 ? 'rgba(205,127,50,0.35), rgba(160,82,45,0.35)'
+                            : 'rgba(0,0,139,0.35), rgba(0,0,70,0.35)'})`,
+                    border: `2px solid ${
+                      idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#0066CC'}`,
+                  }}
+                >
+                  <div className="team-info">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                      <span className="team-rank">{idx + 1}.</span>
+                      <div>
+                        <h3 className="team-name">{team.name}</h3>
+                        {team.swag ? (
+                          <p style={{ fontSize: '1rem', color: '#ccc' }}>{team.swag}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <p className="team-total">{team.total}</p>
+                      <p style={{ fontSize: '0.9rem', color: '#999' }}>Total Points</p>
+                    </div>
+                  </div>
+                  <div className="round-scores">
+                    {(team.roundScores || []).map((score, roundIdx) => (
+                      <div className="round-score" key={roundIdx}>
+                        <span className="round-label">{rounds[roundIdx]?.label}:</span>
+                        <span className="round-value">{score}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
 
-  // --- Stage transform for the 1920×1080 → viewport uniform scaling ------
-  const stageStyle = {
-    position: 'absolute',
-    left: '50%',
-    top: '50%',
-    width: STAGE_W,
-    height: STAGE_H,
-    transform: `translate(-50%, -50%) scale(${stageScale})`,
-    transformOrigin: 'center center',
-    background: slide?.background || '#000',
-    overflow: 'hidden',
-  };
-
-  const isWinnersFinal = slide?.metadata?.roundType === 'WINNERS'
+  // CHECK IF THIS IS THE FINAL SCORES SLIDE (Winners slide 5)
+  const isFinalScoresSlide = slide?.metadata?.roundType === 'WINNERS'
     && slide?.metadata?.slideIndexInRound === 4;
+  const showFinalScores = isFinalScoresSlide && finalScores
+    && Array.isArray(finalScores.teams) && finalScores.teams.length > 0;
 
   return (
     <div
       data-testid="trivia-audience-view"
       style={{
-        position: 'fixed', inset: 0, background: '#000',
-        cursor: isFullscreen ? 'none' : 'default',
+        position: 'fixed', inset: 0, background: 'black',
         overflow: 'hidden',
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       }}
       onDoubleClick={enterFullscreen}
     >
-      <div style={stageStyle} data-testid="audience-stage">
-        {slide && !isWinnersFinal && Array.isArray(slide.elements) && (
-          slide.elements.map(renderElement)
-        )}
-        {slide && isWinnersFinal && renderFinalScores()}
+      {/* _verified_from_prototype: #slide-container (100vw×100vh flex-center)
+          wrapping #slide (100%×100%, slide.background). */}
+      <div
+        style={{
+          width: '100vw', height: '100vh',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          position: 'fixed', top: 0, left: 0, background: 'black',
+        }}
+      >
+        <div
+          data-testid="audience-stage"
+          style={{
+            width: '100%', height: '100%', position: 'relative',
+            background: slide?.background || 'black',
+          }}
+        >
+          {slide && showFinalScores && renderFinalScores()}
+          {slide && !showFinalScores && (isAnswer ? renderAnswerSlide() : renderNormalSlide())}
 
-        {/* Waiting state — no slide yet */}
-        {!slide && (
-          <div
-            data-testid="audience-waiting"
-            style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center',
-              color: '#666', fontFamily: 'Inter, system-ui, sans-serif',
-            }}
-          >
-            <div style={{ fontSize: 96, fontWeight: 800, color: '#F4C430', marginBottom: 20 }}>
-              BIG Hat
+          {/* Waiting state — no slide yet */}
+          {!slide && (
+            <div
+              data-testid="audience-waiting"
+              style={{
+                position: 'absolute', inset: 0,
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                color: '#666',
+              }}
+            >
+              <div style={{ fontSize: 96, fontWeight: 800, color: '#F4C430', marginBottom: 20 }}>
+                BIG Hat
+              </div>
+              <div style={{ fontSize: 44 }}>Waiting for the host…</div>
             </div>
-            <div style={{ fontSize: 44 }}>Waiting for the host…</div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Fullscreen prompt — click to go fullscreen (best on TVs) */}
+      {/* _verified_from_prototype: #fullscreen-prompt — centered gold pill */}
       {showFullscreenPrompt && !isFullscreen && (
         <div
           data-testid="audience-fullscreen-prompt"
           onClick={enterFullscreen}
           style={{
-            position: 'fixed', bottom: 20, right: 20,
-            background: 'rgba(244, 196, 48, 0.95)', color: '#111',
-            padding: '12px 20px', borderRadius: 10, fontWeight: 700,
-            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-            fontFamily: 'Inter, system-ui, sans-serif', fontSize: 16,
-            boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+            position: 'fixed', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(255, 215, 0, 0.95)', color: 'black',
+            padding: '40px 60px', borderRadius: 12,
+            fontSize: 28, fontWeight: 'bold', cursor: 'pointer',
+            zIndex: 99999, textAlign: 'center',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           }}
         >
-          <Maximize size={18} />
-          Click to enter fullscreen
+          🖥️ Click to Enter Fullscreen<br />
+          <span style={{ fontSize: 18, fontWeight: 'normal' }}>Remove all bars and borders</span>
         </div>
       )}
 
-      {/* Disconnect indicator — subtle, bottom-left, only after we've
-          heard from the host at least once and then gone quiet >10s. */}
+      {/* Disconnect indicator — only after host has gone quiet >10s. */}
       {lastMessageAt && (Date.now() - lastMessageAt > 10000) && (
         <div
           data-testid="audience-disconnected"
