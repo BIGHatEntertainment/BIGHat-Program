@@ -196,6 +196,16 @@ def _load_env() -> None:
         os.environ.setdefault(
             "BIGHAT_DATA_ROOT", str(USER_DATA_DIR / "app"),
         )
+        # v32.0.0-alpha.55: roundmaker uploads/generated MUST survive app
+        # restarts. In frozen mode BACKEND_DIR is a per-launch _MEIxxxx
+        # temp dir — cover images copied there evaporated on close, which
+        # is why round title cards went missing from presentations.
+        os.environ.setdefault(
+            "BIGHAT_ROUNDMAKER_UPLOADS", str(USER_DATA_DIR / "roundmaker_uploads"),
+        )
+        os.environ.setdefault(
+            "BIGHAT_ROUNDMAKER_GENERATED", str(USER_DATA_DIR / "roundmaker_generated"),
+        )
 
     _bootstrap_env_from_template()
     _quarantine_dev_seed_if_present()
