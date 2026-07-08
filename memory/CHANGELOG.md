@@ -8,6 +8,57 @@
 ---
 ---
 
+## 2026-06 (July preview) — v32.0.0-alpha.55: Title cards PERSIST — the real root cause — + verbatim v30 audience view
+
+### Merchant charge (recurring — alpha.54 did not hold on the merchant's machine)
+> "lets start with the REG rounds: the title images are still not being grabbed and loaded…"
+
+### Actual root cause (why alpha.54 worked in dev but not on the installed app)
+`routes/roundmaker.py` computed `UPLOAD_DIR = BACKEND_DIR / "roundmaker_uploads"`. In a
+PyInstaller-frozen sidecar, `BACKEND_DIR` is the per-launch `_MEIxxxx` temp dir — every
+cover image copied there by `/upload-cover` and `/reg-download-title-image` EVAPORATED
+when the app closed. The round-maker *preview* kept working because it reads the original
+artwork straight out of the local assets folder (`reg-title-image-preview/{item_id}`),
+which is persistent. So the merchant saw the image in the preview but the presentation
+renderer scanned a freshly-empty uploads dir → no title card. alpha.54's inlining was
+correct but pointed at a folder that no longer had the file.
+
+### The fix (three layers, all round types)
+1. **Persistence**: `UPLOAD_DIR`/`GENERATED_DIR` now resolve from
+   `BIGHAT_ROUNDMAKER_UPLOADS` / `BIGHAT_ROUNDMAKER_GENERATED`. The launcher pins both
+   to `USER_DATA_DIR` in frozen mode (same pattern as `BIGHAT_CONFIG_PATH`). New uploads
+   survive restarts.
+2. **Self-contained .bighat**: `_write_round_bighat` now embeds the cover as
+   `cover_image_data_url` (base64) inside the .bighat JSON. Round files no longer depend
+   on ANY external folder — disk is the absolute source of truth.
+3. **Recovery for existing broken rounds**: `_inline_roundmaker_upload` falls back to a
+   stem match inside `<assets_root>/01_Trivia/Web App/00_Builder/04_TitleCards/**`
+   (all round types: REG/MC/MISC/MYS/BIG). For REG, `cover_image_id` IS the artwork's
+   filename stem (e.g. "1970s"), so the merchant's existing rounds resurrect their exact
+   title card with zero manual work. ZIP .bighat with `cover_image_id` but no bundled
+   asset resolves through the same lookup.
+
+### Audience view — verbatim v30 prototype port (typography parity, P0)
+`TriviaAudienceView.jsx` rewritten as a 1:1 port of the prototype's inline audience
+`renderSlide()` (host-side PresentationMode.jsx was already byte-identical to v30):
+- Per-round-type font multipliers: MC +10%, REG/MISC/MYS +15%, answers +10%, WINNERS 1.0.
+- Viewport clamp font sizing: `clamp(max(base*0.7,14)px, (base/1920*100)vw, base*1.5px)`.
+- Answer slides: text Y-sorted, unrevealed answers hidden via `visibility:hidden` (kept in DOM).
+- Defaults: color #000000, Inter, lineHeight 1.5, whiteSpace pre-wrap; images object-fit contain.
+- Final-scores credit scroll: prototype scoresHTML (🏆 header, Lemonada totals, gold/silver/
+  bronze team-card gradients, round-score chips, 4s/team scroll 20–120s).
+- Audience videos play with AUDIO ON (prototype spec). Centered gold fullscreen pill restored.
+
+### Tests
+`backend/tests/test_alpha55_title_card_persistence.py` — 12 tests: env-dir resolution,
+TitleCards recovery for all 5 round types, uploads-dir priority, traversal rejection,
+legacy-JSON end-to-end slide 0, ZIP cover_image_id fallback, .bighat cover embedding.
+Testing agent iteration_32: backend 100%, frontend 100% (clamp sizes 55.2px/52.8px
+verified live, reveal semantics, WINNERS scoreboard, background propagation).
+
+---
+---
+
 ## 2026-02-06 — v32.0.0-alpha.54: REG round title cards come from the round-maker upload folder
 
 ### Merchant charge

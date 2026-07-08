@@ -1,11 +1,19 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.54` (2026-02-06).** REG round title
-> cards now inline from `backend/roundmaker_uploads/<cover_image_id>.<ext>`
-> — the same image the round-editor preview shows.
+> **Current release: `v32.0.0-alpha.55` (2026-06, June preview).** THE REAL
+> ROOT CAUSE of the recurring "title images not loading" bug: in frozen
+> builds `UPLOAD_DIR` lived in the per-launch `_MEIxxxx` temp dir, so cover
+> images evaporated on app close. alpha.55 (1) pins
+> `BIGHAT_ROUNDMAKER_UPLOADS`/`GENERATED` to the persistent per-user data
+> dir, (2) embeds `cover_image_data_url` inside every written `.bighat`
+> (self-contained), (3) recovers already-broken rounds for ALL 5 round types
+> via a stem match in the local assets `04_TitleCards` tree. ALSO:
+> `TriviaAudienceView.jsx` is now a VERBATIM v30 port (font multipliers,
+> clamp vw fonts, Y-sorted visibility answer reveal, prototype final-scores
+> credit scroll, audience video audio ON).
 > See `/app/memory/CHANGELOG.md` for the full per-release history. The
-> active release script pair is `scripts/push_alpha54.py` +
-> `scripts/wait_and_publish_alpha54.py`.
+> active release script pair is `scripts/push_alpha55.py` +
+> `scripts/wait_and_publish_alpha55.py`.
 >
 > **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
 > Round-count locked to 5 or 6. Cross-pool picking rejected at file
