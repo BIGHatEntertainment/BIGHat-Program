@@ -173,8 +173,14 @@ export default function Dashboard() {
         onOpenChange={setShowBuildWizard}
         onComplete={async (triviaData) => {
           try {
-            const normalizedData = { ...triviaData, userName: (triviaData.userName || '').toLowerCase() };
-            await axios.post(`${API_URL}/api/presentations/import-trivia`, normalizedData);
+            // v32.0.0-alpha.57: the hardcoded 17-step build already wrote
+            // THE presentation to disk. Creating a second one via the
+            // legacy import was duplicating every show — merchant said
+            // "make sure this goes away".
+            if (!triviaData.hardcodedBuildDoc) {
+              const normalizedData = { ...triviaData, userName: (triviaData.userName || '').toLowerCase() };
+              await axios.post(`${API_URL}/api/presentations/import-trivia`, normalizedData);
+            }
             await axios.post(`${API_URL}/api/story-builds/save`, {
               host: triviaData.hostName || '',
               location: triviaData.locationName || '',

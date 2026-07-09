@@ -355,6 +355,23 @@ def load_location_assets(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
     return assets
 
 
+def _capture_log(event: str, **data) -> None:
+    """Mirror backend diagnostics into the merchant-facing debug log
+    (Files/Logs/app.log) so exported logs show title-card resolution."""
+    try:
+        from routes.debug_log import _get_capture_logger
+        import json as _json
+        from datetime import datetime as _dt, timezone as _tz
+        _get_capture_logger().info(_json.dumps({
+            "at": _dt.now(_tz.utc).isoformat(),
+            "type": "backend",
+            "session": "",
+            "data": {"event": event, **data},
+        }, default=str, ensure_ascii=False))
+    except Exception:
+        pass
+
+
 def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
     """v32.0.0-alpha.54: For legacy bare-JSON .bighat files, the
     round-maker stores the title-card image at
@@ -406,6 +423,8 @@ def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
                 continue
             url = _encode(entry)
             if url:
+                _capture_log("cover-resolved", cover_image_id=cover_image_id,
+                             source="uploads", path=str(entry))
                 return url
 
     # v32.0.0-alpha.55 RECOVERY FALLBACK: for rounds created before the
@@ -415,18 +434,43 @@ def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
     # kept working). For REG rounds `cover_image_id` is the artwork's
     # filename stem (e.g. "1970s"), so a stem match inside the TitleCards
     # tree recovers the exact same image.
-    tc_root = _assets_root() / "01_Trivia" / "Web App" / "00_Builder" / "04_TitleCards"
-    if tc_root.is_dir():
-        for entry in sorted(tc_root.rglob("*")):
-            if not entry.is_file() or entry.suffix.lower() not in IMG_EXTS:
-                continue
-            if entry.stem != cover_image_id:
-                continue
-            url = _encode(entry)
-            if url:
-                logger.info("[bighat] cover %s recovered from TitleCards assets: %s",
-                            cover_image_id, entry)
-                return url
+    # v32.0.0-alpha.57: widened — this program runs on the user's own PC,
+    # so we can afford to sweep the docs tree and the whole assets library
+    # (capped) for a stem match before giving up.
+    assets = _assets_root()
+    search_roots = [
+        assets / "01_Trivia" / "Web App" / "00_Builder" / "04_TitleCards",
+        _docs_root() / "Files" / "Trivia",
+        assets,
+    ]
+    scanned = 0
+    seen_roots = []
+    for root in search_roots:
+        if not root.is_dir():
+            seen_roots.append({"root": str(root), "exists": False})
+            continue
+        seen_roots.append({"root": str(root), "exists": True})
+        try:
+            for entry in root.rglob("*"):
+                scanned += 1
+                if scanned > 60000:
+                    break
+                if not entry.is_file() or entry.suffix.lower() not in IMG_EXTS:
+                    continue
+                if entry.stem != cover_image_id:
+                    continue
+                url = _encode(entry)
+                if url:
+                    logger.info("[bighat] cover %s recovered from %s",
+                                cover_image_id, entry)
+                    _capture_log("cover-resolved", cover_image_id=cover_image_id,
+                                 source="disk-recovery", path=str(entry))
+                    return url
+        except OSError:
+            continue
+    _capture_log("cover-MISS", cover_image_id=cover_image_id,
+                 uploads_dirs=[{"dir": str(u), "exists": u.is_dir()} for u in upload_dirs],
+                 search_roots=seen_roots, files_scanned=scanned)
     return None
 
 
@@ -922,6 +966,11 @@ def render_round_section(
         _title_card_source=title_card_source,
         _verified_from_prototype="PresentationMode.jsx#L48-L129 (slide 0 = title card)",
     )))
+    _capture_log("title-card", round=rname, type=rtype, order=rorder,
+                 source=title_card_source,
+                 cover_image_id=round_data.get("cover_image_id"),
+                 had_embedded=bool(round_data.get("cover_image_data_url")),
+                 disk_path=round_data.get("_disk_path"))
 
     # ------------------------------------------------------------------
     # SLIDES 1..N — Questions

@@ -296,6 +296,11 @@ def backfill_round_covers() -> dict:
             logger.warning("[roundmaker backfill] write failed for %s: %s",
                            d.get("_disk_path"), e)
             stats["write_failed"] += 1
+    try:
+        from native_slides import _capture_log
+        _capture_log("cover-backfill", **stats)
+    except Exception:
+        pass
     return stats
 
 

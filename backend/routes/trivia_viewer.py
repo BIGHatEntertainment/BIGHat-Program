@@ -4,6 +4,7 @@ from typing import List, Dict
 import logging
 import tempfile
 import os
+from pathlib import Path
 
 from sharepoint_service import SharePointService
 from hybrid_pptx_converter import get_hybrid_converter
@@ -541,20 +542,31 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False, h
         
         result = []
         for p in all_pres:
-            loc = p.get('location', '')
+            # v32.0.0-alpha.57: presentations written by the hardcoded
+            # 17-step builder use schema-v2 keys (created_at, host_name,
+            # location_name, roundFiles) — coalesce so the Presenter card
+            # doesn't show "0 ROUNDS / Unknown / Invalid Date".
+            loc = p.get('location') or p.get('location_name') or ''
             if '/' in loc:
                 loc = loc.split('/')[-1]
+            round_files = p.get('roundFiles') or []
+            round_types = p.get('roundTypes') or [
+                (rf.get('type') or '') for rf in round_files if isinstance(rf, dict)]
+            round_names = p.get('roundNames') or [
+                Path(str(rf.get('file') or rf.get('path') or '')).stem
+                for rf in round_files if isinstance(rf, dict)]
+            created = p.get('createdAt') or p.get('created_at') or ''
             result.append({
                 'id': p.get('id', ''),
                 'name': p.get('name', ''),
-                'createdBy': p.get('createdBy', ''),
-                'host': p.get('host', ''),
-                'createdAt': p.get('createdAt', '').isoformat() if isinstance(p.get('createdAt'), dt) else str(p.get('createdAt', '')),
+                'createdBy': p.get('createdBy') or p.get('created_by') or '',
+                'host': p.get('host') or p.get('host_name') or '',
+                'createdAt': created.isoformat() if isinstance(created, dt) else str(created),
                 'totalSlides': p.get('totalSlides', 0),
                 'location': loc,
-                'roundTypes': p.get('roundTypes', []),
-                'roundNames': p.get('roundNames', []),
-                'numRounds': p.get('numRounds', 0),
+                'roundTypes': round_types,
+                'roundNames': round_names,
+                'numRounds': p.get('numRounds') or p.get('round_count') or len(round_files),
             })
         return result
     
