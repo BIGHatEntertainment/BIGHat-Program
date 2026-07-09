@@ -966,10 +966,16 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
         console.log('[roulette] hardcoded build succeeded:', hardcodedRouletteDoc.id);
       } catch (rouletteErr) {
         const detail = rouletteErr?.response?.data?.detail || rouletteErr.message;
-        const proceed = window.confirm(
-          `Check failed while building roulette presentation:\n\n${detail}\n\n` +
-          'Continue with legacy (unchecked) build anyway?'
-        );
+        // ACL-safe confirm (Tauri may route it through the dialog plugin).
+        let proceed = true;
+        try {
+          proceed = await Promise.resolve(window.confirm(
+            `Check failed while building roulette presentation:\n\n${detail}\n\n` +
+            'Continue with legacy (unchecked) build anyway?'
+          ));
+        } catch (_confirmErr) {
+          proceed = true;
+        }
         if (!proceed) {
           setBuilding(false);
           return;
@@ -978,8 +984,11 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
       }
       triviaData.hardcodedRouletteDoc = hardcodedRouletteDoc;
 
-      // Call the same API as the manual wizard
-      await axios.post(`${API}/presentations/import-trivia`, triviaData);
+      // v32.0.0-alpha.57: only fall back to the legacy import when the
+      // hardcoded build did NOT produce a presentation — no duplicates.
+      if (!hardcodedRouletteDoc) {
+        await axios.post(`${API}/presentations/import-trivia`, triviaData);
+      }
       
       // Also save JSON to SharePoint for Story Generator matching
       try {
