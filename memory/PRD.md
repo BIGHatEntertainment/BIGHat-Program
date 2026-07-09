@@ -1,7 +1,49 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **Current release: `v32.0.0-alpha.55` (2026-06, June preview).** THE REAL
+> ROOT CAUSE of the recurring "title images not loading" bug: in frozen
+> builds `UPLOAD_DIR` lived in the per-launch `_MEIxxxx` temp dir, so cover
+> images evaporated on app close. alpha.55 (1) pins
+> `BIGHAT_ROUNDMAKER_UPLOADS`/`GENERATED` to the persistent per-user data
+> dir, (2) embeds `cover_image_data_url` inside every written `.bighat`
+> (self-contained), (3) recovers already-broken rounds for ALL 5 round types
+> via a stem match in the local assets `04_TitleCards` tree. ALSO:
+> `TriviaAudienceView.jsx` is now a VERBATIM v30 port (font multipliers,
+> clamp vw fonts, Y-sorted visibility answer reveal, prototype final-scores
+> credit scroll, audience video audio ON).
+> See `/app/memory/CHANGELOG.md` for the full per-release history. The
+> active release script pair is `scripts/push_alpha55.py` +
+> `scripts/wait_and_publish_alpha55.py`.
+>
+> **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
+> Round-count locked to 5 or 6. Cross-pool picking rejected at file
+> resolution. `backend/tests/test_alpha53_build_pipeline_and_overlays.py`
+> has 24 tests that map to the merchant's numbered spec steps.
+>
+> **Prototype-provenance flags are MANDATORY.** Every rendered slide's
+> `metadata` must carry `_verified_from_prototype: "file.jsx#Lstart-Lend"`
+> or (for title slides) `_title_card_source: "..."`. New endpoint
+> `GET /api/native/attest/{presentation_id}` returns a full audit report.
+> Never re-invent slide contents that aren't in the prototype.
+
 ---
 
+
+---
+
+## 🖥️ THIS PROGRAM RUNS ON THE USER'S PC — NOT ON A SERVER
+
+> Locked in by the merchant 2026-07 (alpha.56 debug). **The standalone app
+> executes entirely on the end user's machine. It is NOT limited by server
+> restrictions.** Consequences:
+> - Aggressive local-disk reads/writes are fine and ENCOURAGED: self-heal
+>   `.bighat` files, backfill embeds at boot, scan asset trees recursively.
+> - Large base64 embeds in JSON files are fine — no proxy/body-size limits.
+> - Never design around "server can't touch user files" thinking. Disk is
+>   ours to repair (write-through, migrations at every boot, idempotent).
+> - DEV ≠ USER MACHINE: PyInstaller-frozen paths (`_MEIxxxx` temp),
+>   Windows Documents/AppData layouts, and Tauri ACLs behave differently
+>   from this container. Always reason about the FROZEN layout first.
 
 ---
 
@@ -963,7 +1005,7 @@ customer owns, not opaque rows in a SQLite database.
 - Two production-blocking bugs found by user:
   1. Every installed v31.0.5–v31.0.9 app talked to OUR preview env, not
      to its own embedded backend, because the React bundle had
-     `REACT_APP_BACKEND_URL=https://standalone-tools.preview.emergentagent.com`
+     `REACT_APP_BACKEND_URL=https://prototype-ui-audit.preview.emergentagent.com`
      baked in. Resulted in "LOG IN TO 127" Google OAuth screen + "Auth
      failed" on password login.
   2. Default employee password literal was hardcoded 11× in
