@@ -8,6 +8,60 @@
 ---
 ---
 
+## 2026-07-09 — v32.0.0-alpha.56: Real-machine fixes from the merchant's debug log
+
+### Merchant charge (alpha.55 did not fix it on their PC)
+> "downloaded alpha.55 and same issue are still present… title cards are defaulting to
+> generic text instead of the actual images that are in the .bighat file."
+> + "remember, this program lives and runs on the users PC so its not limited by
+> server restrictions." (now codified in PRD.md § THIS PROGRAM RUNS ON THE USER'S PC)
+
+### What the debug log (bighat-debug 07-09) actually showed
+1. `POST /api/native/presentations/build` → **400 `host_id … not on disk`** on ALL
+   3 days. Host folders are named by EMAIL-SLUG (`files_router.host_folder`) but the
+   wizard passes the user's UUID → the hardcoded 17-step pipeline NEVER ran once on a
+   real install; every show fell back to legacy `import-trivia`.
+2. `import-trivia` stores round refs under `path` (absolute), but
+   `load_round_from_disk` only read `file` → exact-file trust skipped; stale
+   slug-suffixed duplicate `.bighat` files (no embedded cover) could be name-matched.
+3. Pre-alpha.55 rounds carry only `cover_image_id` and the upload evaporated with the
+   `_MEIxxxx` temp dir → renderer fell to the bundled `/REG_Title_Card.svg` ("generic").
+4. `window.confirm` is routed through the Tauri dialog plugin and was **denied by
+   ACL** (`plugin:dialog|confirm not allowed`) → the merchant never saw the
+   build-failure dialog, and the truthy Promise silently forced the legacy path.
+
+### Fixes
+1. **Host resolution (unblocks the 17-step pipeline)**:
+   `_load_host` scans every `Files/Hosts/*/host.json` matching `id` OR `email`
+   (mirrors `_load_location`), then falls back to `system_config.json` users and
+   self-materializes host.json. NEW `native/router._ensure_host_on_disk()` runs
+   before `/presentations/build` AND `/presentations/roulette` — resolves the host
+   from `db.users` (native_user_id / id / _id / email) and writes host.json.
+2. **Exact path trust**: `load_round_from_disk` honors `round_ref["path"]`
+   (absolute or docs-relative) in addition to `file` — the wizard-selected exact
+   file wins over stale duplicates.
+3. **Cover persistence, three layers**:
+   - Boot migration `backfill_round_covers()` (server.py startup) embeds
+     `cover_image_data_url` into every disk round that only has `cover_image_id`,
+     while a source image still exists.
+   - `_read_bighat_round` legacy branch SELF-HEALS: inlined covers are written back
+     into the `.bighat` at read time (runs on the user's own PC — the file is ours
+     to repair).
+   - (alpha.55 layers retained: persistent uploads dir, TitleCards assets recovery,
+     save-time embedding.)
+4. **Tauri dialog ACL**: `dialog:allow-confirm/ask/message` added to capabilities;
+   `TriviaBuilderWizard` normalizes `window.confirm` (bool / Promise / ACL
+   rejection) to a real boolean.
+
+### Tests
+`backend/tests/test_alpha56_real_machine_fixes.py` (5 tests) + testing agent
+iteration_33: backend 100%, frontend 100%. Live e2e on preview: build 200s with a
+db.users host, `fetch-section/round_2` slide 0 = `bighat-embedded-cover` data URL,
+legacy import-trivia path also renders the embedded cover.
+
+---
+---
+
 ## 2026-06 (July preview) — v32.0.0-alpha.55: Title cards PERSIST — the real root cause — + verbatim v30 audience view
 
 ### Merchant charge (recurring — alpha.54 did not hold on the merchant's machine)
