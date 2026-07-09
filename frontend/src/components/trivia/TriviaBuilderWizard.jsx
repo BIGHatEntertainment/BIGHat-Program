@@ -268,10 +268,18 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
         console.log('[wizard] hardcoded build succeeded:', hardcodedBuildDoc.id);
       } catch (buildErr) {
         const detail = buildErr?.response?.data?.detail || buildErr.message;
-        const proceed = window.confirm(
-          `Check failed while building presentation:\n\n${detail}\n\n` +
-          'Continue with legacy (unchecked) build anyway?'
-        );
+        // Tauri may route window.confirm through the dialog plugin
+        // (async Promise) or reject it via ACL — normalise every shape
+        // to a boolean instead of testing a truthy Promise.
+        let proceed = true;
+        try {
+          proceed = await Promise.resolve(window.confirm(
+            `Check failed while building presentation:\n\n${detail}\n\n` +
+            'Continue with legacy (unchecked) build anyway?'
+          ));
+        } catch (_confirmErr) {
+          proceed = true;
+        }
         if (!proceed) {
           setBuilding(false);
           return;
