@@ -168,6 +168,17 @@ async def download_logs():
                 out.write(f"\n\n# ─── {p.name} ({p.stat().st_size} bytes) ───\n")
                 with p.open("r", encoding="utf-8", errors="replace") as fh:
                     out.write(fh.read())
+            # v32.0.0-alpha.57: append the BACKEND log tails so exported
+            # debug logs finally show server-side behaviour (title-card
+            # resolution, boot migrations, exceptions) from the frozen app.
+            for name in ("backend.log.1", "backend.log"):
+                p = lg / name
+                if not p.exists():
+                    continue
+                data = p.read_bytes()
+                tail = data[-400_000:].decode("utf-8", errors="replace")
+                out.write(f"\n\n# ─── {p.name} ({p.stat().st_size} bytes, last {len(tail)} chars) ───\n")
+                out.write(tail)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"combine failed: {e}")
     return FileResponse(str(combined), media_type="text/plain", filename="bighat-debug.log")
