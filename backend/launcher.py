@@ -476,6 +476,30 @@ def main(argv: list[str] | None = None) -> int:
     # Make `import server` / `import native.*` work from anywhere.
     sys.path.insert(0, str(BACKEND_DIR))
 
+    # v32.0.0-alpha.57: mirror ALL backend logging into
+    # <Documents>/BIG Hat Entertainment/Files/Logs/backend.log so the
+    # merchant's debug export shows backend behaviour, not just frontend
+    # telemetry. Two rotating files, 2 MB each.
+    try:
+        from logging.handlers import RotatingFileHandler
+        override = os.environ.get("BIGHAT_FILES_DIR")
+        if override:
+            docs = Path(override).expanduser()
+        else:
+            base = Path.home() / "Documents"
+            docs = (base if base.exists() else Path.home()) / "BIG Hat Entertainment"
+        logs_dir = docs / "Files" / "Logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(str(logs_dir / "backend.log"),
+                                 maxBytes=2 * 1024 * 1024, backupCount=1,
+                                 encoding="utf-8")
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s"))
+        logging.getLogger().addHandler(fh)
+        logger.info("backend.log capture active at %s", logs_dir / "backend.log")
+    except OSError as e:
+        logger.warning("backend.log capture unavailable: %s", e)
+
     try:
         _load_env()
         _ensure_data_dirs()
