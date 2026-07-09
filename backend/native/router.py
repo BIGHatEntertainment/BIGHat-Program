@@ -681,6 +681,60 @@ class OverlayTagRequest(BaseModel):
         return [t for t in cleaned if t]
 
 
+async def _ensure_host_on_disk(host_id: str) -> None:
+    """v32.0.0-alpha.56: the wizard's host dropdown is fed by config users
+    AND `db.users` (id may be `native_user_id`, `id`, `_id`, or email) —
+    but the sync builder validates against `Files/Hosts/*/host.json`.
+    If the id doesn't resolve on disk yet, materialize host.json from the
+    DB/config record before validation (disk is truth — self-heal)."""
+    key = (host_id or "").strip()
+    if not key:
+        return
+    try:
+        from presentation_builder import _load_host, BuildValidationError
+        try:
+            _load_host(key)
+            return  # already resolvable on disk
+        except BuildValidationError:
+            pass
+        user: Optional[Dict[str, Any]] = None
+        # 1. config users
+        for u in (config_manager.config.get("users") or []):
+            if (str(u.get("id") or "").lower() == key.lower()
+                    or str(u.get("email") or "").lower() == key.lower()):
+                user = dict(u)
+                break
+        # 2. db.users
+        if user is None:
+            try:
+                from routes.trivia import db as _db
+            except ImportError:
+                _db = None
+            if _db is not None:
+                docs = await _db.users.find(
+                    {"role": {"$in": ["master_admin", "admin", "host"]}},
+                    {"password_hash": 0},
+                ).to_list(1000)
+                for u in docs:
+                    cand_ids = {
+                        str(u.get("native_user_id") or "").lower(),
+                        str(u.get("id") or "").lower(),
+                        str(u.get("_id") or "").lower(),
+                        str(u.get("email") or "").lower(),
+                    }
+                    if key.lower() in cand_ids:
+                        user = {k: v for k, v in u.items() if k != "_id"}
+                        break
+        if user is None:
+            return  # let the builder raise its normal 400
+        user.setdefault("id", key)
+        from .files_router import write_host_profile_json
+        write_host_profile_json(user)
+        logger.info("[build] materialized host.json for %s", key)
+    except Exception as e:  # never block the build over self-heal
+        logger.warning("[build] host materialize failed for %s: %s", key, e)
+
+
 @router.post("/presentations/build")
 async def build_presentation_from_wizard(payload: WizardBuildRequest = Body(...)):
     """Step 12 of the merchant's spec — Build Wizard confirms → this
@@ -689,6 +743,7 @@ async def build_presentation_from_wizard(payload: WizardBuildRequest = Body(...)
         from presentation_builder import build_from_wizard, BuildValidationError
     except ImportError as e:
         raise HTTPException(500, detail=f"presentation_builder import failed: {e}")
+    await _ensure_host_on_disk(payload.host_id)
     try:
         return build_from_wizard(
             name=payload.name,
@@ -710,6 +765,7 @@ async def build_presentation_from_roulette(payload: RouletteBuildRequest = Body(
         from presentation_builder import build_from_roulette, BuildValidationError
     except ImportError as e:
         raise HTTPException(500, detail=f"presentation_builder import failed: {e}")
+    await _ensure_host_on_disk(payload.host_id)
     try:
         return build_from_roulette(
             name=payload.name,

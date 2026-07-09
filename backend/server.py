@@ -678,9 +678,11 @@ async def lifespan(app: FastAPI):
     # `.bighat` files at `Files/Trivia/<TYPE>/`, and any manually-
     # dropped disk rounds are pulled into Mongo. Non-fatal on failure.
     try:
-        from routes.roundmaker import migrate_rounds_disk_and_db
+        from routes.roundmaker import migrate_rounds_disk_and_db, backfill_round_covers
         stats = await migrate_rounds_disk_and_db()
         logger.info("[alpha.40] rounds migration on boot: %s", stats)
+        cover_stats = backfill_round_covers()
+        logger.info("[alpha.56] round-cover backfill on boot: %s", cover_stats)
     except Exception as e:                                    # noqa: BLE001
         logger.warning("[alpha.40] rounds migration failed: %s", e)
 

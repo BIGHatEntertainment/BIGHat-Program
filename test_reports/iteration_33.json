@@ -1,0 +1,29 @@
+{
+  "summary": "Verified alpha.56 real-machine title-card fixes end-to-end. All 8 required per-file pytest suites pass (70 passed, 21 skipped as expected). Wrote 3 live public-URL tests: build endpoint returns 200 (Fix 1 host materialization), fetch-section/round_2 returns bighat-embedded-cover data URL (Fix 3), and legacy /api/presentations/import-trivia -> fetch-section returns embedded data:image cover (Fix 2 'path' key honored). Frontend smoke: main app + /trivia/audience load, audience-waiting testid present, no page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_33_live.py",
+    "/app/backend/tests/test_alpha56_real_machine_fixes.py",
+    "/app/backend/tests/test_alpha55_title_card_persistence.py",
+    "/app/backend/tests/test_alpha54_reg_title_from_roundmaker_uploads.py",
+    "/app/backend/tests/test_alpha53_build_pipeline_and_overlays.py",
+    "/app/backend/tests/test_bighat_import_list_contract.py",
+    "/app/backend/tests/test_bighat_real_fixtures.py",
+    "/app/backend/tests/test_cover_image_ingest.py",
+    "/app/backend/tests/test_phase3_roundmaker_native.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Round-file naming in /api/native/presentations/build accepts BASENAMES only (e.g. 'MC_Alpha46_Test.bighat'), not 'TYPE/basename.bighat'. Review request payload example used 'MC/MC_Alpha46_Test.bighat' which 400s; endpoint pool-scans the type folder for basename match. Not a bug (spec says files must live in their own type folder), but consider accepting both forms for robustness or documenting explicitly in error message.",
+    "Fix 4 (Tauri dialog ACL) is static-review only — cannot be validated in container. Verified src-tauri/capabilities/default.json exists in repo; runtime behavior must be validated by main agent on packaged build."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration_33_live.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Sellards@bighat.live / BigHat2024! (not exercised — native endpoints require no auth)",
+  "seed_data_creation": "Build test wrote a presentation doc + copied .bighat files into Files/Trivia/Rounds/ (expected per problem statement). Legacy import test also created a presentation. No cleanup performed (disk-as-truth model).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Live backend tests in /app/backend/tests/test_iteration_33_live.py cover the full 3-fix chain against the public URL. Use basename-only round_files (no TYPE/ prefix) when calling /api/native/presentations/build. Existing test fixtures on disk: MC/MC_Alpha46_Test.bighat, REG/repro-1.bighat (has embedded cover — used for both build and legacy verification), MISC/misc-e2e.bighat, MYS/mys-e2e.bighat, BIG/big-e2e.bighat.",
+  "rca of the issue": "N/A — all fixes verified working. Original user failure chain (host UUID mismatch, 'file'-only key read, missing cover embed, Tauri ACL) is resolved per code review and live tests."
+}

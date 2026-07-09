@@ -14,7 +14,10 @@
     "core:webview:allow-create-webview-window",
     "shell:default",
     "process:default",
-    "dialog:default"
+    "dialog:default",
+    "dialog:allow-confirm",
+    "dialog:allow-ask",
+    "dialog:allow-message"
   ]
 }
 

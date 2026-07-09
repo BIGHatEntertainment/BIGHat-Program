@@ -268,6 +268,37 @@ def _read_all_disk_rounds() -> List[dict]:
     return out
 
 
+def backfill_round_covers() -> dict:
+    """v32.0.0-alpha.56 boot migration: embed `cover_image_data_url` into
+    every on-disk round that only carries a `cover_image_id`. Runs while
+    the source image may still exist (uploads dir / assets TitleCards) —
+    once embedded, the round never depends on an external file again.
+    Idempotent: already-embedded rounds are skipped."""
+    stats = {"embedded": 0, "skipped": 0, "missing_source": 0, "write_failed": 0}
+    try:
+        from native_slides import _inline_roundmaker_upload
+    except ImportError:
+        return {"skipped_all": True, "reason": "native_slides unavailable"}
+    for d in _read_all_disk_rounds():
+        if d.get("cover_image_data_url") or not d.get("cover_image_id"):
+            stats["skipped"] += 1
+            continue
+        url = _inline_roundmaker_upload(d["cover_image_id"])
+        if not url:
+            stats["missing_source"] += 1
+            continue
+        clean = {k: v for k, v in d.items() if not k.startswith("_")}
+        clean["cover_image_data_url"] = url
+        try:
+            Path(d["_disk_path"]).write_text(json.dumps(clean, indent=2), encoding="utf-8")
+            stats["embedded"] += 1
+        except OSError as e:
+            logger.warning("[roundmaker backfill] write failed for %s: %s",
+                           d.get("_disk_path"), e)
+            stats["write_failed"] += 1
+    return stats
+
+
 async def migrate_rounds_disk_and_db() -> dict:
     """Two-way reconciliation of `db.rounds` ↔ `Files/Trivia/<TYPE>/`.
 

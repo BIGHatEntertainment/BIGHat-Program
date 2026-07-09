@@ -31,6 +31,22 @@
 
 ---
 
+## 🖥️ THIS PROGRAM RUNS ON THE USER'S PC — NOT ON A SERVER
+
+> Locked in by the merchant 2026-07 (alpha.56 debug). **The standalone app
+> executes entirely on the end user's machine. It is NOT limited by server
+> restrictions.** Consequences:
+> - Aggressive local-disk reads/writes are fine and ENCOURAGED: self-heal
+>   `.bighat` files, backfill embeds at boot, scan asset trees recursively.
+> - Large base64 embeds in JSON files are fine — no proxy/body-size limits.
+> - Never design around "server can't touch user files" thinking. Disk is
+>   ours to repair (write-through, migrations at every boot, idempotent).
+> - DEV ≠ USER MACHINE: PyInstaller-frozen paths (`_MEIxxxx` temp),
+>   Windows Documents/AppData layouts, and Tauri ACLs behave differently
+>   from this container. Always reason about the FROZEN layout first.
+
+---
+
 ## 🛑 DISK STATE IS THE ABSOLUTE SOURCE OF TRUTH — READ BEFORE TOUCHING ANY DATA-LAYER CODE
 
 > Locked in by the merchant 2026-02-05 (during alpha.45 → alpha.46 debug).
