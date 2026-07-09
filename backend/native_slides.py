@@ -563,6 +563,19 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
                 if data_url:
                     doc["cover_image_data_url"] = data_url
                     doc["_title_card_source_hint"] = "roundmaker-upload"
+                    # v32.0.0-alpha.56 SELF-HEAL: write the embed back into
+                    # the .bighat so the round is self-contained forever,
+                    # even if the source image later disappears. This runs
+                    # on the user's own PC — the file is ours to fix.
+                    try:
+                        healed = {k: v for k, v in doc.items()
+                                  if not k.startswith("_")}
+                        path.write_text(json.dumps(healed, indent=2),
+                                        encoding="utf-8")
+                        logger.info("[bighat] self-healed cover into %s", path)
+                    except OSError as we:
+                        logger.warning("[bighat] self-heal write failed for %s: %s",
+                                       path, we)
         except Exception as e:  # pragma: no cover
             logger.warning("[bighat] cover-inline failed for %s: %s", path, e)
         return doc
@@ -663,10 +676,18 @@ def load_round_from_disk(round_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     rid = round_ref.get("id") or ""
     rname = round_ref.get("name") or ""
     rtype = (round_ref.get("type") or "").upper()
-    rfile = round_ref.get("file") or ""
+    # v32.0.0-alpha.56: the Build Wizard fallback (`import-trivia`) stores
+    # the round reference under `path` (often an ABSOLUTE native path from
+    # /api/trivia/round-files) — honour it, don't just read `file`.
+    rfile = round_ref.get("file") or round_ref.get("path") or ""
 
     # 1. Exact file-path match (TRUST)
     if rfile:
+        pf = Path(rfile)
+        if pf.is_absolute() and pf.is_file():
+            doc = _read_bighat_round(pf)
+            if doc is not None:
+                return doc
         exact = docs / "Files" / "Trivia" / rfile
         if exact.exists():
             doc = _read_bighat_round(exact)
