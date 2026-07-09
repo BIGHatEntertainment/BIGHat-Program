@@ -8,6 +8,51 @@
 ---
 ---
 
+## 2026-07-09 — v32.0.0-alpha.57: One build = ONE presentation; backend visibility on the user's PC
+
+### Merchant charge (alpha.56)
+> "still no image in the title card slide… now you are creating unnecessary trivia files
+> with the actual trivia presentations. i dont want this."
+> Follow-up: "that secondary presentation with no round data did in fact have the
+> overlays in the correct manner so thats good" — **the hardcoded 17-step build works
+> on his machine**; the broken slide was the LEGACY duplicate.
+
+### What his log + screenshots showed
+- alpha.56's host fix WORKED: `POST /api/native/presentations/build` → 200. But the
+  wizard's `onComplete` STILL posted `import-trivia` unconditionally → **two
+  presentations per build**. He opened the legacy one (title = bundled
+  `/REG_Title_Card.svg` fallback) while the hardcoded one had real title images and
+  correct overlays.
+- The hardcoded doc's Presenter card showed "0 ROUNDS / Unknown / Invalid Date" —
+  the list mapper only understood legacy keys.
+- Exported debug logs contained ONLY frontend telemetry — zero backend visibility.
+
+### Fixes
+1. **No duplicates**: `Dashboard.js` and `SlotMachineRandomizer.jsx` skip
+   `import-trivia` whenever the hardcoded build/roulette doc exists. One build → one
+   presentation (the good one).
+2. **Presenter card**: `/api/trivia-viewer/list` coalesces schema-v2 keys
+   (`created_at`, `host_name`, `location_name`, `roundFiles`→types/names/count).
+3. **Backend visibility** (this is how we stop guessing):
+   - `launcher.py` mirrors ALL backend logging to
+     `<Documents>/BIG Hat Entertainment/Files/Logs/backend.log` (2 MB × 2, rotating).
+   - `/api/debug/logs/download` appends backend.log tails to the export.
+   - `native_slides._capture_log()` mirrors title-card resolution into app.log:
+     `cover-resolved` (source+path), `cover-MISS` (every dir searched + existence),
+     `title-card` (per-round outcome), `cover-backfill` (boot stats). The merchant's
+     NEXT export will show exactly why any cover resolves or misses on HIS machine.
+4. **Widened recovery**: `_inline_roundmaker_upload` also sweeps
+   `<docs>/Files/Trivia/**` and the whole assets root (60k-file cap) for a stem match.
+5. ACL-safe `window.confirm` in SlotMachineRandomizer (same fix as the wizard).
+
+### Tests
+Testing agent iteration_34: backend 100%, frontend 100%. Build endpoint verified to
+add EXACTLY one presentation; Alpha56 E2E card shows 5 rounds + valid date; debug log
+contains backend events; 38/38 pytest across the 5 related files.
+
+---
+---
+
 ## 2026-07-09 — v32.0.0-alpha.56: Real-machine fixes from the merchant's debug log
 
 ### Merchant charge (alpha.55 did not fix it on their PC)

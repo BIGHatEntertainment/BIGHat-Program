@@ -469,7 +469,8 @@ def _inline_roundmaker_upload(cover_image_id: str) -> Optional[str]:
         except OSError:
             continue
     _capture_log("cover-MISS", cover_image_id=cover_image_id,
-                 uploads_dirs=[{"dir": str(u), "exists": u.is_dir()} for u in upload_dirs],
+                 uploads_dirs=[{"dir": str(u), "exists": u.is_dir()}
+                               for u in dict.fromkeys(upload_dirs)],
                  search_roots=seen_roots, files_scanned=scanned)
     return None
 

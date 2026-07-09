@@ -1,19 +1,20 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.55` (2026-06, June preview).** THE REAL
-> ROOT CAUSE of the recurring "title images not loading" bug: in frozen
-> builds `UPLOAD_DIR` lived in the per-launch `_MEIxxxx` temp dir, so cover
-> images evaporated on app close. alpha.55 (1) pins
-> `BIGHAT_ROUNDMAKER_UPLOADS`/`GENERATED` to the persistent per-user data
-> dir, (2) embeds `cover_image_data_url` inside every written `.bighat`
-> (self-contained), (3) recovers already-broken rounds for ALL 5 round types
-> via a stem match in the local assets `04_TitleCards` tree. ALSO:
-> `TriviaAudienceView.jsx` is now a VERBATIM v30 port (font multipliers,
-> clamp vw fonts, Y-sorted visibility answer reveal, prototype final-scores
-> credit scroll, audience video audio ON).
+> **Current release: `v32.0.0-alpha.57` (2026-07-09).** One build = ONE
+> presentation: the wizard/roulette no longer create a legacy `import-trivia`
+> duplicate when the hardcoded 17-step build succeeds (the hardcoded doc is
+> the one that renders title images + overlays correctly on the merchant's
+> PC). Presenter cards now understand schema-v2 build docs (no more
+> "0 ROUNDS / Invalid Date"). Backend logging is mirrored to
+> `Files/Logs/backend.log` and the debug export includes it, plus
+> title-card resolution diagnostics (`cover-resolved` / `cover-MISS` with
+> every searched dir / per-round `title-card` outcome / `cover-backfill`
+> boot stats) — the merchant's NEXT log export shows exactly why any cover
+> resolves or misses on HIS machine. Cover recovery sweep widened to the
+> docs tree + whole assets root.
 > See `/app/memory/CHANGELOG.md` for the full per-release history. The
-> active release script pair is `scripts/push_alpha55.py` +
-> `scripts/wait_and_publish_alpha55.py`.
+> active release script pair is `scripts/push_alpha57.py` +
+> `scripts/wait_and_publish_alpha57.py`.
 >
 > **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
 > Round-count locked to 5 or 6. Cross-pool picking rejected at file
