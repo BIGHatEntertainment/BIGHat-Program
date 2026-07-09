@@ -196,11 +196,52 @@ def _resolve_round_file(round_type: str, ref: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def _load_host(host_id: str) -> Dict[str, Any]:
-    d = _files_root() / "Hosts" / host_id
-    hj = d / "host.json"
-    if not hj.is_file():
-        raise BuildValidationError(f"host_id {host_id!r} not on disk at {hj}")
-    return json.loads(hj.read_text(encoding="utf-8"))
+    hosts_root = _files_root() / "Hosts"
+    hj = hosts_root / host_id / "host.json"
+    if hj.is_file():
+        return json.loads(hj.read_text(encoding="utf-8"))
+    # v32.0.0-alpha.56: host folders are named by EMAIL-SLUG (see
+    # files_router.host_folder), but the wizard passes the user's UUID.
+    # Scan every Files/Hosts/*/host.json and match on id OR email —
+    # exactly like `_load_location` already does. Without this the
+    # hardcoded 17-step build 400s on every real install.
+    key = (host_id or "").strip().lower()
+    if key and hosts_root.is_dir():
+        for entry in sorted(hosts_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            f = entry / "host.json"
+            if not f.is_file():
+                continue
+            try:
+                doc = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if (str(doc.get("id") or "").lower() == key
+                    or str(doc.get("email") or "").lower() == key):
+                return doc
+    # Final fallback: the hosts dropdown is sourced from
+    # `system_config.json → users[]` — if the id/email matches a config
+    # user, the host is REAL but its host.json was never written (or is
+    # stale). Materialize it on the fly (disk is truth — self-heal).
+    try:
+        from native.config import config_manager
+        for u in (config_manager.config.get("users") or []):
+            if (str(u.get("id") or "").lower() == key
+                    or str(u.get("email") or "").lower() == key):
+                try:
+                    from native.files_router import write_host_profile_json
+                    write_host_profile_json(u)
+                except Exception:
+                    pass
+                return {k: u.get(k) for k in (
+                    "id", "email", "first_name", "last_name", "display_name",
+                    "name", "phone", "role", "home_city", "profile_picture",
+                    "host_image_16x9", "host_image_9x16", "created_at",
+                ) if u.get(k) is not None}
+    except Exception:
+        pass
+    raise BuildValidationError(f"host_id {host_id!r} not on disk at {hj}")
 
 
 def _load_location(location_id_or_slug: str) -> Optional[Dict[str, Any]]:
