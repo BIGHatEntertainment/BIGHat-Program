@@ -1,20 +1,23 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.57` (2026-07-09).** One build = ONE
-> presentation: the wizard/roulette no longer create a legacy `import-trivia`
-> duplicate when the hardcoded 17-step build succeeds (the hardcoded doc is
-> the one that renders title images + overlays correctly on the merchant's
-> PC). Presenter cards now understand schema-v2 build docs (no more
-> "0 ROUNDS / Invalid Date"). Backend logging is mirrored to
-> `Files/Logs/backend.log` and the debug export includes it, plus
-> title-card resolution diagnostics (`cover-resolved` / `cover-MISS` with
-> every searched dir / per-round `title-card` outcome / `cover-backfill`
-> boot stats) — the merchant's NEXT log export shows exactly why any cover
-> resolves or misses on HIS machine. Cover recovery sweep widened to the
-> docs tree + whole assets root.
+> **Current release: `v32.0.0-alpha.58` (2026-07).** Merchant-directed release:
+> all rounds with ObjectId-format `cover_image_id` had their GridFS bytes
+> extracted in preview and embedded as `cover_image_data_url` (verified
+> 22/22); `_extract_gridfs_covers_to_disk()` short-circuits under standalone
+> MontyDB (`native_mode_no_gridfs`); 10 fake <100 B placeholder uploads
+> deleted; NEW `backend/seed_rounds/` ships deduped self-contained rounds —
+> `build_installer.py` verifies payload seeds are self-contained,
+> `build_sidecar.py` bundles them into the PyInstaller sidecar, and
+> `launcher._seed_bundled_rounds()` copies them to Documents on first boot
+> WITHOUT overwriting user files. Render-time resolution untouched; no
+> GridFS in the render path. Release carries BOTH the Tauri installers
+> (CI) and the NSIS `BIGHatStandalone-Setup-32.0.0-alpha.58.exe` (built
+> locally via `scripts/build_installer.py`, published via
+> `scripts/publish_github_release.py --replace-existing`; NSIS
+> `VIProductVersion` now maps prerelease → numeric X.X.X.X).
 > See `/app/memory/CHANGELOG.md` for the full per-release history. The
-> active release script pair is `scripts/push_alpha57.py` +
-> `scripts/wait_and_publish_alpha57.py`.
+> active release script pair is `scripts/push_alpha58.py` +
+> `scripts/wait_and_publish_alpha58.py`.
 >
 > **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
 > Round-count locked to 5 or 6. Cross-pool picking rejected at file

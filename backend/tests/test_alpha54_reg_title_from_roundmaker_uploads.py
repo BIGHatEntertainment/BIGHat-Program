@@ -144,7 +144,7 @@ def test_bare_json_bighat_without_matching_upload_returns_no_url(tmp_path, monke
     bighat = tmp_path / "bad-cover.bighat"
     bighat.write_text(json.dumps({
         "id": "r1", "round_type": "REG", "name": "Nope",
-        "cover_image_id": "6a417c6508d98c39f71c608f",  # legacy Mongo id, no file
+        "cover_image_id": "0000deadbeef0000deadbeef",  # id that exists NOWHERE on disk
         "questions": [{"number": 1, "question": "Q?", "answer": "A"}],
     }))
     doc = ns._read_bighat_round(bighat)
