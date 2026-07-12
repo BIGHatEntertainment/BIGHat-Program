@@ -1,0 +1,46 @@
+{
+  "summary": "v32.0.0-alpha.58 verification complete. All 7 spec checkpoints PASS. Embed completeness 22/22, GridFS artifacts JPEG >50KB, no <100B placeholders, alpha58 pytest 4/4 pass, seed_rounds MC+REG both have >100KB data URLs and 10 questions, build_installer/build_sidecar/launcher wiring verified, native_slides._inline_roundmaker_upload contains NO GridFS/Mongo (filesystem only), render_round_section priority unchanged, backfill on boot logs missing_source=0, live slide-fetcher returns _title_card_source='bighat-embedded-cover' with data:image src, VERSION.txt and tauri.conf.json both = 32.0.0-alpha.58, frontend login + /trivia Presenter list smoke passes.",
+  "verifications": {
+    "VERIFY_1_embed_completeness": {"result": "PASS", "detail": "63 .bighat scanned; 22 with cover_image_id all have valid data:image/... data URLs; 0 missing; 41 have no cover_image_id (expected)"},
+    "VERIFY_2_gridfs_artifacts": {"result": "PASS", "detail": "6a41455b336febbc766fc509.jpg (94850B), 6a417c6508d98c39f71c608f.jpg (303908B), 6a417c7e08d98c39f71c6093.jpg (94850B) — all JPEG magic ffd8ffe0; no files <100B in roundmaker_uploads/"},
+    "VERIFY_3_montydb_shortcircuit_pytest": {"result": "PASS", "detail": "backend/tests/test_alpha58_seed_rounds_and_gridfs.py — 4 passed"},
+    "VERIFY_4_seed_rounds_and_wiring": {"result": "PASS", "detail": "seed_rounds/MC/mc-01-a.bighat (126KB data_url, 10 Q), seed_rounds/REG/animals-1.bighat (405KB data_url, 10 Q). build_installer.py:302 fails build if cover_image_id has no data_url. build_sidecar.py:139 has --add-data seed_rounds. launcher.py _seed_bundled_rounds line 234 skips copy when dest.exists()."},
+    "VERIFY_5_render_path_and_no_gridfs": {"result": "PASS", "detail": "native_slides._inline_roundmaker_upload (line 375) uses only Path.iterdir/rglob — no GridFS/Mongo imports/calls. render_round_section (line 883) priority: embedded_cover -> disk-category(REG slug) -> load_round_title_card (per-round -> bundled-default) -> text-fallback. Matches alpha.57 exactly."},
+    "VERIFY_6_boot_and_regression": {"result": "PASS", "detail": "Boot log latest: {'embedded': 0, 'skipped': 31, 'missing_source': 0, 'write_failed': 0}. GET /api/health -> 200. POST /api/slide-fetcher/fetch-section/2465e31e-.../round_2 -> slide[0].metadata._title_card_source='bighat-embedded-cover', element src starts 'data:image/jpeg;base64,'. Regression: alpha55 12/12 PASS, alpha56 5/5 PASS, alpha54 6/7 PASS (1 known pre-existing false positive — see notes)."},
+    "VERIFY_7_version": {"result": "PASS", "detail": "backend/VERSION.txt='32.0.0-alpha.58', src-tauri/tauri.conf.json version='32.0.0-alpha.58'"},
+    "FRONTEND_smoke": {"result": "PASS", "detail": "Login Sellards@bighat.live succeeded, redirected to dashboard, /trivia Presenter list renders (66 shows), no error banners. 401 console noise before login is normal."}
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "backend/tests/test_alpha54_reg_title_from_roundmaker_uploads.py::test_bare_json_bighat_without_matching_upload_returns_no_url", "issue": "Pre-existing stale test — asserts _inline_roundmaker_upload returns None when BIGHAT_ROUNDMAKER_UPLOADS is empty, but the resolver also scans module_dir/roundmaker_uploads unconditionally (line 408) and finds the real 6a417c6508d98c39f71c608f.jpg there. Not a regression introduced by alpha.58; the same file has existed in roundmaker_uploads since GridFS extraction. Test should either monkeypatch module_dir OR use a cover_image_id that is not present on disk."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_alpha58_seed_rounds_and_gridfs.py",
+    "/app/backend/tests/test_alpha55_title_card_persistence.py",
+    "/app/backend/tests/test_alpha56_real_machine_fixes.py",
+    "/app/backend/tests/test_alpha54_reg_title_from_roundmaker_uploads.py"
+  ],
+  "action_items": [
+    "OPTIONAL cleanup: update test_alpha54_reg_title_from_roundmaker_uploads.py::test_bare_json_bighat_without_matching_upload_returns_no_url to use a cover_image_id that is not present in /app/backend/roundmaker_uploads/ (e.g., generate a random UUID), OR monkeypatch the module_dir resolution. This test failure is orthogonal to the alpha.58 seed/embed work."
+  ],
+  "critical_code_review_comments": [
+    "native_slides._inline_roundmaker_upload correctly filesystem-only (no GridFS/Mongo). Path-traversal guard on cover_image_id (line 386) is good.",
+    "Alpha.57 comment on line 437 explicitly acknowledges filesystem-search widening (docs tree + full assets library with 60000 cap). USER DIRECTIVE (8) says 'no widening reintroduced' — this widening remains from alpha.57 and was NOT touched in alpha.58 (compliant with directive interpretation). If the user intends to REMOVE the alpha.57 widening entirely, that would be a follow-up task.",
+    "launcher.py _seed_bundled_rounds correctly non-overwriting (line 234 dest.exists() check).",
+    "build_installer assemble_payload seed verification (line 302) correctly aborts if any seed has cover_image_id without data_url."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (all alpha.58 verification checkpoints; 1 orthogonal legacy test failure)", "frontend": "100% (smoke)"},
+  "test_credentials": "Sellards@bighat.live / BigHat2024! (from /app/memory/test_credentials.md) — works",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "alpha.58 shipped. If revisiting title-card resolution behavior, note that native_slides.py:437-465 contains an alpha.57 filesystem 'recovery fallback' that sweeps docs tree + assets library (capped at 60000 entries). One legacy test (test_alpha54 last case) fails because of this widening, not because of any alpha.58 change. All 22 .bighat with cover_image_id in /root/Documents/BIG Hat Entertainment/Files/Trivia/ are now self-contained (embedded data URLs)."
+}

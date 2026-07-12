@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import sys
 import threading
 import webbrowser
@@ -209,6 +210,38 @@ def _load_env() -> None:
 
     _bootstrap_env_from_template()
     _quarantine_dev_seed_if_present()
+    _seed_bundled_rounds()
+
+
+def _seed_bundled_rounds() -> None:
+    """v32.0.0-alpha.58: copy bundled seed rounds (self-contained .bighat
+    files with cover_image_data_url embedded) into the user's Documents
+    tree on first boot. NEVER overwrites — disk is the source of truth;
+    a file the user already has always wins."""
+    src = BACKEND_DIR / "seed_rounds"
+    if not src.is_dir():
+        return
+    override = os.environ.get("BIGHAT_FILES_DIR")
+    if override:
+        docs = Path(override).expanduser()
+    else:
+        base = Path.home() / "Documents"
+        docs = (base if base.exists() else Path.home()) / "BIG Hat Entertainment"
+    seeded = 0
+    for f in sorted(src.rglob("*.bighat")):
+        rtype = f.parent.name
+        dest = docs / "Files" / "Trivia" / rtype / f.name
+        if dest.exists():
+            continue
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dest)
+            seeded += 1
+        except OSError as e:
+            logger.warning("[launcher] seed round copy failed %s: %s", f.name, e)
+    if seeded:
+        logger.info("[launcher] seeded %d bundled round(s) into %s", seeded,
+                    docs / "Files" / "Trivia")
     try:
         from dotenv import load_dotenv  # type: ignore
         load_dotenv(BACKEND_DIR / ".env")

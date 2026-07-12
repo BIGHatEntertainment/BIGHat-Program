@@ -8,6 +8,37 @@
 ---
 ---
 
+## 2026-07 — v32.0.0-alpha.58: Pre-embedded seed rounds ship with the installer; MontyDB GridFS short-circuit
+
+### Merchant directives (followed verbatim)
+- Render-time title-card resolution UNCHANGED (disk remains the source of truth).
+- Ran `_extract_gridfs_covers_to_disk()` + `backfill_round_covers()` in preview:
+  all 4 ObjectId-format GridFS covers extracted to `roundmaker_uploads/` as real
+  image bytes (94–304 KB) and embedded; **verified every `.bighat` under
+  `Files/Trivia/` with a `cover_image_id` now has a non-empty
+  `cover_image_data_url` (22/22)**.
+- `_extract_gridfs_covers_to_disk()` short-circuits under standalone MontyDB →
+  `{'skipped': True, 'reason': 'native_mode_no_gridfs'}` (isinstance check).
+- Deleted 10 fake placeholder files (<100 B) from `roundmaker_uploads/`.
+- `scripts/build_installer.py` now VERIFIES the payload's `seed_rounds/` are
+  self-contained (fails the build if any seed has a cover_image_id without the
+  embedded bytes). `scripts/build_sidecar.py` bundles `seed_rounds/` into the
+  PyInstaller sidecar so Tauri builds carry them too.
+- NEW `backend/seed_rounds/` in-repo: deduped, pre-embedded rounds
+  (MC/mc-01-a, REG/animals-1 — one per name, newest wins; slug-suffix
+  duplicates NOT shipped).
+- `launcher._seed_bundled_rounds()`: first-boot copy into
+  `Documents/…/Files/Trivia/<TYPE>/` — NEVER overwrites an existing user file.
+- No filesystem-search widening added; no runtime GridFS lookups in the render path.
+
+### Tests
+`backend/tests/test_alpha58_seed_rounds_and_gridfs.py` (4 tests: MontyDB
+short-circuit, db-not-ready, seed self-containment, no-overwrite seeding) +
+alpha55/56 regressions — 21/21.
+
+---
+---
+
 ## 2026-07-09 — v32.0.0-alpha.57: One build = ONE presentation; backend visibility on the user's PC
 
 ### Merchant charge (alpha.56)

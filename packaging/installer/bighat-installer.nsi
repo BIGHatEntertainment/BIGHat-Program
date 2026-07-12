@@ -63,7 +63,13 @@ ShowInstDetails show
 ShowUninstDetails show
 Unicode true
 
-VIProductVersion "${APP_VERSION}.0"
+; v32.0.0-alpha.58: VIProductVersion must be strictly numeric X.X.X.X —
+; prerelease strings like 32.0.0-alpha.58 are carried in the display keys
+; below while APP_VERSION_NUMERIC feeds the binary version resource.
+!ifndef APP_VERSION_NUMERIC
+  !define APP_VERSION_NUMERIC "${APP_VERSION}.0"
+!endif
+VIProductVersion "${APP_VERSION_NUMERIC}"
 VIAddVersionKey "ProductName"      "${APP_NAME}"
 VIAddVersionKey "CompanyName"      "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription"  "${APP_NAME} Installer"

@@ -7,6 +7,9 @@
   `window.location.replace('http://127.0.0.1:<port>/')` once the
   backend is healthy, replacing this splash with the full React app.
 
+  v32.0.0-alpha.17: custom chromeless titlebar removed. We now run with
+  Tauri `decorations: true`, so the OS draws min/max/close itself.
+
   Keep this file SELF-CONTAINED — no external scripts, no fetches, no
   axios. If the backend never starts, this page is the user's last
   diagnostic surface.
@@ -27,8 +30,11 @@
       font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       overflow: hidden;
     }
+
+    /* ----- Stage ----- */
     .stage {
-      height: 100%;
+      position: absolute;
+      inset: 0;
       display: flex;
       flex-direction: column;
       align-items: center;

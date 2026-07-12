@@ -304,6 +304,78 @@ def backfill_round_covers() -> dict:
     return stats
 
 
+async def _extract_gridfs_covers_to_disk() -> dict:
+    """v32.0.0-alpha.58: cloud Round Maker cover images live in the DEFAULT
+    GridFS bucket (fs.files/fs.chunks), keyed by a 24-char ObjectId
+    cover_image_id. The filesystem-only resolver in native_slides never finds
+    them, so those rounds fell back to a text-only title card. Extract every
+    ObjectId-format cover blob to roundmaker_uploads/<id>.<ext> so the existing
+    disk resolver and backfill embed them. Idempotent; fully defensive -- never
+    raises (must not break boot). NOTE: uses the DEFAULT 'fs' bucket, NOT the
+    'slides' bucket that gridfs_service.py uses."""
+    stats = {"extracted": 0, "already": 0, "no_blob": 0, "errors": 0}
+    if db is None:
+        return {"skipped": True, "reason": "db_not_ready"}
+    # v32.0.0-alpha.58: standalone MontyDB has no GridFS content to read
+    # from — cloud covers only ever exist in real Mongo. Short-circuit so
+    # native boots never pay the scan cost.
+    try:
+        from native.async_monty import AsyncMontyDatabase as _AMD
+        is_monty = isinstance(db, _AMD)
+    except ImportError:
+        is_monty = type(db).__name__ == "AsyncMontyDatabase"
+    if is_monty:
+        return {"skipped": True, "reason": "native_mode_no_gridfs"}
+    try:
+        import re as _re
+        from bson import ObjectId
+        updir = _resolve_upload_dir()
+        updir.mkdir(parents=True, exist_ok=True)
+        from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+        bucket = AsyncIOMotorGridFSBucket(db, bucket_name="fs")
+        try:
+            rounds = await db.rounds.find({}, {"_id": 0, "cover_image_id": 1}).to_list(2000)
+        except Exception:
+            rounds = []
+        hexre = _re.compile(r"^[0-9a-fA-F]{24}$")
+        seen = set()
+        for r in rounds:
+            cid = r.get("cover_image_id")
+            if not cid or not isinstance(cid, str) or not hexre.match(cid) or cid in seen:
+                continue
+            seen.add(cid)
+            if any((updir / (cid + ext)).exists() for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp")):
+                stats["already"] += 1
+                continue
+            try:
+                stream = await bucket.open_download_stream(ObjectId(cid))
+                data = await stream.read()
+                if not data:
+                    stats["no_blob"] += 1
+                    continue
+                if data[:8] == b"\x89PNG\r\n\x1a\n":
+                    ext = ".png"
+                elif data[:6] in (b"GIF87a", b"GIF89a"):
+                    ext = ".gif"
+                elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+                    ext = ".webp"
+                else:
+                    ext = ".jpg"
+                (updir / (cid + ext)).write_bytes(data)
+                stats["extracted"] += 1
+            except Exception as _e:
+                logger.warning("[roundmaker gridfs-extract] %s failed: %s", cid, _e)
+                stats["errors"] += 1
+    except Exception as _e:
+        logger.warning("[roundmaker gridfs-extract] aborted: %s", _e)
+    try:
+        from native_slides import _capture_log
+        _capture_log("cover-gridfs-extract", **stats)
+    except Exception:
+        pass
+    return stats
+
+
 async def migrate_rounds_disk_and_db() -> dict:
     """Two-way reconciliation of `db.rounds` ↔ `Files/Trivia/<TYPE>/`.
 
@@ -316,6 +388,8 @@ async def migrate_rounds_disk_and_db() -> dict:
     fills the merchant's existing DB into disk immediately."""
     if db is None:
         return {"skipped": True, "reason": "db_not_ready"}
+
+    await _extract_gridfs_covers_to_disk()
 
     stats = {"wrote_to_disk": 0, "inserted_to_db": 0, "skipped": 0}
 
