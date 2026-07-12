@@ -136,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         # Static SPA bundle + version + .env template ride along as data.
         "--add-data", f"{BACKEND / 'static'}{os.pathsep}static",
         "--add-data", f"{BACKEND / 'VERSION.txt'}{os.pathsep}.",
+        "--add-data", f"{BACKEND / 'seed_rounds'}{os.pathsep}seed_rounds",
         str(BACKEND / "launcher.py"),
     ]
     print("[sidecar] $ " + " ".join(cmd))
