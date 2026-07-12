@@ -290,6 +290,22 @@ def assemble_payload(*, python_dir: Path | None, skip_frontend: bool, embed_pyth
     )
     print(f"[build-installer] payload backend/  : {backend_files} files")
 
+    # v32.0.0-alpha.58: seed rounds MUST ship with their cover image bytes
+    # already embedded (cover_image_data_url) — a fresh install has no
+    # uploads dir, no GridFS, no assets library to recover from. Verify
+    # every payload seed is self-contained; fail the build otherwise.
+    seed_dir = PAYLOAD / "backend" / "seed_rounds"
+    seeds = sorted(seed_dir.rglob("*.bighat")) if seed_dir.is_dir() else []
+    import json as _json
+    for s in seeds:
+        doc = _json.loads(s.read_text(encoding="utf-8"))
+        if doc.get("cover_image_id") and not doc.get("cover_image_data_url"):
+            raise SystemExit(
+                f"[build-installer] seed round {s.relative_to(PAYLOAD)} has a "
+                f"cover_image_id but NO embedded cover_image_data_url — run "
+                f"the boot backfill (backfill_round_covers) before building.")
+    print(f"[build-installer] payload seed_rounds/: {len(seeds)} pre-embedded .bighat files")
+
     # packaging/ (start_bighat.vbs, README, ico, etc — but not installer/ itself)
     packaging_files = _copy_tree(
         PACKAGING, PAYLOAD / "packaging",
