@@ -567,17 +567,83 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
   // and rejects cleanly in browser/preview builds so we fall back to
   // window.open there. Communication is via BroadcastChannel (see
   // broadcastToAudience helper above).
-  const openAudienceView = () => {
-    // v32.0.0-alpha.49: **SYNC-FIRST spawn.** The pop-up blocker in
-    // Tauri v2 (and Chromium) allows `window.open()` ONLY inside the
-    // synchronous call stack of a user gesture (click). If we `await`
-    // anything before calling `window.open`, the browser loses the
-    // user-gesture context and blocks the popup. Alpha.48 was async +
-    // dynamic-import first — that's exactly why the merchant saw
-    // "Please allow pop-ups". Fix: open the window SYNCHRONOUSLY here,
-    // then (optionally) upgrade to Tauri WebviewWindow after the fact.
-    // Also: we mirror the prototype's approach so the
-    // audience view works even before the /trivia/audience route boots.
+  const openAudienceView = async () => {
+    // v32.0.0-alpha.60: TAURI-FIRST. WebView2 blocks `window.open` inside
+    // the desktop shell — the merchant hit the "allow pop-ups" toast on
+    // every attempt. The capability file already whitelists the
+    // 'trivia-audience' window label + core:webview:allow-create-webview-window,
+    // so spawn a REAL native window there. Browser/preview builds keep the
+    // synchronous window.open fallback (no await happens before it when
+    // Tauri isn't detected, so the user-gesture context is preserved).
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    if (isTauri) {
+      try {
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const existing = await WebviewWindow.getByLabel('trivia-audience');
+        if (existing) {
+          try { await existing.setFocus(); } catch (_e) { /* focus best-effort */ }
+          setTimeout(() => updateAudienceView(audienceIndex), 300);
+          return;
+        }
+        const w = new WebviewWindow('trivia-audience', {
+          url: '/trivia/audience',
+          title: 'BIG Hat — Audience View',
+          width: 1280,
+          height: 720,
+          resizable: true,
+          focus: true,
+        });
+        const shim = {
+          closed: false,
+          close: () => { try { w.close(); } catch (_e) { /* already gone */ } },
+          postMessage: () => {}, // BroadcastChannel carries the real traffic
+          focus: () => { try { w.setFocus(); } catch (_e) { /* best-effort */ } },
+        };
+        w.once('tauri://destroyed', () => {
+          shim.closed = true;
+          setAudienceWindow(null);
+          audienceWindowRef.current = null;
+        });
+        w.once('tauri://error', (e) => {
+          console.warn('[audience] WebviewWindow error:', e);
+          toast({
+            title: 'Audience view failed to open',
+            description: String(e?.payload || e || 'unknown error'),
+            variant: 'destructive',
+          });
+        });
+        w.once('tauri://created', async () => {
+          // Prototype behaviour: audience goes fullscreen on the SECOND
+          // monitor when one exists.
+          try {
+            const { availableMonitors, PhysicalPosition } = await import('@tauri-apps/api/window');
+            const monitors = await availableMonitors();
+            if (monitors.length > 1) {
+              const second = monitors[1];
+              await w.setPosition(new PhysicalPosition(second.position.x, second.position.y));
+            }
+            await w.setFullscreen(true);
+          } catch (posErr) {
+            console.warn('[audience] monitor placement skipped:', posErr);
+          }
+        });
+        audienceWindowRef.current = shim;
+        setAudienceWindow(shim);
+        const bcTauri = audienceChannelRef.current;
+        if (bcTauri) {
+          const onReady = (e) => {
+            if (e?.data?.type === 'AUDIENCE_READY') {
+              updateAudienceView(audienceIndex);
+            }
+          };
+          bcTauri.addEventListener('message', onReady);
+        }
+        setTimeout(() => updateAudienceView(audienceIndex), 1200);
+        return;
+      } catch (err) {
+        console.warn('[audience] native window failed, falling back to window.open:', err);
+      }
+    }
 
     const hasSecondScreen = (window.screen?.availLeft || 0) !== 0
       || (window.screen?.availTop || 0) !== 0

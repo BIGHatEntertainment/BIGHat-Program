@@ -47,6 +47,33 @@ def ensure_pyinstaller() -> None:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller>=6.6,<7"])
 
 
+def _verify_seeds() -> None:
+    """v32.0.0-alpha.60 BUILD LOCK-IN (merchant: 'lock this in so it never
+    gets missed in future builds'). Every sidecar build MUST bundle:
+      * seed_rounds/  — .bighat files that are SELF-CONTAINED (any round
+        with a cover_image_id must carry cover_image_data_url bytes)
+      * seed_covers/  — the round-generator cover library, real bytes only
+    Fails the build (and therefore the GitHub release) otherwise."""
+    import json
+    rounds = BACKEND / "seed_rounds"
+    covers = BACKEND / "seed_covers"
+    round_files = sorted(rounds.rglob("*.bighat")) if rounds.is_dir() else []
+    if not round_files:
+        raise SystemExit("[build-sidecar] LOCK-IN FAIL: backend/seed_rounds/ is missing or empty")
+    for f in round_files:
+        doc = json.loads(f.read_text(encoding="utf-8"))
+        if doc.get("cover_image_id") and not str(doc.get("cover_image_data_url") or "").startswith("data:image/"):
+            raise SystemExit(f"[build-sidecar] LOCK-IN FAIL: seed round {f.name} is not self-contained "
+                             f"(cover_image_id without embedded cover_image_data_url)")
+    cover_files = [p for p in covers.iterdir() if p.is_file()] if covers.is_dir() else []
+    if len(cover_files) < 6:
+        raise SystemExit("[build-sidecar] LOCK-IN FAIL: backend/seed_covers/ must ship the generator cover library")
+    for p in cover_files:
+        if p.stat().st_size < 1000:
+            raise SystemExit(f"[build-sidecar] LOCK-IN FAIL: seed cover {p.name} is a stub ({p.stat().st_size} B), not real image bytes")
+    print(f"[build-sidecar] seed lock-in OK: {len(round_files)} self-contained rounds, {len(cover_files)} cover images")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Freeze backend/launcher.py for Tauri sidecar use")
     p.add_argument("--target", default=detect_target_triple(),
@@ -64,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     # Install the backend deps into the current venv FIRST so PyInstaller
     # has them available to bundle. We deliberately use requirements-desktop.txt
     # (the desktop-only subset — no MongoDB driver etc).
+    _verify_seeds()
     desktop_reqs = BACKEND / "requirements-desktop.txt"
     if desktop_reqs.is_file():
         print(f"[sidecar] installing {desktop_reqs} into current venv")

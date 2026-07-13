@@ -143,7 +143,16 @@ export default function TriviaAudienceView() {
         setRevealCount(payload.revealedCount || 0);
         break;
       case 'CLOSE':
-        window.close();
+        (async () => {
+          try {
+            if ('__TAURI_INTERNALS__' in window) {
+              const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+              await getCurrentWebviewWindow().close();
+              return;
+            }
+          } catch (_e) { /* fall through to window.close */ }
+          window.close();
+        })();
         break;
       case 'PING':
         if (bcRef.current) bcRef.current.postMessage({ type: 'PONG', at: Date.now() });

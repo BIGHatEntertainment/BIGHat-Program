@@ -1,0 +1,39 @@
+{
+  "summary": "v32.0.0-alpha.60 verification: TAURI-FIRST audience view fix + build-time seed lock-in. Code review confirms PresentationMode.jsx openAudienceView() detects Tauri via '__TAURI_INTERNALS__' in window, creates native WebviewWindow 'trivia-audience', handles existing-window focus, tauri://destroyed cleanup, tauri://created fullscreen+2nd-monitor placement, and stores {closed,close(),postMessage(),focus()} shim. NON-TAURI PATH: verified NO await occurs between the isTauri branch exit and the synchronous window.open — user-gesture preserved. TriviaAudienceView.jsx CLOSE handler correctly awaits getCurrentWebviewWindow().close() with window.close() fallback. capabilities/default.json is valid JSON and contains all required perms (allow-create, allow-close, allow-set-focus, allow-set-fullscreen, allow-set-position, allow-available-monitors, allow-set-size, allow-create-webview-window) with windows ['main','trivia-audience']. BUILD LOCK-IN: scripts/build_sidecar.py _verify_seeds() runs BEFORE PyInstaller in main(); real backend passes ('2 self-contained rounds, 7 cover images'); 5/5 negative scenarios in throwaway /tmp/test_verify_seeds_neg.py correctly raise SystemExit (empty rounds, missing data_url, <6 covers, <1000B stub cover) + positive case passes. REGRESSION PYTESTS: 22/22 pass (alpha59=6, alpha58=4, alpha55=12). /api/health=200. fetch-section round_2 slide[0] metadata._title_card_source='bighat-embedded-cover'. UI SMOKE (browser fallback): logged in as Sellards, opened presentation, clicked Present Live -> Start Presentation, clicked 'Open Audience View' — a new page opened at /trivia/audience via context.expect_page(); the audience popup rendered the current slide 'Alpha56 E2E' (not just the waiting state), proving BroadcastChannel delivery works end-to-end in the preview browser. /trivia/audience direct-load renders 'Waiting for the host…' + 'Click to Enter Fullscreen' prompt; no console errors beyond expected 401 on public route.",
+  "verifications": {
+    "CODE_REVIEW_openAudienceView": {"result": "PASS", "detail": "PresentationMode.jsx L570-670: isTauri branch uses dynamic import of @tauri-apps/api/webviewWindow, focuses existing labeled window, else spawns new one, registers tauri://destroyed to reset audienceWindowRef, tauri://error toasts, tauri://created attempts availableMonitors()+PhysicalPosition on monitor[1] + setFullscreen(true). Non-Tauri path: NO await between `if(isTauri){...return; }` block exit and synchronous window.open (L661). User gesture preserved."},
+    "CODE_REVIEW_close_handler": {"result": "PASS", "detail": "TriviaAudienceView.jsx L145-156: CLOSE case dynamically imports getCurrentWebviewWindow when __TAURI_INTERNALS__ present, awaits .close(); catch block falls through to window.close(). Correct order — Tauri-first with browser fallback."},
+    "CAPABILITIES_json": {"result": "PASS", "detail": "src-tauri/capabilities/default.json valid JSON; windows=['main','trivia-audience']; perms include core:window:allow-set-position, allow-available-monitors, allow-set-size, allow-create, allow-close, allow-set-focus, allow-set-fullscreen + core:webview:allow-create-webview-window."},
+    "LOCKIN_positive": {"result": "PASS", "detail": "python -c import build_sidecar; _verify_seeds() -> '[build-sidecar] seed lock-in OK: 2 self-contained rounds, 7 cover images'"},
+    "LOCKIN_negative": {"result": "PASS", "detail": "/tmp/test_verify_seeds_neg.py: 5/5 scenarios correctly SystemExit — empty seed_rounds, cover_image_id sans data_url, <6 covers, <1000B stub cover; positive tmp fixture passes. Real seed dirs NOT modified."},
+    "PYTEST_regression": {"result": "PASS", "detail": "alpha59_host_sections_and_seed_covers=6/6, alpha58_seed_rounds_and_gridfs=4/4, alpha55_title_card_persistence=12/12 → 22/22 in 0.53s"},
+    "HEALTH": {"result": "PASS", "detail": "GET /api/health returns 200"},
+    "FETCH_SECTION_round2": {"result": "PASS", "detail": "POST /api/slide-fetcher/fetch-section/2465e31e-.../round_2 -> slides[0].metadata._title_card_source='bighat-embedded-cover'"},
+    "UI_audience_popup_browser_fallback": {"result": "PASS", "detail": "context.expect_page() caught new page at /trivia/audience after clicking 'Open Audience View'. Audience popup rendered slide title 'Alpha56 E2E' via BroadcastChannel — NOT stuck on waiting state. No 'pop-ups' error toast."},
+    "UI_audience_direct_render": {"result": "PASS", "detail": "/trivia/audience direct load shows 'Waiting for the host…' and 'Click to Enter Fullscreen / Remove all bars and borders' prompt. Only console errors: 2x 401 (expected for public route calling /api/auth/me anon)."},
+    "TAURI_native_behavior": {"result": "CODE-REVIEW-ONLY", "detail": "Container has no Tauri runtime; native WebviewWindow spawn + 2nd-monitor fullscreen path cannot be exercised here. Logic is sound and browser fallback is verified working."}
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/tmp/test_verify_seeds_neg.py",
+    "/app/backend/tests/test_alpha59_host_sections_and_seed_covers.py",
+    "/app/backend/tests/test_alpha58_seed_rounds_and_gridfs.py",
+    "/app/backend/tests/test_alpha55_title_card_persistence.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "openAudienceView non-Tauri path uses no `await` before window.open — user-gesture context preserved as intended. Order is correct: `if (isTauri) { ... return; }` then synchronous window.open.",
+    "Presentation Mode top bar Audience View button lacks a data-testid attribute (currently text-only 'Open Audience View'). Non-blocking, but adding data-testid='audience-view-button' would harden future E2E tests.",
+    "BroadcastChannel 'bighat-trivia-audience' round-trip verified end-to-end in browser: host's setTimeout(updateAudienceView(audienceIndex),1200) after popup open successfully hydrated the child page with current slide content.",
+    "_verify_seeds() correctly runs BEFORE `pip install -r requirements-desktop.txt` in main() (L94), so a bad tree fails fast before spending CI minutes on deps.",
+    "Native audience-close handler in TriviaAudienceView is idempotent — inner try dynamically imports Tauri module; if import fails or __TAURI_INTERNALS__ is absent, falls through to window.close() cleanly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Sellards@bighat.live / BigHat2024! (works)",
+  "seed_data_creation": "None. /tmp/test_verify_seeds_neg.py uses ephemeral tempdir fixtures; real /app/backend/seed_rounds and /app/backend/seed_covers untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "alpha.60 audience-view Tauri-first fix + seed lock-in verified. Only Tauri-native window creation could not be exercised (no Tauri shell in container) — browser fallback + full code review cover it. Presentation Mode reachable via /trivia/present?id=<uuid> → click 'Present Live' → click 'Start Presentation'. Audience View button text is 'Open Audience View' (no data-testid; use button:has-text('Audience'))."
+}
