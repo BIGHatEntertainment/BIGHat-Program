@@ -1,23 +1,18 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.58` (2026-07).** Merchant-directed release:
-> all rounds with ObjectId-format `cover_image_id` had their GridFS bytes
-> extracted in preview and embedded as `cover_image_data_url` (verified
-> 22/22); `_extract_gridfs_covers_to_disk()` short-circuits under standalone
-> MontyDB (`native_mode_no_gridfs`); 10 fake <100 B placeholder uploads
-> deleted; NEW `backend/seed_rounds/` ships deduped self-contained rounds —
-> `build_installer.py` verifies payload seeds are self-contained,
-> `build_sidecar.py` bundles them into the PyInstaller sidecar, and
-> `launcher._seed_bundled_rounds()` copies them to Documents on first boot
-> WITHOUT overwriting user files. Render-time resolution untouched; no
-> GridFS in the render path. Release carries BOTH the Tauri installers
-> (CI) and the NSIS `BIGHatStandalone-Setup-32.0.0-alpha.58.exe` (built
-> locally via `scripts/build_installer.py`, published via
-> `scripts/publish_github_release.py --replace-existing`; NSIS
-> `VIProductVersion` now maps prerelease → numeric X.X.X.X).
+> **Current release: `v32.0.0-alpha.59` (2026-07).** (1) Schema-v2 build docs
+> were silently DROPPING the HOST and LOCATION sections (host_name/host_id
+> vs host/hostName key mismatch) — `_normalize_v2_pres` coalesces and
+> `load_host_asset` matches host folders by id/email/display_name via
+> host.json scan. (2) The round GENERATOR tool's real cover artwork now
+> ships as `backend/seed_covers/` and is copied into the persistent uploads
+> dir on boot (never overwrites) so cover_image_id lookups resolve on fresh
+> installs. (3) Admin → Trivia Setup: per-overlay round assignment chips
+> (MC/REG/MISC/MYS/BIG) PATCHing the alpha.53 tags endpoint; untagged =
+> all rounds, [] = dormant.
 > See `/app/memory/CHANGELOG.md` for the full per-release history. The
-> active release script pair is `scripts/push_alpha58.py` +
-> `scripts/wait_and_publish_alpha58.py`.
+> active release script pair is `scripts/push_alpha59.py` +
+> `scripts/wait_and_publish_alpha59.py`.
 >
 > **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
 > Round-count locked to 5 or 6. Cross-pool picking rejected at file
