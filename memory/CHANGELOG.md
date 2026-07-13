@@ -8,6 +8,37 @@
 ---
 ---
 
+## 2026-07 — v32.0.0-alpha.59: Host/location sections restored for built shows; generator cover library bundled; per-round overlay assignment
+
+### Merchant reports on alpha.58 (+ sent the Trivia-Round-Maker generator source zip)
+1. Title cards still empty on his PC → the REAL cover artwork lives in the
+   generator tool's uploads library. We now ship it: `backend/seed_covers/`
+   (1960s/1970s/1980s/Music/Sports/mc_title jpgs + times_up.gif, all real bytes;
+   the zip's 67-byte UUID pngs were placeholders and are NOT shipped).
+   `launcher._seed_bundled_covers()` copies them into the persistent uploads dir
+   on boot (never overwrites) → cover_image_id lookups + boot backfill resolve.
+   Bundled into the PyInstaller sidecar via `--add-data seed_covers`.
+2. **NEW bug: host slides didn't populate** → schema-v2 build docs carry
+   `host_name`/`host_id` but the section gates read `host`/`hostName`, so HOST
+   and LOCATION sections were silently DROPPED from built shows.
+   `slide_fetcher._normalize_v2_pres()` coalesces (fetch-section, sections-list,
+   store-all); `load_host_asset` now matches host folders by
+   host_id/email/display_name/id via host.json scan (folders are email-slugs
+   while build docs store display names).
+3. **Feature: per-round overlay assignment (admin)** — each overlay image in
+   Admin → Trivia Setup now has MC/REG/MISC/MYS/BIG toggle chips
+   (`overlay-tag-{imageId}-{RT}`) PATCHing the alpha.53 tags endpoint.
+   Untagged = all rounds; explicit [] = dormant. Render filtering already
+   existed (`overlays_for_round_type`).
+
+### Tests
+`test_alpha59_host_sections_and_seed_covers.py` (6) + iteration_36 testing agent:
+backend 100%, frontend 100% (chips UI verified live, host section renders image,
+34/34 regression pytests).
+
+---
+---
+
 ## 2026-07 — v32.0.0-alpha.58: Pre-embedded seed rounds ship with the installer; MontyDB GridFS short-circuit
 
 ### Merchant directives (followed verbatim)
