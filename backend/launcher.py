@@ -211,6 +211,36 @@ def _load_env() -> None:
     _bootstrap_env_from_template()
     _quarantine_dev_seed_if_present()
     _seed_bundled_rounds()
+    _seed_bundled_covers()
+
+
+def _seed_bundled_covers() -> None:
+    """v32.0.0-alpha.59: copy the bundled cover-image library (the round
+    generator tool's uploads — REG decade cards, MC title art, custom
+    UUID covers) into the persistent roundmaker uploads dir so
+    `cover_image_id` lookups and the boot backfill resolve to REAL bytes
+    on a fresh install. NEVER overwrites an existing file."""
+    src = BACKEND_DIR / "seed_covers"
+    if not src.is_dir():
+        return
+    dest_env = os.environ.get("BIGHAT_ROUNDMAKER_UPLOADS")
+    dest = Path(dest_env) if dest_env else (USER_DATA_DIR / "roundmaker_uploads")
+    seeded = 0
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in sorted(src.iterdir()):
+            if not f.is_file():
+                continue
+            target = dest / f.name
+            if target.exists():
+                continue
+            shutil.copy2(f, target)
+            seeded += 1
+    except OSError as e:
+        logger.warning("[launcher] cover seeding failed: %s", e)
+        return
+    if seeded:
+        logger.info("[launcher] seeded %d bundled cover image(s) into %s", seeded, dest)
 
 
 def _seed_bundled_rounds() -> None:
