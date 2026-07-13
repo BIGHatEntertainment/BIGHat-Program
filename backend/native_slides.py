@@ -187,13 +187,16 @@ def load_host_asset(pres: Dict[str, Any]) -> Dict[str, Any]:
     """
     from urllib.parse import unquote, urlparse, parse_qs
 
-    host_name = pres.get("host") or pres.get("hostName") or ""
+    host_name = pres.get("host") or pres.get("hostName") or pres.get("host_name") or ""
     host_email = pres.get("hostEmail") or ""
+    host_id = pres.get("hostId") or pres.get("host_id") or ""
     candidates = []
     if host_email:
         candidates.append(_slugify(host_email))
     if host_name:
         candidates.append(_slugify(host_name))
+    if host_id:
+        candidates.append(_slugify(host_id))
 
     docs = _docs_root()
     hosts_root = docs / "Files" / "Hosts"
@@ -299,8 +302,21 @@ def load_host_asset(pres: Dict[str, Any]) -> Dict[str, Any]:
             d = json.loads(hj.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if (host_name and d.get("name")
-                and _slugify(d["name"]) == _slugify(host_name)):
+        # v32.0.0-alpha.59: match on id / email / display_name too — the
+        # schema-v2 build docs carry host_id, and host folders are named
+        # by email-slug.
+        keys = {_slugify(host_name)} if host_name else set()
+        if host_id:
+            keys.add(str(host_id).lower())
+        matched = False
+        for field in ("name", "display_name", "email", "id"):
+            v = d.get(field)
+            if not v:
+                continue
+            if _slugify(str(v)) in keys or str(v).lower() in keys:
+                matched = True
+                break
+        if matched:
             result = _rank_asset(host_dir, hj)
             if result:
                 rel, aspect = result
