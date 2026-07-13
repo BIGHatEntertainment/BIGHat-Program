@@ -1,18 +1,17 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.59` (2026-07).** (1) Schema-v2 build docs
-> were silently DROPPING the HOST and LOCATION sections (host_name/host_id
-> vs host/hostName key mismatch) — `_normalize_v2_pres` coalesces and
-> `load_host_asset` matches host folders by id/email/display_name via
-> host.json scan. (2) The round GENERATOR tool's real cover artwork now
-> ships as `backend/seed_covers/` and is copied into the persistent uploads
-> dir on boot (never overwrites) so cover_image_id lookups resolve on fresh
-> installs. (3) Admin → Trivia Setup: per-overlay round assignment chips
-> (MC/REG/MISC/MYS/BIG) PATCHing the alpha.53 tags endpoint; untagged =
-> all rounds, [] = dormant.
+> **Current release: `v32.0.0-alpha.60` (2026-07).** (1) Audience view now
+> opens a NATIVE Tauri WebviewWindow ('trivia-audience' label) — WebView2
+> blocks `window.open` in the desktop shell, which caused the "allow
+> pop-ups" toast; second-monitor placement + fullscreen on create; browser
+> preview keeps the synchronous window.open fallback. (2) BUILD LOCK-IN:
+> `build_sidecar.py::_verify_seeds()` hard-fails every CI build unless
+> seed_rounds are self-contained and seed_covers ship real bytes — title
+> cards can never silently drop out of a build again (merchant confirmed
+> title cards WORKING as of alpha.59).
 > See `/app/memory/CHANGELOG.md` for the full per-release history. The
-> active release script pair is `scripts/push_alpha59.py` +
-> `scripts/wait_and_publish_alpha59.py`.
+> active release script pair is `scripts/push_alpha60.py` +
+> `scripts/wait_and_publish_alpha60.py`.
 >
 > **The 17-step build flow is hardcoded in `backend/presentation_builder.py`.**
 > Round-count locked to 5 or 6. Cross-pool picking rejected at file

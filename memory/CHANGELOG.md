@@ -8,6 +8,39 @@
 ---
 ---
 
+## 2026-07 — v32.0.0-alpha.60: Native audience window (no more pop-up blocker) + build-time seed lock-in
+
+### Merchant report on alpha.59
+> "the title card images are finally populating. lets lock this in so it never gets
+> missed in future builds. next… audience view… error toast pops up stating i need
+> to allow popups for the program."
+
+### Fixes
+1. **Audience view is a REAL native window in the desktop app.**
+   WebView2 blocks `window.open` inside the Tauri shell — `openAudienceView()` is
+   now TAURI-FIRST: creates a native `WebviewWindow('trivia-audience')` at
+   `/trivia/audience` (label already whitelisted), focuses an existing window
+   instead of double-creating, cleans up on `tauri://destroyed`, and attempts
+   second-monitor placement + fullscreen on `tauri://created`. A shim object
+   ({closed, close, postMessage, focus}) keeps every audienceWindowRef consumer
+   working. Browser/preview builds keep the SYNCHRONOUS `window.open` fallback
+   (no await before it — user-gesture preserved). Audience CLOSE handler closes
+   the native window via `getCurrentWebviewWindow().close()`.
+   Capabilities added: allow-set-position / allow-available-monitors / allow-set-size.
+2. **Seed lock-in.** `build_sidecar.py::_verify_seeds()` runs BEFORE PyInstaller in
+   every CI build and HARD-FAILS the release when seed_rounds is missing/empty, any
+   seed round isn't self-contained (cover_image_id without embedded bytes),
+   seed_covers has <6 files, or any cover is a <1000-byte stub. Title-card data can
+   never silently drop out of a build again.
+
+### Tests
+Iteration_37 testing agent: backend 100%, frontend 100% (code review of Tauri path,
+browser popup path driven live, 5/5 negative lock-in scenarios raise SystemExit,
+22/22 regression pytests).
+
+---
+---
+
 ## 2026-07 — v32.0.0-alpha.59: Host/location sections restored for built shows; generator cover library bundled; per-round overlay assignment
 
 ### Merchant reports on alpha.58 (+ sent the Trivia-Round-Maker generator source zip)
