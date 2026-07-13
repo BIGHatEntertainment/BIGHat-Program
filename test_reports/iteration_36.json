@@ -1,0 +1,35 @@
+{
+  "summary": "v32.0.0-alpha.59 verification complete. All spec items PASS: (FIX 2) sections-list returns 10 sections including host+location; fetch-section/host returns 1 slide with image element (data:image/jpeg;base64 src); (FIX 2b) 6/6 alpha59 pytests pass; (FIX 1) /app/backend/seed_covers ships all 7 required files (1960s/1970s/1980s/Music/Sports/mc_title jpgs 135-357KB, times_up.gif 2.1MB) — all >100KB; (FEATURE 3) overlay round-type tag chips render for overlay 17a48134 (data-testid overlay-round-tags-{imageId} + overlay-tag-{imageId}-{RT}) with MC+BIG initially active (yellow rgba(244,196,48,0.18)) and REG/MISC/MYS inactive (dark). Clicking REG chip shows success toast 'Overlay shows on: MC, BIG, REG', PATCH request returns 200 with updated applies_to_round_types, chip turns active. Regression: 34/34 pytests pass (alpha54=7, alpha55=12, alpha56=5, alpha58=4, alpha59=6). Health 200. fetch-section round_2 still returns _title_card_source='bighat-embedded-cover'. Frontend login and Admin > Trivia Setup UI works.",
+  "verifications": {
+    "FIX2_sections_list": {"result": "PASS", "detail": "GET /api/slide-fetcher/sections-list/2465e31e-... returns 10 sections: [host, location, round, round, round, round, sponsors, round, winners, final_scores]"},
+    "FIX2_fetch_host": {"result": "PASS", "detail": "POST /api/slide-fetcher/fetch-section/2465e31e-.../host returns 1 slide with 2 elements; first element type=image with src prefix 'data:image/jpeg;base64,/9j/4AAQ...'"},
+    "FIX2b_alpha59_pytest": {"result": "PASS", "detail": "backend/tests/test_alpha59_host_sections_and_seed_covers.py — 6 passed"},
+    "FIX1_seed_covers": {"result": "PASS", "detail": "/app/backend/seed_covers/ contains all 7 files: 1960s.jpg (264KB), 1970s.jpg (356KB), 1980s.jpg (357KB), Music.jpg (218KB), Sports.jpg (304KB), mc_title.jpg (136KB), times_up.gif (2.18MB). All >100KB."},
+    "FEATURE3_ui_chips": {"result": "PASS", "detail": "UI: Navigated to Admin > Trivia Setup > Alpha 37 Test Bar > Round overlays. All 5 chips (MC/REG/MISC/MYS/BIG) render with correct data-testid. Initial state MC+BIG active (bg rgba(244,196,48,0.18)), REG/MISC/MYS inactive (bg rgb(0,14,42)). Click REG -> PATCH 200, success toast 'Overlay shows on: MC, BIG, REG' visible, REG bg becomes yellow. Reverted to [MC,BIG] via API cleanup."},
+    "FEATURE3_api_patch": {"result": "PASS", "detail": "PATCH /api/native/locations/5d6e39a7.../overlays/17a48134.../tags with body {applies_to_round_types:[MC,BIG,REG]} -> 200 {id, applies_to_round_types:[MC,BIG,REG]}. Follow-up GET confirms persistence. Reverted to [MC,BIG]."},
+    "REGRESSION_pytest": {"result": "PASS", "detail": "alpha54=7/7, alpha55=12/12, alpha56=5/5, alpha58=4/4, alpha59=6/6 — 34/34"},
+    "REGRESSION_smoke": {"result": "PASS", "detail": "GET /api/health -> 200. fetch-section round_2 -> _title_card_source='bighat-embedded-cover'. Login Sellards@bighat.live works, dashboard loads, Admin > Trivia Setup accessible."}
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_alpha59_host_sections_and_seed_covers.py",
+    "/app/backend/tests/test_alpha58_seed_rounds_and_gridfs.py",
+    "/app/backend/tests/test_alpha56_real_machine_fixes.py",
+    "/app/backend/tests/test_alpha55_title_card_persistence.py",
+    "/app/backend/tests/test_alpha54_reg_title_from_roundmaker_uploads.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "OverlayRoundTags contract (TriviaSetup.jsx L629-682) correctly handles legacy untagged=null showing all 5 as effective active. Toggling from ALL-active removes the clicked chip and PATCHes the remaining 4 explicitly (making the array explicit) — user intent preserved.",
+    "_normalize_v2_pres in slide_fetcher.py correctly applied at all three call sites (fetch-section, sections-list, store-all) preventing schema-v2 drift for host/location fields.",
+    "seed_covers directory well-sized (~4MB total) — reasonable bundle size for a Tauri sidecar. No <100B placeholders detected."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Sellards@bighat.live / BigHat2024! (works)",
+  "seed_data_creation": "None (used existing overlay 17a48134 on location 5d6e39a7; reverted tags to [MC,BIG] after test)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "alpha.59 shipped and fully verified. Host+location sections restored, overlay round-type tagging feature complete on both API and UI. Seed cover library bundled correctly. All 34 related pytests pass. Overlay 17a48134 on location 5d6e39a7 was toggled during UI test and reverted to [MC,BIG]."
+}

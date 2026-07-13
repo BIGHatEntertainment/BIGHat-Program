@@ -577,31 +577,104 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess, kind = 
             }}
             data-testid={`${testPrefix}-image-${id}`}
           >
-            <img
-              src={apiCalls.rawUrl(locationId, id)}
-              alt={img.filename}
-              className="block w-full h-32 object-cover"
-              draggable={false}
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
-              <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <GripVertical size={14} style={{ color: PALETTE.accent }} />
-              </div>
-              <button
-                onClick={() => removeImage(id)}
-                className="absolute top-1 right-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ backgroundColor: 'rgba(239, 68, 68, 0.9)', color: '#fff' }}
-                title="Remove"
-                data-testid={`${testPrefix}-delete-${id}`}
-              >
-                <Trash2 size={12} />
-              </button>
-              <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[10px] truncate"
-                   style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff' }}>
-                {img.filename}
+            <div className="relative">
+              <img
+                src={apiCalls.rawUrl(locationId, id)}
+                alt={img.filename}
+                className="block w-full h-32 object-cover"
+                draggable={false}
+              />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
+                <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <GripVertical size={14} style={{ color: PALETTE.accent }} />
+                </div>
+                <button
+                  onClick={() => removeImage(id)}
+                  className="absolute top-1 right-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.9)', color: '#fff' }}
+                  title="Remove"
+                  data-testid={`${testPrefix}-delete-${id}`}
+                >
+                  <Trash2 size={12} />
+                </button>
+                <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[10px] truncate"
+                     style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+                  {img.filename}
+                </div>
               </div>
             </div>
+            {kind === 'overlays' && (
+              <OverlayRoundTags
+                locationId={locationId}
+                image={img}
+                onChange={onChange}
+                setError={setError}
+                setSuccess={setSuccess}
+              />
+            )}
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------
+// v32.0.0-alpha.59 — per-overlay round assignment
+// Untagged (legacy) overlays apply to EVERY round; an explicit empty
+// list makes the overlay dormant. Mirrors the backend contract of
+// PATCH /native/locations/{id}/overlays/{imageId}/tags.
+// ---------------------------------------------------------------
+const ROUND_TYPES = ['MC', 'REG', 'MISC', 'MYS', 'BIG'];
+
+function OverlayRoundTags({ locationId, image, onChange, setError, setSuccess }) {
+  const [saving, setSaving] = useState(false);
+  const tagged = image.applies_to_round_types;
+  // undefined/null = legacy "all rounds"; [] = dormant.
+  const effective = Array.isArray(tagged) ? tagged : ROUND_TYPES;
+
+  const toggle = async (rt) => {
+    const next = effective.includes(rt)
+      ? effective.filter((t) => t !== rt)
+      : [...effective, rt];
+    setSaving(true);
+    try {
+      await api.tagLocationOverlay(locationId, image.id, next);
+      setSuccess?.(next.length
+        ? `Overlay shows on: ${next.join(', ')}`
+        : 'Overlay disabled for all rounds');
+      onChange();
+    } catch (e) {
+      setError?.(e.response?.data?.detail || 'Failed to update overlay rounds');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1 px-1.5 py-1.5"
+         style={{ borderTop: `1px solid ${PALETTE.border}` }}
+         data-testid={`overlay-round-tags-${image.id}`}>
+      {ROUND_TYPES.map((rt) => {
+        const on = effective.includes(rt);
+        return (
+          <button
+            key={rt}
+            onClick={() => toggle(rt)}
+            disabled={saving}
+            className="px-1.5 py-0.5 rounded text-[10px] font-semibold transition"
+            style={{
+              backgroundColor: on ? 'rgba(244, 196, 48, 0.18)' : PALETTE.bg,
+              color: on ? PALETTE.accent : PALETTE.textDim,
+              border: `1px solid ${on ? `${PALETTE.accent}66` : PALETTE.border}`,
+              opacity: saving ? 0.5 : 1,
+            }}
+            title={on ? `Shown during ${rt} rounds — click to remove` : `Not shown during ${rt} rounds — click to add`}
+            data-testid={`overlay-tag-${image.id}-${rt}`}
+          >
+            {rt}
+          </button>
         );
       })}
     </div>

@@ -47,6 +47,29 @@ else:
 
 db: AsyncIOMotorDatabase = None
 
+def _normalize_v2_pres(pres: dict) -> dict:
+    """v32.0.0-alpha.59: presentations written by the hardcoded 17-step
+    builder use schema-v2 keys (host_name/host_id, location_name/
+    location_id, round_count). The section gates and renderers read the
+    legacy keys — coalesce so HOST and LOCATION sections stop being
+    silently dropped from built shows."""
+    if not isinstance(pres, dict):
+        return pres
+    if not (pres.get("host") or pres.get("hostName")):
+        if pres.get("host_name"):
+            pres["host"] = pres["host_name"]
+    if pres.get("host_id") and not pres.get("hostId"):
+        pres["hostId"] = pres["host_id"]
+    if not pres.get("location"):
+        loc = pres.get("location_slug") or pres.get("location_name") or pres.get("location_id")
+        if loc:
+            pres["location"] = loc
+    if not pres.get("numRounds") and pres.get("round_count"):
+        pres["numRounds"] = pres["round_count"]
+    return pres
+
+
+
 def set_database(database):
     global db
     db = database
@@ -97,6 +120,7 @@ async def fetch_section(presentation_id: str, section_name: str, request: Reques
         
         if not trivia_pres:
             raise HTTPException(status_code=404, detail="Presentation not found")
+        trivia_pres = _normalize_v2_pres(trivia_pres)
 
         # v32.0.0-alpha.53: fetch location overlays ONCE per section-request
         # (async-safe) and pass into the renderer via `body` so the renderer
@@ -430,6 +454,7 @@ async def get_sections_list(presentation_id: str):
         
         if not trivia_pres:
             raise HTTPException(status_code=404, detail="Presentation not found")
+        trivia_pres = _normalize_v2_pres(trivia_pres)
         
         sections = []
         
@@ -578,6 +603,7 @@ async def store_all_slides(presentation_id: str, request: Request):
             pass
         if not trivia_pres:
             trivia_pres = _load_pres_from_disk(presentation_id) or {}
+        trivia_pres = _normalize_v2_pres(trivia_pres)
         
         await gridfs.store_slides(
             presentation_id,
