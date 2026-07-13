@@ -83,6 +83,8 @@ const api = {
     axios.delete(`${API}/api/native/locations/${id}/overlays/${imageId}`, { withCredentials: true, headers: authHeaders() }),
   reorderLocationOverlays: (id, imageIds) =>
     axios.patch(`${API}/api/native/locations/${id}/overlays/order`, { image_ids: imageIds }, { withCredentials: true, headers: authHeaders() }),
+  tagLocationOverlay: (id, imageId, roundTypes) =>
+    axios.patch(`${API}/api/native/locations/${id}/overlays/${imageId}/tags`, { applies_to_round_types: roundTypes }, { withCredentials: true, headers: authHeaders() }),
   locationOverlayRawUrl: (id, imageId) =>
     `${API}/api/native/locations/${id}/overlays/${imageId}/raw`,
 
