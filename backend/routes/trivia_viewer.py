@@ -662,30 +662,73 @@ async def get_trivia_presentation(presentation_id: str) -> Dict:
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
-        created_at = presentation.get('createdAt', '')
+        created_at = presentation.get('createdAt') or presentation.get('created_at') or ''
         if isinstance(created_at, dt):
             created_at = created_at.isoformat()
-        
+
+        # alpha.64: wizard-built (schema v2) shows save created_by / created_at /
+        # location_name / host_name / roundFiles; the details page reads the old
+        # webapp names. Accept both, and compute what was never stored.
+        round_files = list(presentation.get('roundFiles') or [])
+        round_types = presentation.get('roundTypes') or [
+            (rf.get('type') or '').upper() for rf in round_files if rf.get('type')
+        ]
+        saved_names = list(presentation.get('roundNames') or [])
+        names, per_round, total = [], [], 0
+        try:
+            import native_slides as _ns
+            for i, rf in enumerate(round_files):
+                doc = _ns.load_round_from_disk(rf) or {}
+                nm = (saved_names[i] if i < len(saved_names) else '') or doc.get('name') or rf.get('name') or ''
+                names.append(str(nm).strip())
+                try:
+                    per_round.append(len(_ns.render_round_section(doc, dict(rf))) if doc else 0)
+                except Exception:  # noqa: BLE001
+                    per_round.append(0)
+            total = sum(per_round)
+            pres_view = dict(presentation)
+            pres_view.setdefault('location', presentation.get('location_name') or presentation.get('location_id') or '')
+            for sec in ('host', 'location', 'company', 'rules', 'format'):
+                try:
+                    total += len(_ns.native_render_section(pres_view, sec))
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[trivia-viewer] slide count failed: %s", e)
+        if not names:
+            names = saved_names
+
+        round_files_out = []
+        for i, rf in enumerate(round_files):
+            rf = dict(rf)
+            if i < len(per_round):
+                rf['slideCount'] = per_round[i]
+            round_files_out.append(rf)
+
+        loc_name = (presentation.get('location_name') or presentation.get('location')
+                    or presentation.get('locationFolder') or '')
+        loc_name = str(loc_name).replace('\\', '/').rstrip('/').split('/')[-1]
+        import re as _re
+        loc_name = _re.sub(r'^\d+_', '', loc_name)
+
         return {
             "id": presentation.get('id', ''),
             "name": presentation.get('name', ''),
-            "createdBy": presentation.get('createdBy', ''),
+            "createdBy": presentation.get('createdBy') or presentation.get('created_by') or '',
             "createdAt": str(created_at),
-            "location": presentation.get('location', ''),
+            "location": loc_name,
             "locationFile": presentation.get('locationFile', ''),
             "locationFolder": presentation.get('locationFolder', ''),
-            "totalSlides": presentation.get('totalSlides', 0),
+            "totalSlides": presentation.get('totalSlides') or total or 0,
             "numRounds": presentation.get('numRounds') or presentation.get('round_count'),
-            "roundTypes": presentation.get('roundTypes') or [
-                (rf.get('type') or '').upper() for rf in (presentation.get('roundFiles') or []) if rf.get('type')
-            ],
+            "roundTypes": round_types,
             "is_special": bool(presentation.get('is_special')),
-            "roundNames": presentation.get('roundNames', []),
-            "roundFiles": presentation.get('roundFiles', []),
+            "roundNames": names,
+            "roundFiles": round_files_out,
             "hostFile": presentation.get('hostFile', ''),
-            "host": presentation.get('host', '')
+            "host": presentation.get('host_name') or presentation.get('host', '')
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:

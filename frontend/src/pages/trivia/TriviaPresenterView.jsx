@@ -18,6 +18,13 @@ const ROUND_TYPE_COLORS = {
   BIG: { bg: '#fbdd68', label: 'BIG Question', icon: 'B' },
 };
 
+// "Animals_1" -> "Animals"; "MC_01_A (1)" stays as the file name (it is only a code).
+function prettyRoundName(raw) {
+  const n = String(raw || '').replace(/\s*\(\d+\)\s*$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const t = n.replace(/(?:\s+(?:\d{1,3}|[A-Za-z]))+$/, '').trim();
+  return t && !/^(mc|reg|misc|mys|big)\b/i.test(t) ? t : String(raw || '').trim();
+}
+
 export default function TriviaPresenterView() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -136,12 +143,12 @@ export default function TriviaPresenterView() {
                         {conf.label}
                       </span>
                     </div>
-                    <h3 className="text-sm font-semibold text-white truncate">{name}</h3>
+                    <h3 className="text-sm font-semibold text-white truncate" title={name}>{prettyRoundName(name)}</h3>
                   </div>
 
                   {/* Slide Count */}
                   <div className="text-right shrink-0">
-                    <span className="text-xs" style={{ color: '#8892b0' }}>{roundFile?.slideCount || '~12'} slides</span>
+                    <span className="text-xs" style={{ color: '#8892b0' }}>{roundFile?.slideCount ? roundFile.slideCount : '~12'} slides</span>
                   </div>
                 </div>
               );

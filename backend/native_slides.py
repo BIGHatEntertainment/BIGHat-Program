@@ -1176,7 +1176,7 @@ def render_round_section(
                   size=56, color="#F4C430", weight="700"),
         ]
         n = min(len(questions), 9 if is_mys else 10)
-        row_h = max(60, min(90, (STAGE_H - 260) // max(1, n)))
+        row_h = max(60, min(90, (STAGE_H - 260) // (10 if is_mys else max(1, n))))
         for i in range(n):
             q = questions[i]
             qn = q.get("number") or (i + 1)
@@ -1185,6 +1185,13 @@ def render_round_section(
                 f"{qn}. {qt}",
                 x=160, y=220 + i * row_h, w=1600, h=row_h,
                 size=min(42, row_h - 8), align="left", weight="500",
+            ))
+        if is_mys:
+            # alpha.64: question 10 of Mystery is the secret theme.
+            review_elements.append(_text(
+                "10. Mystery Theme?",
+                x=0, y=220 + 9 * row_h, w=STAGE_W, h=row_h,
+                size=min(42, row_h - 8), align="center", weight="700", color="#F4C430",
             ))
         slides.append(_slide(review_idx, review_elements, background=BG_BLUE,
                              metadata=meta(slideIndexInRound=review_idx,
@@ -1285,7 +1292,7 @@ def render_round_section(
         # MC/REG/MISC/MYS: N answers, one text element each. NO TITLE.
         n = min(len(questions), 9 if is_mys else 10)
         ans_elements = []
-        row_h = max(70, (STAGE_H - 160) // max(1, n))
+        row_h = max(70, (STAGE_H - 160) // (11 if is_mys else max(1, n)))
         for i in range(n):
             q = questions[i]
             qn = q.get("number") or (i + 1)
@@ -1295,6 +1302,21 @@ def render_round_section(
                 x=160, y=80 + i * row_h, w=1600, h=row_h,
                 size=min(48, row_h - 12),
                 align="left", weight="700", color="#F4C430",
+            ))
+        if is_mys:
+            # alpha.64: dramatic reveal. 9 answers, then the yellow
+            # "Mystery Theme?" label, then answer 10 (the theme).
+            theme = ""
+            if len(questions) >= 10:
+                theme = questions[9].get("answer") or questions[9].get("question") or ""
+            if theme:
+              ans_elements.append(_text(
+                "Mystery Theme?", x=0, y=80 + 9 * row_h, w=STAGE_W, h=row_h,
+                size=min(48, row_h - 12), align="center", weight="700", color="#F4C430",
+            ))
+              ans_elements.append(_text(
+                f"10. {theme}", x=0, y=80 + 10 * row_h, w=STAGE_W, h=row_h,
+                size=min(52, row_h - 12), align="center", weight="700", color="#FFFFFF",
             ))
         slides.append(_slide(ans_idx, ans_elements, background=BG_BLUE,
                              metadata=meta(slideIndexInRound=ans_idx, isAnswers=True,
@@ -1418,9 +1440,16 @@ def _native_render_section_raw(
             # passed in via `body["_location_overlays"]` so this renderer
             # stays synchronous (no async DB access here).
             overlays = body.get("_location_overlays") if body else None
+            # alpha.64: DISK first. The DB copy is empty after every launch
+            # until Trivia Setup is opened, which is why overlays vanished.
+            disk_overlays = load_location_overlays(presentation)
+            if disk_overlays:
+                overlays = disk_overlays
             if overlays:
+                loc_id = (overlays[0].get("_location_id") if disk_overlays else None) \
+                    or presentation.get("location_id")
                 slides = _apply_location_overlays(
-                    slides, overlays, presentation.get("location_id"), round_ref,
+                    slides, overlays, loc_id, round_ref,
                 )
             return slides
     except Exception as e:
@@ -1594,6 +1623,38 @@ def render_format_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # v32.0.0-alpha.53 — Location overlay compositing (spec step 17).
 # ---------------------------------------------------------------------------
+
+def load_location_overlays(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The location's overlay records, straight from DISK
+    (Files/Locations/<slug>/location.json -> overlay_images, in the merchant's
+    order, with their round-type tags). The DB is wiped every launch, so it
+    must never be the only source."""
+    loc_root = _docs_root() / "Files" / "Locations"
+    if not loc_root.is_dir():
+        return []
+    for key in ("location_id", "location_slug", "location_name", "location"):
+        raw = str(pres.get(key) or "").strip()
+        if not raw:
+            continue
+        tail = raw.replace("\\", "/").rstrip("/").split("/")[-1]
+        d = _location_dir_by_id(loc_root, tail) or _location_dir_by_id(loc_root, raw)
+        if d is None:
+            cand = loc_root / (tail if "-" in tail else _slugify(tail))
+            d = cand if (cand / "location.json").is_file() else None
+        if d is None:
+            continue
+        try:
+            meta = json.loads((d / "location.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        recs = sorted(meta.get("overlay_images") or [], key=lambda r: r.get("order", 0))
+        # keep only overlays whose image file still exists
+        have = {f.stem for f in (d / "overlays").glob("*") if f.is_file()} if (d / "overlays").is_dir() else set()
+        ovs = [dict(r, _location_id=meta.get("id")) for r in recs if r.get("id") in have]
+        if ovs:
+            return ovs
+    return []
+
 
 def _apply_location_overlays(
     slides: List[Dict[str, Any]],

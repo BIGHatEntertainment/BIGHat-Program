@@ -8,6 +8,12 @@
 ---
 ---
 
+## 2026-10-01 — v32.0.0-alpha.64: lobby details, overlays after restart, Mystery theme reveal
+- Lobby "Presentation Details" now shows real location, host, date, creator, round names and slide counts.
+- Location overlays are read from disk (location.json), so they apply after an app restart.
+- Trivia Setup overlay thumbnails retry once, then show "Preview unavailable" with a Try again link.
+- Mystery round: review slide ends with yellow "10. Mystery Theme?"; answer slide reveals 9 answers, yellow "Mystery Theme?", then answer 10 (the theme).
+
 ## 2026-10-01 — v32.0.0-alpha.63: location settings persistence, hidden metadata, branding slides, global slides
 
 ### Merchant reports on alpha.62 (installed, "runs great")

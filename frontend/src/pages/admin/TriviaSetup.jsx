@@ -201,6 +201,38 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
 // ---------------------------------------------------------------
 // Empty / create dialog
 // ---------------------------------------------------------------
+/** Thumbnail that retries once (cache-busted) and, if it still cannot load,
+ *  shows a readable "Preview unavailable" tile instead of a broken icon. */
+function ImageWithRetry({ src, alt, size, className }) {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const mb = size ? `${(size / (1024 * 1024)).toFixed(1)} MB` : '';
+  if (failed) {
+    return (
+      <div className="w-full h-32 flex flex-col items-center justify-center text-center px-2"
+           style={{ background: 'rgba(255,255,255,0.05)', color: '#8892b0' }}
+           data-testid="image-preview-unavailable">
+        <div className="text-xs font-semibold" style={{ color: '#fbdd68' }}>Preview unavailable</div>
+        <div className="text-[10px] mt-1 break-all">{alt}{mb ? ` (${mb})` : ''}</div>
+        <button type="button" className="text-[10px] mt-1 underline"
+                onClick={(e) => { e.stopPropagation(); setFailed(false); setAttempt((a) => a + 1); }}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={attempt ? `${src}${src.includes('?') ? '&' : '?'}r=${attempt}` : src}
+      alt={alt}
+      className={className}
+      draggable={false}
+      onError={() => { if (attempt < 1) setAttempt(1); else setFailed(true); }}
+    />
+  );
+}
+
+
 function EmptyLocationsPanel({ canCreate, onCreate }) {
   return (
     <div className="rounded-xl p-6 text-center"
@@ -616,11 +648,11 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess, kind = 
             data-testid={`${testPrefix}-image-${id}`}
           >
             <div className="relative">
-              <img
+              <ImageWithRetry
                 src={apiCalls.rawUrl(locationId, id)}
                 alt={img.filename}
+                size={img.size}
                 className="block w-full h-32 object-cover"
-                draggable={false}
               />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
                 <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity">
