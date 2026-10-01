@@ -8,6 +8,45 @@
 ---
 ---
 
+## 2026-10-01 — v32.0.0-alpha.62: 180-day round lock, Time-to-grade GIF, Special Round builder
+
+### Merchant reports on alpha.61 (audience view, overlays and slide color confirmed working)
+Built rounds missing from Round History / Trivia Admin; generic "Time to grade" image; wants admin-only
+themed-night builds.
+
+### New
+1. **180-day round lockout** (ported from webapp prototype). `backend/round_usage.py` stores
+   `Files/Trivia/round_usage.json` (DISK is source of truth; native DB is wiped each launch). One record per
+   round per built show; locked per location for 180 days or until an admin releases it. Builds refuse locked
+   rounds; round pickers hide them. Releases are remembered (no resurrection by backfill). Shows built before
+   tracking are backfilled from disk. Admin routes (`/admin/round-usage*`, `/admin/stats`) now use the disk
+   store and real roles (admin / master_admin). Round History + Trivia Admin show "Locked Nd".
+2. **Time to grade GIF**: `backend/assets/slides/times_up.gif` replaces the generic SVG on the grade slide
+   (every round type, any question count). BUILD FIX: `backend/assets/` was never bundled into the frozen
+   app; `build_sidecar.py` now ships it and fails the release if the GIF is missing.
+3. **Special Round builder** (Admin / Master Admin only). Yellow "Special Round" button in the build wizard.
+   3-10 rounds, MC always first, BIG always last, rounds only from `Files/Trivia/Special/` (Files tool bucket
+   "Special (themed nights)"). Slot type drives layout, timers, score multiplier and overlay. Short rounds skip
+   blank question slides but keep canonical `slideIndexInRound` (11/12/13, MYS 10/11/12) so the player is
+   unchanged. Score tracker supports 3-10 round columns for special shows only. Same 180-day lock + catalog.
+   Backend: `build_special`, `GET /api/native/special-rounds`, `POST /api/native/presentations/build-special`.
+   Section list no longer re-sorts special shows. `get_trivia_presentation` now returns `is_special`,
+   `numRounds` (falls back to `round_count`) and `roundTypes` (falls back to `roundFiles`).
+
+### Locked contracts
+Round slide order (tests): MC/REG/MISC title, Q1-10, review, gif, answers LAST; MYS 9 Qs; BIG title, Q, gif,
+review (no timer), answers, tiebreaker Q, tiebreaker A.
+
+### Tests
+`test_alpha62_round_usage_lock.py`, `test_alpha62_grade_gif.py`, `test_alpha63_special_rounds.py`.
+64 pass across alpha53/61/62/63. Not run on a real PC/Tauri shell.
+
+### Known / next
+Roulette + Scoreboard still use window.open; 14 stale tests in alpha47/48/49 assert old popup code;
+deleting a presentation does not auto-release its rounds (admin releases explicitly).
+
+---
+
 ## 2026-10 — v32.0.0-alpha.61: Audience window fix, slide style system, overlay ANS tag, intro packs removed
 
 ### Merchant reports on alpha.60

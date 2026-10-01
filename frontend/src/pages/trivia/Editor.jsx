@@ -288,6 +288,9 @@ const Editor = () => {
                 console.log(`[Editor] Location from trivia data: "${triviaData.location}"`);
               }
               // Store round configuration for Score Tracker
+              if (triviaData?.is_special) {
+                data.is_special = true; // alpha.63: themed-night show (3..10 rounds)
+              }
               if (triviaData?.numRounds) {
                 data.numRounds = triviaData.numRounds;
                 console.log(`[Editor] Loaded numRounds from trivia data: ${triviaData.numRounds}`);
@@ -2395,11 +2398,17 @@ const Editor = () => {
   // Smart round count detection: numRounds > roundTypes.length > count from slides > default (5)
   const detectedRoundCount = useMemo(() => {
     // First priority: explicit numRounds
+    if (presentation?.is_special && presentation?.numRounds >= 3 && presentation?.numRounds <= 10) {
+      return presentation.numRounds; // alpha.63: special shows may have 3..10 rounds
+    }
     if (presentation?.numRounds && [3, 5, 6].includes(presentation.numRounds)) {
       return presentation.numRounds;
     }
     
     // Second priority: roundTypes array length
+    if (presentation?.is_special && presentation?.roundTypes?.length >= 3 && presentation.roundTypes.length <= 10) {
+      return presentation.roundTypes.length;
+    }
     if (presentation?.roundTypes?.length > 0 && [3, 5, 6].includes(presentation.roundTypes.length)) {
       return presentation.roundTypes.length;
     }
@@ -2412,14 +2421,14 @@ const Editor = () => {
         !['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL'].includes(s?.metadata?.roundType)
       );
       const count = gameRounds.length;
-      if ([3, 5, 6].includes(count)) {
+      if ([3, 5, 6].includes(count) || (presentation?.is_special && count >= 3 && count <= 10)) {
         return count;
       }
     }
     
     // Default to 5 rounds
     return 5;
-  }, [presentation?.numRounds, presentation?.roundTypes, presentation?.slides]);
+  }, [presentation?.numRounds, presentation?.roundTypes, presentation?.slides, presentation?.is_special]);
 
   // Extract round types from slides if not available from presentation
   const detectedRoundTypes = useMemo(() => {
@@ -2599,6 +2608,7 @@ const Editor = () => {
         onSendScores={handleSendScores}
         presentationId={presentation?.id}
         roundTypes={detectedRoundTypes}
+        isSpecial={!!presentation?.is_special}
       />
     </div>
   );

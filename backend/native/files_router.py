@@ -117,6 +117,9 @@ ALLOWED_DOCS_CHILDREN: frozenset[str] = frozenset({
 # round_type (e.g. external generators that haven't been updated).
 TRIVIA_ROUND_TYPES: tuple[str, ...] = ("MC", "REG", "MISC", "MYS", "BIG")
 TRIVIA_DEFAULT_ROUND_TYPE = "_Other"
+# alpha.63: themed-night rounds. Never auto-sorted into, never mixed with the
+# normal pools; admins upload here explicitly (folder="Trivia/Special").
+TRIVIA_SPECIAL_FOLDER = "Special"
 
 # Map of content_type (from .bighat manifest.json) → top-level subfolder.
 # `round`, `presentation`, `pack` all relate to trivia → Trivia. `bingo`
@@ -499,6 +502,7 @@ def _ensure_subfolders() -> None:
     trivia = root / "Trivia"
     for rt in TRIVIA_ROUND_TYPES:
         (trivia / rt).mkdir(parents=True, exist_ok=True)
+    (trivia / TRIVIA_SPECIAL_FOLDER).mkdir(parents=True, exist_ok=True)
     # Trivia/Rounds/ holds the JSON descriptors for built presentations.
     # Both the Trivia Presenter (for playback) and the Story Generator
     # (for social-asset matching) read from here.
@@ -530,7 +534,9 @@ def _resolve_folder(folder: str | None) -> tuple[str, Path]:
         head, _, tail = folder.partition(sep)
         if head.lower() == "trivia" and tail:
             tail_up = tail.strip().upper()
-            valid_buckets = set(TRIVIA_ROUND_TYPES) | {TRIVIA_DEFAULT_ROUND_TYPE.upper()}
+            valid_buckets = set(TRIVIA_ROUND_TYPES) | {TRIVIA_DEFAULT_ROUND_TYPE.upper(), TRIVIA_SPECIAL_FOLDER.upper()}
+            if tail_up == TRIVIA_SPECIAL_FOLDER.upper():
+                return f"Trivia/{TRIVIA_SPECIAL_FOLDER}", base / "Trivia" / TRIVIA_SPECIAL_FOLDER
             if tail_up in valid_buckets:
                 # Preserve the on-disk casing of `_Other` if requested.
                 tail_disk = TRIVIA_DEFAULT_ROUND_TYPE if tail_up == TRIVIA_DEFAULT_ROUND_TYPE.upper() else tail_up

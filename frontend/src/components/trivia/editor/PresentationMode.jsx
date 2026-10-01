@@ -214,7 +214,14 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       };
       
       // CRASH FIX: Validate roundMode exists in config, default to 5 if not
-      const currentRounds = roundConfigs[roundMode] || roundConfigs[5];
+      // alpha.63: SPECIAL shows (3..10 rounds) score by their own round types.
+      // The Score Tracker saves the exact round types it scored with.
+      const _mult = { MC: 1, REG: 1, MISC: 1, MYS: 2, BIG: 3 };
+      const specialTypes = Array.isArray(parsed.roundTypes) && parsed.roundTypes.length >= 3 && parsed.roundTypes.length <= 10 && parsed.isSpecial
+        ? parsed.roundTypes : null;
+      const currentRounds = specialTypes
+        ? specialTypes.map(t => ({ label: String(t).toUpperCase(), multiplier: _mult[String(t).toUpperCase()] || 1 }))
+        : (roundConfigs[roundMode] || roundConfigs[5]);
       
       if (!currentRounds) {
         console.error('getFinalScores: No valid round configuration');

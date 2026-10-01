@@ -229,6 +229,10 @@ def test_roulette_seed_produces_deterministic_output(docs_root):
         big_pool=["big-01.bighat"],
         seed=777,
     )
+    # alpha.62: rounds are locked 180 days per location after a build; an admin
+    # release (here: by presentation) is what lets the same picks be reused.
+    import round_usage
+    round_usage.release_presentation(p1["id"])
     p2 = pb.build_from_roulette(
         name="Det Show B", host_id="host-001", location_id="loc-001",
         round_count=5,

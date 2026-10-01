@@ -72,6 +72,11 @@ def _verify_seeds() -> None:
         if p.stat().st_size < 1000:
             raise SystemExit(f"[build-sidecar] LOCK-IN FAIL: seed cover {p.name} is a stub ({p.stat().st_size} B), not real image bytes")
     print(f"[build-sidecar] seed lock-in OK: {len(round_files)} self-contained rounds, {len(cover_files)} cover images")
+    # alpha.62 LOCK-IN: the "Time to grade" GIF must ship with every build.
+    grade = BACKEND / "assets" / "slides" / "times_up.gif"
+    if not grade.is_file() or grade.stat().st_size < 100_000 or grade.read_bytes()[:6] not in (b"GIF89a", b"GIF87a"):
+        raise SystemExit("[build-sidecar] LOCK-IN FAIL: backend/assets/slides/times_up.gif (Time to grade GIF) is missing or not a real GIF")
+    print(f"[build-sidecar] grade-gif lock-in OK: times_up.gif {grade.stat().st_size} B")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -166,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         "--add-data", f"{BACKEND / 'VERSION.txt'}{os.pathsep}.",
         "--add-data", f"{BACKEND / 'seed_rounds'}{os.pathsep}seed_rounds",
         "--add-data", f"{BACKEND / 'seed_covers'}{os.pathsep}seed_covers",
+        "--add-data", f"{BACKEND / 'assets'}{os.pathsep}assets",
         str(BACKEND / "launcher.py"),
     ]
     print("[sidecar] $ " + " ".join(cmd))

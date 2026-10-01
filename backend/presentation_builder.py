@@ -285,6 +285,7 @@ def build_from_wizard(
     round_count: int,
     round_files: List[str],
     owner_email: Optional[str] = None,
+    allow_locked: bool = False,
 ) -> Dict[str, Any]:
     """Assemble a presentation `.bighat` file from wizard input.
 
@@ -344,6 +345,21 @@ def build_from_wizard(
             "file": rel,
         })
 
+    # 180-DAY LOCKOUT: refuse rounds already used at this location (admins can
+    # release them in Trivia Admin). Skipped for rebuilds via allow_locked.
+    if not allow_locked:
+        import round_usage
+        loc_label = (loc or {}).get("name") or location_id
+        locked = round_usage.locked_names(loc_label) | round_usage.locked_names(location_id)
+        clash = [r["file"].split("/")[-1] for r in round_file_refs
+                 if round_usage.norm_name(r["file"]) in locked]
+        if clash:
+            raise BuildValidationError(
+                "These rounds are locked for this location (used within the last "
+                f"{round_usage.LOCK_DAYS} days): {', '.join(clash)}. "
+                "An admin can release them in Trivia Admin."
+            )
+
     # Step 12: write the .bighat presentation JSON.
     pres_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -368,8 +384,197 @@ def build_from_wizard(
     out = _rounds_dir() / f"{_slug(pres['name'])}-{pres_id[:6]}.bighat"
     out.write_text(json.dumps(pres, indent=2), encoding="utf-8")
     pres["_disk_path"] = str(out)
+    try:  # track usage -> Round History + Trivia Admin + 180-day lock
+        import round_usage
+        round_usage.record_usage(
+            location_id=location_id,
+            location_name=(loc or {}).get("name") or location_id,
+            round_files=round_file_refs,
+            used_by=pres.get("host_name") or owner_email or "",
+            presentation_id=pres_id, presentation_name=pres["name"],
+        )
+    except Exception as e:  # never lose a built show over bookkeeping
+        logger.warning("[round_usage] record failed: %s", e)
     logger.info("[build_wizard] wrote %s (%d rounds, host=%s, loc=%s)",
                 out, round_count, host_id, location_id)
+    return pres
+
+
+# ---------------------------------------------------------------------------
+# SPECIAL ROUNDS (alpha.63) - admin-only custom loadouts for themed nights.
+# 3..10 rounds, slot 1 is ALWAYS MC, last slot is ALWAYS BIG, middle slots are
+# any of MC/REG/MISC/MYS/BIG. Rounds come ONLY from Files/Trivia/Special/ and
+# never mix with the normal pools. Everything downstream (180-day lock,
+# catalog/Round History, location overlays, player) behaves as for normal shows.
+# ---------------------------------------------------------------------------
+
+SPECIAL_MIN_ROUNDS = 3
+SPECIAL_MAX_ROUNDS = 10
+SPECIAL_ROUND_TYPES = ("MC", "REG", "MISC", "MYS", "BIG")
+SPECIAL_DIR_NAME = "Special"
+
+
+def special_pool_dir() -> Path:
+    """Where special-night rounds live. Separate from the normal type pools."""
+    p = _files_root() / "Trivia" / SPECIAL_DIR_NAME
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def validate_special_loadout(round_types: List[str]) -> None:
+    n = len(round_types)
+    if not (SPECIAL_MIN_ROUNDS <= n <= SPECIAL_MAX_ROUNDS):
+        raise BuildValidationError(
+            f"special shows need {SPECIAL_MIN_ROUNDS} to {SPECIAL_MAX_ROUNDS} rounds, got {n}"
+        )
+    up = [(t or "").upper() for t in round_types]
+    for i, t in enumerate(up):
+        if t not in SPECIAL_ROUND_TYPES:
+            raise BuildValidationError(f"slot {i + 1}: unknown round type {t!r}")
+    if up[0] != "MC":
+        raise BuildValidationError("slot 1 must be MC in a special show")
+    if up[-1] != "BIG":
+        raise BuildValidationError("the last slot must be BIG in a special show")
+    if "BIG" in up[:-1]:
+        raise BuildValidationError("BIG may only be the last round of a special show")
+
+
+def _resolve_special_file(ref: str) -> Path:
+    if not ref:
+        raise BuildValidationError("special round: empty reference")
+    pool = special_pool_dir().resolve()
+    name = Path(ref).name
+    for c in (Path(ref) if Path(ref).is_absolute() else None,
+              _docs_root() / ref, pool / name,
+              pool / f"{name}.bighat" if not name.lower().endswith(".bighat") else None):
+        if c is not None and c.is_file():
+            try:
+                c.resolve().relative_to(pool)
+            except ValueError as e:
+                raise BuildValidationError(
+                    f"special round {ref!r} is outside the Special folder ({pool})"
+                ) from e
+            return c
+    raise BuildValidationError(f"special round {ref!r} not found in the Special folder")
+
+
+def list_special_rounds() -> List[Dict[str, Any]]:
+    """Rounds in Files/Trivia/Special (for the wizard picker)."""
+    out = []
+    try:
+        from native_slides import _read_bighat_round
+    except Exception:
+        _read_bighat_round = None
+    for f in sorted(special_pool_dir().glob("*.bighat")):
+        info = {"file": f.name, "name": f.stem, "round_type": "", "question_count": 0}
+        if _read_bighat_round:
+            try:
+                d = _read_bighat_round(f) or {}
+                info["name"] = d.get("name") or f.stem
+                info["round_type"] = (d.get("round_type") or "").upper()
+                info["question_count"] = len(d.get("questions") or [])
+                info["has_options"] = any((q.get("options") or []) for q in (d.get("questions") or []))
+            except Exception:
+                pass
+        out.append(info)
+    return out
+
+
+def build_special(
+    *,
+    name: str,
+    host_id: str,
+    location_id: str,
+    round_types: List[str],
+    round_files: List[str],
+    owner_email: Optional[str] = None,
+    allow_locked: bool = False,
+) -> Dict[str, Any]:
+    """Assemble a SPECIAL (themed-night) presentation."""
+    validate_special_loadout(round_types)
+    if len(round_files) != len(round_types):
+        raise BuildValidationError(
+            f"round_files length ({len(round_files)}) must equal the number of rounds ({len(round_types)})"
+        )
+    types = [t.upper() for t in round_types]
+    if len({Path(r).name.lower() for r in round_files}) != len(round_files):
+        raise BuildValidationError("the same special round can't be used twice in one show")
+
+    host = _load_host(host_id)
+    loc = _load_location(location_id)
+
+    refs: List[Dict[str, Any]] = []
+    for i, (rtype, ref) in enumerate(zip(types, round_files)):
+        p = _resolve_special_file(ref)
+        try:
+            from native_slides import _read_bighat_round
+            doc = _read_bighat_round(p) or {}
+        except Exception:
+            doc = {}
+        qs = doc.get("questions") or []
+        if not qs:
+            raise BuildValidationError(f"special round {p.name!r} has no questions")
+        if rtype == "MC" and not any((q.get("options") or []) for q in qs):
+            raise BuildValidationError(
+                f"slot {i + 1} is MC but {p.name!r} has no multiple-choice options"
+            )
+        refs.append({
+            "order": i + 1, "type": rtype,
+            "file": p.relative_to(_docs_root()).as_posix(),
+            "special": True,
+            "question_count": len(qs),
+        })
+
+    if not allow_locked:
+        import round_usage
+        loc_label = (loc or {}).get("name") or location_id
+        locked = round_usage.locked_names(loc_label) | round_usage.locked_names(location_id)
+        clash = [r["file"].split("/")[-1] for r in refs
+                 if round_usage.norm_name(r["file"]) in locked]
+        if clash:
+            raise BuildValidationError(
+                "These rounds are locked for this location (used within the last "
+                f"{round_usage.LOCK_DAYS} days): {', '.join(clash)}. "
+                "An admin can release them in Trivia Admin."
+            )
+
+    pres_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    pres: Dict[str, Any] = {
+        "id": pres_id,
+        "type": "trivia-presentation",
+        "schema_version": 2,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": owner_email or host.get("email"),
+        "name": name.strip() or f"Special Show {now[:10]}",
+        "host_id": host_id,
+        "host_name": host.get("display_name") or host.get("email"),
+        "location_id": location_id,
+        "location_name": (loc or {}).get("name") or location_id,
+        "round_count": len(refs),
+        "numRounds": len(refs),
+        "roundTypes": types,
+        "roundFiles": refs,
+        "is_special": True,
+        "_source": "build-wizard-special",
+    }
+    out = _rounds_dir() / f"{_slug(pres['name'])}-{pres_id[:6]}.bighat"
+    out.write_text(json.dumps(pres, indent=2), encoding="utf-8")
+    pres["_disk_path"] = str(out)
+    try:
+        import round_usage
+        round_usage.record_usage(
+            location_id=location_id,
+            location_name=(loc or {}).get("name") or location_id,
+            round_files=refs,
+            used_by=pres.get("host_name") or owner_email or "",
+            presentation_id=pres_id, presentation_name=pres["name"],
+        )
+    except Exception as e:
+        logger.warning("[round_usage] record failed: %s", e)
+    logger.info("[build_special] wrote %s (%d rounds, host=%s, loc=%s)",
+                out, len(refs), host_id, location_id)
     return pres
 
 

@@ -47,7 +47,7 @@ const FOLDERS = [
 // Trivia round_type sub-buckets — surfaced as a secondary row when the
 // host has the Trivia tab selected so they can drill into one round
 // type without scrolling through every round file.
-const TRIVIA_BUCKETS = ['MC', 'REG', 'MISC', 'MYS', 'BIG', '_Other'];
+const TRIVIA_BUCKETS = ['MC', 'REG', 'MISC', 'MYS', 'BIG', 'Special', '_Other'];
 
 // Which content_types are "loadable" into which destinations. The
 // matrix here drives which "Load into…" buttons appear per row.
@@ -260,7 +260,7 @@ export default function FilesTool() {
                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {bucket === '_Other' ? 'Unclassified' : bucket}
+                  {bucket === '_Other' ? 'Unclassified' : bucket === 'Special' ? 'Special (themed nights)' : bucket}
                 </button>
               ))}
             </div>

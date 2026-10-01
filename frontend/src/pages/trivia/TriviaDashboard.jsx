@@ -367,6 +367,15 @@ function PresentationCard({ pres, onDelete, onPresent, isAdmin }) {
   );
 }
 
+// 180-day lock label: "Locked 142d" / "Expired" (records come from /admin/round-usage)
+function lockLabel(r) {
+  if (r.isExpired) return { text: 'Unlocked', color: '#22c55e' };
+  const exp = r.expiresDate ? new Date(r.expiresDate) : null;
+  if (!exp || isNaN(exp)) return { text: 'Locked', color: '#fbdd68' };
+  const days = Math.max(0, Math.ceil((exp - new Date()) / 86400000));
+  return { text: `Locked ${days}d`, color: '#fbdd68' };
+}
+
 function LocationRoundHistory({ location, rounds, count, expanded, onToggle }) {
   const roundsByType = {};
   rounds.forEach(r => {
@@ -423,6 +432,7 @@ function LocationRoundHistory({ location, rounds, count, expanded, onToggle }) {
                           <div className="flex items-center gap-3 shrink-0 ml-2">
                             <span style={{ color: '#8892b0' }}>{r.usedBy}</span>
                             {usedDate && !isNaN(usedDate) && <span style={{ color: '#8892b0' }}>{usedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                            <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'rgba(251, 221, 104, 0.12)', color: lockLabel(r).color }} data-testid={`lock-${r.id}`}>{lockLabel(r).text}</span>
                           </div>
                         </div>
                       );
@@ -593,8 +603,8 @@ function TriviaAdminPanel({ userName, onRefresh }) {
                     <div className="flex items-center gap-4">
                       <span style={{ color: '#8892b0' }}>{r.usedBy}</span>
                       {usedDate && !isNaN(usedDate) && <span style={{ color: '#8892b0' }}>{usedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
-                      {r.isExpired && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Expired</span>}
-                      <button onClick={() => handleReleaseRound(r.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors" title="Release round" data-testid={`release-round-${r.id}`}>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: r.isExpired ? 'rgba(34, 197, 94, 0.15)' : 'rgba(251, 221, 104, 0.12)', color: lockLabel(r).color }}>{lockLabel(r).text}</span>
+                      <button onClick={() => handleReleaseRound(r.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors" title="Release this round now (unlock before 180 days)" data-testid={`release-round-${r.id}`}>
                         <Trash2 size={12} style={{ color: '#ef4444' }} />
                       </button>
                     </div>

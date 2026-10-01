@@ -474,7 +474,8 @@ async def get_sections_list(presentation_id: str):
         # BIG. MYS is always second-to-last, BIG is always last. Ties
         # within a bucket preserve the wizard's ordering.
         _ROUND_TYPE_RANK = {"MC": 1, "REG": 2, "MISC": 3, "NONSENSE": 3, "MYS": 98, "BIG": 99}
-        if round_files:
+        # SPECIAL shows (alpha.63) keep the admin's chosen slot order: no re-sort.
+        if round_files and not trivia_pres.get('is_special'):
             round_files = sorted(
                 enumerate(round_files),
                 key=lambda p: (_ROUND_TYPE_RANK.get((p[1].get("type") or "").upper(), 50), p[0]),

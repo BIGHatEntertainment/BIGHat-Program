@@ -660,27 +660,13 @@ async def get_round_files_by_type(round_type: str, location: Optional[str] = Non
     if _is_local_mode():
         # Local-mode short-circuit — list from disk and apply 180-day lockout
         all_files = _list_local_round_files(round_type)
-        if location and db is not None and all_files:
-            from datetime import timedelta
-            import re as re_mod
-            now = datetime.utcnow()
-            cutoff_dt = now - timedelta(days=180)
-            cutoff_iso = cutoff_dt.isoformat()
-            loc_name = location.split('/')[-1] if '/' in location else location
-            loc_name_clean = re_mod.sub(r'^\d+_', '', loc_name)
-            location_regex = f'({re_mod.escape(loc_name)}|{re_mod.escape(loc_name_clean)})'
-            try:
-                used_records = await db.round_usage.find({
-                    'location': {'$regex': location_regex, '$options': 'i'},
-                    '$or': [
-                        {'usedDate': {'$gte': cutoff_dt}},
-                        {'usedDate': {'$gte': cutoff_iso}},
-                    ]
-                }).to_list(5000)
-            except Exception:
-                used_records = []
-            used_names = {(u.get('roundFileName') or '').lower().strip() for u in used_records}
-            all_files = [f for f in all_files if f['name'].lower().strip() not in used_names]
+        if location and all_files:
+            # 180-day lockout from the DISK usage store (db is wiped each launch)
+            import round_usage
+            locked = round_usage.locked_names(location)
+            all_files = [f for f in all_files
+                         if round_usage.norm_name(f.get('name')) not in locked
+                         and round_usage.norm_name(f.get('path')) not in locked]
         return sorted(all_files, key=lambda x: x['displayName'])
     try:
         sp = SharePointService()

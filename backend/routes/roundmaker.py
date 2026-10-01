@@ -837,7 +837,13 @@ def _add_cover_slide(prs, cover_path):
 
 def _add_gif_slide(prs):
     """Add the GIF slide with the BIG Hat Trivia image filling the slide."""
-    gif_path = ASSETS_DIR / "times_up.gif"
+    # alpha.62: canonical bundled copy first (backend/assets/slides/times_up.gif,
+    # shipped in the frozen app); legacy roundmaker_assets copy as fallback.
+    try:
+        from native_slides import bundled_asset_path
+        gif_path = bundled_asset_path("assets", "slides", "times_up.gif") or (ASSETS_DIR / "times_up.gif")
+    except Exception:
+        gif_path = ASSETS_DIR / "times_up.gif"
     slide_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(slide_layout)
     bg = slide.background.fill
@@ -849,6 +855,8 @@ def _add_gif_slide(prs):
         height = prs.slide_height
         # Fill the entire slide
         slide.shapes.add_picture(str(gif_path), Emu(0), Emu(0), width, height)
+    else:
+        logger.error("[roundmaker] times_up.gif missing - grade slide will be blank")
     return slide
 
 def _find_cover_image(file_id):

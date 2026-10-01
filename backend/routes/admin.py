@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import List, Dict, Optional
 import logging
@@ -16,6 +16,20 @@ def set_database(database):
     global db
     db = database
 
+async def authorize_admin(request: Request, user_name: Optional[str]) -> None:
+    """Standalone auth: real role (admin / master_admin) wins; the legacy
+    first-name list stays as a fallback for the cloud webapp."""
+    try:
+        from server import get_current_user  # type: ignore
+        u = await get_current_user(request)
+        if (u or {}).get("role") in ("admin", "master_admin"):
+            return
+    except Exception:
+        pass
+    if not verify_admin(user_name):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
 def verify_admin(user_name: Optional[str]) -> bool:
     """Verify if the user is authorized to access admin functions"""
     if not user_name:
@@ -24,182 +38,62 @@ def verify_admin(user_name: Optional[str]) -> bool:
 
 
 @router.get("/round-usage")
-async def get_all_round_usage(userName: Optional[str] = Query(None)) -> List[Dict]:
-    """
-    Get all round usage records for admin management.
-    Shows which rounds have been used at which locations.
-    Requires admin authorization.
-    """
-    if not verify_admin(userName):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        # Get all usage records, sorted by date (newest first)
-        usage_records = await db.round_usage.find().sort("usedDate", -1).to_list(1000)
-        
-        result = []
-        for record in usage_records:
-            # Check if expired
-            expires_date = record.get('expiresDate')
-            is_expired = expires_date < datetime.utcnow() if isinstance(expires_date, datetime) else False
-            
-            used_date = record.get('usedDate', '')
-            used_date_str = used_date.isoformat() if isinstance(used_date, datetime) else str(used_date)
-            
-            expires_date_str = expires_date.isoformat() if isinstance(expires_date, datetime) else str(expires_date)
-            
-            result.append({
-                'id': str(record.get('_id', '')),
-                'location': record.get('location', ''),
-                'locationName': record.get('location', '').split('/')[-1] if record.get('location') else '',
-                'roundFile': record.get('roundFile', ''),
-                'roundFileName': record.get('roundFileName') or (record.get('roundFile', '').split('/')[-1] if record.get('roundFile') and '/' in record.get('roundFile', '') else record.get('roundFile', '')),
-                'roundType': record.get('roundType', ''),
-                'roundNumber': record.get('roundNumber', 0),
-                'usedDate': used_date_str,
-                'expiresDate': expires_date_str,
-                'isExpired': is_expired,
-                'usedBy': record.get('usedBy', ''),
-                'presentationName': record.get('presentationName', ''),
-                'presentationId': record.get('presentationId', '')
-            })
-        
-        logger.info(f"Retrieved {len(result)} round usage records")
-        return result
-    
-    except Exception as e:
-        logger.error(f"Error fetching round usage: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/round-usage/{usage_id}")
-async def release_round(usage_id: str, userName: Optional[str] = Query(None)) -> Dict:
-    """
-    Release a round back into the selection pool by deleting its usage record.
-    Useful for preview/testing or correcting mistakes.
-    Requires admin authorization.
-    """
-    if not verify_admin(userName):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        from bson import ObjectId
-        
-        # Try to delete by _id (ObjectId)
-        try:
-            result = await db.round_usage.delete_one({"_id": ObjectId(usage_id)})
-        except Exception:
-            # If ObjectId fails, try as string id
-            result = await db.round_usage.delete_one({"_id": usage_id})
-        
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Usage record not found")
-        
-        logger.info(f"Released round usage record: {usage_id} by {userName}")
-        
-        return {
-            "success": True,
-            "message": "Round released back into selection pool"
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error releasing round: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_all_round_usage(request: Request, userName: Optional[str] = Query(None)) -> List[Dict]:
+    """All round usage records (DISK store). A round stays locked for its
+    location for 180 days or until released here."""
+    await authorize_admin(request, userName)
+    import round_usage
+    return round_usage.list_records()
 
 
 @router.delete("/round-usage/by-presentation/{presentation_id}")
-async def release_presentation_rounds(presentation_id: str, userName: Optional[str] = Query(None)) -> Dict:
-    """
-    Release all rounds from a specific presentation.
-    Useful when deleting a test/preview presentation.
-    Requires admin authorization.
-    """
-    if not verify_admin(userName):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        result = await db.round_usage.delete_many({"presentationId": presentation_id})
-        
-        logger.info(f"Released {result.deleted_count} rounds from presentation {presentation_id} by {userName}")
-        
-        return {
-            "success": True,
-            "message": f"Released {result.deleted_count} rounds from presentation",
-            "deletedCount": result.deleted_count
-        }
-    
-    except Exception as e:
-        logger.error(f"Error releasing presentation rounds: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def release_presentation_rounds(presentation_id: str, request: Request,
+                                      userName: Optional[str] = Query(None)) -> Dict:
+    """Release every round of one presentation (e.g. it must be rebuilt)."""
+    await authorize_admin(request, userName)
+    import round_usage
+    n = round_usage.release_presentation(presentation_id)
+    logger.info("Released %d rounds from presentation %s by %s", n, presentation_id, userName)
+    return {"success": True, "message": f"Released {n} rounds from presentation", "deletedCount": n}
+
+
+@router.delete("/round-usage/{usage_id}")
+async def release_round(usage_id: str, request: Request, userName: Optional[str] = Query(None)) -> Dict:
+    """Release one round back into the selection pool."""
+    await authorize_admin(request, userName)
+    import round_usage
+    if round_usage.release(usage_id) == 0:
+        raise HTTPException(status_code=404, detail="Usage record not found")
+    logger.info("Released round usage %s by %s", usage_id, userName)
+    return {"success": True, "message": "Round released back into selection pool"}
 
 
 @router.post("/round-usage/release-all")
-async def release_all_rounds(userName: Optional[str] = Query(None)) -> Dict:
-    """
-    Release ALL round usage records.
-    WARNING: This removes all usage tracking. Use carefully!
-    Requires admin authorization.
-    """
-    if not verify_admin(userName):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        result = await db.round_usage.delete_many({})
-        
-        logger.warning(f"Released ALL {result.deleted_count} round usage records by {userName}")
-        
-        return {
-            "success": True,
-            "message": f"Released all {result.deleted_count} rounds",
-            "deletedCount": result.deleted_count
-        }
-    
-    except Exception as e:
-        logger.error(f"Error releasing all rounds: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def release_all_rounds(request: Request, userName: Optional[str] = Query(None)) -> Dict:
+    """Release ALL round usage records. Master admin only."""
+    await authorize_admin(request, userName)
+    import round_usage
+    n = round_usage.release_all()
+    logger.warning("Released ALL %d round usage records by %s", n, userName)
+    return {"success": True, "message": f"Released all {n} rounds", "deletedCount": n}
 
 
 @router.post("/cleanup-expired")
-async def cleanup_expired_rounds(userName: Optional[str] = Query(None)) -> Dict:
-    """
-    Automatically remove all expired round usage records.
-    Requires admin authorization.
-    """
-    if not verify_admin(userName):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        cutoff_date = datetime.utcnow()
-        
-        result = await db.round_usage.delete_many({
-            'expiresDate': {'$lt': cutoff_date}
-        })
-        
-        logger.info(f"Cleaned up {result.deleted_count} expired usage records by {userName}")
-        
-        return {
-            "success": True,
-            "message": f"Successfully cleaned up {result.deleted_count} expired records",
-            "deletedCount": result.deleted_count
-        }
-    
-    except Exception as e:
-        logger.error(f"Error cleaning up expired records: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def cleanup_expired_rounds(request: Request, userName: Optional[str] = Query(None)) -> Dict:
+    """Remove expired (older than 180 days) usage records."""
+    await authorize_admin(request, userName)
+    import round_usage
+    n = round_usage.cleanup_expired()
+    return {"success": True, "message": f"Successfully cleaned up {n} expired records", "deletedCount": n}
 
 
 @router.get("/stats")
-async def get_admin_stats(userName: Optional[str] = Query(None)) -> Dict:
+async def get_admin_stats(request: Request, userName: Optional[str] = Query(None)) -> Dict:
     """
     Get admin dashboard statistics.
     Requires admin authorization.
     """
-    if not verify_admin(userName):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    await authorize_admin(request, userName)
 
     # v32.0.0-alpha.45: EVERY count_documents/aggregate call is wrapped
     # in try/except with a fallback. The desktop MontyDB shim throws
@@ -217,13 +111,15 @@ async def get_admin_stats(userName: Optional[str] = Query(None)) -> Dict:
             logger.warning("[admin/stats] count fallback (%s): %s", getattr(coll, "name", "?"), e)
             return 0
 
+    import round_usage as _ru
+    _disk = _ru.stats()
     try:
-        total_usage = await _safe_count(db.round_usage)
+        total_usage = _disk["totalUsageRecords"]
         total_presentations = await _safe_count(db.trivia_presentations)
 
         cutoff_date = datetime.utcnow()
-        active_usage = await _safe_count(db.round_usage, {'expiresDate': {'$gt': cutoff_date}})
-        expired_usage = max(0, total_usage - active_usage)
+        active_usage = _disk["activeRecords"]
+        expired_usage = _disk["expiredRecords"]
         
         # v32.0.0-alpha.43: MontyDB (native desktop DB shim) returns a
         # coroutine from `.aggregate()` — not a Motor cursor — so the
@@ -232,38 +128,7 @@ async def get_admin_stats(userName: Optional[str] = Query(None)) -> Dict:
         # `Promise.all` on the frontend, leaving the presentation list
         # empty. Wrap in a try/except and fall back to Python-side
         # grouping so the desktop always gets a usable stats payload.
-        usage_by_type: Dict[str, int] = {}
-        try:
-            pipeline = [
-                {"$group": {"_id": "$roundType", "count": {"$sum": 1}}}
-            ]
-            agg = db.round_usage.aggregate(pipeline)
-            # Motor cursor path
-            if hasattr(agg, "to_list"):
-                docs = await agg.to_list(100)
-            elif hasattr(agg, "__await__"):
-                # MontyDB-style: aggregate() returns a coroutine that
-                # resolves to a list (or a cursor). Unwrap either way.
-                resolved = await agg
-                if hasattr(resolved, "to_list"):
-                    docs = await resolved.to_list(100)
-                else:
-                    docs = list(resolved)
-            else:
-                docs = list(agg)
-            usage_by_type = {d["_id"]: d["count"] for d in docs if d.get("_id")}
-        except Exception as agg_exc:
-            logger.warning("[admin/stats] aggregate fallback: %s", agg_exc)
-            # Fallback: pull all usage rows and group in Python. Cheap
-            # for a solo desktop DB (thousands of rows at most).
-            try:
-                all_rows = await db.round_usage.find({}, {"_id": 0, "roundType": 1}).to_list(5000)
-                for r in all_rows:
-                    rt = r.get("roundType")
-                    if rt:
-                        usage_by_type[rt] = usage_by_type.get(rt, 0) + 1
-            except Exception as fb_exc:
-                logger.warning("[admin/stats] fallback grouping failed: %s", fb_exc)
+        usage_by_type: Dict[str, int] = _disk["usageByType"]
 
         return {
             "totalUsageRecords": total_usage,

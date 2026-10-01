@@ -675,8 +675,11 @@ async def get_trivia_presentation(presentation_id: str) -> Dict:
             "locationFile": presentation.get('locationFile', ''),
             "locationFolder": presentation.get('locationFolder', ''),
             "totalSlides": presentation.get('totalSlides', 0),
-            "numRounds": presentation.get('numRounds'),
-            "roundTypes": presentation.get('roundTypes', []),
+            "numRounds": presentation.get('numRounds') or presentation.get('round_count'),
+            "roundTypes": presentation.get('roundTypes') or [
+                (rf.get('type') or '').upper() for rf in (presentation.get('roundFiles') or []) if rf.get('type')
+            ],
+            "is_special": bool(presentation.get('is_special')),
             "roundNames": presentation.get('roundNames', []),
             "roundFiles": presentation.get('roundFiles', []),
             "hostFile": presentation.get('hostFile', ''),

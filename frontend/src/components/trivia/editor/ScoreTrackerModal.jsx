@@ -4,7 +4,13 @@ import { Input } from '../../ui/input';
 import { Trash2, ArrowUpDown, Send, X } from 'lucide-react';
 import { toast } from '../../../utils/toastCompat';
 
-const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores, presentationId, roundTypes = [] }) => {
+// alpha.63: SPECIAL shows can have 3..10 rounds (any count the show was built with).
+// Normal shows keep the classic 3/5/6 modes untouched.
+const SPECIAL_MODES = [3, 4, 5, 6, 7, 8, 9, 10];
+const MAX_ROUNDS = 10;
+
+const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores, presentationId, roundTypes = [], isSpecial = false }) => {
+  const validModes = isSpecial ? SPECIAL_MODES : [3, 5, 6];
   const [roundMode, setRoundMode] = useState(defaultRoundMode);
   const [teams, setTeams] = useState([]);
   const maxTeams = 20;
@@ -71,7 +77,7 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
       id: i,
       swag: '',
       name: '',
-      rounds: Array(6).fill('')
+      rounds: Array(MAX_ROUNDS).fill('')
     }));
     return initialTeams;
   }, [maxTeams]);
@@ -82,10 +88,10 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
 
     if (isOpen && (justOpened || presentationChanged)) {
       let detectedRoundMode = defaultRoundMode;
-      if (roundTypes && roundTypes.length > 0 && [3, 5, 6].includes(roundTypes.length)) {
+      if (roundTypes && roundTypes.length > 0 && validModes.includes(roundTypes.length)) {
         detectedRoundMode = roundTypes.length;
       }
-      if ([3, 5, 6].includes(detectedRoundMode)) {
+      if (validModes.includes(detectedRoundMode)) {
         setRoundMode(detectedRoundMode);
       }
 
@@ -94,8 +100,8 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
         const savedData = localStorage.getItem(storageKey);
         if (savedData) {
           const parsed = JSON.parse(savedData);
-          setTeams(parsed.teams || initializeTeams());
-          if (detectedRoundMode === 5 && parsed.roundMode && [3, 5, 6].includes(parsed.roundMode)) {
+          setTeams((parsed.teams || initializeTeams()).map(t => ({ ...t, rounds: [...(t.rounds || []), ...Array(Math.max(0, MAX_ROUNDS - (t.rounds || []).length)).fill('')] })));
+          if (!isSpecial && detectedRoundMode === 5 && parsed.roundMode && validModes.includes(parsed.roundMode)) {
             setRoundMode(parsed.roundMode);
           }
         } else {
@@ -111,7 +117,7 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
   }, [isOpen, presentationId, defaultRoundMode, roundTypes, initializeTeams]);
 
   useEffect(() => {
-    if (isOpen && roundTypes?.length > 0 && [3, 5, 6].includes(roundTypes.length) && roundMode !== roundTypes.length) {
+    if (isOpen && roundTypes?.length > 0 && validModes.includes(roundTypes.length) && roundMode !== roundTypes.length) {
       const newLen = roundTypes.length;
       const timer = setTimeout(() => {
         setRoundMode(newLen);
@@ -126,11 +132,11 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         const storageKey = `triviaScoreData_${presentationId}`;
-        localStorage.setItem(storageKey, JSON.stringify({ teams, roundMode }));
+        localStorage.setItem(storageKey, JSON.stringify({ teams, roundMode, isSpecial, roundTypes: isSpecial ? currentRounds.map(r => r.label) : undefined }));
       }, 300);
     }
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [teams, roundMode, isOpen, presentationId]);
+  }, [teams, roundMode, isOpen, presentationId, isSpecial, currentRounds]);
 
   const calculateTotal = (team) => {
     if (!team) return 0;
@@ -233,10 +239,10 @@ const ScoreTrackerModal = ({ isOpen, onClose, defaultRoundMode = 5, onSendScores
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-3xl font-bold text-gray-800">BIG Hat Trivia Score Tracker</h1>
               <div className="flex gap-3 items-center">
-                {[3, 5, 6].map(mode => (
+                {(isSpecial ? [roundMode] : [3, 5, 6]).map(mode => (
                   <Button
                     key={mode}
-                    onClick={() => changeRoundMode(mode)}
+                    onClick={() => { if (!isSpecial) changeRoundMode(mode); }}
                     className={`font-semibold ${roundMode === mode ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-black'}`}
                   >
                     {mode} Rounds

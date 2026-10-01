@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from .config import config_manager
@@ -749,6 +749,57 @@ async def build_presentation_from_wizard(payload: WizardBuildRequest = Body(...)
         raise HTTPException(400, detail=str(e))
 
 
+class SpecialBuildRequest(BaseModel):
+    name: str
+    host_id: str
+    location_id: str
+    round_types: List[str]
+    round_files: List[str]
+
+
+async def _require_admin_role(request: Request) -> None:
+    """Special builds are Admin / Master Admin only (enforced server-side)."""
+    try:
+        from server import get_current_user
+        u = await get_current_user(request)
+    except Exception:
+        raise HTTPException(401, detail="Sign in required")
+    if (u or {}).get("role") not in ("admin", "master_admin"):
+        raise HTTPException(403, detail="Special rounds are available to Admin and Master Admin only")
+
+
+@router.get("/special-rounds")
+async def list_special_rounds_endpoint(request: Request, location: Optional[str] = None):
+    """Rounds in Files/Trivia/Special (never mixed with the normal pools).
+    Locked rounds for `location` are flagged, not hidden, so admins see why."""
+    await _require_admin_role(request)
+    from presentation_builder import list_special_rounds, SPECIAL_MIN_ROUNDS, SPECIAL_MAX_ROUNDS
+    import round_usage
+    locked = round_usage.locked_names(location) if location else set()
+    rounds = list_special_rounds()
+    for r in rounds:
+        r["locked"] = round_usage.norm_name(r["file"]) in locked
+    return {"min_rounds": SPECIAL_MIN_ROUNDS, "max_rounds": SPECIAL_MAX_ROUNDS,
+            "types": ["MC", "REG", "MISC", "MYS", "BIG"], "rounds": rounds}
+
+
+@router.post("/presentations/build-special")
+async def build_special_presentation(request: Request, payload: SpecialBuildRequest = Body(...)):
+    await _require_admin_role(request)
+    try:
+        from presentation_builder import build_special, BuildValidationError
+    except ImportError as e:
+        raise HTTPException(500, detail=f"presentation_builder import failed: {e}")
+    await _ensure_host_on_disk(payload.host_id)
+    try:
+        return build_special(
+            name=payload.name, host_id=payload.host_id, location_id=payload.location_id,
+            round_types=payload.round_types, round_files=payload.round_files,
+        )
+    except BuildValidationError as e:
+        raise HTTPException(400, detail=str(e))
+
+
 @router.post("/presentations/roulette")
 async def build_presentation_from_roulette(payload: RouletteBuildRequest = Body(...)):
     """Round Roulette — slot machine confirms → this endpoint spins,
@@ -776,7 +827,7 @@ async def build_presentation_from_roulette(payload: RouletteBuildRequest = Body(
 
 
 @router.get("/round-pool/{round_type}")
-async def list_round_pool(round_type: str):
+async def list_round_pool(round_type: str, location: Optional[str] = None, include_locked: bool = False):
     """List available `.bighat` files in a specific round-type folder.
     Used by the Wizard and Roulette dropdowns."""
     from presentation_builder import _list_round_files_of_type
@@ -784,7 +835,15 @@ async def list_round_pool(round_type: str):
     if rt not in ("MC", "REG", "MISC", "MYS", "BIG"):
         raise HTTPException(400, detail=f"invalid round type {rt!r}")
     files = _list_round_files_of_type(rt)
+    locked_count = 0
+    if location and not include_locked:
+        import round_usage
+        locked = round_usage.locked_names(location)
+        kept = [f for f in files if round_usage.norm_name(f.name) not in locked]
+        locked_count = len(files) - len(kept)
+        files = kept
     return {
+        "locked_hidden": locked_count,
         "round_type": rt,
         "count": len(files),
         "files": [f.name for f in files],

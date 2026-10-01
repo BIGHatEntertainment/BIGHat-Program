@@ -111,6 +111,46 @@ def _docs_root() -> Path:
     return base / "BIG Hat Entertainment"
 
 
+def bundled_asset_path(*parts: str) -> Optional[Path]:
+    """Resolve a file bundled with the backend, in BOTH layouts:
+    dev (backend/assets/...) and the PyInstaller-frozen app (_MEIPASS/assets/...).
+    Returns None if it is not there."""
+    import sys
+    roots = []
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        roots.append(Path(mei))
+    roots.append(Path(__file__).resolve().parent)
+    for r in roots:
+        p = r.joinpath(*parts)
+        if p.is_file():
+            return p
+    return None
+
+
+_GRADE_GIF_CACHE: Dict[str, str] = {}
+
+
+def grade_gif_src() -> str:
+    """The BIG Hat 'Time to grade' GIF (backend/assets/slides/times_up.gif) as an
+    inline data URL so it renders in any webview origin. Falls back to the old
+    generic SVG ONLY if the bundled file is somehow missing (build lock-in
+    makes that impossible in releases)."""
+    if "src" in _GRADE_GIF_CACHE:
+        return _GRADE_GIF_CACHE["src"]
+    p = bundled_asset_path("assets", "slides", "times_up.gif")
+    if p is not None:
+        try:
+            import base64
+            src = "data:image/gif;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+            _GRADE_GIF_CACHE["src"] = src
+            return src
+        except OSError as e:
+            logger.warning("[native-slides] grade gif unreadable: %s", e)
+    logger.error("[native-slides] times_up.gif missing - falling back to generic SVG")
+    return "/Time_To_Grade.svg"
+
+
 def _to_data_url(rel_path: str) -> Optional[str]:
     """v32.0.0-alpha.49: **Inline the file bytes as a `data:` URL.**
 
@@ -565,6 +605,10 @@ def _trivia_type_dir(round_type: str) -> Path:
     return _docs_root() / "Files" / "Trivia" / (round_type or "").upper()
 
 
+def _special_dir() -> Path:
+    return _docs_root() / "Files" / "Trivia" / "Special"
+
+
 def load_presentation_from_disk(presentation_id: str) -> Optional[Dict[str, Any]]:
     """Scan `Files/Trivia/Rounds/*.bighat` for a manifest with matching id."""
     rd = _rounds_dir()
@@ -743,6 +787,19 @@ def load_round_from_disk(round_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # the round reference under `path` (often an ABSOLUTE native path from
     # /api/trivia/round-files) — honour it, don't just read `file`.
     rfile = round_ref.get("file") or round_ref.get("path") or ""
+
+    # 0. SPECIAL rounds (alpha.63) are only ever read from Files/Trivia/Special.
+    if round_ref.get("special"):
+        cands = []
+        if rfile:
+            cands += [docs / "Files" / "Trivia" / rfile, docs / rfile,
+                      _special_dir() / Path(rfile).name]
+        for c in cands:
+            if c.is_file():
+                doc = _read_bighat_round(c)
+                if doc is not None:
+                    return doc
+        return None
 
     # 1. Exact file-path match (TRUST)
     if rfile:
@@ -1015,7 +1072,14 @@ def render_round_section(
         # MC/REG/MISC: expect 10 questions; MYS: expect 9. We render exactly
         # what's on disk (fewer → shorter round; more → truncate to spec).
         max_q = 9 if is_mys else 10
+        # SPECIAL rounds (alpha.63) may have fewer questions: skip the blank
+        # placeholder slides entirely. Every slide keeps its canonical
+        # slideIndexInRound (review 11/10, gif 12/11, answers 13/12) so the
+        # player's timers + reveal logic work unchanged.
+        is_special = bool(round_ref.get("special"))
         for i in range(max_q):
+            if is_special and i >= len(questions):
+                break
             if i < len(questions):
                 q = questions[i]
                 qnum = q.get("number") or (i + 1)
@@ -1093,11 +1157,11 @@ def render_round_section(
     else:
         gif_idx = 12
 
-    # Try to use a bundled overlay GIF; fall back to styled text.
-    # v32.0.0-alpha.50: bundled SVG stop-card (animated) in
-    # `frontend/public/Time_To_Grade.svg`. Renders identically on every
-    # install regardless of merchant asset uploads.
-    gif_url = "/Time_To_Grade.svg"
+    # alpha.62: the stop card is the BIG Hat "Time's up / Time to grade" GIF,
+    # bundled at backend/assets/slides/times_up.gif (see grade_gif_src()).
+    # It is ALWAYS inserted after the review slide, regardless of how many
+    # questions the round has.
+    gif_url = grade_gif_src()   # alpha.62: BIG Hat times_up.gif, always bundled
     gif_elements = [
         _image(gif_url, x=0, y=0, w=STAGE_W, h=STAGE_H),
     ]

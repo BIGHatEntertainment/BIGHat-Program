@@ -9,8 +9,14 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API_BASE = `${BACKEND_URL}/api`;
 import { toast } from 'sonner';
+import { useAuth } from '../../context/AuthContext';
+import SpecialRoundBuilder from './SpecialRoundBuilder';
+import { Sparkles } from 'lucide-react';
 
 const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
+  const { user } = useAuth();
+  const canBuildSpecial = user?.role === 'admin' || user?.role === 'master_admin';
+  const [showSpecial, setShowSpecial] = useState(false);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -780,10 +786,25 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
   const totalSteps = numRounds === 5 ? 10 : 10; // 10 steps total (skip step 6 for 5 rounds)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open && !showSpecial} onOpenChange={onOpenChange}>
       <DialogContent className="bg-gradient-to-br from-[#1a1a2e] to-[#16213e] border-[#FFC107]/30 text-white max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-[#FFC107] text-2xl">Build Trivia Presentation</DialogTitle>
+          <div className="flex items-center gap-3">
+            <DialogTitle className="text-[#FFC107] text-2xl">Build Trivia Presentation</DialogTitle>
+            {canBuildSpecial && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setShowSpecial(true)}
+                className="bg-[#FFC107] hover:bg-[#FFD54F] text-black font-semibold h-7 px-3"
+                data-testid="special-round-btn"
+                title="Admin: build a themed-night show (3 to 10 rounds)"
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-1" /> Special Round
+              </Button>
+            )}
+          </div>
           <DialogDescription className="text-gray-400">
             Step {step} of {totalSteps}: {getStepTitle()}
           </DialogDescription>
@@ -832,6 +853,19 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+      {canBuildSpecial && (
+        <SpecialRoundBuilder
+          open={showSpecial}
+          onOpenChange={setShowSpecial}
+          userName={userName}
+          onComplete={async (data) => {
+            await onComplete(data);
+            setShowSpecial(false);
+            onOpenChange(false);
+          }}
+        />
+      )}
+    </>
   );
 };
 
