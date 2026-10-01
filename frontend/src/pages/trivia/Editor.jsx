@@ -1678,7 +1678,7 @@ const Editor = () => {
         const posInRound = rawPos != null ? Number(rawPos) : -1;
         
         // Skip non-trivia slides
-        if (['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL'].includes(roundType)) {
+        if (['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL', 'HOST', 'LOCATION', 'COMPANY', 'RULES', 'FORMAT'].includes(roundType)) {
           return null;
         }
         
@@ -2418,7 +2418,7 @@ const Editor = () => {
       const roundTitles = presentation.slides.filter(s => s?.metadata?.isRoundTitle);
       // Exclude special rounds like WINNERS, SCORES, SPONSOR
       const gameRounds = roundTitles.filter(s => 
-        !['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL'].includes(s?.metadata?.roundType)
+        !['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL', 'HOST', 'LOCATION', 'COMPANY', 'RULES', 'FORMAT'].includes(s?.metadata?.roundType)
       );
       const count = gameRounds.length;
       if ([3, 5, 6].includes(count) || (presentation?.is_special && count >= 3 && count <= 10)) {
@@ -2441,7 +2441,7 @@ const Editor = () => {
     if (presentation?.slides?.length > 0) {
       const roundTitles = presentation.slides
         .filter(s => s?.metadata?.isRoundTitle)
-        .filter(s => !['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL'].includes(s?.metadata?.roundType))
+        .filter(s => !['WINNERS', 'SCORES', 'SPONSOR', 'TOTAL', 'HOST', 'LOCATION', 'COMPANY', 'RULES', 'FORMAT'].includes(s?.metadata?.roundType))
         .sort((a, b) => (a.metadata?.roundNumber || 0) - (b.metadata?.roundNumber || 0));
       
       if (roundTitles.length > 0) {

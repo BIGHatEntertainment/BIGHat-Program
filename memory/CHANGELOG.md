@@ -8,6 +8,42 @@
 ---
 ---
 
+## 2026-10-01 — v32.0.0-alpha.63: location settings persistence, hidden metadata, branding slides, global slides
+
+### Merchant reports on alpha.62 (installed, "runs great")
+Overlay tags/names reset and previews broke; presentation name + ID strings visible on slides; location
+branding images missing after the rewards slide; wants company / rules / format slides before round 1.
+
+### Fixes
+1. **Location settings persistence (ROOT CAUSE).** Native mode wipes MontyDB every launch; overlay tags, original
+   filenames, order, location id/name and admins lived only there, so the rebuild invented defaults (new id,
+   UUID names, tags reset, previews 404 for any open page). Every location write now mirrors to
+   `Files/Locations/<slug>/location.json`; startup restores from it. Also gives presentation_builder the
+   `location.json` it always expected. NOTE: overlays already rebuilt by alpha.62 must be re-tagged once.
+2. **Hidden metadata.** Removed the presentation-name caption from the host slide; the slide after the host is a
+   text-free RESERVED REWARDS SLOT (`metadata.isRewardsSlot`) for the future Rewards tie-in, never removed.
+   Root bug: wizard-built shows store `location_id/location_name/location_slug` (no `location`), so the
+   renderer printed the location UUID and could not find branding images. `load_location_assets` now resolves
+   ids/slugs/names via each folder's location.json.
+3. **Branding slides.** After the rewards slot, EVERY image in the location's Trivia Setup branding area plays,
+   in the merchant's drag-and-drop order (previously sorted by random file name). Hand-added files are appended.
+4. **Editor round counting** now ignores HOST, LOCATION, COMPANY, RULES and FORMAT slides.
+
+### New
+- **Global slides** (Trivia Setup > Setup (all slides) > Global slides). Order: host, rewards slot, location
+  images, **company**, **rules**, **format**, round 1. Company + rules = uploaded 16:9 images (reorder/remove/toggle).
+  **Format** slide is generated per show: one coloured pill per real round (3-10), points each (1/1/1/2/3),
+  REG + MISC show the round's theme, Mystery never does. Disk: `Files/Trivia/GlobalSlides/`.
+  API `/api/native/global-slides*` (writes admin/master_admin). Placeholder curtain background ships; merchant
+  uploads the clean artwork. Pill art in `backend/assets/slides/format/`.
+
+### Tests
+`test_alpha63_location_persistence.py`, `test_alpha64_hide_metadata.py`, `test_alpha64_global_slides.py`.
+110 pass across alpha48/53/61-64; 3 stale alpha48 tests (old window.open / section order / css scroll) still fail
+as before. Not run on a real PC/Tauri shell.
+
+---
+
 ## 2026-10-01 — v32.0.0-alpha.62: 180-day round lock, Time-to-grade GIF, Special Round builder
 
 ### Merchant reports on alpha.61 (audience view, overlays and slide color confirmed working)

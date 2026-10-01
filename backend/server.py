@@ -2303,6 +2303,15 @@ except Exception as e:
     logger.warning(f"Could not load Native locations router: {e}")
 
 
+# Global slides router (alpha.64): company / rules / Format slides.
+try:
+    from native.global_slides_router import router as global_slides_router
+    app.include_router(global_slides_router, prefix="/api")
+    logger.info("Native global-slides router registered at /api/native/global-slides")
+except Exception as e:
+    logger.warning(f"Could not load global-slides router: {e}")
+
+
 # Slide style router (alpha.61): global + per-location trivia slide style.
 try:
     from native.slide_style_router import router as slide_style_router

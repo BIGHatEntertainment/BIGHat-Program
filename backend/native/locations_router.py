@@ -35,6 +35,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
@@ -80,9 +81,45 @@ _ALLOWED_MIMES = {
 _MAX_IMAGE_BYTES = 100 * 1024 * 1024    # 100 MB per image
 
 
+class _PersistingLocations:
+    """Wraps db.locations: every successful write is mirrored to
+    <Files>/Locations/<slug>/location.json (disk = source of truth).
+    Reads and everything else pass straight through."""
+
+    def __init__(self, coll):
+        self._c = coll
+
+    def __getattr__(self, name):
+        return getattr(self._c, name)
+
+    async def insert_one(self, doc, *a, **k):
+        res = await self._c.insert_one(doc, *a, **k)
+        _write_location_json(doc)
+        return res
+
+    async def update_one(self, flt, upd, *a, **k):
+        res = await self._c.update_one(flt, upd, *a, **k)
+        row = await self._c.find_one(flt, {"_id": 0})
+        if row:
+            _write_location_json(row)
+        return res
+
+
+class _DbWithPersistingLocations:
+    def __init__(self, database):
+        self._d = database
+        self.locations = _PersistingLocations(database.locations)
+
+    def __getattr__(self, name):
+        return getattr(self._d, name)
+
+    def __getitem__(self, name):
+        return self._d[name]
+
+
 def set_database(database) -> None:
     global _db
-    _db = database
+    _db = _DbWithPersistingLocations(database)
 
 
 def set_current_user_resolver(resolver) -> None:
@@ -320,6 +357,59 @@ async def list_locations(request: Request) -> List[Dict[str, Any]]:
     return [_strip_admin_only(d, user) for d in docs]
 
 
+# ---------------------------------------------------------------------------
+# alpha.63: DISK IS THE SOURCE OF TRUTH for location settings.
+# Native mode wipes MontyDB on every launch, so everything the merchant
+# configures (display name, id, image filenames/order, overlay round-type
+# tags, assigned admins) is mirrored to <Files>/Locations/<slug>/location.json
+# on EVERY write and read back first by _hydrate_from_disk. The DB is a cache.
+# ---------------------------------------------------------------------------
+_PERSIST_KEYS = ("id", "name", "slug", "branding_images", "overlay_images",
+                 "assigned_user_ids", "created_at", "updated_at", "created_by")
+
+
+def _location_json_path(slug: str) -> Path:
+    return _files_locations_root() / slug / "location.json"
+
+
+def _write_location_json(doc: Dict[str, Any]) -> None:
+    """Atomic write of one location's metadata. Never raises (best-effort)."""
+    try:
+        slug = doc.get("slug")
+        if not slug:
+            return
+        p = _location_json_path(slug)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        out = {k: doc.get(k) for k in _PERSIST_KEYS if k in doc}
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(out, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[locations] could not write location.json for %s: %s", doc.get("slug"), exc)
+
+
+def _read_location_json(slug: str) -> Optional[Dict[str, Any]]:
+    try:
+        p = _location_json_path(slug)
+        if p.is_file():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(d, dict) and d.get("id"):
+                return d
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[locations] unreadable location.json for %s: %s", slug, exc)
+    return None
+
+
+async def _persist_location(location_id: str) -> None:
+    """Re-read the row from the DB and mirror it to disk."""
+    try:
+        doc = await _db.locations.find_one({"id": location_id}, {"_id": 0})
+        if doc:
+            _write_location_json(doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[locations] persist failed for %s: %s", location_id, exc)
+
+
 async def _hydrate_from_disk() -> Dict[str, Any]:
     """Reconcile `db.locations` with `<Files>/Locations/`.
 
@@ -370,17 +460,33 @@ async def _hydrate_from_disk() -> Dict[str, Any]:
             continue
         name = _humanise_slug(slug)
         now = datetime.now(timezone.utc).isoformat()
-        doc = {
-            "id": str(uuid.uuid4()),
-            "name": name,
-            "slug": slug,
-            "branding_images": [],
-            "overlay_images": [],
-            "assigned_user_ids": [],
-            "created_at": now,
-            "updated_at": now,
-            "created_by": "auto-hydrate",
-        }
+        saved = _read_location_json(slug)
+        if saved:
+            # RESTORE: keep the id, display name, image records (original
+            # filenames, order, overlay round-type tags) and admins.
+            doc = {
+                "id": saved["id"],
+                "name": saved.get("name") or name,
+                "slug": slug,
+                "branding_images": saved.get("branding_images") or [],
+                "overlay_images": saved.get("overlay_images") or [],
+                "assigned_user_ids": saved.get("assigned_user_ids") or [],
+                "created_at": saved.get("created_at") or now,
+                "updated_at": saved.get("updated_at") or now,
+                "created_by": saved.get("created_by") or "restored",
+            }
+        else:
+            doc = {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "slug": slug,
+                "branding_images": [],
+                "overlay_images": [],
+                "assigned_user_ids": [],
+                "created_at": now,
+                "updated_at": now,
+                "created_by": "auto-hydrate",
+            }
         try:
             await _db.locations.insert_one({"_id": doc["id"], **doc})
             by_slug[slug] = doc
@@ -489,6 +595,10 @@ async def _hydrate_from_disk() -> Dict[str, Any]:
                 except Exception as exc:
                     summary["errors"].append(f"update_failed:{slug}:{kind}:{exc}")
 
+    # 6) mirror every row to disk (creates location.json for pre-alpha.63 folders)
+    for doc in by_slug.values():
+        _write_location_json(doc)
+
     return summary
 
 
@@ -551,6 +661,7 @@ async def create_location(payload: LocationCreate, request: Request) -> Dict[str
     # Pre-create both dirs so first upload doesn't race on mkdir.
     _branding_dir(slug)
     _overlays_dir(slug)
+    _write_location_json(doc)
     return doc
 
 

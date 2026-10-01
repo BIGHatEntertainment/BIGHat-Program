@@ -263,8 +263,10 @@ def test_location_slide_renders_image_per_asset(tmp_path, monkeypatch):
     from native_slides import render_location_section
 
     slides = render_location_section({"location": "Locations/monkey-pants-bar-grill"})
-    assert len(slides) == 2, "one slide per branding asset"
-    for s in slides:
+    # alpha.64: reserved (text-free) rewards slot first, then one slide per branding asset.
+    assert len(slides) == 3, "rewards slot + one slide per branding asset"
+    assert slides[0]["metadata"].get("isRewardsSlot") and slides[0]["elements"] == []
+    for s in slides[1:]:
         kinds = [e["type"] for e in s["elements"]]
         assert kinds == ["image"], "each location slide is a single full-bleed image"
 

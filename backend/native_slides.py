@@ -365,6 +365,29 @@ def load_host_asset(pres: Dict[str, Any]) -> Dict[str, Any]:
     return {"image_url": None, "aspect": None, "raw_path": None}
 
 
+def _location_dir_by_id(loc_root: Path, loc_id: str) -> Optional[Path]:
+    """Find Files/Locations/<slug>/ whose location.json id (or slug/name)
+    matches. Returns None if nothing matches."""
+    want = (loc_id or "").strip().lower()
+    if not want:
+        return None
+    try:
+        for entry in loc_root.iterdir():
+            lj = entry / "location.json"
+            if not (entry.is_dir() and lj.is_file()):
+                continue
+            try:
+                d = json.loads(lj.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if want in {str(d.get("id", "")).lower(), str(d.get("slug", "")).lower(),
+                        str(d.get("name", "")).lower()}:
+                return entry
+    except OSError:
+        pass
+    return None
+
+
 def load_location_assets(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Return an ordered list of location image assets:
         [{image_url, kind: 'branding'|'overlay', filename}, ...]
@@ -373,7 +396,10 @@ def load_location_assets(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
     overlays follow. Reads from
     `Files/Locations/<slug>/branding/` and `overlays/`.
     """
-    loc_raw = pres.get("location") or ""
+    # alpha.64: wizard-built shows (schema v2) carry location_slug /
+    # location_name / location_id and no plain `location`. Try them all.
+    loc_raw = (pres.get("location") or pres.get("location_slug")
+               or pres.get("location_name") or pres.get("location_id") or "")
     # Location may be `Locations/monkey-pants-bar-grill` (folder-style),
     # `monkey-pants-bar-grill` (slug), or `Monkey Pants Bar Grill` (name).
     docs = _docs_root()
@@ -392,24 +418,51 @@ def load_location_assets(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
                 loc_dir = entry
                 break
     if not loc_dir.exists():
+        # alpha.64: the wizard stores the location ID (a UUID) in
+        # pres["location"], not a folder name. Resolve it through each
+        # folder's location.json (written by the locations router).
+        found = _location_dir_by_id(loc_root, tail)
+        if found is not None:
+            loc_dir = found
+    if not loc_dir.exists():
         return []
 
     assets: List[Dict[str, Any]] = []
     IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     # Overlays are NOT location slides: they are composited onto round
     # slides only (see _apply_location_overlays). Branding only here.
-    for kind in ("branding",):
-        sub = loc_dir / kind
-        if not sub.exists():
-            continue
-        for entry in sorted(sub.iterdir()):
-            if entry.is_file() and entry.suffix.lower() in IMG_EXTS:
-                rel = str(entry.relative_to(docs)).replace("\\", "/")
-                assets.append({
-                    "image_url": _to_api_url(rel),
-                    "kind": "branding" if kind == "branding" else "overlay",
-                    "filename": entry.name,
-                })
+    sub = loc_dir / "branding"
+    if not sub.exists():
+        return assets
+
+    on_disk = {e.stem: e for e in sub.iterdir()
+               if e.is_file() and e.suffix.lower() in IMG_EXTS and not e.name.startswith(".")}
+
+    # alpha.64: follow the merchant's drag-and-drop order from Trivia Setup
+    # (saved in location.json -> branding_images[].order). Files that are not
+    # in the saved list (added by hand in Explorer) are appended afterwards,
+    # sorted by name, so nothing in the branding folder is ever skipped.
+    ordered: List[Path] = []
+    names: Dict[str, str] = {}
+    try:
+        meta = json.loads((loc_dir / "location.json").read_text(encoding="utf-8"))
+        recs = sorted(meta.get("branding_images") or [], key=lambda r: r.get("order", 0))
+        for r in recs:
+            f = on_disk.pop(r.get("id"), None)
+            if f is not None:
+                ordered.append(f)
+                names[f.name] = r.get("filename") or f.name
+    except (OSError, ValueError, AttributeError):
+        pass
+    ordered.extend(sorted(on_disk.values(), key=lambda e: e.name.lower()))
+
+    for entry in ordered:
+        rel = str(entry.relative_to(docs)).replace("\\", "/")
+        assets.append({
+            "image_url": _to_api_url(rel),
+            "kind": "branding",
+            "filename": names.get(entry.name, entry.name),
+        })
     return assets
 
 
@@ -876,7 +929,6 @@ def render_host_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
     disk.
     """
     host_name = pres.get("host") or pres.get("hostName") or ""
-    pres_name = pres.get("name") or ""
     asset = load_host_asset(pres)
     elements: List[Dict[str, Any]] = []
     if asset.get("image_url"):
@@ -897,15 +949,13 @@ def render_host_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
             img_x = (STAGE_W - img_w) // 2
             img_y = 100
             elements.append(_image(asset["image_url"], x=img_x, y=img_y, w=img_w, h=img_h))
-        # Add a small caption bar at bottom so the audience knows this is the host
-        elements.append(_text(pres_name, x=160, y=STAGE_H - 100, w=STAGE_W - 320, h=80,
-                              size=40, color="#cfd8ff", weight="500"))
+        # alpha.64: NO caption. The presentation name is internal bookkeeping
+        # and must never show to the host or the audience.
     else:
         # Text-only fallback (same as alpha.46)
         elements = [
             _text("Tonight's Host", x=160, y=280, w=1600, h=120, size=64, color="#F4C430"),
             _text(host_name or "TBD", x=160, y=440, w=1600, h=200, size=140, weight="800"),
-            _text(pres_name, x=160, y=760, w=1600, h=90, size=44, color="#cfd8ff"),
         ]
     return [_slide(0, elements, background=BG_DARK, metadata={
         "roundType": "HOST", "slideIndexInRound": 0, "isRoundTitle": True,
@@ -914,31 +964,26 @@ def render_host_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def render_location_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """v32.0.0-alpha.48: emit one slide per branding + overlay image the
-    location has on disk. Fall back to a single text welcome slide if
-    no images are available.
+    """LOCATION section (alpha.64):
+
+      1. the RESERVED REWARDS SLOT: always the first slide, directly after
+         the host slide. Text-free. The BIG Hat Rewards app tie-in renders
+         here later. Never remove it.
+      2. then EVERY image in the location's Trivia Setup "Branding images"
+         (Files/Locations/<slug>/branding/), in the order the merchant set.
     """
-    loc = pres.get("location") or ""
-    loc_name = loc.rstrip("/").split("/")[-1].replace("-", " ").title() if loc else ""
     assets = load_location_assets(pres)
 
-    if not assets:
-        # Text-only fallback (alpha.46 behavior)
-        return [_slide(0, [
-            _text("Welcome to", x=160, y=300, w=1600, h=120, size=72, color="#F4C430"),
-            _text(loc_name or "Trivia Night", x=160, y=460, w=1600, h=260, size=170, weight="800"),
-        ], background=BG_BLUE, metadata={
-            "roundType": "LOCATION", "slideIndexInRound": 0, "isRoundTitle": True,
-        })]
-
-    out: List[Dict[str, Any]] = []
-    for idx, asset in enumerate(assets):
-        # Full-bleed image slide — the location's branding/overlays are
-        # already designed at 16:9 by the merchant.
+    out: List[Dict[str, Any]] = [_slide(0, [], background=BG_BLUE, metadata={
+        "roundType": "LOCATION", "slideIndexInRound": 0, "isRoundTitle": True,
+        "isRewardsSlot": True,
+    })]
+    for idx, asset in enumerate(assets, start=1):
+        # Full-bleed image slide: branding images are designed at 16:9.
         elements = [_image(asset["image_url"], x=0, y=0, w=STAGE_W, h=STAGE_H)]
         out.append(_slide(idx, elements, background=BG_DARK, metadata={
             "roundType": "LOCATION", "slideIndexInRound": idx,
-            "isRoundTitle": idx == 0,
+            "isRoundTitle": False,
             "asset_kind": asset["kind"], "asset_filename": asset["filename"],
         }))
     return out
@@ -1322,6 +1367,12 @@ def _native_render_section_raw(
     try:
         if sn == "host":
             return render_host_section(presentation)
+        if sn == "company":
+            return render_company_section(presentation)
+        if sn == "rules":
+            return render_rules_section(presentation)
+        if sn == "format":
+            return render_format_section(presentation)
         if sn == "location":
             return render_location_section(presentation)
         if sn == "sponsors":
@@ -1376,6 +1427,168 @@ def _native_render_section_raw(
         logger.exception("[native-slides] renderer failed for section %s: %s", sn, e)
         return []
     return []
+
+
+# ---------------------------------------------------------------------------
+# GLOBAL SLIDES (alpha.64): company intro, rules, Format. Between the location
+# slides and round 1. See global_slides.py for storage.
+# ---------------------------------------------------------------------------
+
+_FORMAT_LABELS = {
+    "MC": ("Multiple Choice", 1, "green"),
+    "REG": ("General Topic", 1, "red"),
+    "MISC": ("Specific Topic", 1, "blue"),
+    "MYS": ("Mystery Topic", 2, "purple"),
+    "BIG": ("The BIG Question", 3, "gold"),
+}
+# Pill artwork is 590x58 on the 1920x1080 stage, centred, 85px pitch (merchant's template).
+_PILL_W, _PILL_H, _PILL_PITCH = 590, 58, 85
+_PILL_X = (STAGE_W - _PILL_W) // 2
+_FORMAT_SERIF = "'Noto Serif Condensed', 'Droid Serif', 'Liberation Serif', Georgia, serif"
+
+
+def clean_theme(round_name: str) -> str:
+    """'Animals_1' -> 'Animals'; 'Dino_Night_3' -> 'Dino Night'.
+    Pure codes like 'MC_01_A (1)' return '' so the caller uses the generic label."""
+    n = (round_name or "").strip()
+    n = re.sub(r"\s*\(\d+\)\s*$", "", n)                 # trailing "(1)"
+    n = n.replace("_", " ").replace("-", " ")
+    n = re.sub(r"\s+", " ", n).strip()
+    n = re.sub(r"(?:\s+(?:\d{1,3}|[A-Za-z]))+$", "", n).strip()  # trailing number / single letter
+    if not n or re.fullmatch(r"(?i)(mc|reg|misc|mys|big)(\s*\d*)?", n):
+        return ""
+    if re.fullmatch(r"(?i)(mc|reg|misc|mys|big)\b.*", n) and len(n.split()) <= 2 and any(c.isdigit() for c in (round_name or "")):
+        return ""
+    return n[:34]
+
+
+def format_pill_label(rtype: str, round_name: str, show_themes: bool) -> str:
+    base, pts, _ = _FORMAT_LABELS.get((rtype or "").upper(), (rtype or "Round", 1, "grey"))
+    r = (rtype or "").upper()
+    word = "Point" if pts == 1 else "Points"
+    theme = clean_theme(round_name) if (show_themes and r in ("REG", "MISC")) else ""
+    # Mystery stays a secret (merchant rule); MC and BIG keep their standard names.
+    name = f"{base}: {theme}" if theme else base
+    return f"{name} - {pts} {word} each"
+
+
+def _global_image_src(file: str) -> Optional[str]:
+    import global_slides as gs
+    p = gs.image_path(file)
+    if p is None:
+        return None
+    try:
+        import base64, mimetypes
+        mime = mimetypes.guess_type(p.name)[0] or "image/png"
+        return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+    except OSError:
+        return None
+
+
+def _format_background_src() -> Optional[str]:
+    import global_slides as gs
+    st = gs.load()["format"]
+    if st.get("background"):
+        src = _global_image_src(st["background"])
+        if src:
+            return src
+    p = bundled_asset_path("assets", "slides", "format", "format-bg-placeholder.png")
+    if p is None:
+        return None
+    key = "fmt_bg"
+    if key not in _GRADE_GIF_CACHE:
+        import base64
+        _GRADE_GIF_CACHE[key] = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+    return _GRADE_GIF_CACHE[key]
+
+
+def _pill_src(color: str) -> Optional[str]:
+    key = f"pill_{color}"
+    if key in _GRADE_GIF_CACHE:
+        return _GRADE_GIF_CACHE[key]
+    p = bundled_asset_path("assets", "slides", "format", f"pill-{color}.png")
+    if p is None:
+        return None
+    import base64
+    _GRADE_GIF_CACHE[key] = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+    return _GRADE_GIF_CACHE[key]
+
+
+def render_company_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return _render_image_group(pres, "company", "COMPANY")
+
+
+def render_rules_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return _render_image_group(pres, "rules", "RULES")
+
+
+def _render_image_group(pres: Dict[str, Any], kind: str, rtype: str) -> List[Dict[str, Any]]:
+    """One full-bleed slide per uploaded image (merchant uploads these)."""
+    import global_slides as gs
+    st = gs.load()[kind]
+    if not st.get("enabled", True):
+        return []
+    out: List[Dict[str, Any]] = []
+    for idx, f in enumerate(st.get("images", [])):
+        src = _global_image_src(f)
+        if not src:
+            continue
+        out.append(_slide(idx, [_image(src, x=0, y=0, w=STAGE_W, h=STAGE_H)],
+                          background=BG_DARK, metadata={
+            "roundType": rtype, "slideIndexInRound": idx, "isRoundTitle": False,
+            "isGlobalSlide": True, "globalKind": kind,
+        }))
+    return out
+
+
+def render_format_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The 'Format' slide: one pill per ROUND ACTUALLY IN THIS SHOW, in play
+    order, coloured by round type, with live text and the points each is worth.
+    REG / MISC pills carry the round's theme; Mystery never does."""
+    import global_slides as gs
+    st = gs.load()["format"]
+    if not st.get("enabled", True):
+        return []
+    refs = [r for r in (pres.get("roundFiles") or []) if r.get("type")]
+    if not refs:
+        return []
+    # Resolve each round's display name (theme) from the round file itself.
+    rows = []
+    for r in refs:
+        rtype = (r.get("type") or "").upper()
+        name = r.get("name") or ""
+        if not name:
+            try:
+                doc = load_round_from_disk(r) or {}
+                name = doc.get("name") or ""
+            except Exception:  # noqa: BLE001
+                name = ""
+        rows.append((rtype, name))
+
+    n = len(rows)
+    total_h = (n - 1) * _PILL_PITCH + _PILL_H
+    top = max(330, (STAGE_H + 200 - total_h) // 2)   # centred in the area under the title
+    elements: List[Dict[str, Any]] = []
+    bg = _format_background_src()
+    if bg:
+        elements.append(_image(bg, x=0, y=0, w=STAGE_W, h=STAGE_H))
+    for i, (rtype, name) in enumerate(rows):
+        color = _FORMAT_LABELS.get(rtype, ("", 1, "grey"))[2]
+        y = top + i * _PILL_PITCH
+        pill = _pill_src(color)
+        if pill:
+            elements.append(_image(pill, x=_PILL_X, y=y, w=_PILL_W, h=_PILL_H))
+        label = format_pill_label(rtype, name, st.get("show_themes", True))
+        # Condensed serif averages ~0.40 em per character; fit the label inside the pill.
+        avail = _PILL_W - 60
+        size = max(22, min(40, int(avail / (0.40 * max(len(label), 1)))))
+        elements.append(_text(label, x=_PILL_X + 30, y=y, w=_PILL_W - 60, h=_PILL_H,
+                              size=size, weight="500",
+                              color="#ffffff", family=_FORMAT_SERIF))
+    return [_slide(0, elements, background=BG_BLUE, metadata={
+        "roundType": "FORMAT", "slideIndexInRound": 0, "isRoundTitle": False,
+        "isGlobalSlide": True, "globalKind": "format",
+    })]
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../lib/api';
 import SlideStylePanel from '../../components/SlideStylePanel';
+import GlobalSlidesPanel from '../../components/GlobalSlidesPanel';
 import {
   MapPin, Plus, Trash2, ImagePlus, Image as ImageIcon, Layers,
   UserPlus, GripVertical, Settings, Palette, X, Save, Loader2, AlertTriangle, Check,
@@ -149,6 +150,9 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
             <h4 className="text-lg font-bold text-white mb-1">Global slide setup</h4>
             <p className="text-xs mb-4" style={{ color: PALETTE.textDim }}>Affects every trivia slide at every location, unless a location has its own settings.</p>
             <SlideStylePanel scope="global" canEdit={isMaster(currentUser)} setError={setError} setSuccess={setSuccess} />
+            <div className="my-5" style={{ borderTop: `1px solid ${PALETTE.border}` }} />
+            <h4 className="text-lg font-bold text-white mb-1">Global slides</h4>
+            <GlobalSlidesPanel canEdit={isMaster(currentUser) || currentUser?.role === 'admin'} setError={setError} setSuccess={setSuccess} />
           </div>
         ) : selected ? (
           <LocationEditor

@@ -465,6 +465,12 @@ async def get_sections_list(presentation_id: str):
         
         if trivia_pres.get('locationFile') or trivia_pres.get('location'):
             sections.append({"name": "location", "type": "location"})
+
+        # GLOBAL SLIDES (alpha.64): company -> rules -> format, after the
+        # location slides and before round 1. Sections that render nothing
+        # (disabled or no uploads) are simply empty.
+        for _gname in ("company", "rules", "format"):
+            sections.append({"name": _gname, "type": _gname})
         
         # Rounds - insert sponsors BEFORE BIG round (always the last round)
         round_files = trivia_pres.get('roundFiles', [])
