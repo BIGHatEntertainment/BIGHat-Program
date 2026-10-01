@@ -16,9 +16,10 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../lib/api';
+import SlideStylePanel from '../../components/SlideStylePanel';
 import {
   MapPin, Plus, Trash2, ImagePlus, Image as ImageIcon, Layers,
-  UserPlus, GripVertical, X, Save, Loader2, AlertTriangle, Check,
+  UserPlus, GripVertical, Settings, Palette, X, Save, Loader2, AlertTriangle, Check,
 } from 'lucide-react';
 
 const PALETTE = {
@@ -44,6 +45,7 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showGlobalSetup, setShowGlobalSetup] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -73,6 +75,14 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
     <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-6" data-testid="trivia-setup">
       {/* ---------- Left: location list ---------- */}
       <div>
+        <button
+          onClick={() => { setShowGlobalSetup((v) => !v); setSelectedId(null); }}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg mb-4 text-sm font-medium transition"
+          style={{ backgroundColor: showGlobalSetup ? 'rgba(251, 221, 104, 0.15)' : PALETTE.panelMuted, color: PALETTE.accent, border: `1px solid ${PALETTE.borderHi}` }}
+          data-testid="global-setup-btn"
+        >
+          <Settings size={14} /> Setup (all slides)
+        </button>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold uppercase tracking-wide" style={{ color: PALETTE.textDim }}>
             Locations
@@ -100,7 +110,7 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
             {locations.map((loc) => (
               <li key={loc.id}>
                 <button
-                  onClick={() => setSelectedId(loc.id)}
+                  onClick={() => { setSelectedId(loc.id); setShowGlobalSetup(false); }}
                   className="w-full text-left px-3 py-2.5 rounded-lg transition"
                   style={{
                     backgroundColor: selectedId === loc.id ? 'rgba(251, 221, 104, 0.12)' : PALETTE.panelMuted,
@@ -134,7 +144,13 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
 
       {/* ---------- Right: selected location editor ---------- */}
       <div>
-        {selected ? (
+        {showGlobalSetup ? (
+          <div className="rounded-xl p-5" style={{ backgroundColor: PALETTE.panelMuted, border: `1px solid ${PALETTE.border}` }} data-testid="global-setup-panel">
+            <h4 className="text-lg font-bold text-white mb-1">Global slide setup</h4>
+            <p className="text-xs mb-4" style={{ color: PALETTE.textDim }}>Affects every trivia slide at every location, unless a location has its own settings.</p>
+            <SlideStylePanel scope="global" canEdit={isMaster(currentUser)} setError={setError} setSuccess={setSuccess} />
+          </div>
+        ) : selected ? (
           <LocationEditor
             key={selected.id}
             location={selected}
@@ -278,6 +294,7 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
   const [uploading, setUploading] = useState(false);
   const [uploadingOverlay, setUploadingOverlay] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showStyle, setShowStyle] = useState(false);
   const master = isMaster(currentUser);
 
   const saveName = async () => {
@@ -438,6 +455,23 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
           setError={setError}
           setSuccess={setSuccess}
         />
+      </div>
+
+      {/* Per-location slide customization (alpha.61) */}
+      <div data-testid="location-slide-style-section">
+        <button
+          onClick={() => setShowStyle((v) => !v)}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition"
+          style={{ backgroundColor: PALETTE.panelMuted, color: PALETTE.accent, border: `1px solid ${PALETTE.borderHi}` }}
+          data-testid="customize-location-slides-btn"
+        >
+          <Palette size={14} /> Customize this location&apos;s slides
+        </button>
+        {showStyle && (
+          <div className="mt-3 rounded-lg p-4" style={{ border: `1px solid ${PALETTE.border}` }}>
+            <SlideStylePanel scope="location" locationId={location.id} canEdit setError={setError} setSuccess={setSuccess} />
+          </div>
+        )}
       </div>
 
       {/* Admin assignments (master_admin only) */}
@@ -626,13 +660,13 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess, kind = 
 // list makes the overlay dormant. Mirrors the backend contract of
 // PATCH /native/locations/{id}/overlays/{imageId}/tags.
 // ---------------------------------------------------------------
-const ROUND_TYPES = ['MC', 'REG', 'MISC', 'MYS', 'BIG'];
+const ROUND_TYPES = ['MC', 'REG', 'MISC', 'MYS', 'BIG', 'ANS']; // ANS = answer-slide overlay
 
 function OverlayRoundTags({ locationId, image, onChange, setError, setSuccess }) {
   const [saving, setSaving] = useState(false);
   const tagged = image.applies_to_round_types;
-  // undefined/null = legacy "all rounds"; [] = dormant.
-  const effective = Array.isArray(tagged) ? tagged : ROUND_TYPES;
+  // undefined/null = legacy "all question slides" (ANS off); [] = dormant.
+  const effective = Array.isArray(tagged) ? tagged : ROUND_TYPES.filter((t) => t !== 'ANS');
 
   const toggle = async (rt) => {
     const next = effective.includes(rt)

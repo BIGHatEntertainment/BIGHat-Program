@@ -8,6 +8,45 @@
 ---
 ---
 
+## 2026-10 — v32.0.0-alpha.61: Audience window fix, slide style system, overlay ANS tag, intro packs removed
+
+### Merchant reports on alpha.60
+Overlays loaded as location slides; "No overlays" toast; audience view still said "allow popups";
+BIG .gif (21.6 MB) rejected; no answer-slide overlay mapping; wanted global + per-location slide customization.
+
+### Fixes
+1. **Audience view (CRITICAL).** ROOT CAUSE: the main window is navigated to `http://127.0.0.1:<port>/`
+   which Tauri 2 treats as REMOTE; `capabilities/default.json` had no `remote.urls`, so IPC (creating the
+   audience WebviewWindow) was denied and code fell back to `window.open` (blocked by WebView2). Now:
+   `remote.urls` = 127.0.0.1:* / localhost:*; windows list adds `bingo-audience`, `karaoke-audience`;
+   new `frontend/src/lib/audienceWindow.js` (absolute same-origin URL, awaits created/error, 2nd monitor +
+   fullscreen). Trivia + Bingo use it; desktop NEVER falls back to window.open. ALL future players MUST use it.
+2. **Location slides** no longer include overlay images (branding folder only).
+3. **Editor toast "No overlays available"**: legacy SharePoint-path `triggerAutoOverlays` disabled; overlays
+   composite in the backend renderer from Trivia Setup.
+4. **Overlay ANS tag**: ANS = answer-slide overlay (all round types); MC/REG/MISC/MYS/BIG = question slides;
+   untagged legacy = question slides only; [] = dormant.
+5. **Upload cap** 15 MB -> 100 MB (branding + overlays).
+6. **Intro packs removed entirely** (API, builder params, renderer, UI tab, tests). Intros belong to Trivia Admin.
+
+### New
+- **Slide style system**: Trivia Setup -> "Setup (all slides)" (global) and per-location "Customize this
+  location's slides". Color wheel, gradient/solid, default-reset toggle, "Match global" + Revert.
+  Disk JSON: `Files/Trivia/slide_style.json`, `Files/Locations/<slug>/slide_style.json`.
+  Backend: `slide_style.py`, `native/slide_style_router.py`; applied in `native_slides.native_render_section`
+  (only recolors default blue slides).
+
+### Tests
+`test_alpha61_slide_style.py`, `test_alpha61_audience_native_window.py`. 14 stale tests (alpha47/48/49) assert
+the old window.open code and failed before this release; to be retired.
+
+### Not done / next
+Roulette (SlotMachineRandomizer) + Scoreboard still use window.open; Karaoke player not yet in repo.
+Needs real-PC verification of audience window.
+
+---
+---
+
 ## 2026-07 — v32.0.0-alpha.60: Native audience window (no more pop-up blocker) + build-time seed lock-in
 
 ### Merchant report on alpha.59

@@ -1196,6 +1196,14 @@ const Editor = () => {
   };
 
   const triggerAutoOverlays = async () => {
+    // alpha.61: STANDALONE app. Location overlays come from Trivia Setup and
+    // are composited by the backend slide renderer (native_slides
+    // ._apply_location_overlays, with MC/REG/MISC/MYS/BIG/ANS tags). The
+    // legacy SharePoint-path overlay lookup below finds nothing here (and
+    // would double-apply if it did), so it is skipped.
+    setShouldAutoInitOverlays(false);
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!presentation?.location || !presentation?.slides || slideOp === 'overlaying') {
       console.log(`Skipping auto-overlays - location: "${presentation?.location}", slides: ${presentation?.slides?.length || 0}, op: ${slideOp}`);
       return;

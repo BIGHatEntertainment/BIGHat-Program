@@ -645,7 +645,6 @@ class WizardBuildRequest(BaseModel):
     location_id: str = Field(..., min_length=1)
     round_count: int = Field(..., ge=5, le=6)
     round_files: List[str]
-    intro_pack_id: Optional[str] = None
 
 
 class RouletteBuildRequest(BaseModel):
@@ -659,12 +658,6 @@ class RouletteBuildRequest(BaseModel):
     mc_pool: Optional[List[str]] = None
     mys_pool: Optional[List[str]] = None
     seed: Optional[int] = None
-    intro_pack_id: Optional[str] = None
-
-
-class IntroPackCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=120)
-    slides: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class OverlayTagRequest(BaseModel):
@@ -751,7 +744,6 @@ async def build_presentation_from_wizard(payload: WizardBuildRequest = Body(...)
             location_id=payload.location_id,
             round_count=payload.round_count,
             round_files=payload.round_files,
-            intro_pack_id=payload.intro_pack_id,
         )
     except BuildValidationError as e:
         raise HTTPException(400, detail=str(e))
@@ -778,7 +770,6 @@ async def build_presentation_from_roulette(payload: RouletteBuildRequest = Body(
             mc_pool=payload.mc_pool,
             mys_pool=payload.mys_pool,
             seed=payload.seed,
-            intro_pack_id=payload.intro_pack_id,
         )
     except BuildValidationError as e:
         raise HTTPException(400, detail=str(e))
@@ -798,31 +789,3 @@ async def list_round_pool(round_type: str):
         "count": len(files),
         "files": [f.name for f in files],
     }
-
-
-@router.get("/intros")
-async def list_intros_endpoint():
-    from presentation_builder import list_intro_packs
-    return {"packs": list_intro_packs()}
-
-
-@router.get("/intros/{intro_id}")
-async def get_intro_pack(intro_id: str):
-    from presentation_builder import load_intro_pack
-    doc = load_intro_pack(intro_id)
-    if not doc:
-        raise HTTPException(404, detail=f"intro_pack {intro_id!r} not found")
-    return doc
-
-
-@router.post("/intros")
-async def create_intro_pack(payload: IntroPackCreateRequest = Body(...)):
-    from presentation_builder import save_intro_pack
-    return save_intro_pack(payload.name, payload.slides)
-
-
-@router.delete("/intros/{intro_id}", status_code=204)
-async def delete_intro_pack_endpoint(intro_id: str):
-    from presentation_builder import delete_intro_pack
-    if not delete_intro_pack(intro_id):
-        raise HTTPException(404, detail=f"intro_pack {intro_id!r} not found")

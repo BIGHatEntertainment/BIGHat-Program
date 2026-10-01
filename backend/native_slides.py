@@ -356,7 +356,9 @@ def load_location_assets(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     assets: List[Dict[str, Any]] = []
     IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-    for kind in ("branding", "overlays"):
+    # Overlays are NOT location slides: they are composited onto round
+    # slides only (see _apply_location_overlays). Branding only here.
+    for kind in ("branding",):
         sub = loc_dir / kind
         if not sub.exists():
             continue
@@ -1241,7 +1243,7 @@ def render_final_scores_section() -> List[Dict[str, Any]]:
 
 # ---------------------------------------------------------------- dispatcher
 
-def native_render_section(
+def _native_render_section_raw(
     presentation: Dict[str, Any], section_name: str, body: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Dispatch a section-name to the right renderer, using disk data.
@@ -1258,8 +1260,6 @@ def native_render_section(
             return render_host_section(presentation)
         if sn == "location":
             return render_location_section(presentation)
-        if sn in ("intros", "intro", "trivia_intros", "trivia-intros"):
-            return render_intros_section(presentation)
         if sn == "sponsors":
             return render_sponsors_section(presentation)
         if sn == "winners":
@@ -1315,38 +1315,6 @@ def native_render_section(
 
 
 # ---------------------------------------------------------------------------
-# v32.0.0-alpha.53 — Trivia intro-slides section (spec step 15).
-# ---------------------------------------------------------------------------
-
-def render_intros_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Load the presentation's intro-pack from `Files/Trivia/Intros/` and
-    return its slides in order. Merchant spec: the intros go AFTER the
-    location section, BEFORE round 1. If no pack is bound, returns []."""
-    intro_id = pres.get("intro_pack_id")
-    if not intro_id:
-        return []
-    try:
-        from presentation_builder import load_intro_pack
-    except ImportError:
-        return []
-    pack = load_intro_pack(intro_id)
-    if not pack:
-        logger.warning("[intros] pack %s not found on disk", intro_id)
-        return []
-    out = []
-    for i, s in enumerate(pack.get("slides") or []):
-        s = dict(s)
-        md = dict(s.get("metadata") or {})
-        md.setdefault("slideIndexInRound", i)
-        md.setdefault("_section", "intros")
-        md.setdefault("_verified_from_prototype",
-                      "presentation_builder.render_intros_section (pack-driven)")
-        s["metadata"] = md
-        out.append(s)
-    return out
-
-
-# ---------------------------------------------------------------------------
 # v32.0.0-alpha.53 — Location overlay compositing (spec step 17).
 # ---------------------------------------------------------------------------
 
@@ -1371,8 +1339,9 @@ def _apply_location_overlays(
     except ImportError:
         return slides
     rtype = (round_ref.get("type") or "").upper()
-    matched = overlays_for_round_type(overlays, rtype)
-    if not matched:
+    q_matched = overlays_for_round_type(overlays, rtype, "question")
+    a_matched = overlays_for_round_type(overlays, rtype, "answer")
+    if not q_matched and not a_matched:
         return slides
 
     def _overlay_url(loc_id: str, img: Dict[str, Any]) -> str:
@@ -1384,7 +1353,8 @@ def _apply_location_overlays(
         is_q = (md.get("questionNumber") is not None
                 and not md.get("isAnswers") and not md.get("isReview"))
         is_a = bool(md.get("isAnswers"))
-        if not (is_q or is_a):
+        matched = a_matched if is_a else q_matched
+        if not (is_q or is_a) or not matched:
             out.append(s)
             continue
         s = dict(s)
@@ -1401,3 +1371,18 @@ def _apply_location_overlays(
         out.append(s)
     return out
 
+
+
+def native_render_section(
+    presentation: Dict[str, Any], section_name: str, body: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Render a section, then apply global / per-location slide style."""
+    slides = _native_render_section_raw(presentation, section_name, body)
+    try:
+        import slide_style
+        slides = slide_style.apply_to_slides(
+            slides, slide_style.slug_from_presentation(presentation), BG_BLUE,
+        )
+    except Exception as e:  # never break a show over styling
+        logger.warning("[slide-style] skipped: %s", e)
+    return slides

@@ -215,9 +215,9 @@ def test_location_asset_lookup_scans_branding_and_overlays(tmp_path, monkeypatch
     from native_slides import load_location_assets
 
     assets = load_location_assets({"location": "Locations/monkey-pants-bar-grill"})
-    assert len(assets) == 2
-    kinds = [a["kind"] for a in assets]
-    assert kinds == ["branding", "overlay"], "branding must come first"
+    # Overlays are never location slides (they composite onto rounds).
+    assert len(assets) == 1
+    assert [a["kind"] for a in assets] == ["branding"]
     # v32.0.0-alpha.49: image URLs are data URLs (not network URLs)
     for a in assets:
         assert a["image_url"].startswith("data:image/"), (

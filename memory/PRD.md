@@ -1,6 +1,8 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.55` (2026-06, June preview).** THE REAL
+> **Current release: `v32.0.0-alpha.61` (2026-10).** alpha.61: audience window fix
+> (capabilities `remote.urls` + `lib/audienceWindow.js`), global/per-location slide style, overlay ANS tag,
+> intro packs removed, upload cap 100 MB. See CHANGELOG. (Older note follows:) `v32.0.0-alpha.55` (2026-06). THE REAL
 > ROOT CAUSE of the recurring "title images not loading" bug: in frozen
 > builds `UPLOAD_DIR` lived in the per-launch `_MEIxxxx` temp dir, so cover
 > images evaporated on app close. alpha.55 (1) pins

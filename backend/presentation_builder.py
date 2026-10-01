@@ -27,7 +27,7 @@ Overlay compositing (question + answer slides ONLY):
     and composites them z-order-high on top of Q + A slides.
 
 Assembly-time checks:
-    After each section (host / location / intros / round-i) the pipeline
+    After each section (host / location / round-i) the pipeline
     calls the appropriate `_verify_*` function. If a check fails, the
     result is written to the presentation's attestation report and a
     warning is bubbled up. Frontend shows "Check failed — continue anyway?"
@@ -98,12 +98,6 @@ def _files_root() -> Path:
     root = _docs_root() / "Files"
     root.mkdir(parents=True, exist_ok=True)
     return root
-
-
-def _intros_dir() -> Path:
-    p = _files_root() / "Trivia" / "Intros"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 def _rounds_dir() -> Path:
@@ -290,7 +284,6 @@ def build_from_wizard(
     location_id: str,
     round_count: int,
     round_files: List[str],
-    intro_pack_id: Optional[str] = None,
     owner_email: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Assemble a presentation `.bighat` file from wizard input.
@@ -368,7 +361,6 @@ def build_from_wizard(
         "location_name": (loc or {}).get("name") or location_id,
         "round_count": round_count,
         "roundFiles": round_file_refs,
-        "intro_pack_id": intro_pack_id,
         "_source": "build-wizard",
         "_verified_spec_step": "steps 1-12 (build wizard)",
     }
@@ -397,7 +389,6 @@ def build_from_roulette(
     mc_pool: Optional[List[str]] = None,
     mys_pool: Optional[List[str]] = None,
     seed: Optional[int] = None,
-    intro_pack_id: Optional[str] = None,
     owner_email: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Slot-machine builder. Merchant's spec:
@@ -470,7 +461,7 @@ def build_from_roulette(
     result = build_from_wizard(
         name=name, host_id=host_id, location_id=location_id,
         round_count=round_count, round_files=round_files,
-        intro_pack_id=intro_pack_id, owner_email=owner_email,
+        owner_email=owner_email,
     )
     result["_source"] = "round-roulette"
     result["_roulette_picks"] = [{"slot": i + 1, "type": t, "file": r}
@@ -483,89 +474,34 @@ def build_from_roulette(
 
 
 # ---------------------------------------------------------------------------
-# Intro slides — new library at Files/Trivia/Intros/
-# ---------------------------------------------------------------------------
-
-def list_intro_packs() -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for p in sorted(_intros_dir().iterdir()) if _intros_dir().exists() else []:
-        if p.suffix.lower() != ".bighat":
-            continue
-        try:
-            j = json.loads(p.read_text(encoding="utf-8"))
-            out.append({
-                "id": j.get("id") or p.stem,
-                "name": j.get("name") or p.stem,
-                "num_slides": len(j.get("slides") or []),
-                "created_at": j.get("created_at"),
-                "file": p.name,
-            })
-        except (OSError, ValueError) as e:
-            logger.warning("[intros] skipping unreadable %s: %s", p, e)
-    return out
-
-
-def load_intro_pack(intro_id: str) -> Optional[Dict[str, Any]]:
-    if not intro_id:
-        return None
-    for p in _intros_dir().iterdir() if _intros_dir().exists() else []:
-        if p.suffix.lower() != ".bighat":
-            continue
-        try:
-            j = json.loads(p.read_text(encoding="utf-8"))
-            if j.get("id") == intro_id or p.stem == intro_id:
-                return j
-        except (OSError, ValueError):
-            continue
-    return None
-
-
-def save_intro_pack(name: str, slides: List[Dict[str, Any]]) -> Dict[str, Any]:
-    pid = str(uuid.uuid4())
-    doc = {
-        "id": pid,
-        "type": "trivia-intro-pack",
-        "name": name.strip() or f"Intro Pack {pid[:6]}",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "slides": slides or [],
-    }
-    p = _intros_dir() / f"{_slug(doc['name'])}-{pid[:6]}.bighat"
-    p.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-    return doc
-
-
-def delete_intro_pack(intro_id: str) -> bool:
-    for p in _intros_dir().iterdir() if _intros_dir().exists() else []:
-        if p.suffix.lower() != ".bighat":
-            continue
-        try:
-            j = json.loads(p.read_text(encoding="utf-8"))
-            if j.get("id") == intro_id or p.stem == intro_id:
-                p.unlink()
-                return True
-        except (OSError, ValueError):
-            continue
-    return False
-
-
-# ---------------------------------------------------------------------------
 # Overlay round-type tag matching (Step 17)
 # ---------------------------------------------------------------------------
 
 def overlays_for_round_type(
     location_overlays: List[Dict[str, Any]], round_type: str,
+    slide_kind: str = "question",
 ) -> List[Dict[str, Any]]:
-    """Return overlays whose `applies_to_round_types` tag list includes
-    `round_type` (case-insensitive). Overlays with NO tag list default to
-    "applies to every round type" (backwards compat with legacy overlays)."""
+    """Return overlays for `round_type` and `slide_kind` ("question"|"answer").
+
+    Tags: MC/REG/MISC/MYS/BIG = question-slide overlay for that round type.
+    ANS = answer-slide overlay (applies to every round type).
+    Untagged (legacy) overlays apply to question slides of every round type.
+    Explicit [] = dormant. Question slides never get ANS-only overlays;
+    answer slides get ONLY ANS-tagged overlays.
+    """
     rt = (round_type or "").upper()
+    answer = (slide_kind or "").lower() == "answer"
     out: List[Dict[str, Any]] = []
     for ov in location_overlays or []:
         tags = ov.get("applies_to_round_types")
-        if tags is None:
-            out.append(ov)  # untagged legacy → applies everywhere
+        up = [(t or "").upper() for t in (tags or [])]
+        if answer:
+            if "ANS" in up:
+                out.append(ov)
             continue
-        if any((t or "").upper() == rt for t in tags):
+        if tags is None:
+            out.append(ov)  # untagged legacy -> question slides everywhere
+        elif rt in up:
             out.append(ov)
     out.sort(key=lambda o: o.get("order") or 0)
     return out

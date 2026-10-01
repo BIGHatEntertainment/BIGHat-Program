@@ -1,8 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for the BIG Hat Entertainment shell. Intentionally minimal — we only add fine-grained perms when a real-world feature needs them. See lib.rs alpha.3 incident: invalid perm names panic the Builder before setup() runs, killing the windows-subsystem process silently. alpha.48: added core:webview + core:window:allow-create/set-* so PresentationMode.openAudienceView() can spawn the second window via @tauri-apps/api/webviewWindow.",
-  "windows": ["main", "trivia-audience"],
+  "description": "Default capabilities for the BIG Hat Entertainment shell. Intentionally minimal \u2014 we only add fine-grained perms when a real-world feature needs them. See lib.rs alpha.3 incident: invalid perm names panic the Builder before setup() runs, killing the windows-subsystem process silently. alpha.48: added core:webview + core:window:allow-create/set-* so PresentationMode.openAudienceView() can spawn the second window via @tauri-apps/api/webviewWindow. alpha.61: added `remote.urls` for 127.0.0.1/localhost. The shell navigates the main window to the sidecar at http://127.0.0.1:<port>/, which Tauri 2 treats as REMOTE; without remote.urls every IPC call (incl. creating the audience window) is denied and the app fell back to window.open -> 'allow pop-ups'. Audience windows (trivia/bingo/karaoke) must be native windows.",
+  "windows": [
+    "main",
+    "trivia-audience",
+    "bingo-audience",
+    "karaoke-audience"
+  ],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -20,7 +25,16 @@
     "dialog:default",
     "dialog:allow-confirm",
     "dialog:allow-ask",
-    "dialog:allow-message"
-  ]
+    "dialog:allow-message",
+    "core:window:allow-center",
+    "core:window:allow-show",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-is-fullscreen"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*/*",
+      "http://localhost:*/*"
+    ]
+  }
 }
-

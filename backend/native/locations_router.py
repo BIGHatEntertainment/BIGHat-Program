@@ -75,7 +75,9 @@ _ALLOWED_MIMES = {
     "image/png", "image/jpeg", "image/jpg", "image/gif",
     "image/webp",
 }
-_MAX_IMAGE_BYTES = 15 * 1024 * 1024     # 15 MB per image
+# Raised 15 -> 100 MB: animated overlays (e.g. BIG round .gif ~22 MB) are
+# legitimate. The app runs locally, so there is no proxy body limit.
+_MAX_IMAGE_BYTES = 100 * 1024 * 1024    # 100 MB per image
 
 
 def set_database(database) -> None:
@@ -766,7 +768,7 @@ async def upload_overlay_image(
     file: UploadFile = File(...),
 ) -> Dict[str, Any]:
     """Upload one overlay image/GIF for this location. Same rules as
-    branding uploads (allow-listed MIME types, 15 MB cap)."""
+    branding uploads (allow-listed MIME types, 100 MB cap)."""
     user, loc = await _require_location_access(location_id, request)
 
     mime = (file.content_type or "").lower()
@@ -897,7 +899,7 @@ async def tag_overlay_image(
     """
     _, loc = await _require_location_access(location_id, request)
     tags_raw = payload.get("applies_to_round_types") or []
-    allowed = {"MC", "REG", "MISC", "MYS", "BIG"}
+    allowed = {"MC", "REG", "MISC", "MYS", "BIG", "ANS"}
     tags = []
     for t in tags_raw:
         u = (t or "").strip().upper()

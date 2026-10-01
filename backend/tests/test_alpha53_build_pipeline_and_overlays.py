@@ -245,28 +245,6 @@ def test_roulette_seed_produces_deterministic_output(docs_root):
 # Step 15: intros injected AFTER location, BEFORE round 1
 # ---------------------------------------------------------------------------
 
-def test_intros_are_injected_by_render_intros_section(docs_root, monkeypatch):
-    pack = pb.save_intro_pack("Welcome Pack", slides=[
-        {"index": 0, "background": "#000000", "elements": [
-            {"type": "text", "content": "Welcome!", "x": 100, "y": 100,
-             "width": 1720, "height": 200},
-        ]},
-        {"index": 1, "background": "#000000", "elements": [
-            {"type": "text", "content": "Rules", "x": 100, "y": 100,
-             "width": 1720, "height": 200},
-        ]},
-    ])
-    pres = {"intro_pack_id": pack["id"]}
-    slides = ns.render_intros_section(pres)
-    assert len(slides) == 2
-    for s in slides:
-        assert s["metadata"]["_section"] == "intros"
-        assert s["metadata"]["_verified_from_prototype"]
-
-
-def test_intros_return_empty_when_no_pack_bound():
-    assert ns.render_intros_section({}) == []
-    assert ns.render_intros_section({"intro_pack_id": None}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +276,8 @@ def test_overlays_composite_only_on_question_and_answer_slides():
                        for i in range(1, 11)],
     }
     slides = ns.render_round_section(doc, {"type": "MC", "name": "MC Test", "order": 1})
-    overlays = [{"id": "ov-mc-01", "applies_to_round_types": ["MC"]}]
+    # alpha.61: round-type tag -> question slides; ANS tag -> answer slides.
+    overlays = [{"id": "ov-mc-01", "applies_to_round_types": ["MC", "ANS"]}]
     out = ns._apply_location_overlays(
         slides, overlays, "loc-1", {"type": "MC"},
     )
@@ -342,18 +321,6 @@ def test_overlays_never_apply_to_title_gif_or_review_slides():
 # ---------------------------------------------------------------------------
 # Intro pack CRUD roundtrip
 # ---------------------------------------------------------------------------
-
-def test_intro_pack_crud_roundtrip(docs_root):
-    pack = pb.save_intro_pack("Round 1 Intro", [
-        {"index": 0, "background": "#111", "elements": []},
-    ])
-    listed = pb.list_intro_packs()
-    assert any(p["id"] == pack["id"] for p in listed)
-    loaded = pb.load_intro_pack(pack["id"])
-    assert loaded is not None
-    assert loaded["name"] == "Round 1 Intro"
-    assert pb.delete_intro_pack(pack["id"]) is True
-    assert pb.load_intro_pack(pack["id"]) is None
 
 
 # ---------------------------------------------------------------------------
@@ -431,34 +398,3 @@ def test_round_pool_endpoint_lists_type_only(docs_root):
     assert all("reg" not in f.lower() for f in body["files"])
 
 
-def test_intros_endpoint_lifecycle(docs_root):
-    from fastapi.testclient import TestClient
-    from fastapi import FastAPI
-    from native.router import router
-    app = FastAPI()
-    app.include_router(router)
-    client = TestClient(app)
-
-    # create
-    r = client.post("/api/native/intros", json={
-        "name": "MC Intro Pack",
-        "slides": [{"index": 0, "background": "#000", "elements": []}],
-    })
-    assert r.status_code == 200, r.text
-    pid = r.json()["id"]
-
-    # list
-    r = client.get("/api/native/intros")
-    assert r.status_code == 200
-    assert any(p["id"] == pid for p in r.json()["packs"])
-
-    # get
-    r = client.get(f"/api/native/intros/{pid}")
-    assert r.status_code == 200
-    assert r.json()["name"] == "MC Intro Pack"
-
-    # delete
-    r = client.delete(f"/api/native/intros/{pid}")
-    assert r.status_code == 204
-    r = client.get(f"/api/native/intros/{pid}")
-    assert r.status_code == 404

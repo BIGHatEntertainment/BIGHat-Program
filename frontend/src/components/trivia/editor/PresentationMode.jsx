@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { isTauri, openNativeAudience } from '../../../lib/audienceWindow';
 import { X, ChevronLeft, ChevronRight, Monitor, ListOrdered, Pause, Play, Eye, Flag, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { toast } from '../../../utils/toastCompat';
@@ -567,6 +568,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
   // and rejects cleanly in browser/preview builds so we fall back to
   // window.open there. Communication is via BroadcastChannel (see
   // broadcastToAudience helper above).
+  const audienceHandleRef = useRef(null);
   const openAudienceView = async () => {
     // v32.0.0-alpha.60: TAURI-FIRST. WebView2 blocks `window.open` inside
     // the desktop shell — the merchant hit the "allow pop-ups" toast on
@@ -575,74 +577,47 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     // so spawn a REAL native window there. Browser/preview builds keep the
     // synchronous window.open fallback (no await happens before it when
     // Tauri isn't detected, so the user-gesture context is preserved).
-    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-    if (isTauri) {
+    if (isTauri()) {
+      // Desktop app: NEVER fall back to window.open (WebView2 blocks it).
       try {
-        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-        const existing = await WebviewWindow.getByLabel('trivia-audience');
-        if (existing) {
-          try { await existing.setFocus(); } catch (_e) { /* focus best-effort */ }
-          setTimeout(() => updateAudienceView(audienceIndex), 300);
-          return;
-        }
-        const w = new WebviewWindow('trivia-audience', {
-          url: '/trivia/audience',
-          title: 'BIG Hat — Audience View',
-          width: 1280,
-          height: 720,
-          resizable: true,
-          focus: true,
-        });
         const shim = {
           closed: false,
-          close: () => { try { w.close(); } catch (_e) { /* already gone */ } },
+          close: () => { try { audienceHandleRef.current?.close(); } catch (_e) { /* gone */ } },
           postMessage: () => {}, // BroadcastChannel carries the real traffic
-          focus: () => { try { w.setFocus(); } catch (_e) { /* best-effort */ } },
+          focus: () => { try { audienceHandleRef.current?.setFocus(); } catch (_e) { /* best-effort */ } },
         };
-        w.once('tauri://destroyed', () => {
-          shim.closed = true;
-          setAudienceWindow(null);
-          audienceWindowRef.current = null;
+        const { win, reused } = await openNativeAudience({
+          label: 'trivia-audience',
+          path: '/trivia/audience',
+          title: 'BIG Hat - Audience View',
+          onClosed: () => {
+            shim.closed = true;
+            setAudienceWindow(null);
+            audienceWindowRef.current = null;
+            audienceHandleRef.current = null;
+          },
         });
-        w.once('tauri://error', (e) => {
-          console.warn('[audience] WebviewWindow error:', e);
-          toast({
-            title: 'Audience view failed to open',
-            description: String(e?.payload || e || 'unknown error'),
-            variant: 'destructive',
-          });
-        });
-        w.once('tauri://created', async () => {
-          // Prototype behaviour: audience goes fullscreen on the SECOND
-          // monitor when one exists.
-          try {
-            const { availableMonitors, PhysicalPosition } = await import('@tauri-apps/api/window');
-            const monitors = await availableMonitors();
-            if (monitors.length > 1) {
-              const second = monitors[1];
-              await w.setPosition(new PhysicalPosition(second.position.x, second.position.y));
-            }
-            await w.setFullscreen(true);
-          } catch (posErr) {
-            console.warn('[audience] monitor placement skipped:', posErr);
-          }
-        });
+        audienceHandleRef.current = win;
         audienceWindowRef.current = shim;
         setAudienceWindow(shim);
-        const bcTauri = audienceChannelRef.current;
-        if (bcTauri) {
-          const onReady = (e) => {
-            if (e?.data?.type === 'AUDIENCE_READY') {
-              updateAudienceView(audienceIndex);
-            }
-          };
-          bcTauri.addEventListener('message', onReady);
+        if (!reused) {
+          const bcTauri = audienceChannelRef.current;
+          if (bcTauri) {
+            bcTauri.addEventListener('message', (e) => {
+              if (e?.data?.type === 'AUDIENCE_READY') updateAudienceView(audienceIndex);
+            });
+          }
         }
-        setTimeout(() => updateAudienceView(audienceIndex), 1200);
-        return;
+        setTimeout(() => updateAudienceView(audienceIndex), reused ? 300 : 1200);
       } catch (err) {
-        console.warn('[audience] native window failed, falling back to window.open:', err);
+        console.error('[audience] native window failed:', err);
+        toast({
+          title: 'Audience view failed to open',
+          description: String(err?.message || err),
+          variant: 'destructive',
+        });
       }
+      return;
     }
 
     const hasSecondScreen = (window.screen?.availLeft || 0) !== 0

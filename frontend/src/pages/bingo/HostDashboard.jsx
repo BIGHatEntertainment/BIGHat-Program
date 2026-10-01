@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { isTauri, openNativeAudience } from '../../lib/audienceWindow';
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -691,9 +692,29 @@ export default function HostDashboard() {
   }, [isMusicBingo, videoUrl, isPlaying, broadcastVideoState]);
 
   // Open Audience View - this window will mirror the video
-  const openAudienceView = () => {
+  const openAudienceView = async () => {
     if (audienceWindowRef.current && !audienceWindowRef.current.closed) {
       audienceWindowRef.current.focus();
+      return;
+    }
+    // Desktop app: native window (no pop-ups). Browser: window.open.
+    if (isTauri()) {
+      try {
+        const { win } = await openNativeAudience({
+          label: 'bingo-audience',
+          path: '/bingo/audience',
+          title: 'BIG Hat - Bingo Audience',
+          onClosed: () => { audienceWindowRef.current = null; },
+        });
+        audienceWindowRef.current = {
+          closed: false,
+          focus: () => { try { win.setFocus(); } catch (_e) { /* best-effort */ } },
+          close: () => { try { win.close(); } catch (_e) { /* gone */ } },
+        };
+      } catch (err) {
+        console.error('[bingo audience] native window failed:', err);
+        alert(`Audience view failed to open: ${err?.message || err}`);
+      }
       return;
     }
     const audienceUrl = `${window.location.origin}/bingo/audience`;

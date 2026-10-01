@@ -2303,6 +2303,15 @@ except Exception as e:
     logger.warning(f"Could not load Native locations router: {e}")
 
 
+# Slide style router (alpha.61): global + per-location trivia slide style.
+try:
+    from native.slide_style_router import router as slide_style_router
+    app.include_router(slide_style_router, prefix="/api")
+    logger.info("Native slide-style router registered at /api/native/slide-style")
+except Exception as e:
+    logger.warning(f"Could not load slide-style router: {e}")
+
+
 # Native backup router (v32.0.0-alpha.22). Manual "Backup my setup"
 # trigger + listing. Auto-run on startup is in `lifespan` above.
 try:
