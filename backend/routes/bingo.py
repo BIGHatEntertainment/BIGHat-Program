@@ -615,7 +615,9 @@ async def _restore_game_state():
     global current_game, available_numbers
     try:
         doc = await db.bingo_active_game.find_one({}, {"_id": 0}, sort=[("_id", -1)])
-        if doc and doc.get("is_active"):
+        # alpha.68: restore the Bingo night even BETWEEN rounds (is_active is False then).
+        # Only a night the host has finalized ("End Bingo Night") is not brought back.
+        if doc and not doc.get("finalized"):
             settings = doc.get("settings", {})
             game_settings = GameSettings(
                 bingo_type=settings.get("bingo_type", "music"),
@@ -948,14 +950,48 @@ async def end_round():
     
     return {"success": True, "message": "Round ended"}
 
+class NewRoundBody(BaseModel):
+    """alpha.68: optional settings for the NEXT round of the same Bingo night."""
+    model_config = ConfigDict(extra="ignore")
+    music_decade: Optional[str] = None      # a fresh theme (folder name) for Music Bingo
+    game_type: Optional[str] = None         # "regular" | "lightning"
+
+
+@router.post("/game/finalize")
+async def finalize_night():
+    """alpha.68: the host ends the whole Bingo night. The saved game is cleared."""
+    global current_game, available_numbers
+    summary = None
+    if current_game:
+        summary = {"rounds_played": current_game.round_number, "bingo_type": current_game.settings.bingo_type}
+    await manager.broadcast({"type": "night_finalized", "data": summary or {}})
+    current_game = None
+    available_numbers = []
+    try:
+        if db is not None:
+            await db.bingo_active_game.delete_many({})
+    except Exception as e:
+        logger.error(f"[Bingo] Could not clear the saved game: {e}")
+    return {"success": True, "summary": summary}
+
+
 @router.post("/game/new-round")
-async def new_round():
+async def new_round(body: Optional[NewRoundBody] = None):
     global current_game, available_numbers
     if not current_game:
         raise HTTPException(status_code=400, detail="No game created")
-    
+
+    # A fresh theme / speed for the next round. The round counter keeps going.
+    if body is not None:
+        if body.music_decade:
+            current_game.settings.music_decade = body.music_decade
+        if body.game_type in ("regular", "lightning"):
+            current_game.settings.game_type = body.game_type
+
     current_game.round_number += 1
     current_game.called_numbers = []
+    current_game.called_songs = []          # a new round starts with no songs played
+    current_game.current_song = None
     current_game.current_number = None
     current_game.bingo_claimed = False
     current_game.winner_name = None
@@ -970,6 +1006,8 @@ async def new_round():
         "settings": current_game.settings.model_dump(),
         "called_numbers": [],
         "current_number": None,
+        "current_song": None,
+        "called_songs": [],
         "is_active": False,
         "is_paused": False,
         "bingo_claimed": False,
@@ -981,7 +1019,8 @@ async def new_round():
     await manager.broadcast({"type": "new_round", "data": state_dict})
     await _persist_game_state()
     
-    return {"success": True, "round_number": current_game.round_number}
+    return {"success": True, "round_number": current_game.round_number,
+            "music_decade": current_game.settings.music_decade, "game_type": current_game.settings.game_type}
 
 @router.get("/game/state")
 async def get_game_state():

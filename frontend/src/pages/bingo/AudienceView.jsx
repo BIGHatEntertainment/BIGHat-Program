@@ -54,6 +54,9 @@ export default function AudienceView() {
   const isMusicBingo = bingo_type === "music";
   const bingoTheme = pickBingoTheme(bingo_type, game_type);
   const mirrorVideoUrlRef = useRef(null);
+  const pendingPlayRef = useRef(null);          // { videoUrl, wasPreloaded } waiting for the <video> element
+  const [playTick, setPlayTick] = useState(0);
+  const channelRef = useRef(null);
   const winnerNameRef = useRef("");
   const showCelebrationRef = useRef(false);
 
@@ -93,6 +96,7 @@ export default function AudienceView() {
   // Stable — never recreated. Handles video + song info in real-time.
   useEffect(() => {
     const channel = new BroadcastChannel("music-bingo-video");
+    channelRef.current = channel;
 
     channel.onmessage = (event) => {
       const data = event.data;
@@ -157,57 +161,11 @@ export default function AudienceView() {
         
         setMirrorVideoUrl(videoUrl);
         
-        // Wait for sufficient buffer before playing
-        const vid = videoRef.current;
-        if (vid) {
-          vid.src = videoUrl;
-          vid.load();
-          
-          const playWhenBuffered = () => {
-            vid.play().catch(() => {
-              setTimeout(() => vid?.play().catch(() => {}), 500);
-            });
-          };
-          
-          if (wasPreloaded || vid.readyState >= 3) {
-            // Already buffered from preload — play immediately
-            playWhenBuffered();
-          } else {
-            // Wait until enough data is buffered (~50%)
-            const checkBuffer = () => {
-              if (!vid.duration || vid.duration === 0) return false;
-              if (vid.buffered.length > 0) {
-                const bufferedEnd = vid.buffered.end(vid.buffered.length - 1);
-                return (bufferedEnd / vid.duration) >= 0.5;
-              }
-              return false;
-            };
-            
-            const onProgress = () => {
-              if (checkBuffer()) {
-                vid.removeEventListener("progress", onProgress);
-                vid.removeEventListener("canplaythrough", onCanPlay);
-                playWhenBuffered();
-              }
-            };
-            const onCanPlay = () => {
-              vid.removeEventListener("progress", onProgress);
-              vid.removeEventListener("canplaythrough", onCanPlay);
-              playWhenBuffered();
-            };
-            
-            vid.addEventListener("progress", onProgress);
-            vid.addEventListener("canplaythrough", onCanPlay, { once: true });
-            
-            // Safety: play after 5s max even if not fully buffered
-            setTimeout(() => {
-              vid.removeEventListener("progress", onProgress);
-              vid.removeEventListener("canplaythrough", onCanPlay);
-              if (vid.paused && vid.src) playWhenBuffered();
-            }, 5000);
-          }
-        }
-        
+        // The <video> element may not exist yet (the FIRST song), so the actual start happens in
+        // the effect below, after React has put the element on screen.
+        pendingPlayRef.current = { videoUrl, wasPreloaded };
+        setPlayTick((n) => n + 1);
+
         // Clear preload ref since it's now the current video
         preloadedUrlRef.current = null;
         return; // Don't process play/pause commands for the same message that set the URL
@@ -220,15 +178,24 @@ export default function AudienceView() {
         if (data.volume !== undefined) {
           vid.volume = Math.max(0, Math.min(1, data.volume));
         }
-        if (currentTime !== undefined && Math.abs(vid.currentTime - currentTime) > 2) {
-          vid.currentTime = currentTime;
-        }
-        if (isPlaying && vid.paused) vid.play().catch(() => {});
-        else if (!isPlaying && !vid.paused) vid.pause();
+        // The AUDIENCE is the master clock. It never jumps to the host's position and it
+        // does not follow the host's moment-to-moment play state (the host's silent preview
+        // starts earlier and used to drag the audience forward). It only obeys a deliberate
+        // button press on the host: command = "pause" | "play".
+        if (data.command === "pause" && !vid.paused) vid.pause();
+        else if (data.command === "play" && vid.paused) vid.play().catch(() => {});
       }
     };
 
-    return () => channel.close();
+    // Report the audience's position once a second so the host's silent preview can follow it.
+    const reporter = setInterval(() => {
+      const v = videoRef.current;
+      if (v && !v.paused && v.currentTime > 0) {
+        try { channel.postMessage({ type: "audience-time", time: v.currentTime, videoUrl: v.getAttribute("src") }); } catch {}
+      }
+    }, 1000);
+
+    return () => { clearInterval(reporter); channel.close(); };
   }, []);
 
   // Auto-play is now handled in the BroadcastChannel handler with buffering
@@ -303,6 +270,42 @@ export default function AudienceView() {
   const currentLetter = getLetterForNumber(currentNumber);
 
   // ==================== FULLSCREEN PROMPT ====================
+  // Start the requested song once the <video> element exists. Buffers first (or uses the
+  // preloaded copy), plays, then tells the host the audience is playing so the host's
+  // silent preview can follow. The audience is the master clock.
+  useEffect(() => {
+    const pending = pendingPlayRef.current;
+    const vid = videoRef.current;
+    if (!pending || !vid) return undefined;
+    pendingPlayRef.current = null;
+    const { videoUrl, wasPreloaded } = pending;
+    if (vid.getAttribute("src") !== videoUrl) { vid.src = videoUrl; vid.load(); }
+
+    let started = false;
+    const announce = () => { try { channelRef.current?.postMessage({ type: "audience-playing", videoUrl }); } catch {} };
+    const playWhenBuffered = () => {
+      if (started) return;
+      started = true;
+      vid.removeEventListener("progress", onProgress);
+      vid.removeEventListener("canplaythrough", onCanPlay);
+      vid.play().then(announce).catch(() => setTimeout(() => vid.play().then(announce).catch(() => {}), 500));
+    };
+    const buffered = () => {
+      if (!vid.duration) return false;
+      return vid.buffered.length > 0 && (vid.buffered.end(vid.buffered.length - 1) / vid.duration) >= 0.5;
+    };
+    function onProgress() { if (buffered()) playWhenBuffered(); }
+    function onCanPlay() { playWhenBuffered(); }
+
+    if (wasPreloaded || vid.readyState >= 3) playWhenBuffered();
+    else {
+      vid.addEventListener("progress", onProgress);
+      vid.addEventListener("canplaythrough", onCanPlay);
+    }
+    const safety = setTimeout(() => { if (vid.paused) playWhenBuffered(); }, 5000);   // never wait longer than 5 s
+    return () => { clearTimeout(safety); vid.removeEventListener("progress", onProgress); vid.removeEventListener("canplaythrough", onCanPlay); };
+  }, [playTick, mirrorVideoUrl]);
+
   if (!isFullscreen) {
     return (
       <div
@@ -336,6 +339,35 @@ export default function AudienceView() {
   // =====================================================
   // MUSIC BINGO AUDIENCE VIEW
   // =====================================================
+  // "Host is verifying" + winner video loop with the winner's name.
+  // Shared by the Music AND the Traditional layouts (the Music one was missing them).
+  const bingoOverlays = (
+    <>
+      {bingoVerifying && !winnerVideoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.9)' }} data-testid="bingo-verifying-overlay">
+          <div className="text-center">
+            <div className="font-display text-6xl text-yellow-400 mb-4 animate-pulse">BINGO!</div>
+            <p className="text-2xl text-white">Host is verifying...</p>
+            <p className="text-lg text-zinc-400 mt-2">Please stand by</p>
+          </div>
+        </div>
+      )}
+      {winnerVideoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black" data-testid="bingo-winner-overlay">
+          <video ref={winnerVideoRef} src={winnerVideoUrl} autoPlay loop playsInline className="w-full h-full object-contain" />
+          {winnerName && (
+            <div className="absolute bottom-16 left-0 right-0 text-center" style={{ zIndex: 60 }}>
+              <div className="inline-block bg-black/70 backdrop-blur-sm rounded-2xl px-12 py-6 border-2 border-yellow-400/60">
+                <p className="font-display text-5xl text-yellow-400 mb-2">BINGO!</p>
+                <p className="font-display text-6xl text-white">{winnerName}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   if (isMusicBingo) {
     return (
       <div ref={rootRef} className="bingo-theme fixed inset-0 bg-black overflow-hidden flex items-center justify-center" data-theme={bingoTheme} data-testid="audience-view">
@@ -477,6 +509,7 @@ export default function AudienceView() {
             </div>
           </footer>
         </div>
+        {bingoOverlays}
       </div>
     );
   }
@@ -564,38 +597,7 @@ export default function AudienceView() {
         </footer>
       </div>
 
-      {/* Bingo Verifying Overlay */}
-      {bingoVerifying && !winnerVideoUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.9)' }}>
-          <div className="text-center">
-            <div className="font-display text-6xl text-yellow-400 mb-4 animate-pulse">BINGO!</div>
-            <p className="text-2xl text-white">Host is verifying...</p>
-            <p className="text-lg text-zinc-400 mt-2">Please stand by</p>
-          </div>
-        </div>
-      )}
-
-      {/* Winner Video Loop + Name Overlay */}
-      {winnerVideoUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
-          <video
-            ref={winnerVideoRef}
-            src={winnerVideoUrl}
-            autoPlay
-            loop
-            playsInline
-            className="w-full h-full object-contain"
-          />
-          {winnerName && (
-            <div className="absolute bottom-16 left-0 right-0 text-center" style={{ zIndex: 60 }}>
-              <div className="inline-block bg-black/70 backdrop-blur-sm rounded-2xl px-12 py-6 border-2 border-yellow-400/60">
-                <p className="font-display text-5xl text-yellow-400 mb-2">BINGO!</p>
-                <p className="font-display text-6xl text-white">{winnerName}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {bingoOverlays}
     </div>
   );
 }

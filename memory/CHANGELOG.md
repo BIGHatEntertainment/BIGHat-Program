@@ -8,6 +8,17 @@
 ---
 ---
 
+## 2026-10-02 — v32.0.0-alpha.68: Bingo player fixes (playback sync, winner screen, end-round pop-up)
+- Host no longer has file upload boxes (songs and videos come from Bingo Setup only).
+- First song of a game now plays as video on host and audience (the video element is started after it renders, not before).
+- Audience plays on its own clock and never skips to the host position. The host follows the audience. Only deliberate pause / play commands are obeyed. Host preview waits for the audience (4 s fallback if no audience window).
+- Audience reports its play time back to the host; next video buffers in the background.
+- BINGO: audience pauses the song and shows "verifying"; Confirm Bingo then plays the winner video. Music Bingo host now has the winner screen (name box, Continue Round, End Round). It was missing before.
+- Winner videos: 70s / 80s / 90s / Y2K as before; any other theme uses the generic placeholder bingo-winner-generic.mp4 until its own video is added.
+- End Round (button or winner screen) opens a pop-up: Start Round N+1 (pick a theme + Regular/Lightning) or End Bingo Night (asks to confirm, returns to the lobby).
+- Backend: new-round accepts music_decade / game_type, clears called songs; a game between rounds now survives an app restart; ending the night clears the saved game.
+- Trivia player untouched.
+
 ## 2026-10-02 — v32.0.0-alpha.67: Bingo player (Traditional / Music, themes, Bingo Setup)
 - First Bingo screen: Traditional Bingo or Music Bingo, then Regular or Lightning. Quick Play screen no longer shown.
 - Colour themes: blue (main page + Traditional), purple (Music, unchanged), yellow (Lightning). Resets to blue back at the lobby. Scoped to .bingo-theme so nothing else changes.

@@ -62,3 +62,60 @@ def test_local_mode_song_code_is_still_here():
     src = (ROOT / "routes" / "bingo.py").read_text()
     for marker in ("_is_local_mode", "_local_bingo_root", "_parse_bingo_xlsx"):
         assert marker in src, marker + " was lost"
+
+
+def test_new_round_keeps_counting_and_can_switch_theme(client):
+    """alpha.68: End Round -> 'next round' keeps the round count and can use a fresh theme."""
+    c, bingo = client
+    _make(c)                                                     # round 1, 1990s, lightning
+    c.post("/api/bingo/game/call-song", json={"number": 5, "title": "Old Song", "artist": "X"})
+    assert c.post("/api/bingo/game/end-round").status_code == 200
+
+    r = c.post("/api/bingo/game/new-round", json={"music_decade": "Emo", "game_type": "regular"})
+    assert r.status_code == 200 and r.json()["round_number"] == 2
+    g = c.get("/api/bingo/game/state").json()["game"]
+    assert g["round_number"] == 2
+    assert g["settings"]["music_decade"] == "Emo" and g["settings"]["game_type"] == "regular"
+    assert g["called_songs"] == [] and g["current_song"] is None and g["called_numbers"] == []
+    assert g["is_active"] is False and g["bingo_claimed"] is False
+
+    # the new theme + round survive an app restart
+    bingo.current_game = None
+    bingo.available_numbers = []
+    g2 = c.get("/api/bingo/game/state").json()["game"]
+    assert g2["round_number"] == 2 and g2["settings"]["music_decade"] == "Emo"
+
+
+def test_new_round_without_options_keeps_the_theme(client):
+    c, bingo = client
+    _make(c)
+    c.post("/api/bingo/game/call-song", json={"number": 9, "title": "S", "artist": "A"})
+    r = c.post("/api/bingo/game/new-round")                      # no body (Traditional Bingo does this)
+    assert r.status_code == 200 and r.json()["round_number"] == 2
+    g = c.get("/api/bingo/game/state").json()["game"]
+    assert g["settings"]["music_decade"] == "1990s" and g["settings"]["game_type"] == "lightning"
+    assert g["called_songs"] == []                               # but songs from round 1 are cleared
+    r3 = c.post("/api/bingo/game/new-round", json={"game_type": "nonsense"})
+    assert r3.json()["game_type"] == "lightning"                 # a bad value is ignored, not saved
+
+
+def test_finalizing_the_night_clears_it_for_good(client):
+    c, bingo = client
+    _make(c)
+    c.post("/api/bingo/game/end-round")
+    c.post("/api/bingo/game/new-round", json={"music_decade": "Emo"})
+    r = c.post("/api/bingo/game/finalize")
+    assert r.status_code == 200 and r.json()["summary"]["rounds_played"] == 2
+    assert c.get("/api/bingo/game/state").json() == {"game": None}
+    bingo.current_game = None                                   # even after a restart it does not come back
+    assert c.get("/api/bingo/game/state").json() == {"game": None}
+
+
+def test_a_night_between_rounds_is_restored_after_restart(client):
+    c, bingo = client
+    _make(c)
+    c.post("/api/bingo/game/end-round")                         # round over, game not active
+    bingo.current_game = None
+    bingo.available_numbers = []
+    g = c.get("/api/bingo/game/state").json()["game"]
+    assert g is not None and g["is_active"] is False and g["round_number"] == 1

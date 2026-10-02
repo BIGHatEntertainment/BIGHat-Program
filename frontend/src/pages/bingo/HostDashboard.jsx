@@ -77,6 +77,10 @@ export default function HostDashboard() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [songCooldown, setSongCooldown] = useState(false);
   const preloadedUrlsRef = useRef({}); // { songNumber: { url, ready: bool } }
+  const audienceStartedRef = useRef(false);        // true once the audience window reports it is playing
+  const pendingPreviewRef = useRef(null);          // starts the host preview (called when the audience starts)
+  const pendingStartRef = useRef(null);            // { url, song } waiting for the <video> to exist
+  const [playRequest, setPlayRequest] = useState(0); // bumps every time a new song must start
   const [volume, setVolume] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -93,6 +97,14 @@ export default function HostDashboard() {
 
   // Bingo Verification Dialog
   const [showBingoDialog, setShowBingoDialog] = useState(false);
+
+  // alpha.68: "Round over" pop-up -> next round (fresh theme) or end the whole Bingo night
+  const [showRoundOver, setShowRoundOver] = useState(false);
+  const [roundOverStep, setRoundOverStep] = useState("choose");   // "choose" | "confirm-end"
+  const [nextTheme, setNextTheme] = useState("");
+  const [nextSpeed, setNextSpeed] = useState("regular");
+  const [themeChoices, setThemeChoices] = useState([]);
+  const [roundBusy, setRoundBusy] = useState(false);
   const [winnerName, setWinnerName] = useState("");
   const [showWinnerVideo, setShowWinnerVideo] = useState(false);
   const winnerVideoRef = useRef(null);
@@ -415,7 +427,7 @@ export default function HostDashboard() {
       }
       const newPlaying = !isPlaying;
       setIsPlaying(newPlaying);
-      broadcastVideoState({ isPlaying: newPlaying });
+      broadcastVideoState({ isPlaying: newPlaying, command: newPlaying ? "play" : "pause" });
     }
   };
 
@@ -526,7 +538,7 @@ export default function HostDashboard() {
       if (videoFile) {
         // Use preloaded URL if available, otherwise create new
         let url;
-        const preloaded = preloadedUrlsRef.current[nextNumber];
+        var preloaded = preloadedUrlsRef.current[nextNumber];
         if (preloaded?.url) {
           url = preloaded.url;
           delete preloadedUrlsRef.current[nextNumber]; // consumed
@@ -534,32 +546,12 @@ export default function HostDashboard() {
           if (videoUrl) URL.revokeObjectURL(videoUrl);
           url = toPlayableUrl(videoFile);
         }
+        // The <video> element may not exist yet (the first song). Setting these two
+        // is enough: the "start the song" effect below runs once the element is on screen.
+        pendingStartRef.current = { url, song, ready: !!preloaded?.ready };
         setVideoUrl(url);
-        
-        // Wait for video to be ready before playing
-        if (videoRef.current) {
-          videoRef.current.src = url;
-          videoRef.current.preload = "auto";
-          videoRef.current.muted = true; // Host view silent — audience view handles audio
-          videoRef.current.volume = 0;
-          
-          const playWhenReady = () => {
-            videoRef.current.play().then(() => {
-              setIsPlaying(true);
-              broadcastVideoState({ videoUrl: url, isPlaying: true, currentSong: song });
-            }).catch(() => {
-              setTimeout(() => videoRef.current?.play(), 500);
-            });
-          };
-          
-          // If preloaded and ready, play immediately
-          if (preloaded?.ready || videoRef.current.readyState >= 3) {
-            playWhenReady();
-          } else {
-            videoRef.current.addEventListener("canplay", playWhenReady, { once: true });
-          }
-        }
-        
+        setPlayRequest((n) => n + 1);
+
       } else {
         // No video file for this song — still broadcast the song info
         broadcastVideoState({ currentSong: song });
@@ -609,7 +601,7 @@ export default function HostDashboard() {
       if (videoRef.current) {
         videoRef.current.pause();
         setIsPlaying(false);
-        broadcastVideoState({ isPlaying: false });
+        broadcastVideoState({ isPlaying: false, command: "pause" });
       }
     } catch (error) {
       toast.error("Failed to pause game");
@@ -622,7 +614,7 @@ export default function HostDashboard() {
       if (videoRef.current && videoUrl) {
         videoRef.current.play();
         setIsPlaying(true);
-        broadcastVideoState({ isPlaying: true });
+        broadcastVideoState({ isPlaying: true, command: "play" });
       }
     } catch (error) {
       toast.error("Failed to resume game");
@@ -638,8 +630,8 @@ export default function HostDashboard() {
         videoRef.current.pause();
         setIsPlaying(false);
       }
-      // Tell audience "Host is verifying Bingo"
-      broadcastVideoState({ bingoVerifying: true });
+      // Tell audience "Host is verifying Bingo" and stop the song there too
+      broadcastVideoState({ bingoVerifying: true, isPlaying: false, command: "pause" });
     } catch (error) {
       toast.error("Failed to claim bingo");
     }
@@ -654,7 +646,7 @@ export default function HostDashboard() {
       '2000s': '/bingo-winner-y2k.mp4',
       'y2k': '/bingo-winner-y2k.mp4',
     };
-    return map[decade] || '/bingo-winner-80s.mp4';
+    return map[decade] || '/bingo-winner-generic.mp4';
   };
 
   const verifyBingo = async (confirmed) => {
@@ -679,7 +671,7 @@ export default function HostDashboard() {
         // Rejected - resume the current song
         setWinnerName("");
         toast.info("Bingo rejected - game continues");
-        broadcastVideoState({ bingoVerifying: false });
+        broadcastVideoState({ bingoVerifying: false, isPlaying: true, command: "play" });
         if (videoRef.current && videoUrl) {
           videoRef.current.play();
           setIsPlaying(true);
@@ -704,7 +696,7 @@ export default function HostDashboard() {
     // Continue the current round - stop winner video, resume song
     setShowWinnerVideo(false);
     setWinnerName("");
-    broadcastVideoState({ bingoWinner: false });
+    broadcastVideoState({ bingoWinner: false, bingoVerifying: false, isPlaying: true, command: "play" });
     if (videoRef.current && videoUrl) {
       videoRef.current.play();
       setIsPlaying(true);
@@ -712,11 +704,14 @@ export default function HostDashboard() {
   };
 
   const handleWinnerEndRound = async () => {
-    // End the round and go back to lobby
+    // alpha.68: ending the round after a Bingo opens the same "Round over" pop-up
+    // (next round with a fresh theme, or end the whole Bingo night).
     setShowWinnerVideo(false);
     setWinnerName("");
-    broadcastVideoState({ bingoWinner: false, roundEnded: true });
-    
+    try { videoRef.current?.pause(); } catch {}
+    setIsPlaying(false);
+    broadcastVideoState({ bingoWinner: false, bingoVerifying: false, isPlaying: false, command: "pause" });
+
     // Auto-award bingo player rewards with song-based formula
     if (bingoGameCode) {
       try {
@@ -725,28 +720,28 @@ export default function HostDashboard() {
           total_songs: songList.length || 75,
           bingo_events: bingoEventsRef.current,
         });
-        console.log(`[Rewards] Bingo points awarded on round end: ${bingoEventsRef.current.length} bingos`);
       } catch (e) {
         console.log('[Rewards] Bingo award failed (non-critical):', e.message);
       }
     }
     bingoEventsRef.current = [];
-    
+
     try {
       await axios.post(`${API}/bingo/game/end-round`);
-      stopTimer();
-      toast.info("Round ended - returning to lobby");
-      navigate('/bingo');
-    } catch {
-      navigate('/bingo');
-    }
+    } catch { /* the pop-up still opens so the host is never stuck */ }
+    stopTimer();
+    openRoundOver();
   };
 
   const endRound = async () => {
     try {
       await axios.post(`${API}/bingo/game/end-round`);
       stopTimer();
-      toast.info("Round ended");
+      // Stop the song on both screens, then ask the host what happens next.
+      try { videoRef.current?.pause(); } catch {}
+      setIsPlaying(false);
+      broadcastVideoState({ isPlaying: false, command: "pause" });
+      openRoundOver();
       
       // Auto-award bingo player rewards with song-based formula
       if (bingoGameCode) {
@@ -765,6 +760,62 @@ export default function HostDashboard() {
       bingoEventsRef.current = [];
     } catch (error) {
       toast.error("Failed to end round");
+    }
+  };
+
+  // ----- Round over pop-up -----
+  const openRoundOver = async () => {
+    setRoundOverStep("choose");
+    setNextSpeed(gameState?.settings?.game_type === "lightning" ? "lightning" : "regular");
+    setNextTheme(gameState?.settings?.music_decade || "");
+    setShowRoundOver(true);
+    if (isMusicBingo) {
+      try {
+        const res = await axios.get(`${API}/bingo/available-themes`);
+        const list = res.data.themes || [];
+        setThemeChoices(list);
+        // keep the current theme if it is still on, otherwise the first one available
+        setNextTheme((cur) => (list.some(t => t.id === cur) ? cur : (list[0]?.id || "")));
+      } catch { setThemeChoices([]); }
+    }
+  };
+
+  const startNextRound = async () => {
+    if (roundBusy) return;
+    setRoundBusy(true);
+    try {
+      const body = isMusicBingo ? { music_decade: nextTheme, game_type: nextSpeed } : { game_type: nextSpeed };
+      await axios.post(`${API}/bingo/game/new-round`, body);
+      setCurrentSong(null);
+      setNextSong(null);
+      setCalledSongs([]);
+      bingoEventsRef.current = [];
+      preloadedUrlsRef.current = {};
+      setVideoUrl(null);
+      setShowWinnerVideo(false);
+      broadcastVideoState({ videoUrl: null, isPlaying: false, currentSong: null, calledSongs: [], roundEnded: true, bingoWinner: false, bingoVerifying: false });
+      if (isMusicBingo && nextTheme) await fetchSongList(nextTheme);   // fresh songs + stream links
+      setShowRoundOver(false);
+      toast.success("Next round ready");
+    } catch (e) {
+      toast.error("Could not start the next round");
+    } finally {
+      setRoundBusy(false);
+    }
+  };
+
+  const finalizeNight = async () => {
+    if (roundBusy) return;
+    setRoundBusy(true);
+    try {
+      await axios.post(`${API}/bingo/game/finalize`);
+      broadcastVideoState({ videoUrl: null, isPlaying: false, currentSong: null, calledSongs: [], roundEnded: true });
+      setShowRoundOver(false);
+      toast.success("Bingo night ended. Thanks for playing!");
+      navigate("/bingo");
+    } catch (e) {
+      toast.error("Could not end the Bingo night");
+      setRoundBusy(false);
     }
   };
 
@@ -817,8 +868,54 @@ export default function HostDashboard() {
 
   useEffect(() => {
     channelRef.current = new BroadcastChannel("music-bingo-video");
+    // The AUDIENCE is the master clock: the host's silent preview follows it, never the reverse.
+    channelRef.current.onmessage = (event) => {
+      const data = event.data || {};
+      const el = videoRef.current;
+      if (data.type === "audience-playing") {
+        audienceStartedRef.current = true;
+        if (el && el.paused && pendingPreviewRef.current) { pendingPreviewRef.current(); }
+      } else if (data.type === "audience-time" && el && !el.paused && data.videoUrl === el.getAttribute("src")) {
+        if (Math.abs(el.currentTime - data.time) > 1.5) el.currentTime = data.time;   // preview catches up to the audience
+      }
+    };
     return () => channelRef.current?.close();
   }, []);
+
+  // Start the requested song. Runs after the render, so the <video> element exists
+  // even for the very first song. The host's own video is silent and only a
+  // preview: the AUDIENCE view is the one that matters in Bingo.
+  useEffect(() => {
+    const pending = pendingStartRef.current;
+    if (!pending) return;
+    const el = videoRef.current;
+    if (!el) return;                       // not on screen yet; the next render re-runs this
+    pendingStartRef.current = null;
+    el.src = pending.url;
+    el.preload = "auto";
+    el.muted = true;
+    el.volume = 0;
+
+    // 1) Tell the AUDIENCE first. It is the master: it buffers and starts the song.
+    audienceStartedRef.current = false;
+    broadcastVideoState({ videoUrl: pending.url, isPlaying: true, currentSong: pending.song });
+
+    // 2) The host's silent preview starts when the audience says it is playing.
+    //    If no audience window is open (or it never answers), start anyway after 4 s.
+    let done = false;
+    const startPreview = () => {
+      if (done) return;
+      done = true;
+      pendingPreviewRef.current = null;
+      clearTimeout(fallback);
+      const go = () => el.play().then(() => setIsPlaying(true)).catch(() => setTimeout(() => videoRef.current?.play(), 500));
+      if (pending.ready || el.readyState >= 3) go();
+      else el.addEventListener("canplay", go, { once: true });
+    };
+    pendingPreviewRef.current = startPreview;
+    const fallback = setTimeout(startPreview, 4000);
+    setIsPlaying(true);
+  }, [playRequest, videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Broadcast video state whenever it changes — includes song data so audience doesn't depend on polling
   const broadcastVideoState = useCallback((overrides = {}) => {
@@ -832,6 +929,12 @@ export default function HostDashboard() {
       showSongInfo: overrides.showSongInfo !== undefined ? overrides.showSongInfo : showSongInfoAudience,
       currentSong: overrides.currentSong !== undefined ? overrides.currentSong : currentSong,
       calledSongs: overrides.calledSongs !== undefined ? overrides.calledSongs : calledSongs,
+      ...(overrides.command ? { command: overrides.command } : {}),
+      ...(overrides.bingoVerifying !== undefined ? { bingoVerifying: overrides.bingoVerifying } : {}),
+      ...(overrides.bingoWinner !== undefined ? { bingoWinner: overrides.bingoWinner } : {}),
+      ...(overrides.winnerVideo !== undefined ? { winnerVideo: overrides.winnerVideo } : {}),
+      ...(overrides.winnerName !== undefined ? { winnerName: overrides.winnerName } : {}),
+      ...(overrides.roundEnded !== undefined ? { roundEnded: overrides.roundEnded } : {}),
     });
   }, [videoUrl, isPlaying, volume, showSongInfoAudience, currentSong, calledSongs]);
 
@@ -938,6 +1041,46 @@ export default function HostDashboard() {
   // =====================================================
   // MUSIC BINGO LAYOUT - Video on LEFT, Controls on RIGHT (Original layout)
   // =====================================================
+  // Winner screen (video + name box + Continue / End Round). Used by BOTH layouts:
+  // it used to exist only in the Traditional one, so a Music game never showed it.
+  const winnerOverlay = showWinnerVideo ? (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center" style={{ backgroundColor: '#000' }} data-testid="winner-overlay">
+          <video
+            ref={winnerVideoRef}
+            src={getWinnerVideoUrl()}
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="w-full h-full object-contain"
+            style={{ maxHeight: '70vh' }}
+          />
+          {/* Winner name input + submit */}
+          <div className="absolute bottom-28 flex items-center gap-3 px-4 w-full max-w-md">
+            <Input
+              placeholder="Enter winner's name..."
+              value={winnerName}
+              onChange={(e) => setWinnerName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitWinnerName()}
+              className="bg-zinc-800/90 border-yellow-500/50 text-center text-lg text-white placeholder:text-zinc-500 flex-1"
+              data-testid="winner-name-input"
+            />
+            <button onClick={submitWinnerName} className="px-6 py-3 rounded-xl text-base font-bold" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
+              Submit
+            </button>
+          </div>
+          {/* Continue / End Round buttons */}
+          <div className="absolute bottom-8 flex gap-4">
+            <button onClick={handleWinnerContinue} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#22c55e', color: '#000' }} data-testid="winner-continue-btn">
+              Continue Round
+            </button>
+            <button onClick={handleWinnerEndRound} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#ef4444', color: '#fff' }} data-testid="winner-end-btn">
+              End Round
+            </button>
+          </div>
+        </div>
+      ) : null;
+
   if (isMusicBingo) {
     return (
       <div className="bingo-theme min-h-screen p-4" data-theme={bingoTheme} style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
@@ -1001,28 +1144,24 @@ export default function HostDashboard() {
                     </div>
                   </>
                 ) : (
-                  <div className={`drop-zone h-full flex flex-col items-center justify-center ${isDragging ? "dragging" : ""}`}>
-                    <FolderOpen size={64} className="text-zinc-600 mb-4" />
-                    <p className="text-zinc-400 text-lg mb-2">
-                      {Object.keys(videoFiles).length > 0 ? `${Object.keys(videoFiles).length} videos loaded` : "Load your video files"}
-                    </p>
-                    <p className="text-zinc-600 text-sm mb-4">{songListSource === "local-folder" ? "Streaming from your Bingo folder. Press Next Song to start." : "Files should start with numbers: 01_Song.mp4, 02_Song.mp4..."}</p>
-                    <div className="flex gap-3">
-                      <label className="cursor-pointer">
-                        <input type="file" accept="video/*,.mp4,.webm,.mov" multiple webkitdirectory="" directory="" onChange={handleFolderSelect} className="hidden" />
-                        <span className="btn-primary px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
-                          <FolderOpen size={18} />
-                          Select Folder
-                        </span>
-                      </label>
-                      <label className="cursor-pointer">
-                        <input type="file" accept="video/*,.mp4,.webm,.mov" multiple onChange={handleMultiFileSelect} className="hidden" />
-                        <span className="btn-accent px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
-                          <Video size={18} />
-                          Select Files
-                        </span>
-                      </label>
-                    </div>
+                  <div className="h-full flex flex-col items-center justify-center" data-testid="video-idle-panel">
+                    <Video size={64} className="text-zinc-600 mb-4" />
+                    {Object.keys(videoFiles).length > 0 ? (
+                      <>
+                        <p className="text-zinc-300 text-lg mb-2" data-testid="videos-ready-text">
+                          {Object.keys(videoFiles).length} songs ready
+                        </p>
+                        <p className="text-zinc-600 text-sm">
+                          {gameState?.is_active ? "Press Next Song to start." : "Press Start Round, then Next Song."}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-yellow-400 text-lg mb-2" data-testid="videos-missing-text">No videos found for this theme</p>
+                        <p className="text-zinc-500 text-sm mb-4">Check the theme in Bingo Setup.</p>
+                        <Button className="btn-primary" onClick={() => navigate("/bingo/setup")} data-testid="host-open-setup">Open Bingo Setup</Button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1140,15 +1279,6 @@ export default function HostDashboard() {
                   </div>
                 </div>
 
-                {Object.keys(videoFiles).length === 0 && (
-                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-2">
-                    <p className="text-yellow-400 text-sm flex items-center gap-2">
-                      <AlertCircle size={16} />
-                      Load video files to play songs
-                    </p>
-                  </div>
-                )}
-
                 {!gameState?.is_active ? (
                   <Button className="w-full btn-success control-btn" onClick={startGame} data-testid="start-game-btn">
                     <Play size={24} className="mr-2 fill-white" />
@@ -1201,7 +1331,69 @@ export default function HostDashboard() {
         </div>
 
         {/* Bingo Verification Dialog */}
-        <Dialog open={showBingoDialog} onOpenChange={setShowBingoDialog}>
+              <Dialog open={showRoundOver} onOpenChange={(o) => { if (!roundBusy) setShowRoundOver(o); }}>
+        <DialogContent className="bg-zinc-900 border-zinc-700" data-testid="round-over-dialog">
+          {roundOverStep === "choose" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-display text-3xl text-center text-yellow-400" data-testid="round-over-title">
+                  Round {gameState?.round_number || 1} complete
+                </DialogTitle>
+              </DialogHeader>
+              <div className="py-4 space-y-5">
+                <p className="text-center text-zinc-400">Keep the night going or wrap it up.</p>
+                {isMusicBingo && (
+                  <div>
+                    <p className="text-sm text-zinc-500 mb-2">Theme for round {(gameState?.round_number || 1) + 1}</p>
+                    {themeChoices.length === 0 ? (
+                      <p className="text-yellow-400 text-sm" data-testid="round-over-no-themes">No themes are switched on. Open Bingo Setup to add one.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2" data-testid="round-over-themes">
+                        {themeChoices.map(t => (
+                          <button key={t.id} type="button" onClick={() => setNextTheme(t.id)} data-testid={`next-theme-${t.id}`}
+                            className={`px-3 py-3 rounded-lg border text-left transition-colors ${nextTheme === t.id ? "border-fuchsia-500 bg-fuchsia-500/20 text-white" : "border-zinc-700 text-zinc-300 hover:border-fuchsia-500/50"}`}>
+                            <span className="font-semibold">{t.name}</span>
+                            <span className="block text-xs text-zinc-500">{t.videos} songs</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm text-zinc-500 mb-2">Game speed</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["regular", "lightning"].map(v => (
+                      <button key={v} type="button" onClick={() => setNextSpeed(v)} data-testid={`next-speed-${v}`}
+                        className={`px-3 py-2 rounded-lg border capitalize transition-colors ${nextSpeed === v ? "border-fuchsia-500 bg-fuchsia-500/20 text-white" : "border-zinc-700 text-zinc-300"}`}>{v}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="flex flex-col gap-3 sm:flex-col">
+                <Button className="w-full btn-success" onClick={startNextRound} disabled={roundBusy || (isMusicBingo && !nextTheme)} data-testid="start-next-round-btn">
+                  Start Round {(gameState?.round_number || 1) + 1}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => setRoundOverStep("confirm-end")} disabled={roundBusy} data-testid="end-night-btn">
+                  End Bingo Night
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-display text-3xl text-center text-red-400">End the Bingo night?</DialogTitle>
+              </DialogHeader>
+              <p className="py-4 text-center text-zinc-400">This finishes the whole night after {gameState?.round_number || 1} round{(gameState?.round_number || 1) === 1 ? "" : "s"}. It can't be undone.</p>
+              <DialogFooter className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setRoundOverStep("choose")} disabled={roundBusy} data-testid="end-night-cancel-btn">Go back</Button>
+                <Button variant="destructive" className="flex-1" onClick={finalizeNight} disabled={roundBusy} data-testid="end-night-confirm-btn">Yes, end the night</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showBingoDialog} onOpenChange={setShowBingoDialog}>
           <DialogContent className="bg-zinc-900 border-zinc-700">
             <DialogHeader>
               <DialogTitle className="font-display text-3xl text-center text-yellow-400">BINGO Claimed!</DialogTitle>
@@ -1221,6 +1413,7 @@ export default function HostDashboard() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {winnerOverlay}
       </div>
     );
   }
@@ -1392,6 +1585,68 @@ export default function HostDashboard() {
         </div>
       </div>
 
+            <Dialog open={showRoundOver} onOpenChange={(o) => { if (!roundBusy) setShowRoundOver(o); }}>
+        <DialogContent className="bg-zinc-900 border-zinc-700" data-testid="round-over-dialog">
+          {roundOverStep === "choose" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-display text-3xl text-center text-yellow-400" data-testid="round-over-title">
+                  Round {gameState?.round_number || 1} complete
+                </DialogTitle>
+              </DialogHeader>
+              <div className="py-4 space-y-5">
+                <p className="text-center text-zinc-400">Keep the night going or wrap it up.</p>
+                {isMusicBingo && (
+                  <div>
+                    <p className="text-sm text-zinc-500 mb-2">Theme for round {(gameState?.round_number || 1) + 1}</p>
+                    {themeChoices.length === 0 ? (
+                      <p className="text-yellow-400 text-sm" data-testid="round-over-no-themes">No themes are switched on. Open Bingo Setup to add one.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2" data-testid="round-over-themes">
+                        {themeChoices.map(t => (
+                          <button key={t.id} type="button" onClick={() => setNextTheme(t.id)} data-testid={`next-theme-${t.id}`}
+                            className={`px-3 py-3 rounded-lg border text-left transition-colors ${nextTheme === t.id ? "border-fuchsia-500 bg-fuchsia-500/20 text-white" : "border-zinc-700 text-zinc-300 hover:border-fuchsia-500/50"}`}>
+                            <span className="font-semibold">{t.name}</span>
+                            <span className="block text-xs text-zinc-500">{t.videos} songs</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm text-zinc-500 mb-2">Game speed</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["regular", "lightning"].map(v => (
+                      <button key={v} type="button" onClick={() => setNextSpeed(v)} data-testid={`next-speed-${v}`}
+                        className={`px-3 py-2 rounded-lg border capitalize transition-colors ${nextSpeed === v ? "border-fuchsia-500 bg-fuchsia-500/20 text-white" : "border-zinc-700 text-zinc-300"}`}>{v}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="flex flex-col gap-3 sm:flex-col">
+                <Button className="w-full btn-success" onClick={startNextRound} disabled={roundBusy || (isMusicBingo && !nextTheme)} data-testid="start-next-round-btn">
+                  Start Round {(gameState?.round_number || 1) + 1}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => setRoundOverStep("confirm-end")} disabled={roundBusy} data-testid="end-night-btn">
+                  End Bingo Night
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-display text-3xl text-center text-red-400">End the Bingo night?</DialogTitle>
+              </DialogHeader>
+              <p className="py-4 text-center text-zinc-400">This finishes the whole night after {gameState?.round_number || 1} round{(gameState?.round_number || 1) === 1 ? "" : "s"}. It can't be undone.</p>
+              <DialogFooter className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setRoundOverStep("choose")} disabled={roundBusy} data-testid="end-night-cancel-btn">Go back</Button>
+                <Button variant="destructive" className="flex-1" onClick={finalizeNight} disabled={roundBusy} data-testid="end-night-confirm-btn">Yes, end the night</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={showBingoDialog} onOpenChange={setShowBingoDialog}>
         <DialogContent className="bg-zinc-900 border-zinc-700">
           <DialogHeader>
@@ -1413,43 +1668,7 @@ export default function HostDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Winner Video Overlay — shows on top of everything */}
-      {showWinnerVideo && (
-        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center" style={{ backgroundColor: '#000' }}>
-          <video
-            ref={winnerVideoRef}
-            src={getWinnerVideoUrl()}
-            autoPlay
-            loop
-            playsInline
-            className="w-full h-full object-contain"
-            style={{ maxHeight: '70vh' }}
-          />
-          {/* Winner name input + submit */}
-          <div className="absolute bottom-28 flex items-center gap-3 px-4 w-full max-w-md">
-            <Input
-              placeholder="Enter winner's name..."
-              value={winnerName}
-              onChange={(e) => setWinnerName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submitWinnerName()}
-              className="bg-zinc-800/90 border-yellow-500/50 text-center text-lg text-white placeholder:text-zinc-500 flex-1"
-              data-testid="winner-name-input"
-            />
-            <button onClick={submitWinnerName} className="px-6 py-3 rounded-xl text-base font-bold" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
-              Submit
-            </button>
-          </div>
-          {/* Continue / End Round buttons */}
-          <div className="absolute bottom-8 flex gap-4">
-            <button onClick={handleWinnerContinue} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#22c55e', color: '#000' }} data-testid="winner-continue-btn">
-              Continue Round
-            </button>
-            <button onClick={handleWinnerEndRound} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#ef4444', color: '#fff' }} data-testid="winner-end-btn">
-              End Round
-            </button>
-          </div>
-        </div>
-      )}
+      {winnerOverlay}
       {/* Rewards Splash Overlay — shown at game start */}
       {showRewardsSplash && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 cursor-pointer"

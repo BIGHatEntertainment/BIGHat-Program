@@ -3,9 +3,9 @@ export const Slider = ({value, onValueChange, ...p}) => <input type="range" data
 export const Input = (p) => <input {...p} />;
 export const QRCodeSVG = () => <svg data-testid="qr" />;
 export const Dialog = ({children, open}) => open ? <div>{children}</div> : null;
-export const DialogContent = ({children}) => <div>{children}</div>;
-export const DialogHeader = ({children}) => <div>{children}</div>;
-export const DialogTitle = ({children}) => <div>{children}</div>;
-export const DialogDescription = ({children}) => <div>{children}</div>;
-export const DialogFooter = ({children}) => <div>{children}</div>;
+export const DialogContent = ({children, ...p}) => <div data-testid={p['data-testid']}>{children}</div>;
+export const DialogHeader = ({children, ...p}) => <div data-testid={p['data-testid']}>{children}</div>;
+export const DialogTitle = ({children, ...p}) => <div data-testid={p['data-testid']}>{children}</div>;
+export const DialogDescription = ({children, ...p}) => <div data-testid={p['data-testid']}>{children}</div>;
+export const DialogFooter = ({children, ...p}) => <div data-testid={p['data-testid']}>{children}</div>;
 export default () => null;

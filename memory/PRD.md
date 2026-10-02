@@ -1,6 +1,11 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.63` (2026-10).** alpha.63: location settings persisted to disk (location.json),
+> **Current release: `v32.0.0-alpha.68` (2026-10-02).** alpha.68: Bingo player fixes. No host file upload; first song plays as
+> video; audience plays on its own clock (never skips to the host), host follows audience; BINGO pauses + verifying, then winner
+> video (Music host now has the winner screen); generic winner video fallback (bingo-winner-generic.mp4) for themes without their
+> own; End Round / winner End Round open a pop-up (Start Round N+1 with fresh theme + speed, or End Bingo Night with confirm);
+> backend new-round takes music_decade/game_type, clears called songs, and a game between rounds survives a restart. Trivia LOCKED.
+> (Previous:) `v32.0.0-alpha.67`: Bingo lobby, themes, Music Bingo, Bingo Setup. (Older:) `v32.0.0-alpha.63`: alpha.63: location settings persisted to disk (location.json),
 > presentation metadata hidden + reserved rewards slot, branding slides in merchant order, global slides
 > (company/rules/format) before round 1. (Previous:) `v32.0.0-alpha.62` (2026-10). alpha.62: 180-day round lock (disk-backed round_usage),
 > Time-to-grade GIF bundled + build lock-in, Special Round builder (admin only, 3-10 rounds, Files/Trivia/Special).
