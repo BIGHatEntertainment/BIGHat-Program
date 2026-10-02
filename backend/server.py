@@ -2190,6 +2190,17 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Round Generator routes: {e}")
 
+# alpha.70: Karaoke Setup (folders, master overlay, venue logos, filler music)
+try:
+    from routes import karaoke_setup as karaoke_setup_routes
+    from routes import karaoke as karaoke_routes
+    karaoke_routes.set_database(db)
+    api_router.include_router(karaoke_setup_routes.router)
+    api_router.include_router(karaoke_routes.router)
+    logger.info("Karaoke Setup routes mounted successfully")
+except Exception as e:
+    logger.warning(f"Could not load Karaoke Setup routes: {e}")
+
 # Mount Bingo routes
 try:
     from routes import bingo as bingo_routes

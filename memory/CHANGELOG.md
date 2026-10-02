@@ -8,6 +8,13 @@
 ---
 ---
 
+## 2026-10-02 — v32.0.0-alpha.70 (IN PROGRESS): Karaoke, part 1 (Setup, lobby, backend)
+- Karaoke lobby (/karaoke): location, host, filler music drop-down (folders from your saved external-drive folder, with track counts; unplugged drive shows "plug it in and Refresh"), request-QR switch, Launch. "Karaoke Setup" button lives here, like Bingo Setup.
+- Karaoke Setup (/karaoke/setup): creates the folders under Documents/BIG Hat Entertainment/Files/Karaoke (Master Overlay, Venue Logos, Song Library); master overlay upload (must be exactly 1920 x 1080, default = the BIG Hat overlay, one-click reset); per-location venue logo upload (at least 145 x 145, square-ish, shown uncropped in the ~249 px logo window); filler music folder (Browse or paste, Check shows folders + tracks); YouTube key (kept on this PC only, never shown in full).
+- Backend: sessions, singer queue (add / assign song / reorder / next / finish), QR song requests (accepting a request now puts the singer in the queue with their song), YouTube search (cached, trusted karaoke channels first), filler + overlay + logo streaming. The AUDIENCE screen is the master clock for each song and a late report from the last song cannot end the next one.
+- No SharePoint anywhere.
+- NOT BUILT YET: the host Player (Filler tab + Karaoke tab), the audience screen, the phone request page. The lobby's Launch button goes to /karaoke/player, which does not exist yet.
+
 ## 2026-10-02 — v32.0.0-alpha.69: Winner videos fixed and moved into a proper folder
 - Fix: the winner video did not play on a real PC. The host sent a relative file name the backend never served, so the audience window got nothing.
 - Winner videos now live in a real folder in app data: <data root>/winner_videos. The 7 videos you sent ship inside the app (backend/assets/winner_videos) and are copied there on first use, so they can never get lost. Your own files in that folder always win and are never overwritten.
