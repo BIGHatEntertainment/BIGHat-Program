@@ -1,6 +1,9 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.69` (2026-10-02).** alpha.69: winner video fix. Videos are served by the backend from
+> **Current release: `v32.0.0-alpha.70` (2026-10-02).** alpha.70: KARAOKE. Lobby (filler drop-down from external drive, Karaoke Setup button),
+> Karaoke Setup (folders, 1920x1080 master overlay, venue logos >=145px, filler folder, YouTube key), host Player (Filler + Karaoke tabs,
+> queue, search, QR requests), audience screen = the clock (host follows it; background preload; 3 s fades), phone request page.
+> Deferred: phone-reachable QR (/karaoke/request-info). Trivia + Bingo LOCKED. (Previous:) `v32.0.0-alpha.69`: alpha.69: winner video fix. Videos are served by the backend from
 > <data root>/winner_videos (7 bundled in backend/assets/winner_videos, seeded on first use, user files win); Bingo Setup has an
 > "Add winner videos" button; name match ignores punctuation + aliases (Christmas=X-Mas, Y2K=2000s); no match = (Generic).mp4.
 > Trivia Setup MOVED from Admin tab to the Trivia Presenter screen (button -> /trivia/setup, admins only). (Previous:) `v32.0.0-alpha.68`: alpha.68: Bingo player fixes. No host file upload; first song plays as

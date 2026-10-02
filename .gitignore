@@ -1160,3 +1160,7 @@ src-tauri/binaries/bighat-backend-*
 src-tauri/gen/
 !src-tauri/binaries/README.md
 memory/github_pat.txt
+
+# test runs of the real launcher write database files here; never commit them
+backend/native/data/bighat_db/bighat/karaoke_*.collection
+backend/native/data/bighat_db/bighat/youtube_search_cache.collection

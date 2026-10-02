@@ -5,10 +5,10 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 R=/tmp/rtest; mkdir -p $R && cd $R
 [ -f package.json ] || npm init -y >/dev/null 2>&1
-[ -d node_modules/jsdom ] || npm install react@18 react-dom@18 react-router-dom@6 sonner lucide-react axios framer-motion@11 esbuild jsdom@24 \
+[ -d node_modules/jsdom ] || npm install react@18 react-dom@18 react-router-dom@6 sonner lucide-react axios framer-motion@11 qrcode.react@4.2.0 esbuild jsdom@24 \
    @testing-library/react@14 @testing-library/dom qrcode.react canvas-confetti @radix-ui/react-slider --silent --no-audit --no-fund
 cp -r "$HERE/stubs" $R/
-for f in lobby_walk theme_walk host_walk aud_walk setup_walk trivia_setup karaoke_setup; do cp "$HERE/$f.check.mjs" $R/$f.mjs; sed -i "s#\./#/tmp/rtest/#g" $R/$f.mjs; done
+for f in karaoke_flow lobby_walk theme_walk host_walk aud_walk setup_walk trivia_setup karaoke_setup karaoke_aud karaoke_player karaoke_request; do cp "$HERE/$f.check.mjs" $R/$f.mjs; sed -i "s#\./#/tmp/rtest/#g" $R/$f.mjs; done
 cp "$HERE/lobby_walk.build.mjs" $R/build.mjs
 cp "$HERE/music_host.build.mjs" $R/build_host.mjs
 cp "$HERE/music_aud.build.mjs" $R/build_aud.mjs

@@ -18,6 +18,9 @@ import TriviaEditor from './pages/trivia/Editor';
 import TriviaSetupPage from './pages/trivia/TriviaSetupPage';
 import KaraokeLobby from './pages/karaoke/KaraokeLobby';
 import KaraokeSetup from './pages/karaoke/KaraokeSetup';
+import KaraokePlayer from './pages/karaoke/KaraokePlayer';
+import KaraokeAudienceView from './pages/karaoke/KaraokeAudienceView';
+import KaraokeRequestPage from './pages/karaoke/KaraokeRequestPage';
 import TriviaAudienceView from './pages/trivia/TriviaAudienceView';
 import RoundMakerDashboard from './pages/roundmaker/RoundMakerDashboard';
 import RoundCreator from './pages/roundmaker/RoundCreator';
@@ -150,6 +153,9 @@ function AppRoutes() {
         <Route path="/schedule/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/trivia" element={<ProtectedRoute><TriviaDashboard /></ProtectedRoute>} />
         <Route path="/karaoke" element={<ProtectedRoute><KaraokeLobby /></ProtectedRoute>} />
+        <Route path="/karaoke/player" element={<ProtectedRoute><KaraokePlayer /></ProtectedRoute>} />
+        <Route path="/karaoke/audience" element={<KaraokeAudienceView />} />
+        <Route path="/karaoke/request" element={<KaraokeRequestPage />} />
         <Route path="/karaoke/setup" element={<ProtectedRoute><KaraokeSetup /></ProtectedRoute>} />
         <Route path="/trivia/setup" element={<ProtectedRoute><TriviaSetupPage /></ProtectedRoute>} />
         <Route path="/trivia/present" element={<ProtectedRoute><TriviaPresenterView /></ProtectedRoute>} />

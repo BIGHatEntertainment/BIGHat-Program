@@ -131,6 +131,7 @@ async def set_playback(request: Request):
         # the audience's clock belongs to ONE song; a different song starts at zero
         "audience_started": old.get("audience_started", False) if old_id == new_id else False,
         "audience_time": old.get("audience_time", 0) if old_id == new_id else 0,
+        "audience_duration": old.get("audience_duration", 0) if old_id == new_id else 0,
         "video_ended": old.get("video_ended", False) if old_id == new_id else False,
         "rev": int(old.get("rev", 0)) + 1,
     }
@@ -140,7 +141,7 @@ async def set_playback(request: Request):
 
 @router.get("/session/playback")
 async def get_playback():
-    s = await db.karaoke_sessions.find_one({"is_active": True}, {"_id": 0, "playback": 1, "location": 1, "qr_enabled": 1, "overlay_enabled": 1})
+    s = await db.karaoke_sessions.find_one({"is_active": True}, {"_id": 0, "playback": 1, "location": 1, "qr_enabled": 1, "overlay_enabled": 1, "preload": 1})
     if not s:
         return {"playback": None}
     return {
@@ -148,6 +149,7 @@ async def get_playback():
         "location": s.get("location", ""),
         "qr_enabled": s.get("qr_enabled", False),
         "overlay_enabled": s.get("overlay_enabled", True),
+        "preload": s.get("preload"),
     }
 
 
@@ -171,6 +173,27 @@ async def audience_report(request: Request):
         upd["playback.video_ended"] = True
     if upd:
         await db.karaoke_sessions.update_one({"is_active": True}, {"$set": upd})
+    return {"success": True}
+
+
+@router.post("/session/preload")
+async def set_preload(request: Request):
+    """Host tells the audience which song to load in the background (the next singer), or clears it."""
+    data = await request.json()
+    pre = {"singer_id": data.get("singer_id"), "embed_url": data.get("embed_url", ""), "ready": False} if data.get("singer_id") else None
+    await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"preload": pre}})
+    return {"success": True}
+
+
+@router.post("/session/preload-report")
+async def preload_report(request: Request):
+    """The audience screen reports that the background video is really loaded."""
+    data = await request.json()
+    s = await db.karaoke_sessions.find_one({"is_active": True}, {"_id": 0, "preload": 1})
+    pre = (s or {}).get("preload") or {}
+    if not pre.get("singer_id") or data.get("singer_id") != pre.get("singer_id"):
+        return {"success": False, "reason": "stale"}
+    await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"preload.ready": bool(data.get("ready", True))}})
     return {"success": True}
 
 
@@ -282,6 +305,15 @@ async def import_library(request: Request):
     if songs:
         await db.karaoke_library.insert_many(songs)
     return {"success": True, "imported": len(songs)}
+
+
+@router.get("/request-info")
+async def request_info(request: Request):
+    """The address the request QR points to. TODO (deferred, 'very nice to have'): a phone on the venue Wi-Fi
+    cannot open localhost, so this will return the PC's Wi-Fi address (or a cloud relay) once that is built.
+    Until then it is this app's own address."""
+    base = str(request.base_url).rstrip("/")
+    return {"url": f"{base}/karaoke/request", "phone_reachable": False}
 
 
 # ===================== QR song requests =====================

@@ -200,3 +200,36 @@ def test_youtube_needs_a_key_then_searches_caches_and_sorts(client, monkeypatch)
     again = c.get("/api/karaoke/youtube/search", params={"q": "Africa"}).json()
     assert again["cached"] is True and len(calls) == n                                               # second search costs no quota
     assert c.get("/api/karaoke/youtube/search", params={"q": "a"}).json() == {"results": []}
+
+
+def test_preload_is_only_ready_when_the_audience_says_so(client):
+    c, _ = client
+    start(c)
+    assert c.get("/api/karaoke/session/playback").json()["preload"] is None
+    c.post("/api/karaoke/session/preload", json={"singer_id": "s9", "embed_url": "https://www.youtube.com/embed/ZZZ"})
+    pre = c.get("/api/karaoke/session/playback").json()["preload"]
+    assert pre["singer_id"] == "s9" and pre["ready"] is False                      # asked for, not loaded yet
+    assert c.post("/api/karaoke/session/preload-report", json={"singer_id": "someone_else", "ready": True}).json()["success"] is False
+    assert c.get("/api/karaoke/session/playback").json()["preload"]["ready"] is False   # a report for a different song is ignored
+    assert c.post("/api/karaoke/session/preload-report", json={"singer_id": "s9", "ready": True}).json()["success"] is True
+    assert c.get("/api/karaoke/session/playback").json()["preload"]["ready"] is True
+    c.post("/api/karaoke/session/preload", json={})                                  # nobody next -> cleared
+    assert c.get("/api/karaoke/session/playback").json()["preload"] is None
+
+
+def test_pause_and_play_do_not_lose_the_audience_clock_or_duration(client):
+    """The host can only start the fade if it still knows the song length after a pause / play."""
+    c, _ = client
+    start(c); add(c, "Ann", "A")
+    ann = c.post("/api/karaoke/queue/next").json()["current"]
+    c.post("/api/karaoke/session/playback", json={"song_playing": True, "current_singer": ann, "mode": "karaoke"})
+    c.post("/api/karaoke/session/audience-report", json={"singer_id": ann["id"], "started": True, "duration": 200})
+    c.post("/api/karaoke/session/audience-report", json={"singer_id": ann["id"], "time": 61})
+    for playing in (False, True, False, True):                                   # pause, play, pause, play
+        c.post("/api/karaoke/session/playback", json={"song_playing": playing, "current_singer": ann, "mode": "karaoke"})
+    pb = c.get("/api/karaoke/session/playback").json()["playback"]
+    assert pb["audience_duration"] == 200 and pb["audience_time"] == 61 and pb["audience_started"] is True
+    # but a DIFFERENT singer starts from zero, including the duration
+    c.post("/api/karaoke/session/playback", json={"song_playing": True, "current_singer": {"id": "other", "singer_name": "Z"}, "mode": "karaoke"})
+    pb = c.get("/api/karaoke/session/playback").json()["playback"]
+    assert pb["audience_duration"] == 0 and pb["audience_time"] == 0 and pb["audience_started"] is False

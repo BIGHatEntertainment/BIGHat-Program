@@ -1,0 +1,98 @@
+// alpha.70: the Karaoke rules as plain functions, so they can be tested without a screen.
+// The Player calls these. Nothing here touches the page, the network or timers.
+
+export const FADE_SECONDS = 3;          // the last 3 seconds of a song fade out, filler fades back in over 3 seconds
+export const PRELOAD_READY = 60;        // "Next Singer" waits until the next video is at least this loaded (percent)
+export const AMP_FACTOR = 1.5;          // master volume goes to 150%
+export const FILLER_FADE_STEPS = 30;
+
+/** Real volume to give the filler player: master x boost x filler slider (can be over 1, then the gain node boosts it). */
+export const fillerVolume = (master, filler) => master * AMP_FACTOR * filler;
+
+/** Split a requested volume into what the audio element takes (max 1) and what the gain node takes. */
+export const splitVolume = (v) => (v <= 1 ? { element: v, gain: 1 } : { element: 1, gain: v });
+
+/** The singer who sings next: the first waiting one. */
+export const nextWaiting = (queue) => (queue || []).filter((e) => e.status === "waiting").sort((a, b) => a.position - b.position)[0] || null;
+
+/** Does this waiting singer have a song picked? Only singers with a song can be started. */
+export const hasSong = (entry) => !!(entry && entry.song_title && entry.embed_url);
+
+/**
+ * Can the host press Next Singer now?
+ *  - someone must be waiting and have a song
+ *  - the video must be loaded enough (or it was never going to preload, e.g. no internet check)
+ */
+export function nextSingerState(queue, preloadPercent) {
+  const next = nextWaiting(queue);
+  if (!next) return { enabled: false, reason: "no_one_waiting" };
+  if (!hasSong(next)) return { enabled: false, reason: "no_song", singer: next };
+  if (preloadPercent < PRELOAD_READY) return { enabled: false, reason: "loading", singer: next, percent: preloadPercent };
+  return { enabled: true, reason: "ready", singer: next };
+}
+
+/**
+ * Seconds until the "fade out" should start, from the AUDIENCE's real clock.
+ * Returns 0 when it is time (or the song is shorter than the fade), null when we cannot tell yet.
+ */
+export function secondsUntilFade(audienceTime, duration) {
+  if (!duration || duration <= 0) return null;
+  return Math.max(0, duration - FADE_SECONDS - (audienceTime || 0));
+}
+
+/** Where is the song, as the audience sees it? Used for the progress bar. */
+export function songProgress(audienceTime, duration) {
+  if (!duration || duration <= 0) return { percent: 0, elapsed: audienceTime || 0, remaining: null };
+  const t = Math.min(audienceTime || 0, duration);
+  return { percent: Math.round((t / duration) * 100), elapsed: t, remaining: Math.max(0, duration - t) };
+}
+
+/** mm:ss */
+export const clock = (secs) => {
+  const s = Math.max(0, Math.floor(secs || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/**
+ * What should the host do on the latest audience report?
+ *  - started   -> remember the song is really on screen
+ *  - ending    -> true during the last FADE_SECONDS (the screen is fading)
+ *  - ended     -> the song is over: finish the singer and bring filler back
+ * `playback` is what the server holds (session/playback).
+ */
+export function readAudience(playback) {
+  const pb = playback || {};
+  const duration = pb.audience_duration || 0;
+  const time = pb.audience_time || 0;
+  const untilFade = secondsUntilFade(time, duration);
+  return {
+    started: !!pb.audience_started,
+    time,
+    duration,
+    ending: untilFade === 0 && pb.audience_started && !pb.video_ended,
+    ended: !!pb.video_ended,
+  };
+}
+
+/** Group tracks by artist for the Filler tab (shuffled list stays flat). */
+export function groupByArtist(tracks) {
+  const groups = {};
+  for (const t of tracks || []) (groups[t.artist || "Unknown"] ||= []).push(t);
+  return Object.keys(groups).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())).map((artist) => ({ artist, tracks: groups[artist] }));
+}
+
+/** Fisher-Yates shuffle that never changes the input. */
+export function shuffle(list, rand = Math.random) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Index of the next filler track (wraps around). */
+export const nextTrackIndex = (current, count) => (count <= 0 ? -1 : current + 1 < count ? current + 1 : 0);
+
+/** Volume for step i of n when fading from `from` to `to`. */
+export const fadeVolume = (from, to, step, steps = FILLER_FADE_STEPS) => from + (to - from) * Math.min(1, step / steps);

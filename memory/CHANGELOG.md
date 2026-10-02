@@ -8,12 +8,15 @@
 ---
 ---
 
-## 2026-10-02 — v32.0.0-alpha.70 (IN PROGRESS): Karaoke, part 1 (Setup, lobby, backend)
-- Karaoke lobby (/karaoke): location, host, filler music drop-down (folders from your saved external-drive folder, with track counts; unplugged drive shows "plug it in and Refresh"), request-QR switch, Launch. "Karaoke Setup" button lives here, like Bingo Setup.
-- Karaoke Setup (/karaoke/setup): creates the folders under Documents/BIG Hat Entertainment/Files/Karaoke (Master Overlay, Venue Logos, Song Library); master overlay upload (must be exactly 1920 x 1080, default = the BIG Hat overlay, one-click reset); per-location venue logo upload (at least 145 x 145, square-ish, shown uncropped in the ~249 px logo window); filler music folder (Browse or paste, Check shows folders + tracks); YouTube key (kept on this PC only, never shown in full).
-- Backend: sessions, singer queue (add / assign song / reorder / next / finish), QR song requests (accepting a request now puts the singer in the queue with their song), YouTube search (cached, trusted karaoke channels first), filler + overlay + logo streaming. The AUDIENCE screen is the master clock for each song and a late report from the last song cannot end the next one.
-- No SharePoint anywhere.
-- NOT BUILT YET: the host Player (Filler tab + Karaoke tab), the audience screen, the phone request page. The lobby's Launch button goes to /karaoke/player, which does not exist yet.
+## 2026-10-02 — v32.0.0-alpha.70: Karaoke
+- **Lobby** (/karaoke): location, host, filler-music drop-down (the folders on your saved external drive, with track counts; an unplugged drive says "plug it in and Refresh"), request-QR switch, Launch. **Karaoke Setup** button lives here, like Bingo Setup.
+- **Karaoke Setup** (/karaoke/setup): makes the folders under Documents/BIG Hat Entertainment/Files/Karaoke (Master Overlay, Venue Logos, Song Library); master overlay upload (exactly 1920 x 1080, keeps the BIG Hat window layout, one-click reset to the BIG Hat overlay); one venue logo per location (at least 145 x 145, roughly square, shown uncropped in the ~249 px logo window); filler music folder (Browse or paste, Check); YouTube key (kept on this PC, never shown in full).
+- **Host Player** (/karaoke/player): Filler tab (play/pause, next, auto-play, shuffle, folder switcher, filler volume, master volume to 150%, tracks grouped by artist) and Karaoke tab (singer queue with drag-reorder, song search, drag or right-click a song onto a singer, QR requests with Accept/Reject, Next Singer, Pause/Play, End Song). PartyTyme / Stingray modes left out on purpose.
+- **Audience screen** (/karaoke/audience) is the priority and is the CLOCK: it plays the song itself (YouTube player API), reports started / time / ended, and the host follows those reports. A refresh or a late message never seeks or restarts the song; only deliberate Pause / Play / End Song do. Last 3 seconds fade the picture; filler music fades back in over 3 seconds. The next singer's video is loaded silently in the background and "Next Singer" only opens when the screen says it is really loaded (with a "Start anyway" way out). No internet for YouTube shows the singer and song instead of a blank box. Master overlay with the video, scrolling "up next" bar, venue logo and request QR placed in its windows.
+- **Phone request page** (/karaoke/request): same as the prototype (name, song, optional artist; "Request Submitted", "You're In! N people ahead of you", "Request Not Available").
+- Backend: sessions, queue, requests, YouTube search (cached 24 h, trusted karaoke channels first), overlay / logo / filler streaming. No SharePoint. Accepting a request now puts the singer in the queue with their song (the prototype did not). Fixed: first night on a new PC crashed clearing an empty queue; pause/play lost the song length so the fade would never start.
+- NOT in this build: a phone-reachable QR. The QR points at this app's own address, which a phone on the venue Wi-Fi cannot open. Deferred by request ("very nice to have"): it is one function (/karaoke/request-info).
+- Trivia and Bingo players untouched.
 
 ## 2026-10-02 — v32.0.0-alpha.69: Winner videos fixed and moved into a proper folder
 - Fix: the winner video did not play on a real PC. The host sent a relative file name the backend never served, so the audience window got nothing.
