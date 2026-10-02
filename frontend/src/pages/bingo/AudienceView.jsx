@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { pickBingoTheme, THEME_CONFETTI } from "../../lib/bingoTheme";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, Music, Maximize } from "lucide-react";
 import confetti from "canvas-confetti";
@@ -21,6 +22,7 @@ export default function AudienceView() {
 
   // Only these values cause re-renders when they change:
   const [bingo_type, setBingoType] = useState(null);
+  const [game_type, setGameType] = useState("regular");
   const [roundNumber, setRoundNumber] = useState(1);
   const [roundType, setRoundType] = useState("traditional");
   const [musicDecade, setMusicDecade] = useState("");
@@ -41,6 +43,8 @@ export default function AudienceView() {
   const [bingoVerifying, setBingoVerifying] = useState(false);
   const [winnerVideoUrl, setWinnerVideoUrl] = useState(null);
   const winnerVideoRef = useRef(null);
+  const preloadedVideoRef = useRef(null); // Hidden preload element for next song
+  const preloadedUrlRef = useRef(null); // URL of the preloaded next song
 
   // Fullscreen + viewport scaling state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -48,6 +52,7 @@ export default function AudienceView() {
   const rootRef = useRef(null);
 
   const isMusicBingo = bingo_type === "music";
+  const bingoTheme = pickBingoTheme(bingo_type, game_type);
   const mirrorVideoUrlRef = useRef(null);
   const winnerNameRef = useRef("");
   const showCelebrationRef = useRef(false);
@@ -90,13 +95,37 @@ export default function AudienceView() {
     const channel = new BroadcastChannel("music-bingo-video");
 
     channel.onmessage = (event) => {
-      const { type, videoUrl, isPlaying, currentTime, volume, showSongInfo: songInfoFlag, currentSong, bingoVerifying: verifying, bingoWinner, winnerVideo, roundEnded } = event.data;
-      if (type !== "video-state") return;
+      const data = event.data;
+      
+      // Handle preload-next: buffer the next song in a hidden video element
+      if (data.type === "preload-next" && data.videoUrl) {
+        if (data.videoUrl !== preloadedUrlRef.current) {
+          preloadedUrlRef.current = data.videoUrl;
+          // Create/reuse a hidden video element to preload
+          if (!preloadedVideoRef.current) {
+            preloadedVideoRef.current = document.createElement("video");
+            preloadedVideoRef.current.preload = "auto";
+            preloadedVideoRef.current.muted = true;
+          }
+          preloadedVideoRef.current.src = data.videoUrl;
+          preloadedVideoRef.current.load();
+        }
+        return;
+      }
+      
+      if (data.type !== "video-state") return;
+      
+      const { videoUrl, isPlaying, currentTime, showSongInfo: songInfoFlag, currentSong, bingoVerifying: verifying, bingoWinner, winnerVideo, winnerName: broadcastWinnerName, roundEnded, calledSongs: broadcastCalledSongs } = data;
 
       // Handle bingo verification state
       if (verifying !== undefined) setBingoVerifying(verifying);
       
-      // Handle winner video
+      // Handle called songs from host (source of truth — not polling)
+      if (broadcastCalledSongs !== undefined) {
+        setCalledSongs(broadcastCalledSongs);
+      }
+      
+      // Handle winner video + name
       if (bingoWinner !== undefined) {
         if (bingoWinner && winnerVideo) {
           setWinnerVideoUrl(winnerVideo);
@@ -105,11 +134,16 @@ export default function AudienceView() {
           setWinnerVideoUrl(null);
         }
       }
+      if (broadcastWinnerName !== undefined) {
+        setWinnerName(broadcastWinnerName);
+        winnerNameRef.current = broadcastWinnerName;
+      }
       
       // Handle round ended
       if (roundEnded) {
         setWinnerVideoUrl(null);
         setBingoVerifying(false);
+        setCalledSongs([]);
       }
 
       if (songInfoFlag !== undefined) setShowSongInfo(songInfoFlag);
@@ -117,12 +151,75 @@ export default function AudienceView() {
 
       if (videoUrl && videoUrl !== mirrorVideoUrlRef.current) {
         mirrorVideoUrlRef.current = videoUrl;
+        
+        // Check if this URL was preloaded
+        const wasPreloaded = (videoUrl === preloadedUrlRef.current && preloadedVideoRef.current?.readyState >= 3);
+        
         setMirrorVideoUrl(videoUrl);
+        
+        // Wait for sufficient buffer before playing
+        const vid = videoRef.current;
+        if (vid) {
+          vid.src = videoUrl;
+          vid.load();
+          
+          const playWhenBuffered = () => {
+            vid.play().catch(() => {
+              setTimeout(() => vid?.play().catch(() => {}), 500);
+            });
+          };
+          
+          if (wasPreloaded || vid.readyState >= 3) {
+            // Already buffered from preload — play immediately
+            playWhenBuffered();
+          } else {
+            // Wait until enough data is buffered (~50%)
+            const checkBuffer = () => {
+              if (!vid.duration || vid.duration === 0) return false;
+              if (vid.buffered.length > 0) {
+                const bufferedEnd = vid.buffered.end(vid.buffered.length - 1);
+                return (bufferedEnd / vid.duration) >= 0.5;
+              }
+              return false;
+            };
+            
+            const onProgress = () => {
+              if (checkBuffer()) {
+                vid.removeEventListener("progress", onProgress);
+                vid.removeEventListener("canplaythrough", onCanPlay);
+                playWhenBuffered();
+              }
+            };
+            const onCanPlay = () => {
+              vid.removeEventListener("progress", onProgress);
+              vid.removeEventListener("canplaythrough", onCanPlay);
+              playWhenBuffered();
+            };
+            
+            vid.addEventListener("progress", onProgress);
+            vid.addEventListener("canplaythrough", onCanPlay, { once: true });
+            
+            // Safety: play after 5s max even if not fully buffered
+            setTimeout(() => {
+              vid.removeEventListener("progress", onProgress);
+              vid.removeEventListener("canplaythrough", onCanPlay);
+              if (vid.paused && vid.src) playWhenBuffered();
+            }, 5000);
+          }
+        }
+        
+        // Clear preload ref since it's now the current video
+        preloadedUrlRef.current = null;
+        return; // Don't process play/pause commands for the same message that set the URL
       }
 
       // Direct DOM manipulation for video — no state updates, no re-renders
       const vid = videoRef.current;
       if (vid && !bingoWinner) {
+        // Apply volume from host
+        if (data.volume !== undefined) {
+          vid.volume = Math.max(0, Math.min(1, data.volume));
+        }
         if (currentTime !== undefined && Math.abs(vid.currentTime - currentTime) > 2) {
           vid.currentTime = currentTime;
         }
@@ -134,12 +231,8 @@ export default function AudienceView() {
     return () => channel.close();
   }, []);
 
-  // Auto-play when mirror video source changes
-  useEffect(() => {
-    if (videoRef.current && mirrorVideoUrl) {
-      videoRef.current.play().catch(() => {});
-    }
-  }, [mirrorVideoUrl]);
+  // Auto-play is now handled in the BroadcastChannel handler with buffering
+  // No separate effect needed
 
   // ==================== GAME STATE POLLING ====================
   // Uses refs to avoid callback recreation. Only updates individual state
@@ -154,6 +247,7 @@ export default function AudienceView() {
 
         // Only update state for values that actually changed
         setBingoType(prev => g.settings?.bingo_type !== prev ? g.settings?.bingo_type : prev);
+        setGameType(prev => (g.settings?.game_type || "regular") !== prev ? (g.settings?.game_type || "regular") : prev);
         setRoundNumber(prev => g.round_number !== prev ? g.round_number : prev);
         setRoundType(prev => g.settings?.round_type !== prev ? g.settings?.round_type : prev);
         setMusicDecade(prev => g.settings?.music_decade !== prev ? g.settings?.music_decade : prev);
@@ -162,15 +256,12 @@ export default function AudienceView() {
         setBingoClaimed(prev => g.bingo_claimed !== prev ? g.bingo_claimed : prev);
         setCurrentNumber(prev => g.current_number !== prev ? g.current_number : prev);
 
-        // Arrays — compare by length + last element for cheap diff
+        // Arrays — calledNumbers from polling (traditional bingo only)
         setCalledNumbers(prev => {
           if (prev.length !== (g.called_numbers?.length || 0)) return g.called_numbers || [];
           return prev;
         });
-        setCalledSongs(prev => {
-          if (prev.length !== (g.called_songs?.length || 0)) return g.called_songs || [];
-          return prev;
-        });
+        // calledSongs managed ONLY via BroadcastChannel — not polling
 
         // Winner state managed ONLY via BroadcastChannel — not polling
         if (g.winner_name && g.winner_name !== winnerNameRef.current) {
@@ -190,7 +281,7 @@ export default function AudienceView() {
   const triggerCelebration = () => {
     const duration = 5000;
     const end = Date.now() + duration;
-    const colors = ["#D946EF", "#06B6D4", "#EAB308", "#22C55E", "#8B5CF6"];
+    const colors = [...THEME_CONFETTI[bingoTheme], THEME_CONFETTI[bingoTheme][0]];
     const frame = () => {
       confetti({ particleCount: 10, angle: 60, spread: 100, origin: { x: 0, y: 0.6 }, colors });
       confetti({ particleCount: 10, angle: 120, spread: 100, origin: { x: 1, y: 0.6 }, colors });
@@ -247,7 +338,7 @@ export default function AudienceView() {
   // =====================================================
   if (isMusicBingo) {
     return (
-      <div ref={rootRef} className="fixed inset-0 bg-black overflow-hidden flex items-center justify-center" data-testid="audience-view">
+      <div ref={rootRef} className="bingo-theme fixed inset-0 bg-black overflow-hidden flex items-center justify-center" data-theme={bingoTheme} data-testid="audience-view">
         <div style={stageStyle}>
           {/* VIDEO LAYER — always mounted, never inside AnimatePresence */}
           {mirrorVideoUrl && (
@@ -257,7 +348,7 @@ export default function AudienceView() {
               className="absolute inset-0 w-full h-full object-contain bg-black"
               data-testid="audience-video-player"
               playsInline
-              muted
+              preload="auto"
               style={{ zIndex: 1 }}
             />
           )}
@@ -368,14 +459,14 @@ export default function AudienceView() {
             </div>
           )}
 
-          {/* Footer - Recently Played */}
+          {/* Footer - Recently Played (last 5 only) */}
           <footer className="absolute bottom-0 left-0 right-0 px-10 py-6"
             style={{ zIndex: 20, background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)" }}
           >
-            <div className="max-w-6xl mx-auto">
-              <div className="flex justify-center gap-6 flex-wrap">
-                {calledSongs.slice(-10).reverse().map((song, idx) => (
-                  <div key={song.number} className="text-center" style={{ opacity: 1 - idx * 0.08 }}>
+            <div className="max-w-4xl mx-auto">
+              <div className="flex justify-center gap-6 overflow-hidden">
+                {calledSongs.slice(-5).reverse().map((song, idx) => (
+                  <div key={`${song.number}-${calledSongs.length - idx}`} className="text-center shrink-0" style={{ opacity: 1 - idx * 0.15 }}>
                     <div className={`${idx === 0 ? "w-16 h-16 text-2xl" : "w-12 h-12 text-lg"} rounded-full bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-lg`}>
                       {song.number}
                     </div>
@@ -394,7 +485,7 @@ export default function AudienceView() {
   // TRADITIONAL BINGO AUDIENCE VIEW
   // =====================================================
   return (
-    <div ref={rootRef} className="fixed inset-0 bg-black overflow-hidden flex items-center justify-center" data-testid="audience-view">
+    <div ref={rootRef} className="bingo-theme fixed inset-0 bg-black overflow-hidden flex items-center justify-center" data-theme={bingoTheme} data-testid="audience-view">
       <div style={stageStyle}>
         <header className="absolute top-0 left-0 right-0 flex items-center justify-between px-10 py-6"
           style={{ zIndex: 20, background: "linear-gradient(to bottom, rgba(10,10,10,0.9) 0%, transparent 100%)" }}
@@ -484,7 +575,7 @@ export default function AudienceView() {
         </div>
       )}
 
-      {/* Winner Video Loop */}
+      {/* Winner Video Loop + Name Overlay */}
       {winnerVideoUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
           <video
@@ -495,6 +586,14 @@ export default function AudienceView() {
             playsInline
             className="w-full h-full object-contain"
           />
+          {winnerName && (
+            <div className="absolute bottom-16 left-0 right-0 text-center" style={{ zIndex: 60 }}>
+              <div className="inline-block bg-black/70 backdrop-blur-sm rounded-2xl px-12 py-6 border-2 border-yellow-400/60">
+                <p className="font-display text-5xl text-yellow-400 mb-2">BINGO!</p>
+                <p className="font-display text-6xl text-white">{winnerName}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

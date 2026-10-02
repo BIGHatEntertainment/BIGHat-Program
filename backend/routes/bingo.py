@@ -582,6 +582,67 @@ SAMPLE_SONGS = {
 current_game: Optional[GameState] = None
 available_numbers: List[int] = []
 
+async def _persist_game_state():
+    """Save current game state to MongoDB so it survives server restarts."""
+    global current_game, available_numbers
+    if not current_game:
+        return
+    try:
+        doc = {
+            "game_id": current_game.id,
+            "settings": current_game.settings.model_dump(),
+            "called_numbers": current_game.called_numbers,
+            "current_number": current_game.current_number,
+            "current_song": current_game.current_song,
+            "called_songs": current_game.called_songs,
+            "is_active": current_game.is_active,
+            "is_paused": current_game.is_paused,
+            "bingo_claimed": current_game.bingo_claimed,
+            "winner_name": current_game.winner_name,
+            "round_number": current_game.round_number,
+            "volume": current_game.volume,
+            "available_numbers": available_numbers,
+        }
+        # Convert any datetime objects
+        if 'created_at' in doc.get('settings', {}):
+            doc['settings']['created_at'] = str(doc['settings']['created_at'])
+        await db.bingo_active_game.replace_one({"game_id": current_game.id}, doc, upsert=True)
+    except Exception as e:
+        logger.error(f"[Bingo] Failed to persist game state: {e}")
+
+async def _restore_game_state():
+    """Restore game state from MongoDB after server restart."""
+    global current_game, available_numbers
+    try:
+        doc = await db.bingo_active_game.find_one({}, {"_id": 0}, sort=[("_id", -1)])
+        if doc and doc.get("is_active"):
+            settings = doc.get("settings", {})
+            game_settings = GameSettings(
+                bingo_type=settings.get("bingo_type", "music"),
+                game_type=settings.get("game_type", "traditional"),
+                round_type=settings.get("round_type", "Traditional"),
+                call_interval=settings.get("call_interval", 45),
+                music_decade=settings.get("music_decade", "1980s"),
+                preset_mode=settings.get("preset_mode", False),
+            )
+            current_game = GameState(settings=game_settings)
+            current_game.id = doc.get("game_id", current_game.id)
+            current_game.called_numbers = doc.get("called_numbers", [])
+            current_game.current_number = doc.get("current_number")
+            current_game.current_song = doc.get("current_song")
+            current_game.called_songs = doc.get("called_songs", [])
+            current_game.is_active = doc.get("is_active", False)
+            current_game.is_paused = doc.get("is_paused", False)
+            current_game.bingo_claimed = doc.get("bingo_claimed", False)
+            current_game.winner_name = doc.get("winner_name")
+            current_game.round_number = doc.get("round_number", 1)
+            current_game.volume = doc.get("volume", 0.5)
+            available_numbers = doc.get("available_numbers", [])
+            logger.info(f"[Bingo] Restored game state: {len(current_game.called_numbers)} numbers called, active={current_game.is_active}")
+    except Exception as e:
+        logger.error(f"[Bingo] Failed to restore game state: {e}")
+
+
 # ==================== API ROUTES ====================
 
 @router.get("/")
@@ -620,6 +681,7 @@ async def create_game(settings: GameStateCreate):
     game_doc['created_at'] = game_doc['created_at'].isoformat()
     game_doc['settings']['created_at'] = game_doc['settings']['created_at'].isoformat()
     await db.games.insert_one(game_doc)
+    await _persist_game_state()
     
     state_dict = {
         "id": current_game.id,
@@ -707,6 +769,7 @@ async def call_song(song: SongCall):
         "type": "song_called",
         "data": state_dict
     })
+    await _persist_game_state()
     
     return {"success": True, "song": song_data}
 
@@ -733,6 +796,7 @@ async def start_game():
     
     manager.update_state(state_dict)
     await manager.broadcast({"type": "game_started", "data": state_dict})
+    await _persist_game_state()
     
     return {"success": True, "message": "Game started"}
 
@@ -776,6 +840,7 @@ async def call_number():
         "number": number,
         "letter": letter
     })
+    await _persist_game_state()
     
     return {"success": True, "number": number, "letter": letter, "remaining": len(available_numbers)}
 
@@ -794,6 +859,7 @@ async def pause_game():
     }
     
     await manager.broadcast({"type": "game_paused", "data": state_dict})
+    await _persist_game_state()
     
     return {"success": True, "message": "Game paused"}
 
@@ -830,6 +896,7 @@ async def claim_bingo():
         "type": "bingo_claimed",
         "data": {"is_paused": True, "bingo_claimed": True}
     })
+    await _persist_game_state()
     
     return {"success": True, "message": "Bingo claimed - game paused for verification"}
 
@@ -849,6 +916,7 @@ async def verify_bingo(verification: BingoVerification):
                 "bingo_claimed": True
             }
         })
+        await _persist_game_state()
         return {"success": True, "message": f"Bingo confirmed! Winner: {verification.winner_name}"}
     else:
         current_game.bingo_claimed = False
@@ -876,6 +944,7 @@ async def end_round():
             "called_numbers": current_game.called_numbers
         }
     })
+    await _persist_game_state()
     
     return {"success": True, "message": "Round ended"}
 
@@ -910,12 +979,16 @@ async def new_round():
     
     manager.update_state(state_dict)
     await manager.broadcast({"type": "new_round", "data": state_dict})
+    await _persist_game_state()
     
     return {"success": True, "round_number": current_game.round_number}
 
 @router.get("/game/state")
 async def get_game_state():
     global current_game, available_numbers
+    # Restore from the database if in-memory state was lost (server restart)
+    if not current_game:
+        await _restore_game_state()
     if not current_game:
         return {"game": None}
     

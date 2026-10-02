@@ -27,31 +27,33 @@ import BIGHatFileButtons from "../../components/BIGHatFileButtons";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// v31.0.6 — Music Bingo is on ice until we rebuild the music-video pipeline
-// as a paid add-on. While false: lobby only offers traditional bingo, the
-// "Bingo Type" / "Music Decade" steps are skipped, the "Quick Play" preset
-// (loads a 30-min music video) is hidden, and the page title says "Bingo".
-// Flip this to `true` to bring the music flow back without touching anything
-// else in the file.
-const ENABLE_MUSIC_BINGO = false;
+// alpha.67 — the lobby's FIRST screen is now "Traditional Bingo or Music Bingo".
+// Then Regular / Lightning, then the rest of that path's steps.
+// The old "Quick Play / Custom Setup" screen (preset 30-minute music video) is
+// not shown: it was the screen in front of this one. Set SHOW_QUICK_PLAY to
+// true to bring it back without touching anything else.
+const ENABLE_MUSIC_BINGO = true;
+const SHOW_QUICK_PLAY = false;
+
+import { pickBingoTheme } from "../../lib/bingoTheme";
 
 export default function Lobby() {
   const navigate = useNavigate();
   // When music bingo is disabled, jump straight into the custom wizard —
   // the "Quick Play" preset-video mode is meaningless without songs.
-  const [mode, setMode] = useState(ENABLE_MUSIC_BINGO ? null : 'custom');
+  const [mode, setMode] = useState(SHOW_QUICK_PLAY ? null : 'custom');
   // Start the wizard at step 1 (Game Type) when music is disabled — step 0
   // is the Bingo Type picker which has only one option in that build.
-  const [step, setStep] = useState(ENABLE_MUSIC_BINGO ? 0 : 1);
+  const [step, setStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   
   // Game settings
   const [settings, setSettings] = useState({
-    bingoType: ENABLE_MUSIC_BINGO ? "music" : "traditional",
+    bingoType: "",
     gameType: "regular",
     roundType: "traditional",
     callInterval: 30,
-    musicDecade: "1980s"
+    musicDecade: ""
   });
 
   // Bingo Types - filtered to the traditional-only set when the music flow
@@ -72,9 +74,11 @@ export default function Lobby() {
       color: "text-cyan-500"
     }
   ];
-  const bingoTypes = ENABLE_MUSIC_BINGO
-    ? allBingoTypes
-    : allBingoTypes.filter(t => t.id === "traditional");
+  // Traditional first, then Music (the order the host asked for).
+  const bingoTypes = [
+    allBingoTypes.find(t => t.id === "traditional"),
+    ...(ENABLE_MUSIC_BINGO ? [allBingoTypes.find(t => t.id === "music")] : []),
+  ];
 
   const roundTypes = [
     { id: "traditional", name: "Traditional", icon: Grid3X3, description: "5 in a row (any direction)" },
@@ -83,31 +87,27 @@ export default function Lobby() {
     { id: "blackout", name: "Blackout", icon: Circle, description: "Cover all squares" }
   ];
 
-  const [decades, setDecades] = useState([
-    { id: "1970s", name: "1970s", emoji: "Disco Era" },
-    { id: "1980s", name: "1980s", emoji: "Synth Pop" },
-    { id: "1990s", name: "1990s", emoji: "Grunge & Pop" },
-    { id: "2000s", name: "2000s", emoji: "Y2K Hits" },
-    { id: "Emo", name: "Emo", emoji: "Emo & Pop Punk" }
-  ]);
-  const [decadesLoading, setDecadesLoading] = useState(false);
+  // Themes come ONLY from the Bingo Setup folder (no built-in list, no SharePoint).
+  const [decades, setDecades] = useState([]);
+  const [themesConfigured, setThemesConfigured] = useState(true);
+  const [decadesLoading, setDecadesLoading] = useState(true);
 
-  // Fetch available decades from SharePoint
+  // Themes = sub folders of the Bingo folder that are ready and switched on in Bingo Setup
   useEffect(() => {
-    const fetchDecades = async () => {
+    const fetchThemes = async () => {
       setDecadesLoading(true);
       try {
-        const res = await axios.get(`${API}/bingo/available-decades`);
-        if (res.data.success && res.data.decades.length > 0) {
-          setDecades(res.data.decades.map(d => ({ id: d.id, name: d.name, emoji: d.subtitle })));
-        }
+        const res = await axios.get(`${API}/bingo/available-themes`);
+        setThemesConfigured(!!res.data.configured);
+        setDecades((res.data.themes || []).map(t => ({ id: t.id, name: t.name, emoji: `${t.videos} songs` })));
       } catch (err) {
-        console.error('Failed to fetch decades from SharePoint:', err);
+        console.error('Failed to load Bingo themes:', err);
+        setDecades([]);
       } finally {
         setDecadesLoading(false);
       }
     };
-    fetchDecades();
+    fetchThemes();
   }, []);
 
   // Timer intervals depend on game type
@@ -156,31 +156,34 @@ export default function Lobby() {
     createGame(false);
   };
 
-  // Determine total steps based on bingo type. Note: with music disabled
-  // we skip step 0 (bingo-type select), so the visible wizard runs from
-  // step 1 → step 3 (Game Type → Round Type → Call Interval).
+  // Determine total steps based on bingo type. Step 0 is always the
+  // Traditional / Music pick. Until one is chosen we show the shorter
+  // (Traditional) count.
   const getTotalSteps = () => {
-    if (!ENABLE_MUSIC_BINGO) {
-      return 4; // total slots, indices 0..3 — step 0 is just skipped
-    }
     if (settings.bingoType === "music") {
       return 5; // Bingo Type -> Music Decade -> Game Speed -> Round Type -> Interval
     }
     return 4; // Bingo Type -> Game Type -> Round Type -> Interval
   };
 
-  // The first visible step when music is disabled is step 1, not step 0.
-  const firstStep = ENABLE_MUSIC_BINGO ? 0 : 1;
+  // Step 0 (Traditional / Music) is always the first screen.
+  const firstStep = 0;
 
   const nextStep = () => setStep(s => Math.min(s + 1, getTotalSteps() - 1));
   const prevStep = () => setStep(s => Math.max(s - 1, firstStep));
 
   return (
-    <div className="min-h-screen bg-gradient-radial flex flex-col items-center justify-center p-8 relative">
+    <div className="bingo-theme min-h-screen bg-gradient-radial flex flex-col items-center justify-center p-8 relative" data-theme={pickBingoTheme(settings.bingoType, settings.gameType)} data-testid="bingo-lobby-root">
       {/* Back to Dashboard */}
       <button onClick={() => navigate('/')} className="absolute top-4 left-4 flex items-center gap-2 px-3 py-2 rounded-lg text-sm z-50 opacity-60 hover:opacity-100 transition-opacity" style={{ color: '#D946EF' }} data-testid="back-to-dashboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         Dashboard
+      </button>
+
+      {/* Bingo Setup (global settings: Bingo folder + themes) */}
+      <button onClick={() => navigate('/bingo/setup')} className="absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800/80 text-zinc-300 hover:text-white border border-fuchsia-500/30 transition-colors" data-testid="bingo-setup-btn">
+        <Settings size={18} />
+        Bingo Setup
       </button>
       {/* Header */}
       <motion.div 
@@ -189,7 +192,7 @@ export default function Lobby() {
         className="text-center mb-12"
       >
         <h1 className="font-display text-6xl md:text-8xl neon-text mb-4">
-          {ENABLE_MUSIC_BINGO ? "Music Bingo" : "Bingo"}
+          {settings.bingoType === "music" ? "Music Bingo" : "Bingo"}
         </h1>
         <p className="text-zinc-400 text-lg md:text-xl font-medium tracking-wide">
           BIG Hat Entertainment
@@ -417,15 +420,29 @@ export default function Lobby() {
                     >
                       {settings.bingoType === "music" ? (
                         <>
-                          <h3 className="text-xl font-semibold text-zinc-200">Select Music Decade</h3>
+                          <h3 className="text-xl font-semibold text-zinc-200">Select Music Theme</h3>
                           <p className="text-zinc-500 text-sm">
-                            {decadesLoading ? 'Fetching available decades from SharePoint...' : 'This will load the song list from SharePoint for the selected era.'}
+                            {decadesLoading ? 'Looking in your Bingo folder...' : 'The song list and videos load from your Bingo folder.'}
                           </p>
                           {decadesLoading ? (
                             <div className="flex items-center justify-center py-8">
                               <div className="loading-balls">
                                 <div className="loading-ball" /><div className="loading-ball" /><div className="loading-ball" /><div className="loading-ball" /><div className="loading-ball" />
                               </div>
+                            </div>
+                          ) : decades.length === 0 ? (
+                            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-6 text-center space-y-3" data-testid="no-themes">
+                              <p className="text-yellow-300 font-semibold">
+                                {themesConfigured ? "No Music Bingo themes are switched on." : "Your Bingo folder isn't set up yet."}
+                              </p>
+                              <p className="text-zinc-400 text-sm">
+                                {themesConfigured
+                                  ? "Open Bingo Setup and switch on at least one theme that has a song list and videos."
+                                  : "Open Bingo Setup and choose the main Bingo folder that holds your theme folders."}
+                              </p>
+                              <Button className="btn-primary" onClick={() => navigate("/bingo/setup")} data-testid="open-setup-from-lobby">
+                                Open Bingo Setup
+                              </Button>
                             </div>
                           ) : (
                           <RadioGroup
@@ -682,7 +699,7 @@ export default function Lobby() {
                   <Button
                     variant="outline"
                     onClick={step === firstStep
-                      ? (ENABLE_MUSIC_BINGO ? () => setMode(null) : () => navigate('/'))
+                      ? (SHOW_QUICK_PLAY ? () => setMode(null) : () => navigate('/'))
                       : prevStep}
                     data-testid="wizard-back-btn"
                   >
@@ -694,6 +711,7 @@ export default function Lobby() {
                     <Button
                       className="btn-primary"
                       onClick={nextStep}
+                      disabled={(step === 0 && !settings.bingoType) || (step === 1 && settings.bingoType === "music" && !decades.some(d => d.id === settings.musicDecade))}
                       data-testid="wizard-next-btn"
                     >
                       Next

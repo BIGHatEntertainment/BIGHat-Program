@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { isTauri, openNativeAudience } from '../../lib/audienceWindow';
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Play,
   Pause,
@@ -40,9 +41,14 @@ import { toast } from "sonner";
 import axios from "axios";
 import confetti from "canvas-confetti";
 import { BingoBall, BingoBoard, MusicBingoBall } from "../../components/bingo/BingoComponents";
+import { themeFromGameState, THEME_CONFETTI } from "../../lib/bingoTheme";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// alpha.67: a video entry is either a stream link (string, from Bingo Setup's folder)
+// or a File the host picked by hand. Both become something <video> can play.
+const toPlayableUrl = (entry) => (typeof entry === "string" ? entry : URL.createObjectURL(entry));
 
 export default function HostDashboard() {
   const navigate = useNavigate();
@@ -69,8 +75,16 @@ export default function HostDashboard() {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.75);
+  const [songCooldown, setSongCooldown] = useState(false);
+  const preloadedUrlsRef = useRef({}); // { songNumber: { url, ready: bool } }
+  const [volume, setVolume] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Rewards QR
+  const [bingoGameCode, setBingoGameCode] = useState('');
+  const [showRewardsSplash, setShowRewardsSplash] = useState(false);
+  const rewardsSplashTimerRef = useRef(null);
+  const bingoEventsRef = useRef([]);  // Track bingo hits: [{songs_played, winner_name}]
 
   // Timer State
   const [timerRunning, setTimerRunning] = useState(false);
@@ -87,6 +101,7 @@ export default function HostDashboard() {
   const [showSongInfoAudience, setShowSongInfoAudience] = useState(true);
 
   const isMusicBingo = gameState?.settings?.bingo_type === "music";
+  const bingoTheme = themeFromGameState(gameState);
 
   // Fetch initial game state
   useEffect(() => {
@@ -120,9 +135,25 @@ export default function HostDashboard() {
     try {
       const response = await axios.get(`${API}/bingo/songlist/${decade}`);
       if (response.data.songs) {
-        setSongList(response.data.songs);
+        const all = response.data.songs;
+        if (response.data.source === "local-folder") {
+          // Songs come from the Bingo Setup folder and play by streaming from it.
+          // Only songs that really have a video are ever called.
+          const playable = all.filter(s => s.has_video !== false);
+          const links = {};
+          playable.forEach(s => { links[s.number] = `${API}/bingo/media/${encodeURIComponent(decade)}/${s.number}`; });
+          setVideoFiles(links);
+          setSongList(playable);
+          setSongListSource("local-folder");
+          setAvailableSongNumbers(shuffleArray(playable.map(s => s.number)));
+          if (all.length !== playable.length) {
+            toast.warning(`${all.length - playable.length} song(s) have no video and will be skipped`);
+          }
+          return;
+        }
+        setSongList(all);
         setSongListSource(response.data.source || "sample");
-        const numbers = response.data.songs.map(s => s.number);
+        const numbers = all.map(s => s.number);
         setAvailableSongNumbers(shuffleArray([...numbers]));
         
         if (response.data.source === "sharepoint") {
@@ -154,17 +185,21 @@ export default function HostDashboard() {
     const song = songList.find(s => s.number === nextNum);
     if (song) {
       setNextSong(song);
-      // Pre-buffer the video file if available
-      const file = videoFiles[nextNum];
-      if (file) {
-        const tempUrl = URL.createObjectURL(file);
-        const tempVid = document.createElement("video");
-        tempVid.preload = "auto";
-        tempVid.src = tempUrl;
-        tempVid.addEventListener("canplaythrough", () => {
-          URL.revokeObjectURL(tempUrl);
-        }, { once: true });
-        setTimeout(() => URL.revokeObjectURL(tempUrl), 15000);
+      // Pre-buffer the next 2 songs as blob URLs
+      for (let i = 0; i < Math.min(2, available.length); i++) {
+        const num = available[i];
+        if (preloadedUrlsRef.current[num]) continue; // already preloaded
+        const file = videoFiles[num];
+        if (file) {
+          const url = toPlayableUrl(file);
+          preloadedUrlsRef.current[num] = { url, ready: false };
+          const tempVid = document.createElement("video");
+          tempVid.preload = "auto";
+          tempVid.src = url;
+          tempVid.addEventListener("canplaythrough", () => {
+            preloadedUrlsRef.current[num] = { url, ready: true };
+          }, { once: true });
+        }
       }
     } else {
       setNextSong(null);
@@ -387,16 +422,15 @@ export default function HostDashboard() {
   const handleVolumeChange = (value) => {
     const vol = value[0] / 100;
     setVolume(vol);
-    if (videoRef.current) {
-      videoRef.current.volume = vol;
-    }
+    // Host video stays muted — volume controls the audience view
+    broadcastVideoState({ volume: vol });
   };
 
   // Game controls
   const playIntroSound = () => {
     try {
       const audio = new Audio('/bingo-intro.mp3');
-      audio.volume = 0.6;
+      audio.volume = 0.36;
       introAudioRef.current = audio;
       audio.play().catch(() => {});
       
@@ -409,7 +443,7 @@ export default function HostDashboard() {
           if (!introAudioRef.current) { clearInterval(fadeInterval); return; }
           const timeLeft = duration - audio.currentTime;
           if (timeLeft <= 3 && timeLeft > 0) {
-            audio.volume = Math.max(0, (timeLeft / 3) * 0.6);
+            audio.volume = Math.max(0, (timeLeft / 3) * 0.36);
           } else if (timeLeft <= 0) {
             clearInterval(fadeInterval);
           }
@@ -428,6 +462,29 @@ export default function HostDashboard() {
       toast.success("Game started!");
       playIntroSound();
       playBallsRolling();
+      
+      // Generate game code for rewards and show splash
+      if (!bingoGameCode) {
+        try {
+          const codeRes = await axios.post(`${API}/player/game/create`, {
+            event_type: "bingo",
+            location: gameState?.settings?.venue || "Music Bingo",
+            host_name: "",
+          });
+          if (codeRes.data.code) {
+            setBingoGameCode(codeRes.data.code);
+            setShowRewardsSplash(true);
+            // Auto-dismiss after 15 seconds
+            rewardsSplashTimerRef.current = setTimeout(() => setShowRewardsSplash(false), 15000);
+          }
+        } catch (e) {
+          console.log("Game code creation failed:", e);
+        }
+      } else {
+        // Show splash with existing code
+        setShowRewardsSplash(true);
+        rewardsSplashTimerRef.current = setTimeout(() => setShowRewardsSplash(false), 15000);
+      }
     } catch (error) {
       toast.error("Failed to start game");
     }
@@ -445,10 +502,15 @@ export default function HostDashboard() {
   };
 
   const callNextSong = async () => {
+    if (songCooldown) return; // 5-second cooldown active
     if (availableSongNumbers.length === 0) {
       toast.error("All songs have been called!");
       return;
     }
+
+    // Start 5-second cooldown
+    setSongCooldown(true);
+    setTimeout(() => setSongCooldown(false), 5000);
 
     const nextNumber = availableSongNumbers[0];
     const newAvailable = availableSongNumbers.slice(1);
@@ -462,26 +524,66 @@ export default function HostDashboard() {
       // Load and play the video for this song
       const videoFile = videoFiles[nextNumber];
       if (videoFile) {
-        const url = URL.createObjectURL(videoFile);
+        // Use preloaded URL if available, otherwise create new
+        let url;
+        const preloaded = preloadedUrlsRef.current[nextNumber];
+        if (preloaded?.url) {
+          url = preloaded.url;
+          delete preloadedUrlsRef.current[nextNumber]; // consumed
+        } else {
+          if (videoUrl) URL.revokeObjectURL(videoUrl);
+          url = toPlayableUrl(videoFile);
+        }
         setVideoUrl(url);
-        broadcastVideoState({ videoUrl: url, isPlaying: true, currentSong: song });
-        setTimeout(() => {
-          if (videoRef.current) {
-            // Reset volume to 50% for each new song
-            videoRef.current.volume = 0.5;
-            setVolume(0.5);
-            videoRef.current.play();
-            setIsPlaying(true);
-            broadcastVideoState({ videoUrl: url, isPlaying: true, currentSong: song });
+        
+        // Wait for video to be ready before playing
+        if (videoRef.current) {
+          videoRef.current.src = url;
+          videoRef.current.preload = "auto";
+          videoRef.current.muted = true; // Host view silent — audience view handles audio
+          videoRef.current.volume = 0;
+          
+          const playWhenReady = () => {
+            videoRef.current.play().then(() => {
+              setIsPlaying(true);
+              broadcastVideoState({ videoUrl: url, isPlaying: true, currentSong: song });
+            }).catch(() => {
+              setTimeout(() => videoRef.current?.play(), 500);
+            });
+          };
+          
+          // If preloaded and ready, play immediately
+          if (preloaded?.ready || videoRef.current.readyState >= 3) {
+            playWhenReady();
+          } else {
+            videoRef.current.addEventListener("canplay", playWhenReady, { once: true });
           }
-        }, 100);
+        }
+        
       } else {
         // No video file for this song — still broadcast the song info
         broadcastVideoState({ currentSong: song });
       }
 
-      // Pre-select the NEXT song so the host can see what's coming
+      // Pre-select and pre-buffer the NEXT song(s)
       pickNextSong(newAvailable);
+
+      // Broadcast preload URL for the NEXT song so audience can buffer it
+      if (newAvailable.length > 0) {
+        const nextPreloadNum = newAvailable[0];
+        const nextPreloadFile = videoFiles[nextPreloadNum];
+        if (nextPreloadFile) {
+          let preUrl = preloadedUrlsRef.current[nextPreloadNum]?.url;
+          if (!preUrl) {
+            preUrl = toPlayableUrl(nextPreloadFile);
+            preloadedUrlsRef.current[nextPreloadNum] = { url: preUrl, ready: false };
+          }
+          // Send preload hint to audience after a short delay (let current song broadcast first)
+          setTimeout(() => {
+            channelRef.current?.postMessage({ type: "preload-next", videoUrl: preUrl });
+          }, 1000);
+        }
+      }
 
       // Sync to backend for Audience View
       try {
@@ -558,16 +660,21 @@ export default function HostDashboard() {
   const verifyBingo = async (confirmed) => {
     try {
       await axios.post(`${API}/bingo/game/verify-bingo`, {
-        winner_name: winnerName || "Winner",
+        winner_name: "Winner",
         confirmed
       });
       setShowBingoDialog(false);
       
       if (confirmed) {
-        // Show winner video looping on both host and audience
+        // Record bingo event for rewards scoring
+        bingoEventsRef.current.push({
+          songs_played: calledSongs.length,
+          winner_name: "",  // Name set later via submitWinnerName
+        });
+        // Start winner video on host + audience (no name yet)
         setShowWinnerVideo(true);
-        broadcastVideoState({ bingoWinner: true, winnerVideo: getWinnerVideoUrl(), winnerName: winnerName || "Winner" });
-        toast.success(`BINGO confirmed for ${winnerName || "Winner"}!`);
+        broadcastVideoState({ bingoWinner: true, winnerVideo: getWinnerVideoUrl(), winnerName: "" });
+        toast.success("BINGO confirmed! Enter winner's name.");
       } else {
         // Rejected - resume the current song
         setWinnerName("");
@@ -581,6 +688,16 @@ export default function HostDashboard() {
     } catch (error) {
       toast.error("Failed to verify bingo");
     }
+  };
+
+  const submitWinnerName = () => {
+    if (!winnerName.trim()) return;
+    // Update the last bingo event with the winner name
+    if (bingoEventsRef.current.length > 0) {
+      bingoEventsRef.current[bingoEventsRef.current.length - 1].winner_name = winnerName.trim();
+    }
+    broadcastVideoState({ bingoWinner: true, winnerVideo: getWinnerVideoUrl(), winnerName: winnerName.trim() });
+    toast.success(`Winner: ${winnerName.trim()}`);
   };
 
   const handleWinnerContinue = () => {
@@ -599,6 +716,22 @@ export default function HostDashboard() {
     setShowWinnerVideo(false);
     setWinnerName("");
     broadcastVideoState({ bingoWinner: false, roundEnded: true });
+    
+    // Auto-award bingo player rewards with song-based formula
+    if (bingoGameCode) {
+      try {
+        await axios.post(`${API}/player/award-bingo-direct`, {
+          game_code: bingoGameCode,
+          total_songs: songList.length || 75,
+          bingo_events: bingoEventsRef.current,
+        });
+        console.log(`[Rewards] Bingo points awarded on round end: ${bingoEventsRef.current.length} bingos`);
+      } catch (e) {
+        console.log('[Rewards] Bingo award failed (non-critical):', e.message);
+      }
+    }
+    bingoEventsRef.current = [];
+    
     try {
       await axios.post(`${API}/bingo/game/end-round`);
       stopTimer();
@@ -614,6 +747,22 @@ export default function HostDashboard() {
       await axios.post(`${API}/bingo/game/end-round`);
       stopTimer();
       toast.info("Round ended");
+      
+      // Auto-award bingo player rewards with song-based formula
+      if (bingoGameCode) {
+        try {
+          await axios.post(`${API}/player/award-bingo-direct`, {
+            game_code: bingoGameCode,
+            total_songs: songList.length || 75,
+            bingo_events: bingoEventsRef.current,
+          });
+          console.log(`[Rewards] Bingo points awarded: ${bingoEventsRef.current.length} bingos, ${songList.length} total songs`);
+        } catch (e) {
+          console.log('[Rewards] Bingo award failed (non-critical):', e.message);
+        }
+      }
+      // Reset bingo events for next round
+      bingoEventsRef.current = [];
     } catch (error) {
       toast.error("Failed to end round");
     }
@@ -625,6 +774,7 @@ export default function HostDashboard() {
       setCurrentSong(null);
       setNextSong(null);
       setCalledSongs([]);
+      bingoEventsRef.current = [];  // Reset bingo events for new round
       const numbers = songList.map(s => s.number);
       const shuffled = shuffleArray([...numbers]);
       setAvailableSongNumbers(shuffled);
@@ -678,11 +828,12 @@ export default function HostDashboard() {
       videoUrl: overrides.videoUrl !== undefined ? overrides.videoUrl : videoUrl,
       isPlaying: overrides.isPlaying !== undefined ? overrides.isPlaying : isPlaying,
       currentTime: videoRef.current?.currentTime || 0,
-      volume: volume,
+      volume: overrides.volume !== undefined ? overrides.volume : volume,
       showSongInfo: overrides.showSongInfo !== undefined ? overrides.showSongInfo : showSongInfoAudience,
       currentSong: overrides.currentSong !== undefined ? overrides.currentSong : currentSong,
+      calledSongs: overrides.calledSongs !== undefined ? overrides.calledSongs : calledSongs,
     });
-  }, [videoUrl, isPlaying, volume, showSongInfoAudience, currentSong]);
+  }, [videoUrl, isPlaying, volume, showSongInfoAudience, currentSong, calledSongs]);
 
   // Periodically sync playback position
   useEffect(() => {
@@ -765,8 +916,8 @@ export default function HostDashboard() {
     const duration = 3000;
     const end = Date.now() + duration;
     const frame = () => {
-      confetti({ particleCount: 7, angle: 60, spread: 55, origin: { x: 0 }, colors: ["#D946EF", "#06B6D4", "#EAB308", "#22C55E"] });
-      confetti({ particleCount: 7, angle: 120, spread: 55, origin: { x: 1 }, colors: ["#D946EF", "#06B6D4", "#EAB308", "#22C55E"] });
+      confetti({ particleCount: 7, angle: 60, spread: 55, origin: { x: 0 }, colors: THEME_CONFETTI[bingoTheme] });
+      confetti({ particleCount: 7, angle: 120, spread: 55, origin: { x: 1 }, colors: THEME_CONFETTI[bingoTheme] });
       if (Date.now() < end) requestAnimationFrame(frame);
     };
     frame();
@@ -776,7 +927,7 @@ export default function HostDashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{backgroundColor:"#0A0A0A",color:"white"}}>
+      <div className="bingo-theme min-h-screen flex items-center justify-center" data-theme={bingoTheme} style={{backgroundColor:"#0A0A0A",color:"white"}}>
         <div className="loading-balls">
           {[...Array(5)].map((_, i) => <div key={i} className="loading-ball" />)}
         </div>
@@ -789,7 +940,7 @@ export default function HostDashboard() {
   // =====================================================
   if (isMusicBingo) {
     return (
-      <div className="min-h-screen p-4" style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
+      <div className="bingo-theme min-h-screen p-4" data-theme={bingoTheme} style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
         {/* Header */}
         <header className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
@@ -800,8 +951,8 @@ export default function HostDashboard() {
             <span className="px-3 py-1 rounded-full text-sm bg-fuchsia-500/20 text-fuchsia-400">
               <Disc3 size={14} className="inline mr-1" />{gameState?.settings?.music_decade || "Music"}
             </span>
-            <span className={`px-2 py-1 rounded text-xs ${songListSource === "sharepoint" ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
-              {songListSource === "sharepoint" ? "SharePoint" : "Sample Data"}
+            <span className={`px-2 py-1 rounded text-xs ${songListSource === "local-folder" ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
+              {songListSource === "local-folder" ? "Bingo folder" : "Sample Data"}
             </span>
           </div>
           <div className="flex items-center gap-4">
@@ -855,7 +1006,7 @@ export default function HostDashboard() {
                     <p className="text-zinc-400 text-lg mb-2">
                       {Object.keys(videoFiles).length > 0 ? `${Object.keys(videoFiles).length} videos loaded` : "Load your video files"}
                     </p>
-                    <p className="text-zinc-600 text-sm mb-4">Files should start with numbers: 01_Song.mp4, 02_Song.mp4...</p>
+                    <p className="text-zinc-600 text-sm mb-4">{songListSource === "local-folder" ? "Streaming from your Bingo folder. Press Next Song to start." : "Files should start with numbers: 01_Song.mp4, 02_Song.mp4..."}</p>
                     <div className="flex gap-3">
                       <label className="cursor-pointer">
                         <input type="file" accept="video/*,.mp4,.webm,.mov" multiple webkitdirectory="" directory="" onChange={handleFolderSelect} className="hidden" />
@@ -1008,11 +1159,11 @@ export default function HostDashboard() {
                     <Button
                       className="w-full btn-primary control-btn animate-pulse-glow"
                       onClick={callNextSong}
-                      disabled={gameState?.is_paused || Object.keys(videoFiles).length === 0}
+                      disabled={gameState?.is_paused || Object.keys(videoFiles).length === 0 || songCooldown}
                       data-testid="next-song-btn"
                     >
                       <Music size={24} className="mr-2" />
-                      Next Song
+                      {songCooldown ? 'Loading...' : 'Next Song'}
                     </Button>
 
                     {!gameState?.is_paused ? (
@@ -1056,8 +1207,7 @@ export default function HostDashboard() {
               <DialogTitle className="font-display text-3xl text-center text-yellow-400">BINGO Claimed!</DialogTitle>
             </DialogHeader>
             <div className="py-6 space-y-4">
-              <p className="text-center text-zinc-400">Verify the player's card and enter their name</p>
-              <Input placeholder="Winner's name" value={winnerName} onChange={(e) => setWinnerName(e.target.value)} className="bg-zinc-800 border-zinc-700 text-center text-lg text-white placeholder:text-zinc-500" />
+              <p className="text-center text-zinc-400">Verify the player's bingo card</p>
             </div>
             <DialogFooter className="flex gap-4">
               <Button variant="destructive" className="flex-1" onClick={() => verifyBingo(false)}>
@@ -1079,7 +1229,7 @@ export default function HostDashboard() {
   // TRADITIONAL BINGO LAYOUT
   // =====================================================
   return (
-    <div className="min-h-screen p-4" style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
+    <div className="bingo-theme min-h-screen p-4" data-theme={bingoTheme} style={{backgroundColor:"#0A0A0A",color:"white"}} data-testid="host-dashboard">
       <header className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/bingo")} className="text-zinc-400 hover:text-white hover:bg-zinc-800" data-testid="back-to-lobby-btn">
@@ -1106,7 +1256,7 @@ export default function HostDashboard() {
             <div className={`video-frame aspect-video relative ${isDragging ? "border-cyan-500" : ""}`} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
               {videoUrl ? (
                 <>
-                  <video ref={videoRef} src={videoUrl} className="w-full h-full object-contain bg-black" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} />
+                  <video ref={videoRef} src={videoUrl} preload="auto" muted className="w-full h-full object-contain bg-black" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} />
                   <div className="video-controls flex items-center gap-4">
                     <Button size="icon" variant="ghost" onClick={togglePlay} className="text-white hover:bg-white/20">
                       {isPlaying ? <Pause size={24} /> : <Play size={24} className="fill-white" />}
@@ -1248,8 +1398,7 @@ export default function HostDashboard() {
             <DialogTitle className="font-display text-3xl text-center text-yellow-400">BINGO Claimed!</DialogTitle>
           </DialogHeader>
           <div className="py-6 space-y-4">
-            <p className="text-center text-zinc-400">Verify the player's card and enter their name</p>
-            <Input placeholder="Winner's name" value={winnerName} onChange={(e) => setWinnerName(e.target.value)} className="bg-zinc-800 border-zinc-700 text-center text-lg text-white placeholder:text-zinc-500" />
+            <p className="text-center text-zinc-400">Verify the player's bingo card</p>
           </div>
           <DialogFooter className="flex gap-4">
             <Button variant="destructive" className="flex-1" onClick={() => verifyBingo(false)}>
@@ -1272,17 +1421,56 @@ export default function HostDashboard() {
             src={getWinnerVideoUrl()}
             autoPlay
             loop
+            playsInline
             className="w-full h-full object-contain"
-            style={{ maxHeight: '80vh' }}
+            style={{ maxHeight: '70vh' }}
           />
+          {/* Winner name input + submit */}
+          <div className="absolute bottom-28 flex items-center gap-3 px-4 w-full max-w-md">
+            <Input
+              placeholder="Enter winner's name..."
+              value={winnerName}
+              onChange={(e) => setWinnerName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitWinnerName()}
+              className="bg-zinc-800/90 border-yellow-500/50 text-center text-lg text-white placeholder:text-zinc-500 flex-1"
+              data-testid="winner-name-input"
+            />
+            <button onClick={submitWinnerName} className="px-6 py-3 rounded-xl text-base font-bold" style={{ backgroundColor: '#fbdd68', color: '#000' }}>
+              Submit
+            </button>
+          </div>
+          {/* Continue / End Round buttons */}
           <div className="absolute bottom-8 flex gap-4">
-            <button onClick={handleWinnerContinue} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#22c55e', color: '#000' }}>
+            <button onClick={handleWinnerContinue} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#22c55e', color: '#000' }} data-testid="winner-continue-btn">
               Continue Round
             </button>
-            <button onClick={handleWinnerEndRound} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#ef4444', color: '#fff' }}>
+            <button onClick={handleWinnerEndRound} className="px-8 py-4 rounded-xl text-lg font-bold transition-all hover:scale-105" style={{ backgroundColor: '#ef4444', color: '#fff' }} data-testid="winner-end-btn">
               End Round
             </button>
           </div>
+        </div>
+      )}
+      {/* Rewards Splash Overlay — shown at game start */}
+      {showRewardsSplash && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 cursor-pointer"
+          onClick={() => { setShowRewardsSplash(false); clearTimeout(rewardsSplashTimerRef.current); }}
+          data-testid="rewards-splash">
+          <div className="relative" style={{ width: '80vw', maxWidth: 800, aspectRatio: '16/9' }}>
+            <img src="/rewards-promo.jpg" alt="BIG Hat Rewards" className="w-full h-full object-contain rounded-2xl" />
+            {/* Dynamic QR overlay */}
+            <div className="absolute flex items-center justify-center" style={{ left: '37%', top: '20%', width: '26%', height: '50%' }}>
+              <div className="bg-white rounded-2xl p-3 shadow-2xl">
+                <QRCodeSVG value={`${window.location.origin}/player?code=${bingoGameCode}`} size={180} />
+              </div>
+            </div>
+            {/* Game code */}
+            <div className="absolute text-center" style={{ left: '30%', bottom: '12%', width: '40%' }}>
+              <p className="text-4xl font-black tracking-wider" style={{ color: '#fbdd68', fontFamily: "'Space Grotesk', sans-serif", textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
+                {bingoGameCode}
+              </p>
+            </div>
+          </div>
+          <p className="absolute bottom-8 text-zinc-500 text-sm">Click anywhere to dismiss</p>
         </div>
       )}
     </div>

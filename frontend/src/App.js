@@ -19,6 +19,7 @@ import TriviaAudienceView from './pages/trivia/TriviaAudienceView';
 import RoundMakerDashboard from './pages/roundmaker/RoundMakerDashboard';
 import RoundCreator from './pages/roundmaker/RoundCreator';
 import BingoLobby from './pages/bingo/Lobby';
+import BingoSetup from './pages/bingo/Setup';
 import BingoHostDashboard from './pages/bingo/HostDashboard';
 import BingoAudienceView from './pages/bingo/AudienceView';
 import ScoreboardDashboard from './pages/scoreboard/ScoreboardDashboard';
@@ -156,6 +157,7 @@ function AppRoutes() {
         <Route path="/roundmaker" element={<ProtectedRoute><RoundMakerDashboard /></ProtectedRoute>} />
         <Route path="/roundmaker/create/:roundType" element={<ProtectedRoute><RoundCreator /></ProtectedRoute>} />
         <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
+        <Route path="/bingo/setup" element={<ProtectedRoute><BingoSetup /></ProtectedRoute>} />
         <Route path="/bingo/host" element={<ProtectedRoute><BingoHostDashboard /></ProtectedRoute>} />
         <Route path="/bingo/audience" element={<BingoAudienceView />} />
         <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />

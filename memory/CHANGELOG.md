@@ -8,6 +8,14 @@
 ---
 ---
 
+## 2026-10-02 — v32.0.0-alpha.67: Bingo player (Traditional / Music, themes, Bingo Setup)
+- First Bingo screen: Traditional Bingo or Music Bingo, then Regular or Lightning. Quick Play screen no longer shown.
+- Colour themes: blue (main page + Traditional), purple (Music, unchanged), yellow (Lightning). Resets to blue back at the lobby. Scoped to .bingo-theme so nothing else changes.
+- Music Bingo ported from the prototype host: pre-buffering, audience carries the sound, 5-second song cooldown, game survives an app restart.
+- Bingo Setup: main Bingo folder + per-theme ON/OFF. Each sub folder is a theme (song list .xlsx/.csv + numbered videos). No SharePoint.
+- Videos stream from the Bingo folder (supports seeking). Songs without a video are skipped.
+- Trivia player untouched.
+
 ## 2026-10-02 — v32.0.0-alpha.66: BIG round, ending of the show, Final Scores board
 - REG / MISC / MYS question slides use the MC layout (top y=200, 50px gaps) and leave room for a GIF / image / video under the question; per-question media is now drawn on the slide.
 - BIG overlay on BIG question, review, answers, tiebreaker question and tiebreaker answer.

@@ -2193,8 +2193,12 @@ except Exception as e:
 # Mount Bingo routes
 try:
     from routes import bingo as bingo_routes
+    from routes import bingo_setup as bingo_setup_routes
     if hasattr(bingo_routes, 'set_database'):
         bingo_routes.set_database(db)
+    # alpha.67: Bingo Setup (main folder, themes, streaming) FIRST so its
+    # /available-decades and /songlist/{decade} replace the SharePoint ones.
+    api_router.include_router(bingo_setup_routes.router)
     api_router.include_router(bingo_routes.router)
     logger.info("Bingo routes mounted successfully")
 except Exception as e:

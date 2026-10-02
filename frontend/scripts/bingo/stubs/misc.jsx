@@ -1,0 +1,11 @@
+import React from 'react';
+export const Slider = ({value, onValueChange, ...p}) => <input type="range" data-testid={p['data-testid']} value={(value||[0])[0]} onChange={e=>onValueChange&&onValueChange([Number(e.target.value)])} />;
+export const Input = (p) => <input {...p} />;
+export const QRCodeSVG = () => <svg data-testid="qr" />;
+export const Dialog = ({children, open}) => open ? <div>{children}</div> : null;
+export const DialogContent = ({children}) => <div>{children}</div>;
+export const DialogHeader = ({children}) => <div>{children}</div>;
+export const DialogTitle = ({children}) => <div>{children}</div>;
+export const DialogDescription = ({children}) => <div>{children}</div>;
+export const DialogFooter = ({children}) => <div>{children}</div>;
+export default () => null;
