@@ -5,7 +5,7 @@ import axios from 'axios';
 import BIGHatFileButtons from '../../components/BIGHatFileButtons';
 import {
   HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock, ExternalLink,
-  ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Shield, RefreshCw, AlertTriangle
+  ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Shield, RefreshCw, AlertTriangle, Settings
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -148,6 +148,17 @@ export default function TriviaDashboard() {
                   imported round lands in the library and the host
                   picks it up from there. */}
               <BIGHatFileButtons type="presentation" onImported={() => loadData()} />
+              {/* alpha.69: Trivia Setup moved here from the Admin page (like Bingo Setup in the Bingo player). Admins only. */}
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/trivia/setup')}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/5"
+                  style={{ color: '#fbdd68', border: '1px solid rgba(251, 221, 104, 0.3)' }}
+                  data-testid="trivia-setup-btn"
+                >
+                  <Settings size={16} /> Trivia Setup
+                </button>
+              )}
             </div>
           </div>
         </div>

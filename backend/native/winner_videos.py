@@ -41,6 +41,22 @@ def key(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", base)
 
 
+# Names that mean the same theme. Any of them finds a video named after any other.
+ALIAS_GROUPS = [
+    {"xmas", "christmas", "xmass", "holiday", "holidays", "merrychristmas", "xmasmusic", "christmasmusic"},
+    {"2000s", "y2k", "00s", "twothousands"},
+    {"poppunkandemo", "poppunk", "emo", "poppunkemo"},
+]
+
+
+def aliases(k: str) -> set:
+    out = {k}
+    for g in ALIAS_GROUPS:
+        if k in g:
+            out |= g
+    return out
+
+
 def short_key(k: str) -> str:
     """1980s -> 80s, 1970s -> 70s, 2000s -> y2k (the old names)."""
     m = re.fullmatch(r"(19|20)(\d)0s", k)
@@ -81,25 +97,34 @@ def all_videos() -> Dict[str, Path]:
     return v
 
 
-def find(theme: str) -> Optional[Path]:
-    """The winner video for a theme, or the generic one, or None."""
-    vids = all_videos()
+def _match(theme: str, vids: Dict[str, Path]) -> Optional[Path]:
     k = key(theme or "")
     if k in vids:
         return vids[k]
     for name, p in vids.items():
         if name != "generic" and short_key(name) == short_key(k) and k:
             return p
-    if k == "y2k" and "2000s" in vids:
-        return vids["2000s"]
-    if k == "2000s" and "y2k" in vids:
-        return vids["y2k"]
+    for a in aliases(k):
+        if a in vids:
+            return vids[a]
     # a theme called "Emo" still finds "Pop-Punk and Emo" (whole-name match only, 3+ letters)
     if len(k) >= 3:
         for name, p in vids.items():
             if name != "generic" and (k in name or name in k):
                 return p
-    return vids.get("generic")
+    return None
+
+
+def find(theme: str) -> Optional[Path]:
+    """The winner video for a theme. The user's own files are tried first, then the
+    built-in ones, then (Generic). So adding Christmas.mp4 beats the built-in (X-Mas).mp4."""
+    seed()
+    mine = _scan(user_dir())
+    # files the user added themselves (not just seeded copies of the built-in ones)
+    built_in = {p.name for p in bundled_dir().iterdir()} if bundled_dir().is_dir() else set()
+    own = {k: p for k, p in mine.items() if p.name not in built_in}
+    hit = _match(theme, own) or _match(theme, mine) or _match(theme, all_videos())
+    return hit or all_videos().get("generic")
 
 
 def listing() -> List[Dict[str, object]]:

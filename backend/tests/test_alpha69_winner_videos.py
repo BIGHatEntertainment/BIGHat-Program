@@ -87,3 +87,26 @@ def test_delete_only_user_files_and_no_path_tricks(client):
     assert c.delete("/api/bingo/winner-videos/Zydeco.mp4").status_code == 404
     assert c.delete("/api/bingo/winner-videos/..%2F..%2Fetc%2Fpasswd").status_code in (404, 405)
     assert c.get("/api/bingo/winner-video/..%2F..%2Fetc%2Fpasswd").headers["content-type"] == "video/mp4"  # falls to Generic, never a real path
+
+
+def test_christmas_names_are_interchangeable(client):
+    c, _ = client
+    sizes = {v["name"]: v["size"] for v in c.get("/api/bingo/winner-videos").json()["videos"]}
+    for theme in ["X-Mas", "Xmas", "Christmas", "Holiday", "Holidays", "Merry Christmas"]:
+        r = c.get("/api/bingo/winner-video/" + theme)
+        assert len(r.content) == sizes["(X-Mas).mp4"], theme
+
+
+def test_alias_works_the_other_way_round(client):
+    c, _ = client
+    # a file named Christmas.mp4 is found by the theme "X-Mas" (and by "Holiday")
+    c.post("/api/bingo/winner-videos", files=[("files", ("Christmas.mp4", io.BytesIO(b"c" * 321), "video/mp4"))])
+    for theme in ["Christmas", "Xmas"]:
+        assert len(c.get("/api/bingo/winner-video/" + theme).content) == 321, theme
+
+
+def test_y2k_and_emo_aliases_still_work(client):
+    c, _ = client
+    sizes = {v["name"]: v["size"] for v in c.get("/api/bingo/winner-videos").json()["videos"]}
+    assert len(c.get("/api/bingo/winner-video/Y2K").content) == sizes["(2000's).mp4"]
+    assert len(c.get("/api/bingo/winner-video/Emo").content) == sizes["(Pop-Punk and Emo).mp4"]

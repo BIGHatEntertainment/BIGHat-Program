@@ -15,7 +15,9 @@
 - Matching is by file name with punctuation ignored: (1980's).mp4 = 1980s; Y2K = (2000's).mp4; "Emo" finds (Pop-Punk and Emo).mp4. No match, or Traditional Bingo, plays (Generic).mp4.
 - Bingo Setup: new "Winner videos" section with an "Add winner videos" button (pick several .mp4 / .webm / .mov at once), the saved-in path, and a remove button on the ones you added.
 - Old frontend/public/bingo-winner-*.mp4 files removed (they were never reachable).
-- Trivia player untouched.
+- Theme name aliases: X-Mas / Xmas / Christmas / Holiday(s) are interchangeable; 2000s = Y2K; Emo = Pop-Punk and Emo. Videos you add yourself always beat the built-in ones.
+- Trivia Setup moved from the Admin page into the Trivia player: new "Trivia Setup" button (admins and master admins only) on the Trivia Presenter screen opens /trivia/setup. Every function is unchanged (locations, branding, overlays, slide style, global slides, admin assignments). The Admin page keeps User Management + Event Management.
+- Trivia player (presenter, play, editor, audience screens) untouched.
 
 ## 2026-10-02 — v32.0.0-alpha.68: Bingo player fixes (playback sync, winner screen, end-round pop-up)
 - Host no longer has file upload boxes (songs and videos come from Bingo Setup only).
