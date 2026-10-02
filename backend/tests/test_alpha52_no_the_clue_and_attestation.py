@@ -67,7 +67,7 @@ def test_every_slide_has_prototype_provenance():
             for i in range(1, 11)
         ],
     }
-    slides = ns.render_round_section(doc, {"type": "MC", "name": doc["name"], "order": 1})
+    slides = [s for s in ns.render_round_section(doc, {"type": "MC", "name": doc["name"], "order": 1}) if not s['metadata'].get('isScoreSlide')]
     for s in slides:
         md = s.get("metadata") or {}
         assert md.get("_verified_from_prototype") or md.get("_title_card_source"), (
@@ -80,7 +80,7 @@ def test_title_card_source_flag_records_fallback():
     """When no embedded cover AND no disk asset, the fallback source is
     stamped `bundled-default` (a placeholder JPG/SVG in frontend/public)."""
     doc = {"round_type": "MC", "name": "MC Test", "questions": []}
-    slides = ns.render_round_section(doc, {"type": "MC", "name": "MC Test", "order": 1})
+    slides = [s for s in ns.render_round_section(doc, {"type": "MC", "name": "MC Test", "order": 1}) if not s['metadata'].get('isScoreSlide')]
     title_md = slides[0]["metadata"]
     assert title_md.get("isRoundTitle") is True
     assert title_md.get("_title_card_source") in (
@@ -116,7 +116,7 @@ def test_reg_round_uses_per_category_title_card_from_disk(tmp_path, monkeypatch)
             for i in range(1, 11)
         ],
     }
-    slides = ns.render_round_section(doc, {"type": "REG", "name": "Animals", "order": 2})
+    slides = [s for s in ns.render_round_section(doc, {"type": "REG", "name": "Animals", "order": 2}) if not s['metadata'].get('isScoreSlide')]
     title = slides[0]
     md = title["metadata"]
     assert md["_title_card_source"].startswith("disk-category:animals"), md["_title_card_source"]

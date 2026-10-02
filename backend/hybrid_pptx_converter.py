@@ -666,45 +666,31 @@ class HybridPPTXConverter:
                     elif total_q_len > 100:
                         question_font_size = 32
                     
-                    # Format question elements - 50px buffer, top edge at Y=150
-                    if len(question_elements) == 1:
-                        q = question_elements[0]
-                        q.x = CONTENT_X       # 50px buffer from 9:16 left edge (706px)
-                        q.width = CONTENT_W   # 508px
-                        q.y = MC_QUESTION_TOP # Fixed top edge at 150
-                        q.height = 350
+                    # alpha.65: lowered 50px; 50px gaps number -> question -> options
+                    GAP = 50
+                    next_y = MC_QUESTION_TOP + 50
+                    for q in question_elements:
+                        is_number = bool(re.match(r'^question\s*\d+', (q.content or '').strip(), re.IGNORECASE))
+                        fs = 36 if is_number else question_font_size
+                        chars_per_line = max(10, int(CONTENT_W / (fs * 0.55)))
+                        lines = 1 if is_number else max(1, -(-len(q.content or '') // chars_per_line))
+                        q.x = CONTENT_X
+                        q.width = CONTENT_W
+                        q.y = next_y
+                        q.height = int(lines * fs * 1.3)
                         q.textAlign = "center"
                         q.color = "#FFFFFF"
                         q.fontFamily = "Inter, sans-serif"
-                        q.fontSize = question_font_size
+                        q.fontSize = fs
                         q.fontWeight = "normal"
-                    elif len(question_elements) > 1:
-                        # Multiple question elements - space them evenly
-                        num_q = len(question_elements)
-                        available_height = 500  # Available space for questions
-                        spacing = max(int(available_height / num_q), 40)  # Min 40px spacing
-                        
-                        logger.info(f"📋 MC slide {idx + 1}: {num_q} question elements, spacing={spacing}px")
-                        
-                        for i, q in enumerate(question_elements):
-                            q.x = CONTENT_X
-                            q.width = CONTENT_W
-                            q.y = MC_QUESTION_TOP + (i * spacing)
-                            q.height = max(spacing - 10, 30)  # Height with small gap
-                            q.textAlign = "center"
-                            q.color = "#FFFFFF"
-                            q.fontFamily = "Inter, sans-serif"
-                            q.fontSize = question_font_size
-                            q.fontWeight = "bold" if i == 0 else "normal"
-                            
-                            logger.debug(f"  Q{i+1}: y={q.y}, height={q.height}")
+                        next_y = q.y + q.height + GAP
+                    options_top = next_y
                     
                     # Options: 175px to the right of 9:16 left side
                     if len(options) >= 4:
                         options.sort(key=lambda opt: (opt.content or '')[0])
                         
                         option_height = 55
-                        option_d_y = MAX_BOTTOM - option_height
                         option_spacing = 71
                         opt_font_size = 31
                         
@@ -715,10 +701,10 @@ class HybridPPTXConverter:
                             300
                         )
                         option_y_positions = [
-                            option_d_y - (3 * option_spacing),
-                            option_d_y - (2 * option_spacing),
-                            option_d_y - (1 * option_spacing),
-                            option_d_y
+                            options_top,
+                            options_top + option_spacing,
+                            options_top + 2 * option_spacing,
+                            options_top + 3 * option_spacing
                         ]
                         
                         for opt_idx, opt in enumerate(options[:4]):

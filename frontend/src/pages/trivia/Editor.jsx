@@ -1900,7 +1900,7 @@ const Editor = () => {
           // Question slides (1-10)
           if (posInRound >= 1 && posInRound <= 10) {
             // Separate question text from options (yellow A, B, C, D)
-            const optionPattern = /^[A-D]\)/i;
+            const optionPattern = /^[\(\[]?[A-D][\)\]\.\:]/i;
             const questionElements = [];
             const options = [];
             
@@ -1917,37 +1917,32 @@ const Editor = () => {
             const totalQLen = questionElements.reduce((sum, el) => sum + (el.content || '').length, 0);
             const qFontSize = dynamicFontSize(totalQLen, 34, 24);
             
-            if (questionElements.length === 1) {
-              const q = questionElements[0];
-              q.x = CONTENT_X;           // 50px buffer from 9:16 left edge (706px)
-              q.width = CONTENT_W;       // 508px
-              q.y = MC_QUESTION_TOP;     // Fixed top edge at 150
-              q.height = 350;
+            // alpha.65 layout: everything lowered 50px (top = 200).
+            // "Question N" first, 50px gap, question text, 50px gap, options.
+            const GAP = 50;
+            const MC_TOP = MC_QUESTION_TOP + 50;   // 200
+            let nextY = MC_TOP;
+            questionElements.forEach((q, i) => {
+              const isNumber = /^question\s*\d+/i.test((q.content || '').trim());
+              const fs = isNumber ? 36 : qFontSize;
+              const charsPerLine = Math.max(10, Math.floor(CONTENT_W / (fs * 0.55)));
+              const lines = isNumber ? 1 : Math.max(1, Math.ceil((q.content || '').length / charsPerLine));
+              q.x = CONTENT_X;
+              q.width = CONTENT_W;
+              q.y = nextY;
+              q.height = Math.ceil(lines * fs * 1.3);
               q.textAlign = 'center';
               q.color = '#FFFFFF';
-              q.fontSize = qFontSize;
+              q.fontSize = fs;
               q.fontWeight = 'normal';
               q.fontFamily = 'Inter, sans-serif';
-            } else if (questionElements.length > 1) {
-              // Stack multiple question elements starting at Y=150
-              const spacing = Math.floor(300 / questionElements.length);
-              questionElements.forEach((q, i) => {
-                q.x = CONTENT_X;
-                q.width = CONTENT_W;
-                q.y = Math.max(MC_QUESTION_TOP + (i * spacing), MC_QUESTION_TOP); // Never < 150
-                q.height = spacing;
-                q.textAlign = 'center';
-                q.color = '#FFFFFF';
-                q.fontSize = qFontSize;
-                q.fontWeight = 'normal';
-                q.fontFamily = 'Inter, sans-serif';
-              });
-            }
+              nextY = q.y + q.height + GAP;
+            });
+            const optionsTop = nextY;   // 50px under the question text
             
             // Options: 175px to the right of 9:16 left side
             if (options.length >= 4) {
               const optH = 55;
-              const optDY = MAX_BOTTOM - optH;
               const optSpacing = 71;
               const optFontSize = 31;
               
@@ -1962,7 +1957,7 @@ const Editor = () => {
               options.forEach((opt, i) => {
                 opt.x = ANSWER_X;  // 175px from 9:16 left = 831px
                 opt.width = maxWidth;
-                opt.y = optDY - ((3 - i) * optSpacing);
+                opt.y = optionsTop + (i * optSpacing);
                 opt.height = optH;
                 opt.textAlign = 'left';
                 opt.color = '#FFD700';

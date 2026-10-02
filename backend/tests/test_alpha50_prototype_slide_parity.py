@@ -54,40 +54,40 @@ def _make_questions(n: int):
 def test_mc_round_produces_exactly_14_slides(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "MC", "questions": _make_questions(10), "name": "MC-01-A"},
         {"type": "MC", "name": "MC-01-A", "order": 1},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     assert len(slides) == 14, f"MC prototype spec = 14 slides, got {len(slides)}"
 
 
 def test_reg_round_produces_exactly_14_slides(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "REG", "questions": _make_questions(10), "name": "REG-01-A"},
         {"type": "REG", "name": "REG-01-A", "order": 2},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     assert len(slides) == 14, f"REG prototype spec = 14 slides, got {len(slides)}"
 
 
 def test_misc_round_produces_exactly_14_slides(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "MISC", "questions": _make_questions(10), "name": "MISC-01-A"},
         {"type": "MISC", "name": "MISC-01-A", "order": 3},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     assert len(slides) == 14
 
 
 def test_mys_round_produces_exactly_13_slides(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "MYS", "questions": _make_questions(9), "name": "MYS-01-A"},
         {"type": "MYS", "name": "MYS-01-A", "order": 4},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     assert len(slides) == 13, f"MYS prototype spec = 13 slides, got {len(slides)}"
 
 
@@ -128,10 +128,10 @@ def test_big_round_produces_5_slides_without_tiebreaker(tmp_path, monkeypatch):
 def test_mc_slide_positions_match_prototype(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "MC", "questions": _make_questions(10), "name": "MC-01-A"},
         {"type": "MC", "name": "MC-01-A", "order": 1},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     # slideIndexInRound field must match prototype positions
     assert slides[0]["metadata"]["slideIndexInRound"] == 0
     assert slides[0]["metadata"]["isRoundTitle"] is True
@@ -181,10 +181,10 @@ def test_mc_answer_slide_has_no_title_element(tmp_path, monkeypatch):
     progressive reveal by 1 and the whole grading UX breaks."""
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "MC", "questions": _make_questions(10), "name": "MC-01-A"},
         {"type": "MC", "name": "MC-01-A", "order": 1},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     answers_slide = slides[13]
     text_elements = [e for e in answers_slide["elements"] if e["type"] == "text"]
     # ALL text elements must be answers — 10 of them for MC.
@@ -204,10 +204,10 @@ def test_mc_answer_slide_has_no_title_element(tmp_path, monkeypatch):
 def test_mys_answer_slide_has_no_title_element_9_answers(tmp_path, monkeypatch):
     monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
     render = _fresh_native_slides()
-    slides = render(
+    slides = [s for s in render(
         {"round_type": "MYS", "questions": _make_questions(9), "name": "MYS-01-A"},
         {"type": "MYS", "name": "MYS-01-A", "order": 4},
-    )
+    ) if not s['metadata'].get('isScoreSlide')]
     answers_slide = slides[12]
     text_elements = [e for e in answers_slide["elements"] if e["type"] == "text"]
     assert len(text_elements) == 9, (
@@ -240,10 +240,10 @@ def test_gif_stop_slide_present_and_flagged(tmp_path, monkeypatch):
     render = _fresh_native_slides()
     for round_type, expected_pos in (("MC", 12), ("REG", 12), ("MISC", 12), ("MYS", 11), ("BIG", 2)):
         n = 9 if round_type == "MYS" else (1 if round_type == "BIG" else 10)
-        slides = render(
+        slides = [s for s in render(
             {"round_type": round_type, "questions": _make_questions(n), "name": f"{round_type}-01-A"},
             {"type": round_type, "name": f"{round_type}-01-A", "order": 1},
-        )
+        ) if not s['metadata'].get('isScoreSlide')]
         gif_slide = slides[expected_pos]
         assert gif_slide["metadata"].get("isGifStop") is True, (
             f"{round_type} slide at position {expected_pos} must have isGifStop=True"

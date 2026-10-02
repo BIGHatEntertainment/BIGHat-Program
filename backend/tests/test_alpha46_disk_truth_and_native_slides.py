@@ -149,7 +149,7 @@ def test_native_render_round_produces_full_slide_sequence(tmp_path, monkeypatch)
 
     from native_slides import load_presentation_from_disk, native_render_section
     pres = load_presentation_from_disk(ids["pres_id"])
-    slides = native_render_section(pres, "round_1")
+    slides = [s for s in native_render_section(pres, "round_1") if not s["metadata"].get("isScoreSlide")]
 
     # v32.0.0-alpha.50: MC rounds ALWAYS produce 14 slides per the
     # prototype spec (0=title, 1-10=questions, 11=review, 12=.gif(STOP),

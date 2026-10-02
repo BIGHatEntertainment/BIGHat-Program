@@ -98,20 +98,20 @@ def test_short_round_has_no_blank_slides_and_keeps_player_positions(env):
     ref = {"type": "REG", "name": "short", "order": 2, "special": True}
     data = {"round_type": "REG", "name": "short",
             "questions": [{"number": i + 1, "question": f"Q{i+1}", "answer": f"A{i+1}"} for i in range(4)]}
-    sl = ns.render_round_section(data, ref)
+    sl = [s for s in ns.render_round_section(data, ref) if not s['metadata'].get('isScoreSlide')]
     kinds = [("title" if s["metadata"].get("isTitleCard") else "gif" if s["metadata"].get("isGifStop")
               else "review" if s["metadata"].get("isReview") else "answers" if s["metadata"].get("isAnswers") else "q") for s in sl]
     assert kinds == ["title", "q", "q", "q", "q", "review", "gif", "answers"]      # no blank Q5-Q10
     pos = {k: s["metadata"]["slideIndexInRound"] for k, s in zip(kinds, sl) if k in ("review", "gif", "answers")}
     assert pos == {"review": 11, "gif": 12, "answers": 13}                          # player timers/reveal still work
-    normal = ns.render_round_section(data, {"type": "REG", "name": "short", "order": 2})
+    normal = [s for s in ns.render_round_section(data, {"type": "REG", "name": "short", "order": 2}) if not s["metadata"].get("isScoreSlide")]
     assert len(normal) == 14                                                        # normal shows unchanged
 
 
 def test_short_mys_positions(env):
     ns = env[2]
     data = {"round_type": "MYS", "name": "m", "questions": [{"number": i + 1, "question": "q", "answer": "a"} for i in range(3)]}
-    sl = ns.render_round_section(data, {"type": "MYS", "name": "m", "order": 1, "special": True})
+    sl = [s for s in ns.render_round_section(data, {"type": "MYS", "name": "m", "order": 1, "special": True}) if not s["metadata"].get("isScoreSlide")]
     idx = {("review" if s["metadata"].get("isReview") else "gif" if s["metadata"].get("isGifStop") else "answers" if s["metadata"].get("isAnswers") else "x"): s["metadata"]["slideIndexInRound"] for s in sl}
     assert (idx["review"], idx["gif"], idx["answers"]) == (10, 11, 12)
 

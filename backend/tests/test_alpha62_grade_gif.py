@@ -15,7 +15,7 @@ def _round(n_q, rtype="REG"):
 
 def _slides(n_q, rtype="REG"):
     ref, data = _round(n_q, rtype)
-    return ns.render_round_section(data, ref)
+    return [s for s in ns.render_round_section(data, ref) if not s['metadata'].get('isScoreSlide')]
 
 
 def test_gif_is_bundled_and_real():
@@ -81,7 +81,8 @@ def _kinds(rtype, n):
     out = []
     for s in ns.render_round_section(data, ref):
         m = s.get("metadata") or {}
-        if m.get("isTitleCard"): out.append("title")
+        if m.get("isScoreSlide"): out.append("score")
+        elif m.get("isTitleCard"): out.append("title")
         elif m.get("isGifStop"): out.append("gif")
         elif m.get("isReview"): out.append("review")
         elif m.get("isTiebreaker") and m.get("isAnswers"): out.append("tb-answer")
@@ -94,11 +95,11 @@ def _kinds(rtype, n):
 def test_mc_reg_misc_order_and_answers_last():
     for t in ("MC", "REG", "MISC"):
         k = _kinds(t, 5)
-        assert k == ["title"] + ["question"] * 10 + ["review", "gif", "answers"], t
+        assert k == ["title"] + ["question"] * 10 + ["review", "gif", "answers", "score"], t
 
 
 def test_mys_order_and_answers_last():
-    assert _kinds("MYS", 5) == ["title"] + ["question"] * 9 + ["review", "gif", "answers"]
+    assert _kinds("MYS", 5) == ["title"] + ["question"] * 9 + ["review", "gif", "answers", "score"]
 
 
 def test_big_order():

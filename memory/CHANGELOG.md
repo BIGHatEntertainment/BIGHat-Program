@@ -8,6 +8,10 @@
 ---
 ---
 
+## 2026-10-01 — v32.0.0-alpha.65: MC spacing, score slide restored
+- MC question slides: options recognised as "A." / "A)" / "(A)"; text lowered 50px; 50px gaps between "Question N", question text and options (Editor.jsx + hybrid_pptx_converter.py).
+- Blank score slide (isScoreSlide) added after every MC/REG/MISC/MYS round so Score Tracker upload works again.
+
 ## 2026-10-01 — v32.0.0-alpha.64: lobby details, overlays after restart, Mystery theme reveal
 - Lobby "Presentation Details" now shows real location, host, date, creator, round names and slide counts.
 - Location overlays are read from disk (location.json), so they apply after an app restart.

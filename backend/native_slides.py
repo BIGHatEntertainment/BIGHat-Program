@@ -1322,6 +1322,16 @@ def render_round_section(
                              metadata=meta(slideIndexInRound=ans_idx, isAnswers=True,
                                            _verified_from_prototype="PresentationMode.jsx#L67-L129 (answers reveal, NO title element)")))
 
+    # alpha.65: blank SCORE slide after every MC / REG / MISC / MYS round.
+    # The Score Tracker upload finds it by metadata.isScoreSlide and fills it.
+    # (BIG rounds do not get one.)
+    if not is_big:
+        slides.append(_slide(ans_idx + 1, [], background=BG_BLUE, metadata={
+            "roundType": rtype, "roundNumber": rorder, "roundName": rname,
+            "isScoreSlide": True,
+            "_verified_from_prototype": "slide_fetcher.py (blank score slide after MC/REG/MISC/MYS)",
+        }))
+
     return slides
 
 
