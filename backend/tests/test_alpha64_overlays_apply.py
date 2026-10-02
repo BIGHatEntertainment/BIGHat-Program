@@ -104,3 +104,34 @@ def test_no_overlays_means_slides_unchanged(world):
     boot, tmp_path = world
     import native_slides as ns
     assert ns.load_location_overlays({"location_id": "nope"}) == []
+
+
+def test_big_overlay_on_question_review_answers_and_tiebreakers(world):
+    """alpha.66: BIG overlay on BIG question, review, answers, tiebreaker Q and
+    tiebreaker answer. Not on the title card or the grade GIF. Works after a
+    restart (DB wiped)."""
+    boot, tmp_path = world
+    lid, pres, ids = setup_show(boot, tmp_path)
+    shutil.rmtree(tmp_path / "db", ignore_errors=True)
+    import native_slides as ns
+    sl = ns.native_render_section(pres, "round_3", {})
+    md = [s["metadata"] for s in sl]
+    assert md[0].get("isRoundTitle") and not has_overlay(sl[0])
+    for i, s in enumerate(sl):
+        m = s["metadata"]
+        if m.get("isGifStop") or m.get("isRoundTitle"):
+            assert not has_overlay(s), f"slide {i} should have no overlay"
+        else:
+            assert has_overlay(s), f"slide {i} {m} missing BIG overlay"
+            assert s["metadata"]["_location_overlays_applied"] == [ids["big.gif"]]
+    kinds = [(m.get("isReview"), m.get("isAnswers"), m.get("isTiebreaker")) for m in md]
+    assert (True, None, None) in kinds and any(k[2] and k[1] for k in kinds) and any(k[2] and not k[1] for k in kinds)
+
+
+def test_mc_overlay_rules_unchanged_by_big_change(world):
+    boot, tmp_path = world
+    lid, pres, ids = setup_show(boot, tmp_path)
+    import native_slides as ns
+    sl = ns.native_render_section(pres, "round_1", {})
+    review = [s for s in sl if s["metadata"].get("isReview")][0]
+    assert not has_overlay(review)                      # MC review still has none

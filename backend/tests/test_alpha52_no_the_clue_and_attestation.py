@@ -48,8 +48,10 @@ def test_big_round_slide1_has_no_the_clue_header():
     assert any("baseball spring-training" in t for t in texts), (
         f"Actual clue text missing from BIG slide 1: {texts}"
     )
-    # Exactly ONE text element (the clue) — no header, no chip.
-    assert len(texts) == 1, f"Expected 1 text element on BIG clue slide, got {len(texts)}: {texts}"
+    # alpha.66: exactly three lines - "3 points each. No order.", the clue,
+    # and "For N total points." - and still no "The Clue" header or chip.
+    assert len(texts) == 3, f"Expected 3 text elements on BIG clue slide, got {len(texts)}: {texts}"
+    assert texts[0] == "3 Points Each. No Order." and texts[2].startswith("For ")
 
 
 # ---------------------------------------------------------------------------

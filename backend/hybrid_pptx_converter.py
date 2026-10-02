@@ -239,6 +239,47 @@ class HybridPPTXConverter:
         
         return slides
     
+    def _layout_text_and_media(self, slide, text_elements, consts):
+        """alpha.66: shared REG / MISC / MYS question layout (same as MC).
+        Top at y=200, "Question N" first, 50px gap, question text, 50px gap,
+        then any GIF / image / video centred under the text and shrunk to fit."""
+        import re
+        CONTENT_X, CONTENT_W, MAX_BOTTOM, REG_TOP = consts
+        GAP = 50
+        next_y = REG_TOP - 50
+        els = sorted(text_elements, key=lambda el: el.y)
+        total = sum(len(el.content or '') for el in els)
+        base = 40
+        if total > 250: base = 26
+        elif total > 180: base = 30
+        elif total > 120: base = 34
+        elif total > 60: base = 36
+        for el in els:
+            is_number = bool(re.match(r'^question\s*\d+', (el.content or '').strip(), re.IGNORECASE))
+            fs = 36 if is_number else base
+            per_line = max(10, int(CONTENT_W / (fs * 0.55)))
+            lines = 1 if is_number else max(1, -(-len(el.content or '') // per_line))
+            el.x = CONTENT_X
+            el.width = CONTENT_W
+            el.y = next_y
+            el.height = int(lines * fs * 1.3)
+            el.textAlign = "center"
+            el.color = "#FFFFFF"
+            el.fontFamily = "Inter, sans-serif"
+            el.fontSize = fs
+            el.fontWeight = "normal"
+            next_y = el.y + el.height + GAP
+        media = [e for e in slide.elements if e.type == 'video' or (
+            e.type == 'image' and e.src and (str(e.src).startswith('data:image/gif') or '.gif' in str(e.src).lower()))]
+        if media:
+            room = max(120, MAX_BOTTOM - next_y)
+            for m in media:
+                w0, h0 = (m.width or CONTENT_W), (m.height or room)
+                scale = min(1.0, CONTENT_W / w0, room / h0)
+                m.width, m.height = int(w0 * scale), int(h0 * scale)
+                m.x = CONTENT_X + int((CONTENT_W - m.width) / 2)
+                m.y = next_y
+
     def _apply_formatting_rules(self, slides: List[Slide], round_type: str, round_number: int):
         """
         Apply formatting rules to slides after parsing.
@@ -340,6 +381,8 @@ class HybridPPTXConverter:
             is_misc_question = misc_question_range and misc_question_range[0] <= idx <= misc_question_range[1]
             
             if is_misc_question:
+                self._layout_text_and_media(slide, text_elements, (CONTENT_X, CONTENT_W, MAX_BOTTOM, REG_QUESTION_TOP))
+                continue
                 sorted_elements = sorted(text_elements, key=lambda el: el.y)
                 
                 # Check if this slide has a GIF image
@@ -455,6 +498,8 @@ class HybridPPTXConverter:
             is_mys_question = mys_question_range and mys_question_range[0] <= idx <= mys_question_range[1]
             
             if is_reg_question or is_mys_question:
+                self._layout_text_and_media(slide, text_elements, (CONTENT_X, CONTENT_W, MAX_BOTTOM, REG_QUESTION_TOP))
+                continue
                 sorted_elements = sorted(text_elements, key=lambda el: el.y)
                 
                 # Calculate total text length for dynamic font sizing

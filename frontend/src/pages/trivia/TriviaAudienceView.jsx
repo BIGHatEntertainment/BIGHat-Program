@@ -18,6 +18,7 @@
  *   { type: 'CLOSE' }               // host is closing audience
  *   { type: 'PING' }                // heartbeat
  */
+import FinalScoresBoard from '../../components/trivia/final/FinalScoresBoard';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 const BC_NAME = 'bighat-trivia-audience';
@@ -257,157 +258,17 @@ export default function TriviaAudienceView() {
     });
   };
 
-  // --- FINAL SCORES — _verified_from_prototype (scoresHTML) --------------
-  const renderFinalScores = () => {
-    const teams = Array.isArray(finalScores?.teams) ? finalScores.teams : [];
-    const rounds = Array.isArray(finalScores?.rounds) ? finalScores.rounds : [];
-    const teamCount = teams.length;
-    // Dynamic duration: 4 seconds per team, minimum 20s, max 120s
-    const scrollDuration = Math.min(120, Math.max(20, teamCount * 4));
-    return (
-      <div data-testid="audience-final-scores">
-        <style>{`
-          @keyframes smoothScroll {
-            0% { transform: translateY(0); }
-            100% { transform: translateY(calc(-100% + 70vh)); }
-          }
-          .scroll-container {
-            position: absolute;
-            inset: 0;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            z-index: 100;
-            background: rgba(0,0,0,0.9);
-            aspect-ratio: 16/9;
-            width: 100%;
-            height: 100%;
-            padding: 0 5%;
-            box-sizing: border-box;
-          }
-          .scroll-header {
-            flex-shrink: 0;
-            padding: 1.5rem 0;
-          }
-          .scroll-content-wrapper {
-            flex: 1;
-            overflow: hidden;
-            position: relative;
-            padding: 0;
-          }
-          .scroll-content {
-            animation: smoothScroll ${scrollDuration}s linear infinite;
-            will-change: transform;
-          }
-          .scroll-content:hover {
-            animation-play-state: paused;
-          }
-          .team-card {
-            border-radius: 12px;
-            padding: 1rem 1.5rem;
-            margin-bottom: 0.75rem;
-            will-change: auto;
-          }
-          .team-info {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-          }
-          .team-rank {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: white;
-            min-width: 60px;
-          }
-          .team-name {
-            font-size: 2rem;
-            font-weight: bold;
-            color: white;
-          }
-          .team-total {
-            font-size: 3rem;
-            font-weight: bold;
-            color: #FFD700;
-            font-family: Lemonada, cursive;
-          }
-          .round-scores {
-            display: flex;
-            gap: 0.75rem;
-            margin-top: 0.5rem;
-            flex-wrap: wrap;
-          }
-          .round-score {
-            background: rgba(0,0,0,0.5);
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-          }
-          .round-label {
-            font-size: 0.9rem;
-            color: #999;
-          }
-          .round-value {
-            font-size: 1.1rem;
-            font-weight: bold;
-            color: white;
-            margin-left: 0.5rem;
-          }
-        `}</style>
-        <div className="scroll-container">
-          <div className="scroll-header">
-            <h2 style={{
-              fontSize: '3.5rem', fontWeight: 'bold', color: '#FFD700',
-              textAlign: 'center', fontFamily: 'Lemonada, cursive',
-            }}>
-              🏆 Final Scores 🏆
-            </h2>
-          </div>
-          <div className="scroll-content-wrapper">
-            <div className="scroll-content" data-testid="audience-final-scores-scroll">
-              {teams.map((team, idx) => (
-                <div
-                  key={team.id || idx}
-                  className="team-card"
-                  style={{
-                    background: `linear-gradient(to right, ${
-                      idx === 0 ? 'rgba(255,215,0,0.35), rgba(255,165,0,0.35)'
-                        : idx === 1 ? 'rgba(192,192,192,0.35), rgba(169,169,169,0.35)'
-                          : idx === 2 ? 'rgba(205,127,50,0.35), rgba(160,82,45,0.35)'
-                            : 'rgba(0,0,139,0.35), rgba(0,0,70,0.35)'})`,
-                    border: `2px solid ${
-                      idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#0066CC'}`,
-                  }}
-                >
-                  <div className="team-info">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                      <span className="team-rank">{idx + 1}.</span>
-                      <div>
-                        <h3 className="team-name">{team.name}</h3>
-                        {team.swag ? (
-                          <p style={{ fontSize: '1rem', color: '#ccc' }}>{team.swag}</p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <p className="team-total">{team.total}</p>
-                      <p style={{ fontSize: '0.9rem', color: '#999' }}>Total Points</p>
-                    </div>
-                  </div>
-                  <div className="round-scores">
-                    {(team.roundScores || []).map((score, roundIdx) => (
-                      <div className="round-score" key={roundIdx}>
-                        <span className="round-label">{rounds[roundIdx]?.label}:</span>
-                        <span className="round-value">{score}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  // --- FINAL SCORES (alpha.66) -------------------------------------------
+  // Shared board: scoreboard-tool background + navy/gold theme, team boxes
+  // scroll up the screen. Same component the host window uses.
+  const renderFinalScores = () => (
+    <FinalScoresBoard
+      teams={Array.isArray(finalScores?.teams) ? finalScores.teams : []}
+      rounds={Array.isArray(finalScores?.rounds) ? finalScores.rounds : []}
+      location={finalScores?.location || ''}
+      date={finalScores?.date || ''}
+    />
+  );
 
   // CHECK IF THIS IS THE FINAL SCORES SLIDE (Winners slide 5)
   const isFinalScoresSlide = slide?.metadata?.roundType === 'WINNERS'

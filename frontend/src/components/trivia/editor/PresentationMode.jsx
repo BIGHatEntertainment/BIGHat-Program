@@ -4,6 +4,8 @@ import { X, ChevronLeft, ChevronRight, Monitor, ListOrdered, Pause, Play, Eye, F
 import { Button } from '../../ui/button';
 import { toast } from '../../../utils/toastCompat';
 import axios from 'axios';
+import { needsTiebreaker } from '../../../lib/tiebreaker';
+import FinalScoresBoard from '../final/FinalScoresBoard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -263,6 +265,22 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     }
   }, [presentationId]);
 
+  // alpha.66: location + date shown on the Final Scores board.
+  const getBoardHeading = useCallback(() => {
+    const presName = localStorage.getItem('currentPresentationName') || '';
+    let location = '';
+    const m = presName.match(/^(.+?)\s*-\s*\d/);
+    if (m) location = m[1].trim();
+    if (!location) {
+      for (const sl of slides) {
+        const loc = sl?.metadata?.location || sl?.metadata?.locationName;
+        if (loc) { location = String(loc).replace(/^\d+_/, ''); break; }
+      }
+    }
+    const date = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    return { location, date };
+  }, [slides]);
+
   // End Presentation: save scores to SharePoint and exit
   const handleEndPresentation = useCallback(async () => {
     const scoresData = getFinalScores();
@@ -344,6 +362,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         let finalScores = null;
         if (slide?.metadata?.roundType === 'WINNERS' && slide?.metadata?.slideIndexInRound === 4) {
           finalScores = getFinalScores();
+          if (finalScores) finalScores = { ...finalScores, ...getBoardHeading() };
         }
         
         // Resolve overlay references to actual image data for the audience window.
@@ -381,10 +400,29 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       }
   }, [slides, isAnswerSlide, revealedAnswers, getFinalScores, overlayCache, broadcastToAudience]);
 
+  // alpha.66: the BIG tiebreaker is an IF event. Tiebreaker question + answer
+  // slides are skipped (both directions) unless two or more teams share a
+  // place in the top 5 in the Score Tracker.
+  const tiebreakerNeeded = useCallback(() => {
+    const data = getFinalScores();
+    return !!(data && needsTiebreaker(data.teams));
+  }, [getFinalScores]);
+
+  const stepIndex = useCallback((from, dir) => {
+    const list = slidesRef.current || slides;
+    let i = from + dir;
+    if (i < 0 || i > list.length - 1) return from;
+    if (list[i]?.metadata?.isTiebreaker && !tiebreakerNeeded()) {
+      while (i >= 0 && i <= list.length - 1 && list[i]?.metadata?.isTiebreaker) i += dir;
+      if (i < 0 || i > list.length - 1) return from;
+    }
+    return i;
+  }, [slides, tiebreakerNeeded]);
+
   // Host navigation - affects audience only if sync is enabled
   const goNext = useCallback(() => {
     setCurrentIndex((prev) => {
-      const newIndex = prev < slides.length - 1 ? prev + 1 : prev;
+      const newIndex = stepIndex(prev, 1);
       // Auto-sync audience if enabled
       if (isSyncEnabled && audienceWindowRef.current && !audienceWindowRef.current.closed) {
         setAudienceIndex(newIndex);
@@ -392,11 +430,11 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       }
       return newIndex;
     });
-  }, [slides.length, isSyncEnabled, updateAudienceView, audienceWindowRef]);
+  }, [stepIndex, isSyncEnabled, updateAudienceView, audienceWindowRef]);
 
   const goPrev = useCallback(() => {
     setCurrentIndex((prev) => {
-      const newIndex = prev > 0 ? prev - 1 : prev;
+      const newIndex = stepIndex(prev, -1);
       // Auto-sync audience if enabled
       if (isSyncEnabled && audienceWindowRef.current && !audienceWindowRef.current.closed) {
         setAudienceIndex(newIndex);
@@ -404,24 +442,24 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       }
       return newIndex;
     });
-  }, [isSyncEnabled, updateAudienceView, audienceWindowRef]);
+  }, [stepIndex, isSyncEnabled, updateAudienceView, audienceWindowRef]);
   
   // Audience navigation - only called explicitly by host
   const advanceAudience = useCallback(() => {
     setAudienceIndex((prev) => {
-      const newIndex = prev < slides.length - 1 ? prev + 1 : prev;
+      const newIndex = stepIndex(prev, 1);
       updateAudienceView(newIndex);
       return newIndex;
     });
-  }, [slides.length, updateAudienceView]);
+  }, [stepIndex, updateAudienceView]);
   
   const reverseAudience = useCallback(() => {
     setAudienceIndex((prev) => {
-      const newIndex = prev > 0 ? prev - 1 : prev;
+      const newIndex = stepIndex(prev, -1);
       updateAudienceView(newIndex);
       return newIndex;
     });
-  }, [updateAudienceView]);
+  }, [stepIndex, updateAudienceView]);
 
   const revealNextAnswer = useCallback(() => {
     const currentRevealed = revealedAnswers[audienceIndex] || 0;
@@ -952,59 +990,11 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
               const rounds = scoresData.rounds || [];
               
               return (
-                <div className="absolute inset-0 flex items-center justify-center z-20" style={{ aspectRatio: '16/9', padding: '0 5%' }}>
-                  <div className="bg-black/85 backdrop-blur-md w-full h-full p-6 flex flex-col overflow-hidden">
-                    <h2 className="text-5xl font-bold text-yellow-400 text-center mb-6 flex-shrink-0" style={{ fontFamily: 'Lemonada, cursive' }}>
-                      🏆 Final Scores 🏆
-                    </h2>
-                    
-                    <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
-                      {scoresData.teams.map((team, idx) => {
-                        // BULLETPROOF: Validate team object
-                        if (!team) return null;
-                        const teamName = team.name || `Team ${idx + 1}`;
-                        const teamTotal = team.total || 0;
-                        const teamSwag = team.swag || '';
-                        const teamRoundScores = Array.isArray(team.roundScores) ? team.roundScores : [];
-                        
-                        return (
-                          <div key={idx} className={`bg-gradient-to-r ${idx === 0 ? 'from-yellow-600/40 to-yellow-800/40 border-yellow-400' : idx === 1 ? 'from-gray-400/40 to-gray-600/40 border-gray-400' : idx === 2 ? 'from-amber-700/40 to-amber-900/40 border-amber-600' : 'from-blue-900/40 to-blue-950/40 border-blue-700'} border-2 rounded-lg p-4`}>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-6">
-                                <span className="text-4xl font-bold text-white min-w-[60px]">{idx + 1}.</span>
-                                <div>
-                                  <h3 className="text-3xl font-bold text-white">{teamName}</h3>
-                                  {teamSwag && <p className="text-lg text-gray-300">{teamSwag}</p>}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-5xl font-bold text-yellow-400" style={{ fontFamily: 'Lemonada, cursive' }}>{teamTotal}</p>
-                                <p className="text-sm text-gray-400">Total Points</p>
-                              </div>
-                            </div>
-                            
-                            {/* Round-by-round scores */}
-                            {teamRoundScores.length > 0 && (
-                              <div className="flex gap-3 mt-4 flex-wrap">
-                                {teamRoundScores.map((score, roundIdx) => {
-                                  // BULLETPROOF: Safe access to rounds array
-                                  const roundLabel = rounds[roundIdx]?.label || `R${roundIdx + 1}`;
-                                  const safeScore = score || 0;
-                                  return (
-                                    <div key={roundIdx} className="bg-black/50 px-4 py-2 rounded-lg">
-                                      <span className="text-sm text-gray-400">{roundLabel}:</span>
-                                      <span className="text-lg font-bold text-white ml-2">{safeScore}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
+                <FinalScoresBoard
+                  teams={scoresData.teams}
+                  rounds={rounds}
+                  {...getBoardHeading()}
+                />
               );
             } catch (err) {
               console.error('Error rendering Final Scores:', err);

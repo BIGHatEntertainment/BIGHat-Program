@@ -151,6 +151,28 @@ def grade_gif_src() -> str:
     return "/Time_To_Grade.svg"
 
 
+_THANK_YOU_CACHE: Dict[str, str] = {}
+
+
+def thank_you_src() -> str:
+    """The BIG Hat 'Thank you for playing!' image (backend/assets/slides/
+    thank_you.png, 1920x1080) as an inline data URL. Always the first slide of
+    the show's ending, before the 3rd / 2nd / 1st place slides."""
+    if "src" in _THANK_YOU_CACHE:
+        return _THANK_YOU_CACHE["src"]
+    p = bundled_asset_path("assets", "slides", "thank_you.png")
+    if p is not None:
+        try:
+            import base64
+            src = "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+            _THANK_YOU_CACHE["src"] = src
+            return src
+        except OSError as e:
+            logger.warning("[native-slides] thank-you image unreadable: %s", e)
+    logger.error("[native-slides] thank_you.png missing - falling back to text")
+    return ""
+
+
 def _to_data_url(rel_path: str) -> Optional[str]:
     """v32.0.0-alpha.49: **Inline the file bytes as a `data:` URL.**
 
@@ -1000,6 +1022,36 @@ def _big_answer_lines(raw: str) -> List[str]:
     return [raw]
 
 
+def big_answer_layout(lines):
+    """alpha.66: numbered BIG answers (sized for the audience view's +10% answer font), top to bottom in reveal order, inside the
+    centre 9:16 column. Font shrinks (and long answers wrap) so every answer
+    is fully visible; gap capped like the prototype (~68px pitch for 10)."""
+    import math
+    W, TOP, BOTTOM = 458, 225, 905
+    n = max(len(lines), 1)
+    fs = 30
+    while True:
+        hs = [max(1, math.ceil(len(t) * fs * 1.10 * 0.55 / W)) * fs * 1.10 * 1.25 for t in lines] or [fs * 1.4]
+        gap = (BOTTOM - TOP - sum(hs)) / max(n - 1, 1)
+        if gap >= 8 or fs <= 18:
+            break
+        fs -= 2
+    gap = max(min(gap, 40), 4)
+    out, y = [], TOP
+    for h in hs:
+        out.append((int(y), int(h), fs))
+        y += h + gap
+    return out
+
+
+def big_points_texts(raw_answer: str):
+    """alpha.66: the two extra lines on BIG question + review slides.
+    3 points per possible answer, answers capped at 10 (max 30)."""
+    n = min(len(_big_answer_lines(raw_answer)), 10)
+    n = max(n, 1)
+    return "3 Points Each. No Order.", f"For {n * 3} Points."
+
+
 def render_round_section(
     round_data: Dict[str, Any], round_ref: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
@@ -1105,9 +1157,14 @@ def render_round_section(
         # and the merchant's Feb-6 clarification ("WHAT THE FUCK is 'The Clue'?").
         q = questions[0] if questions else {}
         clue_text = q.get("question", "")
+        instr, pts = big_points_texts(q.get("answer") or "")
         clue_elements = [
-            _text(clue_text, x=160, y=240, w=1600, h=640,
-                  size=88, weight="700", align="center"),
+            _text(instr, x=160, y=150, w=1600, h=80,
+                  size=44, weight="500", align="center", color="#F4C430"),
+            _text(clue_text, x=160, y=300, w=1600, h=420,
+                  size=80, weight="700", align="center"),
+            _text(pts, x=160, y=800, w=1600, h=100,
+                  size=56, weight="600", align="center"),
         ]
         slides.append(_slide(1, clue_elements, background=BG_BLUE, metadata=meta(
             slideIndexInRound=1, questionNumber=1,
@@ -1138,6 +1195,19 @@ def render_round_section(
                 _text(qtext, x=160, y=260, w=1600, h=400,
                       size=72, weight="700"),
             ]
+            # alpha.66: REG / MISC / MYS questions may carry a GIF, image or
+            # video (q["media_url"]). Draw it under the question text, inside
+            # the centre 9:16 column (x 706..1214), 50px below the text.
+            media_url = q.get("media_url") if i < len(questions) else None
+            if media_url and rtype in ("REG", "MISC", "MYS"):
+                if str(media_url).startswith("data:video/"):
+                    elements.append({
+                        "id": _uid("vid"), "type": "video",
+                        "videoSrc": media_url, "mimeType": media_url[5:].split(";")[0],
+                        "x": 706, "y": 560, "width": 508, "height": 340,
+                    })
+                else:
+                    elements.append(_image(media_url, x=706, y=560, w=508, h=340))
             # MC = 4-option grid. REG/MISC/MYS = no options shown (question only).
             if rtype == "MC" and options:
                 letters = ["A", "B", "C", "D"]
@@ -1225,11 +1295,14 @@ def render_round_section(
     # For BIG: review slide comes AFTER the gif (index 3)
     if is_big and questions:
         q = questions[0]
+        instr, pts = big_points_texts(q.get("answer") or "")
         review_elements = [
-            _text(f"{rname} — Review", x=160, y=90, w=1600, h=90,
-                  size=56, color="#F4C430", weight="700"),
-            _text(q.get("question", ""), x=160, y=280, w=1600, h=600,
-                  size=64, weight="600"),
+            _text(instr, x=160, y=150, w=1600, h=80,
+                  size=44, weight="500", align="center", color="#F4C430"),
+            _text(q.get("question", ""), x=160, y=300, w=1600, h=420,
+                  size=80, weight="700", align="center"),
+            _text(pts, x=160, y=800, w=1600, h=100,
+                  size=56, weight="600", align="center"),
         ]
         slides.append(_slide(3, review_elements, background=BG_BLUE,
                              metadata=meta(slideIndexInRound=3, isReview=True,
@@ -1255,13 +1328,11 @@ def render_round_section(
             lines = [raw] if raw else ["(no answer)"]
         # NO TITLE. Each line is a text element = one answer reveal step.
         ans_elements = []
-        row_h = max(60, min(100, (STAGE_H - 200) // max(1, len(lines))))
-        for i, ln in enumerate(lines):
+        numbered = [f"{i + 1}. {ln}" for i, ln in enumerate(lines)]
+        for t, (y, h, fs) in zip(numbered, big_answer_layout(numbered)):
             ans_elements.append(_text(
-                ln,
-                x=160, y=100 + i * row_h, w=1600, h=row_h,
-                size=min(64, row_h - 10),
-                weight="700", color="#F4C430", align="center",
+                t, x=756, y=y, w=458, h=h, size=fs,
+                weight="500", color="#FFFFFF", align="left", valign="top",
             ))
         slides.append(_slide(ans_idx, ans_elements, background=BG_BLUE,
                              metadata=meta(slideIndexInRound=ans_idx, isAnswers=True,
@@ -1362,14 +1433,51 @@ def render_sponsors_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+_PLACES = (
+    # (slideIndexInRound, label, accent colour, sub-line)
+    (1, "3rd Place", "#CD7F32", "Third place"),
+    (2, "2nd Place", "#C0C0C0", "Second place"),
+    (3, "1st Place", "#F4C430", "Tonight's champions"),
+)
+
+
+def _place_slide(idx: int, label: str, accent: str, sub: str) -> Dict[str, Any]:
+    """alpha.66: one place slide. The team name + points are injected at the
+    TOP of the slide (y 100..310) by the editor when the host sends the
+    Score Tracker scores (ids winner-3rd-name / winner-2nd-name / winner-1st-name).
+    Until then the top area is empty."""
+    return _slide(idx, [
+        _text(label, x=160, y=470, w=1600, h=260, size=190 if idx == 3 else 170,
+              color=accent, weight="800"),
+        _text(sub, x=160, y=760, w=1600, h=100, size=56, color="#FFFFFF", weight="500"),
+    ], background=BG_BLUE, metadata={
+        "roundType": "WINNERS", "slideIndexInRound": idx,
+        "isPlaceSlide": True, "place": 4 - idx,
+    })
+
+
 def render_winners_section() -> List[Dict[str, Any]]:
-    return [_slide(0, [
-        _text("Tonight's Winners", x=160, y=280, w=1600, h=140, size=90,
-              color="#F4C430", weight="800"),
-        _text("Thanks for playing!", x=160, y=560, w=1600, h=120, size=64, weight="500"),
-    ], background=BG_GOLD, metadata={
+    """alpha.66: the ending, in order:
+       0  Thank you for playing! (image, ALWAYS first)
+       1  3rd place   (team name + points injected at the top)
+       2  2nd place
+       3  1st place
+    The Final Scores leaderboard is its own section after this (index 4)."""
+    src = thank_you_src()
+    if src:
+        elements = [_image(src, x=0, y=0, w=STAGE_W, h=STAGE_H)]
+        bg = BG_DARK
+    else:
+        elements = [
+            _text("Thank you for playing!", x=160, y=400, w=1600, h=200, size=100,
+                  color="#F4C430", weight="800"),
+        ]
+        bg = BG_GOLD
+    thanks = _slide(0, elements, background=bg, metadata={
         "roundType": "WINNERS", "slideIndexInRound": 0, "isRoundTitle": True,
-    })]
+        "isThankYou": True,
+    })
+    return [thanks] + [_place_slide(*p) for p in _PLACES]
 
 
 def render_final_scores_section() -> List[Dict[str, Any]]:
@@ -1691,6 +1799,7 @@ def _apply_location_overlays(
     a_matched = overlays_for_round_type(overlays, rtype, "answer")
     if not q_matched and not a_matched:
         return slides
+    is_big_round = rtype == "BIG"
 
     def _overlay_url(loc_id: str, img: Dict[str, Any]) -> str:
         return f"/api/native/locations/{loc_id}/overlays/{img['id']}/raw"
@@ -1702,7 +1811,19 @@ def _apply_location_overlays(
                 and not md.get("isAnswers") and not md.get("isReview"))
         is_a = bool(md.get("isAnswers"))
         matched = a_matched if is_a else q_matched
-        if not (is_q or is_a) or not matched:
+        if is_big_round:
+            # alpha.66: the BIG overlay goes across the BIG question, review,
+            # answers, tiebreaker question and tiebreaker answer slides.
+            # Not on the title card or the grade GIF.
+            big_slide = (md.get("questionNumber") is not None or md.get("isReview")
+                         or md.get("isAnswers") or md.get("isTiebreaker"))
+            if md.get("isGifStop") or md.get("isRoundTitle"):
+                big_slide = False
+            matched = q_matched
+            if not big_slide or not matched:
+                out.append(s)
+                continue
+        elif not (is_q or is_a) or not matched:
             out.append(s)
             continue
         s = dict(s)

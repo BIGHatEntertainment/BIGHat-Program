@@ -1593,6 +1593,55 @@ const Editor = () => {
         if (textLen > 60) return base - 4;
         return base;
       };
+
+      /**
+       * alpha.66: shared REG / MISC / MYS question layout (matches MC).
+       *   - everything starts at y=200 (50px lower than before)
+       *   - "Question N" first, 50px gap, question text, 50px gap, media
+       *   - a GIF / image / video is placed under the text, centred in the
+       *     9:16 column, and shrunk to fit above MAX_BOTTOM.
+       */
+      const layoutTextAndMedia = (slideObj, textEls) => {
+        const GAP = 50;
+        const TOP = REG_QUESTION_TOP - 50;            // 200
+        const sortedEls = [...textEls].sort((a, b) => a.y - b.y);
+        const totalLen = sortedEls.reduce((n, el) => n + (el.content || '').length, 0);
+        const baseFs = dynamicFontSize(totalLen, 40, 26);
+        let nextY = TOP;
+        sortedEls.forEach((el) => {
+          const isNumber = /^question\s*\d+/i.test((el.content || '').trim());
+          const fs = isNumber ? 36 : baseFs;
+          const perLine = Math.max(10, Math.floor(CONTENT_W / (fs * 0.55)));
+          const lines = isNumber ? 1 : Math.max(1, Math.ceil((el.content || '').length / perLine));
+          el.x = CONTENT_X;
+          el.width = CONTENT_W;
+          el.y = nextY;
+          el.height = Math.ceil(lines * fs * 1.3);
+          el.textAlign = 'center';
+          el.color = '#FFFFFF';
+          el.fontSize = fs;
+          el.fontWeight = 'normal';
+          el.fontFamily = 'Inter, sans-serif';
+          nextY = el.y + el.height + GAP;
+        });
+        // Media (GIF / image / video) goes 50px under the text.
+        const media = (slideObj.elements || []).filter(el =>
+          el.type === 'video' ||
+          (el.type === 'image' && el.src && el.metadata?.role !== 'overlay' &&
+            ((el.src || '').startsWith('data:image/gif') || (el.src || '').toLowerCase().includes('.gif')))
+        );
+        if (media.length > 0) {
+          const room = Math.max(120, MAX_BOTTOM - nextY);
+          media.forEach((m) => {
+            const w0 = m.width || CONTENT_W, h0 = m.height || room;
+            const scale = Math.min(1, CONTENT_W / w0, room / h0);
+            m.width = Math.floor(w0 * scale);
+            m.height = Math.floor(h0 * scale);
+            m.x = CONTENT_X + Math.floor((CONTENT_W - m.width) / 2);
+            m.y = nextY;
+          });
+        }
+      };
       
       /**
        * REVIEW SLIDE FORMATTER
@@ -1764,29 +1813,34 @@ const Editor = () => {
           const isQuestionSlide = count <= 5 && avgContentLen > 30;
           
           if (isAnswerSlide) {
-            // BIG ANSWERS: left-aligned within 9:16 area
-            const GAP = 68;
-            let textH = 50;
-            if (count > 10) textH = 35;
-            else if (count > 8) textH = 40;
-            else if (count > 6) textH = 45;
-            
-            let actualGap = GAP;
-            const totalNeeded = (count * textH) + ((count - 1) * actualGap);
-            if (totalNeeded > MAX_BOTTOM - BIG_ANSWER_TOP && count > 1) {
-              actualGap = Math.max(5, Math.floor((MAX_BOTTOM - BIG_ANSWER_TOP - count * textH) / (count - 1)));
-            }
-            
+            // BIG ANSWERS (alpha.66): numbered, in reveal order, top to bottom,
+            // every answer fully visible. Boxes are sized to their text (long
+            // answers wrap instead of clipping) and the font shrinks to fit.
+            const ANS_X = CONTENT_X + 50;
+            const ANS_W = CONTENT_W - 50;
             let fontSize = 30;
-            if (count > 12) fontSize = 22;
-            else if (count > 10) fontSize = 24;
-            else if (count > 8) fontSize = 26;
-            
+            let heights = [];
+            let gap = 0;
+            for (;;) {
+              heights = sorted.map(el => {
+                // audience view enlarges answer text by 10%, so size for that
+                const eff = fontSize * 1.10;
+                const perLine = Math.max(8, Math.floor(ANS_W / (eff * 0.55)));
+                const lines = Math.max(1, Math.ceil((el.content || '').length / perLine));
+                return Math.ceil(lines * eff * 1.25);
+              });
+              const used = heights.reduce((n, h) => n + h, 0);
+              gap = (MAX_BOTTOM - BIG_ANSWER_TOP - used) / Math.max(count - 1, 1);
+              if (gap >= 8 || fontSize <= 18) break;
+              fontSize -= 2;
+            }
+            gap = Math.max(Math.min(gap, 40), 4);
+            let yy = BIG_ANSWER_TOP;
             sorted.forEach((el, i) => {
-              el.x = CONTENT_X + 50;
-              el.width = CONTENT_W - 50;
-              el.y = BIG_ANSWER_TOP + (i * (textH + actualGap));
-              el.height = textH;
+              el.x = ANS_X;
+              el.width = ANS_W;
+              el.y = Math.round(yy);
+              el.height = heights[i];
               el.textAlign = 'left';
               el.verticalAlign = 'top';
               el.color = '#FFFFFF';
@@ -1794,6 +1848,7 @@ const Editor = () => {
               el.fontWeight = 'normal';
               el.fontFamily = 'Inter, sans-serif';
               el.lineHeight = 1.2;
+              yy += heights[i] + gap;
             });
           } else {
             // BIG QUESTIONS / REVIEW: 3 text boxes in specific order
@@ -1814,7 +1869,7 @@ const Editor = () => {
               
               if (cLower.includes('points each') || cLower.includes('no order')) {
                 instructionEl = el;
-              } else if (/^for\s+\d+\s+points?$/i.test(c)) {
+              } else if (/^for\s+\d+\s+(total\s+)?points?\.?$/i.test(c)) {
                 pointsEl = el;
               } else {
                 otherEls.push(el);
@@ -1847,16 +1902,21 @@ const Editor = () => {
             
             // 2. Question text (main question, largest text)
             if (questionEl) {
+              // alpha.66: size the box to the text so long clues never overflow
+              const qFs = dynamicFontSize((questionEl.content || '').length, 36, 24);
+              const qPerLine = Math.max(10, Math.floor(CONTENT_W / (qFs * 0.55)));
+              const qLines = Math.max(1, Math.ceil((questionEl.content || '').length / qPerLine));
+              const qH = Math.max(textH, Math.ceil(qLines * qFs * 1.3));
               questionEl.x = CONTENT_X;
               questionEl.width = CONTENT_W;
               questionEl.y = currentY;
-              questionEl.height = textH;
+              questionEl.height = qH;
               questionEl.textAlign = 'center';
               questionEl.color = '#FFFFFF';
               questionEl.fontSize = dynamicFontSize((questionEl.content || '').length, 36, 24);
               questionEl.fontWeight = 'normal';
               questionEl.fontFamily = 'Inter, sans-serif';
-              currentY += textH + BIG_GAP;
+              currentY += qH + BIG_GAP;
             }
             
             // 3. Points text ("For 30 Points")
@@ -2009,24 +2069,9 @@ const Editor = () => {
         if (isREG) {
           const sorted = [...texts].sort((a, b) => a.y - b.y);
           
-          // Question slides (1-10) - top edge at Y=250
+          // Question slides (1-10) - alpha.66 shared layout
           if (posInRound >= 1 && posInRound <= 10) {
-            const totalLen = sorted.reduce((sum, el) => sum + (el.content || '').length, 0);
-            const fontSize = dynamicFontSize(totalLen, 40, 26);
-            const availableHeight = MAX_BOTTOM - REG_QUESTION_TOP; // From 250 to 905
-            const spacing = Math.floor(availableHeight / Math.max(sorted.length, 1));
-            
-            sorted.forEach((el, i) => {
-              el.x = CONTENT_X;
-              el.width = CONTENT_W;
-              el.y = Math.max(REG_QUESTION_TOP + (i * spacing), REG_QUESTION_TOP); // Never < 250
-              el.height = Math.floor(spacing * 0.85);
-              el.textAlign = 'center';
-              el.color = '#FFFFFF';
-              el.fontSize = i === 0 ? fontSize + 4 : fontSize;
-              el.fontWeight = i === 0 ? 'bold' : 'normal';
-              el.fontFamily = 'Inter, sans-serif';
-            });
+            layoutTextAndMedia(newSlide, texts);
             return newSlide;
           }
           
@@ -2070,99 +2115,9 @@ const Editor = () => {
         if (isMISC) {
           const sorted = [...texts].sort((a, b) => a.y - b.y);
           
-          // Question slides (1-10)
+          // Question slides (1-10) - alpha.66 shared layout (GIF-aware)
           if (posInRound >= 1 && posInRound <= 10) {
-            // Check if this slide has a GIF image
-            const gifElements = newSlide.elements.filter(el => 
-              el.type === 'image' && el.src && 
-              (el.src.startsWith('data:image/gif') || (el.src || '').toLowerCase().includes('.gif'))
-            );
-            
-            // MISC with GIF starts 100px lower than standard (350 instead of 250)
-            const MISC_GIF_QUESTION_TOP = REG_QUESTION_TOP + 100; // 350px
-            
-            // Calculate max bottom Y for text based on GIF presence
-            let textMaxBottom = MAX_BOTTOM;
-            
-            if (gifElements.length > 0) {
-              // Find the topmost GIF's Y position
-              const gifTopY = Math.min(...gifElements.map(el => el.y));
-              // Leave a 20px gap between text and GIF
-              textMaxBottom = gifTopY - 20;
-              console.log(`MISC slide ${slideIdx}: GIF found at y=${gifTopY}, text max bottom=${textMaxBottom}`);
-            }
-            
-            const totalLen = sorted.reduce((sum, el) => sum + (el.content || '').length, 0);
-            let baseFontSize = dynamicFontSize(totalLen, 40, 26);
-            
-            if (gifElements.length > 0 && sorted.length > 0) {
-              // GIF present - start text at Y=350 (100px lower)
-              const startY = MISC_GIF_QUESTION_TOP;
-              const availableHeight = textMaxBottom - startY;
-              
-              // Base text height and spacing
-              let textHeightPerElement = 80;
-              let spacingBetween = 20;
-              
-              // Calculate total space needed
-              let totalNeeded = (sorted.length * textHeightPerElement) + ((sorted.length - 1) * spacingBetween);
-              
-              // If text doesn't fit, reduce font size by 5% increments until it does
-              let currentFontSize = baseFontSize;
-              let reductionCount = 0;
-              const maxReductions = 10; // Safety limit - max 50% reduction
-              
-              while (totalNeeded > availableHeight && reductionCount < maxReductions) {
-                // Reduce font size by 5%
-                currentFontSize = Math.floor(currentFontSize * 0.95);
-                // Also reduce text height proportionally
-                textHeightPerElement = Math.floor(textHeightPerElement * 0.95);
-                spacingBetween = Math.floor(spacingBetween * 0.95);
-                // Recalculate total needed
-                totalNeeded = (sorted.length * textHeightPerElement) + ((sorted.length - 1) * spacingBetween);
-                reductionCount++;
-              }
-              
-              // Ensure minimum values
-              currentFontSize = Math.max(currentFontSize, 18);
-              textHeightPerElement = Math.max(textHeightPerElement, 40);
-              spacingBetween = Math.max(spacingBetween, 5);
-              
-              // Position text elements starting at Y=350
-              sorted.forEach((el, i) => {
-                el.x = CONTENT_X;
-                el.width = CONTENT_W;
-                el.y = startY + (i * (textHeightPerElement + spacingBetween));
-                el.height = textHeightPerElement;
-                el.textAlign = 'center';
-                el.color = '#FFFFFF';
-                el.fontSize = currentFontSize;
-                el.fontWeight = 'normal';
-                el.fontFamily = 'Inter, sans-serif';
-              });
-              
-              if (reductionCount > 0) {
-                console.log(`MISC slide ${slideIdx}: GIF-aware, Y=350, font reduced ${reductionCount * 5}% to ${currentFontSize}px`);
-              } else {
-                console.log(`MISC slide ${slideIdx}: GIF-aware, Y=350, font=${currentFontSize}px`);
-              }
-            } else {
-              // No GIF - use standard REG/MISC layout starting at Y=250
-              const availableHeight = MAX_BOTTOM - REG_QUESTION_TOP;
-              const spacing = Math.floor(availableHeight / Math.max(sorted.length, 1));
-              
-              sorted.forEach((el, i) => {
-                el.x = CONTENT_X;
-                el.width = CONTENT_W;
-                el.y = Math.max(REG_QUESTION_TOP + (i * spacing), REG_QUESTION_TOP);
-                el.height = Math.floor(spacing * 0.85);
-                el.textAlign = 'center';
-                el.color = '#FFFFFF';
-                el.fontSize = i === 0 ? baseFontSize + 4 : baseFontSize;
-                el.fontWeight = i === 0 ? 'bold' : 'normal';
-                el.fontFamily = 'Inter, sans-serif';
-              });
-            }
+            layoutTextAndMedia(newSlide, texts);
             return newSlide;
           }
           
@@ -2204,22 +2159,7 @@ const Editor = () => {
           
           // Question slides (1-9) - top edge at Y=250
           if (posInRound >= 1 && posInRound <= 9) {
-            const totalLen = sorted.reduce((sum, el) => sum + (el.content || '').length, 0);
-            const fontSize = dynamicFontSize(totalLen, 40, 26);
-            const availableHeight = MAX_BOTTOM - REG_QUESTION_TOP; // From 250 to 905
-            const spacing = Math.floor(availableHeight / Math.max(sorted.length, 1));
-            
-            sorted.forEach((el, i) => {
-              el.x = CONTENT_X;
-              el.width = CONTENT_W;
-              el.y = Math.max(REG_QUESTION_TOP + (i * spacing), REG_QUESTION_TOP); // Never < 250
-              el.height = Math.floor(spacing * 0.85);
-              el.textAlign = 'center';
-              el.color = '#FFFFFF';
-              el.fontSize = i === 0 ? fontSize + 4 : fontSize;
-              el.fontWeight = i === 0 ? 'bold' : 'normal';
-              el.fontFamily = 'Inter, sans-serif';
-            });
+            layoutTextAndMedia(newSlide, texts);
             return newSlide;
           }
           

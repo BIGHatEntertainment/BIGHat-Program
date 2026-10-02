@@ -8,6 +8,15 @@
 ---
 ---
 
+## 2026-10-02 — v32.0.0-alpha.66: BIG round, ending of the show, Final Scores board
+- REG / MISC / MYS question slides use the MC layout (top y=200, 50px gaps) and leave room for a GIF / image / video under the question; per-question media is now drawn on the slide.
+- BIG overlay on BIG question, review, answers, tiebreaker question and tiebreaker answer.
+- BIG question + review: "3 Points Each. No Order." / clue / "For N Points." (N = 3 x answers, max 30). BIG answers numbered in reveal order, sized to fit (10+ answers shrink).
+- BIG tiebreaker is an IF event: only plays if teams share a place in the top 5; otherwise skipped (forward and back).
+- Ending: Thank-you-for-playing image, then 3rd, 2nd, 1st place slides (names injected when scores are sent), then Final Scores.
+- Final Scores board: scoreboard-tool background + navy/gold theme, team boxes scroll up the screen; shared by host and audience windows.
+- Build lock-in: backend/assets/slides/thank_you.png must exist.
+
 ## 2026-10-01 — v32.0.0-alpha.65: MC spacing, score slide restored
 - MC question slides: options recognised as "A." / "A)" / "(A)"; text lowered 50px; 50px gaps between "Question N", question text and options (Editor.jsx + hybrid_pptx_converter.py).
 - Blank score slide (isScoreSlide) added after every MC/REG/MISC/MYS round so Score Tracker upload works again.

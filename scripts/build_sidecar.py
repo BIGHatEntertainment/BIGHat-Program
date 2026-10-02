@@ -77,6 +77,11 @@ def _verify_seeds() -> None:
     if not grade.is_file() or grade.stat().st_size < 100_000 or grade.read_bytes()[:6] not in (b"GIF89a", b"GIF87a"):
         raise SystemExit("[build-sidecar] LOCK-IN FAIL: backend/assets/slides/times_up.gif (Time to grade GIF) is missing or not a real GIF")
     print(f"[build-sidecar] grade-gif lock-in OK: times_up.gif {grade.stat().st_size} B")
+    # alpha.66 LOCK-IN: the "Thank you for playing!" image must ship with every build.
+    ty = BACKEND / "assets" / "slides" / "thank_you.png"
+    if not ty.is_file() or ty.stat().st_size < 50_000 or ty.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit("[build-sidecar] LOCK-IN FAIL: backend/assets/slides/thank_you.png (Thank you for playing image) is missing or not a real PNG")
+    print(f"[build-sidecar] thank-you lock-in OK: thank_you.png {ty.stat().st_size} B")
 
 
 def main(argv: list[str] | None = None) -> int:

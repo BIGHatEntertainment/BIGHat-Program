@@ -5,7 +5,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
  * with a fixed 10-step opacity mask fading to 0% at the gold horizon line.
  * Uses requestAnimationFrame + inline transform for html2canvas compatibility.
  */
-const SynthwaveBackdrop = ({ className = '' }) => {
+const SynthwaveBackdrop = ({ className = '', still = false }) => {
   // Animate grid scroll via rAF so html2canvas captures current position
   const [scrollOffset, setScrollOffset] = useState(0);
   const rafRef = useRef(null);
@@ -13,6 +13,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
   const SCROLL_CYCLE = 6000; // 6s full cycle (matches original)
 
   useEffect(() => {
+    if (still) { setScrollOffset(0); return undefined; }   // alpha.66: grid holds still
     const animate = (timestamp) => {
       if (!startTimeRef.current) startTimeRef.current = timestamp;
       const elapsed = timestamp - startTimeRef.current;
@@ -22,7 +23,7 @@ const SynthwaveBackdrop = ({ className = '' }) => {
     };
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, []);
+  }, [still]);
   // Pre-compute star positions so they don't re-randomize on every render
   const stars = useMemo(() =>
     Array.from({ length: 50 }, (_, i) => ({
