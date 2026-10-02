@@ -90,9 +90,9 @@ await send({ type: 'video-state', bingoVerifying: true });               // host
 console.log('   pulse elements:', document.querySelectorAll('.animate-pulse').length, '| html has BINGO:', document.body.innerHTML.includes('Host is verifying'), '| root theme:', document.querySelector('[data-testid=audience-view]')?.dataset.theme);
 console.log('   AFTER  BINGO  text:', document.body.textContent.replace(/\s+/g,' ').slice(0,120), '| overlays:', document.querySelectorAll('.fixed.inset-0').length);
 snap('after BINGO pressed');
-await send({ type: 'video-state', bingoWinner: true, winnerVideo: '/bingo-winner-90s.mp4', winnerName: '' });   // host confirmed
+await send({ type: 'video-state', bingoWinner: true, winnerVideo: 'http://x/api/bingo/winner-video/1990s', winnerName: '' });   // host confirmed
 snap('after CONFIRMED');
-await send({ type: 'video-state', bingoWinner: true, winnerVideo: '/bingo-winner-90s.mp4', winnerName: 'Sam & Co' });
+await send({ type: 'video-state', bingoWinner: true, winnerVideo: 'http://x/api/bingo/winner-video/1990s', winnerName: 'Sam & Co' });
 snap('after name typed');
 await send({ type: 'video-state', bingoWinner: false });                  // host: continue round
 snap('after continue');

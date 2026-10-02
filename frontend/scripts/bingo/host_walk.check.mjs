@@ -127,7 +127,7 @@ ok(playedSrcs.length >= 1, 'NO AUDIENCE: the host preview starts anyway after th
   ok(!!confirmBtn, 'BINGO NIGHT: Confirm Bingo button shown');
   await act(async () => { fireEvent.click(confirmBtn); await new Promise(r => setTimeout(r, 500)); });
   const m2 = globalThis.__sent.slice(sent0).filter(m => m && m.bingoWinner === true);
-  ok(m2.length >= 1 && /\/bingo-winner-[a-z0-9]+\.mp4$/.test(m2[0].winnerVideo || ''), 'BINGO NIGHT: audience gets the winner video: ' + JSON.stringify(m2[0] && m2[0].winnerVideo));
+  ok(m2.length >= 1 && /^http:\/\/x\/api\/bingo\/winner-video\/1990s$/.test(m2[0].winnerVideo || ''), 'BINGO NIGHT: audience gets the backend winner-video URL for the theme (1990s): ' + JSON.stringify(m2[0] && m2[0].winnerVideo));
   ok(m2.every(m => m.bingoVerifying !== true), 'BINGO NIGHT: not stuck on verifying once confirmed');
   const nameBox = document.querySelector('[data-testid="winner-name-input"]');
   ok(!!nameBox, 'BINGO NIGHT: winner name box shown on the host');

@@ -637,16 +637,11 @@ export default function HostDashboard() {
     }
   };
 
+  // alpha.69: winner videos are served by the backend from the app-data "winner_videos" folder
+  // (full URL, so the separate audience window can play it). No theme match -> the Generic video.
   const getWinnerVideoUrl = () => {
-    const decade = (gameState?.settings?.music_decade || '1980s').toLowerCase();
-    const map = {
-      '1970s': '/bingo-winner-70s.mp4',
-      '1980s': '/bingo-winner-80s.mp4',
-      '1990s': '/bingo-winner-90s.mp4',
-      '2000s': '/bingo-winner-y2k.mp4',
-      'y2k': '/bingo-winner-y2k.mp4',
-    };
-    return map[decade] || '/bingo-winner-generic.mp4';
+    const theme = isMusicBingo ? (gameState?.settings?.music_decade || "") : "";
+    return `${API}/bingo/winner-video/${encodeURIComponent(theme || "generic")}`;
   };
 
   const verifyBingo = async (confirmed) => {

@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
-import { ArrowLeft, FolderOpen, RefreshCw, CheckCircle2, AlertCircle, Music2 } from "lucide-react";
+import { ArrowLeft, FolderOpen, RefreshCw, CheckCircle2, AlertCircle, Music2, Trophy, Plus, Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -32,6 +32,49 @@ export default function BingoSetup() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // alpha.69: winner videos (kept in the app's own data folder)
+  const [winners, setWinners] = useState([]);
+  const [winnerFolder, setWinnerFolder] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const winnerInput = useRef(null);
+
+  const loadWinners = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/bingo/winner-videos`);
+      setWinners(r.data.videos || []);
+      setWinnerFolder(r.data.folder || "");
+    } catch (e) { /* backend not reachable: the folder error above already tells the user */ }
+  }, []);
+  useEffect(() => { loadWinners(); }, [loadWinners]);
+
+  const addWinners = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f));
+    setUploading(true);
+    try {
+      const r = await axios.post(`${API}/bingo/winner-videos`, form, { maxBodyLength: Infinity, maxContentLength: Infinity });
+      setWinners(r.data.videos || []);
+      if (r.data.saved?.length) toast.success(`Added ${r.data.saved.length} winner video${r.data.saved.length === 1 ? "" : "s"}`);
+      if (r.data.rejected?.length) toast.error(`Skipped: ${r.data.rejected.map((x) => x.name).join(", ")} (use .mp4 / .webm / .mov)`);
+    } catch (err) {
+      toast.error("Could not add the winner video(s)");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeWinner = async (name) => {
+    try {
+      const r = await axios.delete(`${API}/bingo/winner-videos/${encodeURIComponent(name)}`);
+      setWinners(r.data.videos || []);
+      toast.success("Removed");
+    } catch (err) {
+      toast.error("Could not remove that video");
+    }
+  };
 
   const apply = (data) => {
     setThemes(data.themes || []);
@@ -190,6 +233,31 @@ export default function BingoSetup() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="mb-8" data-testid="winner-videos-section">
+          <h2 className="text-xl font-semibold text-zinc-100 mb-1 flex items-center gap-2"><Trophy size={20} className="text-yellow-400" /> Winner videos</h2>
+          <p className="text-zinc-500 text-sm mb-1">
+            Plays when a Bingo is confirmed. Name the file after the theme, for example <span className="text-zinc-300">(1980's).mp4</span> or <span className="text-zinc-300">Loteria.mp4</span>.
+            A theme with no video of its own uses <span className="text-zinc-300">(Generic).mp4</span>.
+          </p>
+          {winnerFolder && <p className="text-xs text-zinc-600 mb-3 break-all" data-testid="winner-folder">Saved in: {winnerFolder}</p>}
+          <div className="space-y-2 mb-4">
+            {winners.map((v) => (
+              <div key={v.name} data-testid={`winner-row-${v.name}`} className="flex items-center justify-between gap-4 rounded-lg border border-yellow-500/20 bg-zinc-900/60 px-4 py-2">
+                <p className="text-white truncate">{v.name} <span className="text-zinc-500 text-sm">· {(v.size / 1048576).toFixed(1)} MB</span></p>
+                {v.bundled ? (
+                  <span className="text-xs text-zinc-500">built in</span>
+                ) : (
+                  <button type="button" onClick={() => removeWinner(v.name)} className="text-zinc-500 hover:text-red-400" title="Remove" data-testid={`winner-remove-${v.name}`}><Trash2 size={16} /></button>
+                )}
+              </div>
+            ))}
+          </div>
+          <input ref={winnerInput} type="file" accept="video/*,.mp4,.webm,.mov,.m4v" multiple className="hidden" onChange={addWinners} data-testid="winner-file-input" />
+          <Button variant="outline" onClick={() => winnerInput.current && winnerInput.current.click()} disabled={uploading} data-testid="winner-add-btn">
+            <Plus size={16} className="mr-2" /> {uploading ? "Adding..." : "Add winner videos"}
+          </Button>
         </section>
 
         <div className="flex items-center gap-4">

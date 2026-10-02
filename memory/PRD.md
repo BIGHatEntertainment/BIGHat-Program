@@ -1,6 +1,8 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.68` (2026-10-02).** alpha.68: Bingo player fixes. No host file upload; first song plays as
+> **Current release: `v32.0.0-alpha.69` (2026-10-02).** alpha.69: winner video fix. Videos are served by the backend from
+> <data root>/winner_videos (7 bundled in backend/assets/winner_videos, seeded on first use, user files win); Bingo Setup has an
+> "Add winner videos" button; name match ignores punctuation; no match = (Generic).mp4. (Previous:) `v32.0.0-alpha.68`: alpha.68: Bingo player fixes. No host file upload; first song plays as
 > video; audience plays on its own clock (never skips to the host), host follows audience; BINGO pauses + verifying, then winner
 > video (Music host now has the winner screen); generic winner video fallback (bingo-winner-generic.mp4) for themes without their
 > own; End Round / winner End Round open a pop-up (Start Round N+1 with fresh theme + speed, or End Bingo Night with confirm);

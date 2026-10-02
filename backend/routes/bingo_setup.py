@@ -7,11 +7,12 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from native import bingo_library as bl
+from native import winner_videos as wv
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bingo", tags=["bingo-setup"])
@@ -108,6 +109,72 @@ async def stream_video(theme: str, number: int, request: Request):
     if rng:
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     return StreamingResponse(chunks(), status_code=206 if rng else 200, headers=headers)
+
+
+# ---- alpha.69: winner videos (kept in app data so they never get lost) ----------
+def _stream_file(path: Path, request: Request):
+    size = path.stat().st_size
+    mime = wv.MIME.get(path.suffix.lower(), "application/octet-stream")
+    base = {"Accept-Ranges": "bytes", "Content-Type": mime, "Cache-Control": "no-store"}
+    if request.method == "HEAD":
+        return Response(status_code=200, headers={**base, "Content-Length": str(size)})
+    rng = _range(request.headers.get("range"), size)
+    start, end = rng if rng else (0, size - 1)
+    if request.headers.get("range") and not rng:
+        return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+
+    def chunks():
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            left = end - start + 1
+            while left > 0:
+                data = fh.read(min(1024 * 1024, left))
+                if not data:
+                    break
+                left -= len(data)
+                yield data
+
+    headers = {**base, "Content-Length": str(end - start + 1)}
+    if rng:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    return StreamingResponse(chunks(), status_code=206 if rng else 200, headers=headers)
+
+
+@router.api_route("/winner-video/{theme:path}", methods=["GET", "HEAD"])
+async def winner_video(theme: str, request: Request):
+    """The winner video for a theme (or the generic one). Streams with Range."""
+    path = wv.find(theme)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="winner_video_not_found")
+    return _stream_file(path, request)
+
+
+@router.get("/winner-videos")
+async def list_winner_videos():
+    return {"folder": str(wv.user_dir()), "videos": wv.listing()}
+
+
+@router.post("/winner-videos")
+async def add_winner_videos(files: list[UploadFile] = File(...)):
+    saved, rejected = [], []
+    for f in files:
+        try:
+            wv.save_upload_file(f.filename or "", f.file)
+            saved.append(Path(f.filename).name)
+        except ValueError as e:
+            rejected.append({"name": f.filename, "reason": str(e)})
+        except OSError:
+            rejected.append({"name": f.filename, "reason": "could_not_save"})
+    return {"saved": saved, "rejected": rejected, "folder": str(wv.user_dir()), "videos": wv.listing()}
+
+
+@router.delete("/winner-videos/{name}")
+async def delete_winner_video(name: str):
+    target = wv.user_dir() / Path(name).name
+    if not target.is_file() or target.suffix.lower() not in wv.EXTS:
+        raise HTTPException(status_code=404, detail="not_found")
+    target.unlink()
+    return {"deleted": target.name, "videos": wv.listing()}
 
 
 # ---- the two routes the existing Lobby + Host pages already call --------------

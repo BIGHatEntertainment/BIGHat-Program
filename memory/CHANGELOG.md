@@ -8,6 +8,15 @@
 ---
 ---
 
+## 2026-10-02 — v32.0.0-alpha.69: Winner videos fixed and moved into a proper folder
+- Fix: the winner video did not play on a real PC. The host sent a relative file name the backend never served, so the audience window got nothing.
+- Winner videos now live in a real folder in app data: <data root>/winner_videos. The 7 videos you sent ship inside the app (backend/assets/winner_videos) and are copied there on first use, so they can never get lost. Your own files in that folder always win and are never overwritten.
+- New backend routes: GET /api/bingo/winner-video/<theme> (streams with seeking, falls back to (Generic).mp4), GET/POST/DELETE /api/bingo/winner-videos.
+- Matching is by file name with punctuation ignored: (1980's).mp4 = 1980s; Y2K = (2000's).mp4; "Emo" finds (Pop-Punk and Emo).mp4. No match, or Traditional Bingo, plays (Generic).mp4.
+- Bingo Setup: new "Winner videos" section with an "Add winner videos" button (pick several .mp4 / .webm / .mov at once), the saved-in path, and a remove button on the ones you added.
+- Old frontend/public/bingo-winner-*.mp4 files removed (they were never reachable).
+- Trivia player untouched.
+
 ## 2026-10-02 — v32.0.0-alpha.68: Bingo player fixes (playback sync, winner screen, end-round pop-up)
 - Host no longer has file upload boxes (songs and videos come from Bingo Setup only).
 - First song of a game now plays as video on host and audience (the video element is started after it renders, not before).
