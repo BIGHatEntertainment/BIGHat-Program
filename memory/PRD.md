@@ -1,6 +1,10 @@
 # BIG Hat Standalone V31 — Product Requirements
 
-> **Current release: `v32.0.0-alpha.70` (2026-10-02).** alpha.70: KARAOKE. Lobby (filler drop-down from external drive, Karaoke Setup button),
+> **Current release: `v32.0.0-alpha.72` (2026-10-03).** alpha.72: employees are users (employee_sync.py), temp password shown once, duplicate/bad email
+> refused with the real reason, passwords never returned or stored in plain text, Schedule Admin header tab removed. OPEN: trivia scores need local storage (SharePoint only today).
+> (Previous:) `v32.0.0-alpha.71` (2026-10-03): alpha.71: Purchase button opens the store in the user's browser (openExternal.js);
+> Intel Mac build retired (macos-13 runner is gone; gate needs Windows .exe + Apple Silicon .dmg). alpha.70 is the published GitHub "latest".
+> Trivia, Bingo and Karaoke players LOCKED. (Previous:) `v32.0.0-alpha.70` (2026-10-02): alpha.70: KARAOKE. Lobby (filler drop-down from external drive, Karaoke Setup button),
 > Karaoke Setup (folders, 1920x1080 master overlay, venue logos >=145px, filler folder, YouTube key), host Player (Filler + Karaoke tabs,
 > queue, search, QR requests), audience screen = the clock (host follows it; background preload; 3 s fades), phone request page.
 > Deferred: phone-reachable QR (/karaoke/request-info). Trivia + Bingo LOCKED. (Previous:) `v32.0.0-alpha.69`: alpha.69: winner video fix. Videos are served by the backend from

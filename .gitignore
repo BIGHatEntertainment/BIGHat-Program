@@ -1162,5 +1162,9 @@ src-tauri/gen/
 memory/github_pat.txt
 
 # test runs of the real launcher write database files here; never commit them
-backend/native/data/bighat_db/bighat/karaoke_*.collection
-backend/native/data/bighat_db/bighat/youtube_search_cache.collection
+backend/native/data/bighat_db/bighat/*.collection
+
+# alpha.73: the encrypted credential ledger + its key and the location safety copies (never commit secrets)
+backend/native/secure/
+backend/native/backups/
+backend/native/file_map.json

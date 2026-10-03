@@ -386,6 +386,11 @@ def _write_location_json(doc: Dict[str, Any]) -> None:
         tmp.replace(p)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[locations] could not write location.json for %s: %s", doc.get("slug"), exc)
+    try:
+        from native import locations_backup
+        locations_backup.mirror(doc.get("slug") or "")      # alpha.73: second copy in AppData
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[locations] backup mirror failed for %s: %s", doc.get("slug"), exc)
 
 
 def _read_location_json(slug: str) -> Optional[Dict[str, Any]]:
@@ -421,7 +426,16 @@ async def _hydrate_from_disk() -> Dict[str, Any]:
         added_branding, removed_branding, added_overlays,
         removed_overlays, errors }
     """
+    # alpha.73: bring back anything missing from Documents using the AppData safety copy FIRST, so a missing
+    # folder is repaired instead of the images being dropped from the database.
+    try:
+        from native import locations_backup
+        _restored = locations_backup.restore_missing()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[locations] safety-copy restore failed: %s", exc)
+        _restored = {}
     summary = {
+        "restored_from_backup": _restored,
         "db_rows": 0, "disk_folders": 0,
         "recovered_folders": [], "created_folders": [],
         "added_branding": {}, "removed_branding": {},
@@ -698,6 +712,11 @@ async def delete_location(location_id: str, request: Request):
     await _require_master(request)
     loc = await _get_location_or_404(location_id)
     await _db.locations.delete_one({"id": location_id})
+    try:
+        from native import locations_backup
+        locations_backup.remove(loc.get("slug", ""))        # deleted on purpose: remove the safety copy as well
+    except Exception:  # noqa: BLE001
+        pass
     # Best-effort wipe — losing the folder is non-fatal.
     for folder in (
         _files_locations_root() / loc.get("slug", ""),

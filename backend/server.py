@@ -598,8 +598,33 @@ async def lifespan(app: FastAPI):
     # Seed trivia data from deployed Trivia Presenter API
     await seed_trivia_data()
     
+    # ─── alpha.73: data map, credential ledger, lost-user recovery (runs BEFORE the employee sync so real passwords win) ──
+    # Non-fatal: a ledger problem must never stop the app from starting.
+    try:
+        from native import data_map, credential_ledger
+        from native.config import config_manager
+        data_map.write_map()
+        cfg = config_manager.load_config()
+        have = [u.get("email", "") for u in cfg.get("users", [])]
+        lost = credential_ledger.restore_users(have)
+        if lost and have:
+            cfg.setdefault("users", []).extend(lost)
+            config_manager.save_config(cfg)
+            logger.warning("[alpha.73] restored %d user(s) from the credential ledger", len(lost))
+        else:
+            credential_ledger.sync_from_config(cfg.get("users", []))
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("[alpha.73] ledger boot step failed: %s", e)
+
     # Sync hub users from schedule employees (employees are source of truth)
-    await sync_users_from_employees()
+    # alpha.72: the standalone app keeps its users in system_config.json, so add missing users there
+    try:
+        from native import employee_sync
+        _added = await employee_sync.sync_all(await db.employees.find({}, {"_id": 0}).to_list(1000), DEFAULT_HOST_PASSWORD)
+        if _added:
+            logger.info(f"Added {_added} users from schedule employees")
+    except Exception as e:
+        logger.warning(f"Employee user sync skipped: {e}")
     
     
     
@@ -1384,54 +1409,115 @@ async def reset_employee_password(employee_id: str, reset: PasswordReset):
     employee = await db.employees.find_one({"id": employee_id})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    await db.employees.update_one({"id": employee_id}, {"$set": {"password": reset.new_password}})
+    from native import employee_sync
+    if len((reset.new_password or "").strip()) < 6:
+        raise HTTPException(status_code=400, detail="The password must be at least 6 characters.")
+    await employee_sync.set_user_password(employee.get("email"), reset.new_password)      # the login, not just the record
     return {"success": True, "message": "Password reset successfully"}
 
 # =============================================
 # SCHEDULE - EMPLOYEES
 # =============================================
 
-@api_router.post("/employees", response_model=ScheduleEmployee)
+def _public_employee(doc: dict) -> dict:
+    """An employee as the API shows it: never the password."""
+    out = {k: v for k, v in doc.items() if k not in ("password", "_id")}
+    if isinstance(out.get("created_at"), str):
+        try:
+            out["created_at"] = datetime.fromisoformat(out["created_at"])
+        except ValueError:
+            pass
+    return out
+
+
+@api_router.post("/employees")
 async def create_schedule_employee(employee: ScheduleEmployeeCreate):
-    obj = ScheduleEmployee(**employee.model_dump())
+    from native import employee_sync
+    email = employee_sync.norm_email(employee.email)
+    if not employee.name.strip():
+        raise HTTPException(status_code=400, detail="Please enter the employee's name.")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if await db.employees.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}):
+        raise HTTPException(status_code=409, detail="An employee with that email already exists.")
+    data = employee.model_dump()
+    data["email"] = email
+    data["name"] = data["name"].strip()
+    typed_password = (data.get("password") or "").strip() if "password" in employee.model_fields_set else ""
+    if typed_password and len(typed_password) < 6:
+        raise HTTPException(status_code=400, detail="The password must be at least 6 characters.")
+    # No password typed: make a readable temporary one and show it ONCE to whoever is adding the employee.
+    # (The desktop launcher fills DEFAULT_HOST_PASSWORD with a random value nobody ever sees, so it cannot be used.)
+    temp_password = None
+    if typed_password:
+        final_password = typed_password
+    else:
+        temp_password = employee_sync.make_temp_password()
+        final_password = temp_password
+    obj = ScheduleEmployee(**{**data, "password": "-"})        # the login lives (hashed) in the user record; no plain copy here
     doc = obj.model_dump()
+    doc['password'] = ""
     doc['created_at'] = doc['created_at'].isoformat()
     await db.employees.insert_one(doc)
-    return obj
+    # the employee is also a user (User Management + login)
+    await employee_sync.upsert_user_for_employee(obj.name, obj.email, obj.is_admin, obj.phone, final_password, DEFAULT_HOST_PASSWORD)
+    out = _public_employee(doc)
+    if temp_password:
+        out["temp_password"] = temp_password
+    return out
 
 @api_router.get("/employees")
 async def get_schedule_employees():
     employees = await db.employees.find({}, {"_id": 0}).to_list(1000)
-    for emp in employees:
-        if isinstance(emp.get('created_at'), str):
-            emp['created_at'] = datetime.fromisoformat(emp['created_at'])
-    return employees
+    return [_public_employee(e) for e in employees]
 
 @api_router.get("/employees/{employee_id}")
 async def get_schedule_employee(employee_id: str):
     employee = await db.employees.find_one({"id": employee_id}, {"_id": 0})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    if isinstance(employee.get('created_at'), str):
-        employee['created_at'] = datetime.fromisoformat(employee['created_at'])
-    return employee
+    return _public_employee(employee)
 
 @api_router.put("/employees/{employee_id}")
 async def update_schedule_employee(employee_id: str, employee: ScheduleEmployeeCreate):
+    from native import employee_sync
     existing = await db.employees.find_one({"id": employee_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Employee not found")
-    await db.employees.update_one({"id": employee_id}, {"$set": employee.model_dump()})
+    email = employee_sync.norm_email(employee.email)
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    clash = await db.employees.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}, "id": {"$ne": employee_id}})
+    if clash:
+        raise HTTPException(status_code=409, detail="Another employee already uses that email.")
+    data = employee.model_dump()
+    data["email"] = email
+    # The model fills a missing password with the shared default, so look at what was REALLY sent.
+    # An edit with no password must never change the one the employee already has.
+    sent_password = "password" in employee.model_fields_set
+    typed_password = (data.get("password") or "").strip() if sent_password else ""
+    if typed_password and len(typed_password) < 6:
+        raise HTTPException(status_code=400, detail="The password must be at least 6 characters.")
+    data.pop("password", None)                   # the login password lives (hashed) in the user record, never here
+    await db.employees.update_one({"id": employee_id}, {"$set": data})
+    old_email = employee_sync.norm_email(existing.get("email"))
+    if old_email and old_email != email and employee_sync.find_user(old_email) and not employee_sync.is_master(employee_sync.find_user(old_email)):
+        await employee_sync.remove_user_for_employee(old_email)          # the email changed: move the user to the new one
+    await employee_sync.upsert_user_for_employee(employee.name, email, employee.is_admin, employee.phone, typed_password or None, DEFAULT_HOST_PASSWORD)
     updated = await db.employees.find_one({"id": employee_id}, {"_id": 0})
-    if isinstance(updated.get('created_at'), str):
-        updated['created_at'] = datetime.fromisoformat(updated['created_at'])
-    return updated
+    return _public_employee(updated)
 
 @api_router.delete("/employees/{employee_id}")
 async def delete_schedule_employee(employee_id: str):
-    result = await db.employees.delete_one({"id": employee_id})
-    if result.deleted_count == 0:
+    from native import employee_sync
+    existing = await db.employees.find_one({"id": employee_id}, {"_id": 0})
+    if not existing:
         raise HTTPException(status_code=404, detail="Employee not found")
+    user = employee_sync.find_user(existing.get("email"))
+    if employee_sync.is_master(user):
+        raise HTTPException(status_code=400, detail="The master admin cannot be removed from here.")
+    await db.employees.delete_one({"id": employee_id})
+    await employee_sync.remove_user_for_employee(existing.get("email"))      # and their login
     return {"success": True, "message": "Employee deleted"}
 
 # =============================================

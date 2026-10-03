@@ -634,7 +634,7 @@ function TriviaAdminPanel({ userName, onRefresh }) {
         <div className="space-y-4">
           {scoreFiles.length === 0 ? (
             <div className="rounded-xl p-8 text-center" style={{ backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.08)' }}>
-              <p style={{ color: '#8892b0' }}>No score files found on SharePoint</p>
+              <p style={{ color: '#8892b0' }}>No saved scores yet. They appear here after a trivia night ends.</p>
             </div>
           ) : (
             scoreFiles.map(loc => (

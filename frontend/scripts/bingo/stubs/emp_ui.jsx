@@ -1,0 +1,12 @@
+import React from 'react';
+export const Button = ({ children, onClick, disabled, type, ...p }) => <button type={type || 'button'} onClick={onClick} disabled={disabled} {...p}>{children}</button>;
+export const Card = ({ children, ...p }) => <div {...p}>{children}</div>;
+export const CardContent = Card; export const CardHeader = Card; export const CardTitle = Card; export const CardDescription = Card;
+export const Dialog = ({ open, children }) => (open ? <div data-open="true">{children}</div> : null);
+export const DialogContent = ({ children, ...p }) => <div {...p}>{children}</div>;
+export const DialogHeader = DialogContent; export const DialogTitle = DialogContent; export const DialogDescription = DialogContent; export const DialogFooter = DialogContent;
+export const Input = (p) => <input {...p} />;
+export const Label = ({ children, htmlFor }) => <label htmlFor={htmlFor}>{children}</label>;
+export const Checkbox = ({ checked, onCheckedChange, id }) => <input type="checkbox" id={id} checked={!!checked} onChange={(e) => onCheckedChange && onCheckedChange(e.target.checked)} />;
+export const Badge = ({ children }) => <span>{children}</span>;
+export default () => null;

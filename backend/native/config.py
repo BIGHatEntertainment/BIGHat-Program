@@ -143,7 +143,20 @@ class ConfigManager:
                 except OSError:
                     pass
                 raise
+            self._record_in_ledger()
             return self.config
+
+    def _record_in_ledger(self) -> None:
+        """alpha.73: every login change is also written to the encrypted credential ledger in AppData.
+        Must never stop a config save, so any problem is swallowed (and logged)."""
+        if os.environ.get("BIGHAT_LEDGER_OFF") == "1":
+            return
+        try:
+            from native import credential_ledger
+            credential_ledger.sync_from_config(self.config.get("users", []) or [])
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("[ledger] could not record user changes: %s", exc)
 
     # ----- Helpers -----
     def is_setup_required(self) -> bool:

@@ -25,6 +25,7 @@ const EmployeeManager = () => {
   });
   const [loading, setLoading] = useState(false);
   const [passwordResetDialog, setPasswordResetDialog] = useState(false);
+  const [tempPassword, setTempPassword] = useState(null);
   const [resetEmployee, setResetEmployee] = useState(null);
   const [newPassword, setNewPassword] = useState('');
 
@@ -76,14 +77,20 @@ const EmployeeManager = () => {
         await axios.put(`${API}/employees/${editingEmployee.id}`, formData);
         toast.success('Employee updated successfully');
       } else {
-        await axios.post(`${API}/employees`, formData);
+        const res = await axios.post(`${API}/employees`, formData);
         toast.success('Employee added successfully');
+        // alpha.72: a new employee is also a user. If the app made a temporary password, show it once.
+        if (res.data && res.data.temp_password) {
+          setTempPassword({ name: res.data.name, email: res.data.email, password: res.data.temp_password });
+        }
       }
       setDialogOpen(false);
       fetchEmployees();
     } catch (error) {
       console.error('Error saving employee:', error);
-      toast.error('Failed to save employee');
+      // say WHY it failed (duplicate email, bad email...) instead of a vague message
+      const why = error.response && error.response.data && error.response.data.detail;
+      toast.error(typeof why === 'string' ? why : 'Could not save the employee. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -294,6 +301,23 @@ const EmployeeManager = () => {
       </Dialog>
 
       {/* Password Reset Dialog */}
+      <Dialog open={!!tempPassword} onOpenChange={(open) => { if (!open) setTempPassword(null); }}>
+        <DialogContent data-testid="temp-password-dialog">
+          <DialogHeader>
+            <DialogTitle>{tempPassword?.name} can now sign in</DialogTitle>
+            <DialogDescription>
+              Give them this temporary password. It is shown only once. They can sign in with {tempPassword?.email}, and you can change it any time with Reset password.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg p-4 text-center text-2xl font-mono font-bold tracking-wide select-all" style={{ backgroundColor: '#0a1940', color: '#fbdd68' }} data-testid="temp-password-value">
+            {tempPassword?.password}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setTempPassword(null)} data-testid="temp-password-close">Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={passwordResetDialog} onOpenChange={setPasswordResetDialog}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>

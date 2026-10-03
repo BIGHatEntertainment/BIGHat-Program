@@ -8,6 +8,21 @@
 ---
 ---
 
+## 2026-10-03 — v32.0.0-alpha.72: employees are users, and saves are honest
+- Fix: a new Schedule employee now also appears in User Management and can sign in. In the desktop app the real user list is system_config.json; the old employee sync wrote only to a table that User Management purges on every load, so new people could never appear. New backend/native/employee_sync.py creates / updates / removes the matching user (hashed password, saved in the config, survives restarts). The master admin is never changed or removed from the Schedule.
+- Employee form: a duplicate email is refused (409) and a bad email (400), and the form now says WHY it failed instead of "Failed to save". With no password typed the app makes a readable temporary one (like Swift-Otter-4821) and shows it ONCE in a pop-up; that password works to sign in. Editing an employee never changes their password; Reset password now changes the real login (it only changed the schedule record before) and needs 6+ characters.
+- Security: employee passwords are no longer returned by the API (GET /employees used to list every password in plain text with no login) and no plain copy is stored for new or edited employees.
+- Removed the redundant "Schedule Admin" tab from the dashboard header (the Schedule page has its own button to it).
+- Persistence audit on the real app (save, read, restart, read): venues, employees, events and claims, blackouts, venue roles, pricing and users all survive a restart.
+- OPEN, needs a decision (not changed): trivia scores are saved only to SharePoint (backend/routes/scores.py); with no SharePoint credentials in the desktop app the end-of-night score save fails and nothing is stored.
+- Test hygiene: backend/scripts/e2e_*.sh run the real app in a private data folder; .gitignore now excludes bighat_db/*.collection.
+
+## 2026-10-03 — v32.0.0-alpha.71: store link fix + Intel Mac retired
+- Fix: the Purchase button on a locked app did nothing in the desktop app, because a plain window.open to an outside website is blocked there. It now hands the link to the system, so the store opens in the customer's own default browser (Chrome / Edge). Web links only (http / https); anything else is refused. New file frontend/src/lib/openExternal.js; AppCards.js uses it; added @tauri-apps/plugin-shell to package.json (the Rust side already had the plugin).
+- Build pipeline: macOS (Intel) retired. GitHub removed the macos-13 runner, so that job sat "queued" forever and the publish gate never ran: alpha.65 to alpha.70 were all left as drafts and nothing was "latest". The workflow now builds Windows + macOS Apple Silicon only, and the gate requires exactly those two installers. Re-add an Intel leg (and its gate check) if customers ask.
+- alpha.70 was published by hand as the latest GitHub release (Windows .exe + Apple Silicon .dmg). alpha.65 to alpha.69 stay as drafts.
+- No Karaoke, Trivia or Bingo changes. All three players are LOCKED.
+
 ## 2026-10-02 — v32.0.0-alpha.70: Karaoke
 - **Lobby** (/karaoke): location, host, filler-music drop-down (the folders on your saved external drive, with track counts; an unplugged drive says "plug it in and Refresh"), request-QR switch, Launch. **Karaoke Setup** button lives here, like Bingo Setup.
 - **Karaoke Setup** (/karaoke/setup): makes the folders under Documents/BIG Hat Entertainment/Files/Karaoke (Master Overlay, Venue Logos, Song Library); master overlay upload (exactly 1920 x 1080, keeps the BIG Hat window layout, one-click reset to the BIG Hat overlay); one venue logo per location (at least 145 x 145, roughly square, shown uncropped in the ~249 px logo window); filler music folder (Browse or paste, Check); YouTube key (kept on this PC, never shown in full).
@@ -3979,3 +3994,9 @@ with both `MUI_FINISHPAGE_RUN ""` + `MUI_FINISHPAGE_RUN_FUNCTION LaunchApp`
 * v31.0.4: VBS-orchestrated launch but opened default browser. User saw a regular browser tab with their normal Chrome profile (multi-tab strip visible). Rejected by user — must use chromeless --app= mode instead. Also Finish-page auto-launch was broken (MUI_FINISHPAGE_RUN_FUNCTION didn't fire).
 
 All of these are obsolete. v31.0.5 is the current canonical build.
+
+## alpha.73 (local, not pushed)
+- Credential ledger: AppData `secure/credentials.ledger` (encrypted, hash-chained, no readable passwords). Written from config_manager.save_config. Boot restores users the config lost BEFORE the employee sync.
+- Locations safety copy: AppData `locations_backup/` mirrors every location.json + image; restored on list/hydrate when the Documents copy is missing. Fixes silent image drops.
+- Data map: AppData `file_map.json` lists every place the app stores data (native/data_map.py).
+- Trivia scores stored on the PC: native/scores_store.py. routes/scores.py /save writes Documents/.../Files/Trivia/Scores/<location>/ + AppData backups/scores/ FIRST; SharePoint is an optional extra that can never fail the save. /files lists local files, GET/DELETE /files/{location}/{file}. Dashboard text updated. Tests: test_alpha73_scores.py; real-app: scripts/e2e_scores.sh.

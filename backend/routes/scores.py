@@ -100,135 +100,85 @@ class SaveScoresRequest(BaseModel):
 
 @router.post("/save")
 async def save_scores(request: SaveScoresRequest):
-    """Save trivia scores as JSON to SharePoint, organized by location."""
+    """Save one night's trivia scores ON THIS PC (Documents + AppData copy).
+    SharePoint is an optional extra: if it is set up it also gets a copy, but a SharePoint problem never loses the scores."""
+    from native import scores_store
+    scores_data = {
+        "location": request.locationName,
+        "presentationName": request.presentationName,
+        "date": request.presentationDate,
+        "presentationId": request.presentationId,
+        "savedAt": datetime.now(timezone.utc).isoformat(),
+        "rounds": [{"label": r.label, "multiplier": r.multiplier} for r in request.rounds],
+        "rankings": [],
+        "teams": [],
+    }
+    for idx, team in enumerate(request.teams):
+        scores_data["teams"].append({"rank": idx + 1, "name": team.name, "swag": team.swag,
+                                     "roundScores": team.roundScores, "total": team.total})
+        if idx < 3:
+            scores_data["rankings"].append({"place": idx + 1, "team": team.name, "score": team.total})
+
+    try:
+        saved = scores_store.save(scores_data)
+    except OSError as e:
+        logger.error(f"Could not write scores to disk: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not save scores on this PC: {e}")
+
+    # Optional SharePoint copy (cloud builds only). Never fails the save.
+    shared = False
     try:
         token = await _get_sp_token()
-        if not token:
-            raise HTTPException(status_code=500, detail="SharePoint authentication failed")
+        if token:
+            subfolder_id, folder_name = await _find_or_create_subfolder(token, request.locationName)
+            if subfolder_id:
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    r = await client.put(
+                        f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{subfolder_id}:/{saved['filename']}:/content",
+                        content=json.dumps(scores_data, indent=2).encode("utf-8"),
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+                    shared = r.status_code in (200, 201)
+    except Exception as e:                                     # noqa: BLE001
+        logger.info(f"SharePoint copy skipped: {e}")
 
-        # Build the JSON data
-        scores_data = {
-            "location": request.locationName,
-            "presentationName": request.presentationName,
-            "date": request.presentationDate,
-            "presentationId": request.presentationId,
-            "savedAt": datetime.now(timezone.utc).isoformat(),
-            "rounds": [{"label": r.label, "multiplier": r.multiplier} for r in request.rounds],
-            "rankings": [],
-            "teams": []
-        }
-
-        for idx, team in enumerate(request.teams):
-            scores_data["teams"].append({
-                "rank": idx + 1, "name": team.name, "swag": team.swag,
-                "roundScores": team.roundScores, "total": team.total
-            })
-            if idx < 3:
-                scores_data["rankings"].append({"place": idx + 1, "team": team.name, "score": team.total})
-
-        json_content = json.dumps(scores_data, indent=2).encode('utf-8')
-
-        # Find or create the location subfolder
-        subfolder_id, folder_name = await _find_or_create_subfolder(token, request.locationName)
-        if not subfolder_id:
-            raise HTTPException(status_code=500, detail=f"Could not create/find folder for: {request.locationName}")
-
-        # Upload JSON file
-        date_clean = request.presentationDate.replace('/', '-').replace(' ', '_')
-        filename = f"{folder_name}_{date_clean}.json"
-        
-        import httpx
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.put(
-                f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{subfolder_id}:/{filename}:/content",
-                content=json_content,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            )
-            if r.status_code not in (200, 201):
-                raise HTTPException(status_code=500, detail="Failed to upload scores file")
-
-        # Also save to DB for the admin tab
+    try:
         if db is not None:
-            scores_data["_filename"] = filename
-            scores_data["_folder"] = folder_name
-            scores_data["_subfolderId"] = subfolder_id
-            await db.trivia_scores.insert_one(scores_data)
+            await db.trivia_scores.insert_one({**scores_data, "_filename": saved["filename"], "_folder": saved["folder"]})
+            if request.presentationId:
+                from datetime import timedelta
+                now = datetime.now(timezone.utc)
+                done = {"completedAt": now.isoformat(), "autoHideAt": (now + timedelta(days=3)).isoformat()}
+                await db.trivia_presentations.update_one({"id": request.presentationId}, {"$set": done})
+                await db.presentations.update_one({"id": request.presentationId}, {"$set": done})
+    except Exception as e:                                     # noqa: BLE001
+        logger.warning(f"Scores saved to disk but the database note failed: {e}")
 
-        # Mark presentation as completed for auto-hide
-        if request.presentationId and db is not None:
-            from datetime import timedelta
-            auto_hide = datetime.now(timezone.utc) + timedelta(days=3)
-            await db.trivia_presentations.update_one(
-                {"id": request.presentationId},
-                {"$set": {"completedAt": datetime.now(timezone.utc).isoformat(), "autoHideAt": auto_hide.isoformat()}}
-            )
-            await db.presentations.update_one(
-                {"id": request.presentationId},
-                {"$set": {"completedAt": datetime.now(timezone.utc).isoformat(), "autoHideAt": auto_hide.isoformat()}}
-            )
+    logger.info(f"Scores saved: {saved['path']} ({len(request.teams)} teams, sharepoint={shared})")
+    return {"success": True, "path": saved["path"], "teams": len(request.teams),
+            "topTeam": request.teams[0].name if request.teams else None, "sharedToSharePoint": shared}
 
-        logger.info(f"Scores saved: {folder_name}/{filename} ({len(request.teams)} teams)")
-        return {"success": True, "path": f"{folder_name}/{filename}", "teams": len(request.teams),
-                "topTeam": request.teams[0].name if request.teams else None}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error saving scores: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/files")
 async def list_score_files():
-    """List all score files from SharePoint organized by location."""
-    try:
-        token = await _get_sp_token()
-        if not token:
-            raise HTTPException(status_code=500, detail="SharePoint auth failed")
-        
-        import httpx
-        headers = {"Authorization": f"Bearer {token}"}
-        result = []
-        
-        async with httpx.AsyncClient(timeout=15) as client:
-            # List location subfolders
-            r = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{SP_SCORES_FOLDER_ID}/children", headers=headers)
-            if r.status_code != 200:
-                return []
-            
-            for folder in r.json().get("value", []):
-                if not folder.get("folder"):
-                    continue
-                # List files in each subfolder
-                r2 = await client.get(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{folder['id']}/children", headers=headers)
-                files = []
-                if r2.status_code == 200:
-                    for f in r2.json().get("value", []):
-                        if f.get("name", "").endswith(".json"):
-                            files.append({"name": f["name"], "id": f["id"], "size": f.get("size", 0),
-                                          "modified": f.get("lastModifiedDateTime", "")})
-                result.append({"location": folder["name"], "folderId": folder["id"], "fileCount": len(files), "files": files})
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error listing score files: {e}")
-        return []
+    """List the score files saved on this PC, grouped by location."""
+    from native import scores_store
+    return scores_store.list_files()
 
-@router.delete("/files/{file_id}")
-async def delete_score_file(file_id: str):
-    """Delete a score file from SharePoint."""
-    try:
-        token = await _get_sp_token()
-        if not token:
-            raise HTTPException(status_code=500, detail="SharePoint auth failed")
-        
-        import httpx
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.delete(f"https://graph.microsoft.com/v1.0/drives/{SP_DRIVE_ID}/items/{file_id}",
-                headers={"Authorization": f"Bearer {token}"})
-            if r.status_code in (200, 204):
-                return {"success": True}
-            raise HTTPException(status_code=r.status_code, detail="Failed to delete file")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/files/{location}/{filename}")
+async def read_score_file(location: str, filename: str):
+    from native import scores_store
+    data = scores_store.read(f"{location}/{filename}")
+    if data is None:
+        raise HTTPException(status_code=404, detail="Score file not found")
+    return data
+
+
+@router.delete("/files/{location}/{filename}")
+async def delete_score_file(location: str, filename: str):
+    """Delete a saved score file (both the Documents copy and the AppData copy)."""
+    from native import scores_store
+    if not scores_store.delete(f"{location}/{filename}"):
+        raise HTTPException(status_code=404, detail="Score file not found")
+    return {"success": True}

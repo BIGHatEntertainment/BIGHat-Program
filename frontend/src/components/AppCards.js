@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mic2, Music, HelpCircle, Lock, ShoppingCart, KeyRound } from 'lucide-react';
 import { useNative } from '../context/NativeContext';
 import LicenseActivationDialog from './LicenseActivationDialog';
+import { openExternal } from '../lib/openExternal';
 
 const STORE_BASE = 'https://bighat.live/shop';
 
@@ -78,7 +79,8 @@ export default function AppCards() {
               onLaunch={() => owned && navigate(app.route)}
               onActivate={() => setActivateOpen(true)}
               onBuy={() => {
-                window.open(`${STORE_BASE}${app.storePath}`, '_blank', 'noopener,noreferrer');
+                // alpha.71: open in the customer's own browser (window.open is blocked inside the desktop app)
+                openExternal(`${STORE_BASE}${app.storePath}`);
               }}
             />
           );
