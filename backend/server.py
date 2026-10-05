@@ -2382,6 +2382,15 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Native updates router: {e}")
 
+# alpha.78: open links in the default browser + save downloads to the Downloads folder (the desktop
+# window blocks window.open and <a download>, so the page asks the backend).
+try:
+    from native.system_router import router as native_system_router
+    app.include_router(native_system_router)
+    logger.info("Native system router registered at /api/native/system/*")
+except Exception as e:
+    logger.warning(f"Could not load Native system router: {e}")
+
 # Native .bighat files router (Phase 10.11). Lets the user save/load .bighat
 # files in a folder on their machine (Documents/BIGHat Entertainment/Files).
 try:

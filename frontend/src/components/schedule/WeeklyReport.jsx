@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../ui/badge';
 import { toast } from 'sonner';
 import PaymentDetailDialog from './PaymentDetailDialog';
+import { saveBlob } from '../../lib/saveFile';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -74,13 +75,10 @@ const WeeklyReport = () => {
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `weekly-report-${format(parseISO(reportData.week_start), 'yyyy-MM-dd')}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    toast.success('Report exported successfully');
+    saveBlob(blob, `weekly-report-${format(parseISO(reportData.week_start), 'yyyy-MM-dd')}.csv`).then((r) => {
+      if (r.ok) toast.success(r.path ? `Report saved to Downloads` : 'Report exported successfully');
+      else toast.error('Could not save the report');
+    });
   };
 
   const calculateTotals = () => {

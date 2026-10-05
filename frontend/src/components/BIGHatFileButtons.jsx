@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { saveUrl } from '../lib/saveFile';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Download, Upload, X, FileBadge, ShieldCheck, ShieldAlert } from 'lucide-react';
@@ -21,14 +22,10 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
   const handleExport = () => {
     if (!itemId) return;
     const url = `${API}/api/bighat-files/export/${type}/${itemId}`;
-    // Browser-native download — works in native (relative URL) and webapp.
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(itemName || 'BIG Hat').replace(/[\\/:*?"<>|]/g, '')}.bighat`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast.success(`Exporting "${itemName || 'BIG Hat file'}"`);
+    // alpha.78: saveUrl puts the file in Downloads in the desktop app, and downloads normally in a browser.
+    const fileName = `${(itemName || 'BIG Hat').replace(/[\\/:*?"<>|]/g, '')}.bighat`;
+    saveUrl(url, fileName, { toast: (t) => (t.variant === 'destructive' ? toast.error(t.description) : toast.success(`Saved ${fileName} to Downloads`)) })
+      .catch((e) => toast.error(`Export failed: ${e.message}`));
   };
 
   const handleFilePick = async (e) => {

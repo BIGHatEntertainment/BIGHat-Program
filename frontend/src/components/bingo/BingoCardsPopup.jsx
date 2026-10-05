@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Download, Grid3X3, Music, Star, Heart } from 'lucide-react';
 import axios from 'axios';
+import { saveBlob } from '../../lib/saveFile';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api/bingo`;
 
@@ -37,16 +38,11 @@ export default function BingoCardsPopup({ open, onClose }) {
       const res = await axios.get(`${API}/bingo-cards/download/${category}/${encodeURIComponent(decade)}`, {
         responseType: 'blob', timeout: 30000,
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Bingo (${displayName}).pdf`;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      link.remove();
+      const saved = await saveBlob(new Blob([res.data], { type: 'application/pdf' }), `Bingo (${displayName}).pdf`);
+      if (!saved.ok) window.alert(`Could not save the Bingo cards: ${saved.error || 'unknown error'}`);
     } catch (err) {
       console.error('Download failed:', err);
+      window.alert('Could not download the Bingo cards. Please try again.');
     } finally {
       setDownloading(null);
     }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Download, FileText, Grid3X3 } from 'lucide-react';
+import { saveUrl } from '../../lib/saveFile';
 
 const ANSWER_SHEETS = [
   { id: 'multiple-choice', name: 'Multiple Choice', description: '10-question multiple choice answer form (A, B, C, D)', file: '/trivia-multiple-choice.pdf' },
@@ -13,13 +14,7 @@ export default function AnswerSheetsPopup({ open, onClose }) {
   if (!open) return null;
 
   const handleDownload = (sheet) => {
-    const link = document.createElement('a');
-    link.href = sheet.file;
-    link.download = `${sheet.name}.pdf`;
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    saveUrl(sheet.file, `${sheet.name}.pdf`).catch(() => window.alert('Could not save the answer sheet'));
   };
 
   return (

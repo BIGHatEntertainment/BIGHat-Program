@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Mic2, Music, HelpCircle, Lock, ShoppingCart, KeyRound } from 'lucide-react';
 import { useNative } from '../context/NativeContext';
 import LicenseActivationDialog from './LicenseActivationDialog';
-import { openExternal } from '../lib/openExternal';
+import { openStore } from '../lib/openExternal';
 
-const STORE_BASE = 'https://bighat.live/shop';
+// alpha.78: the store addresses come from the app's backend (native/system_router.py STORE_DEFAULTS /
+// store_links.json), so a wrong link can be fixed without a new release.  The earlier hard-coded address was a page that does not exist.
 
 const apps = [
   {
@@ -79,8 +80,8 @@ export default function AppCards() {
               onLaunch={() => owned && navigate(app.route)}
               onActivate={() => setActivateOpen(true)}
               onBuy={() => {
-                // alpha.71: open in the customer's own browser (window.open is blocked inside the desktop app)
-                openExternal(`${STORE_BASE}${app.storePath}`);
+                // alpha.78: the app's backend opens the customer's own browser (window.open is blocked in the desktop app)
+                openStore(app.id);
               }}
             />
           );
@@ -244,6 +245,18 @@ function AppCard({ app, owned, ownsStandalone, onLaunch, onBuy, onActivate }) {
           >
             <KeyRound className="w-4 h-4" />
             Enter License Key
+          </button>
+        )}
+        {!owned && app.id === 'trivia' && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); openStore('standalone'); }}
+            data-testid="app-card-trivia-buy-btn"
+            className="mt-2 w-full inline-flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all duration-300"
+            style={{ color: '#8892b0', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            Don't have a key? Buy the program
           </button>
         )}
       </div>

@@ -9,6 +9,7 @@ import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
+import { saveBlob } from '../../lib/saveFile';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -407,12 +408,7 @@ export default function RoundCreator() {
       const genRes = await axios.post(`${API}/roundmaker/rounds/${roundId}/generate`, null, {
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([genRes.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${roundName}.pptx`;
-      link.click();
-      window.URL.revokeObjectURL(url);
+      await saveBlob(new Blob([genRes.data]), `${roundName}.pptx`);
       toast.success("PowerPoint generated and downloaded!");
       navigate("/roundmaker");
     } catch (err) {

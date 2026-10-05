@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
 import PageHeader from "../../components/PageHeader";
 import { pickAndImportBighat } from "../../lib/bighatPicker";
+import { saveBlob, saveUrl } from '../../lib/saveFile';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -158,12 +159,7 @@ export default function Dashboard() {
       const res = await axios.post(`${API}/roundmaker/rounds/${round.id}/generate`, null, {
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${round.name}.pptx`;
-      link.click();
-      window.URL.revokeObjectURL(url);
+      await saveBlob(new Blob([res.data]), `${round.name}.pptx`);
       toast.success("PowerPoint downloaded!");
     } catch (e) {
       toast.error("Failed to generate PowerPoint");
@@ -182,15 +178,11 @@ export default function Dashboard() {
 
   const handleSaveBighat = (round, e) => {
     if (e) e.stopPropagation();
-    // Trigger a browser download — same-origin so cookies/session ride along.
+    // alpha.78: saveUrl puts the file in Downloads in the desktop app, and downloads normally in a browser.
     const url = `${API}/bighat-files/export/${round.id}`;
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${round.name}.bighat`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    toast.success(`Saved "${round.name}.bighat"`);
+    saveUrl(url, `${round.name}.bighat`)
+      .then((r) => toast.success(r.path ? `Saved "${round.name}.bighat" to Downloads` : `Saved "${round.name}.bighat"`))
+      .catch((err) => toast.error(`Save failed: ${err.message}`));
   };
 
   const handleOpenBighat = async () => {

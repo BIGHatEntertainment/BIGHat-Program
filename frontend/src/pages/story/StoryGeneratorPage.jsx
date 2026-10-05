@@ -10,6 +10,8 @@ import {
 import { toast } from '../../utils/toastCompat';
 import { QRCodeSVG } from 'qrcode.react';
 import StoryImagesManager from '../../components/story/StoryImagesManager';
+import { saveBlob } from '../../lib/saveFile';
+import { openStore } from '../../lib/openExternal';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -19,6 +21,22 @@ const ROUND_DOT_COLORS = {
 const ROUND_LABELS = {
   MC: 'Multiple Choice', REG: 'General', MISC: 'Specific', MYS: 'Mystery', BIG: 'BIG Question',
 };
+
+
+// alpha.78: the Story tool is a paid add-on.  When the app refuses a request for that reason, say so in plain words
+// and offer the store, instead of showing a raw code like "premium_required".
+function isLockedReply(err) {
+  const d = err?.response?.data;
+  const text = JSON.stringify(d?.detail ?? d ?? err?.message ?? '').toLowerCase();
+  return err?.response?.status === 402 || err?.response?.status === 403 || text.includes('premium_required') || text.includes('story_generator_enabled');
+}
+function showLocked(toast) {
+  toast({
+    title: 'Story Generator is not unlocked',
+    description: 'This tool needs the Story Generator add-on on your product key. Use "Get the Story Generator" at the top of this page.',
+    variant: 'destructive',
+  });
+}
 
 export default function StoryGeneratorPage() {
   const navigate = useNavigate();
@@ -100,6 +118,7 @@ export default function StoryGeneratorPage() {
           return;
         }
       } catch (err) {
+        if (isLockedReply(err)) { showLocked(toast); setGenerating(false); return; }
         if (attempt === 3) {
           toast({ title: 'Error', description: err.response?.data?.detail || `Failed after ${attempt} attempts. Please try again.`, variant: 'destructive' });
           setGenerating(false);
@@ -245,6 +264,14 @@ export default function StoryGeneratorPage() {
               data-testid="story-images-btn"
             >
               <ImageIcon size={16} /> Story Images
+            </button>
+            <button
+              onClick={() => openStore('story')}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.03]"
+              style={{ border: '1px solid rgba(255, 255, 255, 0.2)', color: '#8892b0' }}
+              data-testid="story-buy-btn"
+            >
+              Get the Story Generator
             </button>
           </div>
           {showImages && <StoryImagesManager onClose={() => setShowImages(false)} />}
@@ -491,14 +518,8 @@ export default function StoryGeneratorPage() {
                   <button onClick={async () => {
                     try {
                       const res = await axios.get(generatedVideo.downloadUrl, { responseType: 'blob', timeout: 60000 });
-                      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'video/mp4' }));
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = generatedVideo.filename || 'story.mp4';
-                      document.body.appendChild(a);
-                      a.click();
-                      window.URL.revokeObjectURL(url);
-                      a.remove();
+                      const saved = await saveBlob(new Blob([res.data], { type: 'video/mp4' }), generatedVideo.filename || 'story.mp4', { toast });
+                      if (!saved.ok) return;
                     } catch (e) {
                       toast({ title: 'Download failed', description: 'Try generating again', variant: 'destructive' });
                     }
@@ -685,7 +706,8 @@ function EventStoryBuilder({ eventType, onBack }) {
       }
       throw new Error('Generation timed out');
     } catch (err) {
-      toast({ title: 'Error', description: err.message || 'Video generation failed', variant: 'destructive' });
+      if (isLockedReply(err)) showLocked(toast);
+      else toast({ title: 'Error', description: err.message || 'Video generation failed', variant: 'destructive' });
     } finally {
       setGenerating(false);
     }
@@ -695,14 +717,8 @@ function EventStoryBuilder({ eventType, onBack }) {
     if (!generatedVideo?.downloadUrl) return;
     try {
       const res = await axios.get(generatedVideo.downloadUrl, { responseType: 'blob', timeout: 60000 });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'video/mp4' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = generatedVideo.filename || `${eventType}_story.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      a.remove();
+      const saved = await saveBlob(new Blob([res.data], { type: 'video/mp4' }), generatedVideo.filename || `${eventType}_story.mp4`, { toast });
+      if (!saved.ok) return;
     } catch (e) {
       toast({ title: 'Download failed', description: 'Try generating again', variant: 'destructive' });
     }

@@ -22,6 +22,7 @@ import { Loader2, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
 import { useNative } from '../context/NativeContext';
+import { openStore } from '../lib/openExternal';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -187,6 +188,15 @@ export default function LicenseActivationDialog({ open, onClose }) {
                 {busy ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Activating…</> : 'Activate'}
               </Button>
             </div>
+            <button
+              type="button"
+              onClick={() => openStore('standalone')}
+              className="w-full text-center text-xs pt-1 underline"
+              style={{ color: '#8892b0' }}
+              data-testid="license-buy-link"
+            >
+              Don't have a key yet? Get one at bighat.live
+            </button>
           </form>
         )}
       </div>

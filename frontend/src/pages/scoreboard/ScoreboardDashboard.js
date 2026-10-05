@@ -18,6 +18,9 @@ import LeaderboardRender from '../../components/scoreboard/render/LeaderboardRen
 import BracketRender from '../../components/scoreboard/render/BracketRender';
 import { generateBracket, advanceRound } from '../../lib/bracketLogic';
 import api from '../../lib/scoreboardApi';
+import { saveBlob } from '../../lib/saveFile';
+import { openExternal } from '../../lib/openExternal';
+import { isTauri, openNativeAudience } from '../../lib/audienceWindow';
 
 const Dashboard = () => {
   const [mode, setMode] = useState('leaderboard');
@@ -313,18 +316,14 @@ const Dashboard = () => {
         if (dataUrl) {
           const res = await fetch(dataUrl);
           const blob = await res.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          
-          const link = document.createElement('a');
-          link.download = `bighat-${mode}-${aspectRatio}-${Date.now()}.png`;
-          link.href = blobUrl;
-          link.click();
+          const saved = await saveBlob(blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.png`);
+          if (!saved.ok) throw new Error(saved.error || 'Could not save the PNG');
 
           setExportStatus('Uploading for QR sharing...');
           await uploadForQr(blob, `bighat-${mode}-${aspectRatio}-${Date.now()}.png`);
           
           setExportStatus('PNG exported! QR ready for phone download.');
-          toast.success('PNG exported! QR ready.');
+          toast.success(saved.path ? `PNG saved to Downloads. QR ready.` : 'PNG exported! QR ready.');
         }
       }
       // Restore animation state
@@ -367,14 +366,10 @@ const Dashboard = () => {
         try {
           const dlRes = await fetch(mp4Url);
           const dlBlob = await dlRes.blob();
-          const url = window.URL.createObjectURL(dlBlob);
-          const link = document.createElement('a');
-          link.download = videoRes.data.file_id || `bighat-scoreboard-${aspectRatio}.mp4`;
-          link.href = url;
-          link.click();
-          window.URL.revokeObjectURL(url);
+          const saved = await saveBlob(dlBlob, videoRes.data.file_id || `bighat-scoreboard-${aspectRatio}.mp4`);
+          if (!saved.ok) throw new Error(saved.error || 'Could not save the video');
         } catch {
-          window.open(mp4Url, '_blank');
+          openExternal(mp4Url);
         }
         setQrUrl(mp4Url);
         setExportStatus('MP4 exported! QR ready.');
@@ -401,6 +396,13 @@ const Dashboard = () => {
     const liveData = { data: currentData, bracket, teams: tournamentTeams, tournamentName };
     localStorage.setItem('liveRenderData', JSON.stringify(liveData));
     const url = `/scoreboard/live?mode=${mode}&aspect=${aspectRatio}`;
+    // alpha.78: inside the desktop app a plain window.open does nothing; open a real app window (same as the
+    // Trivia / Bingo / Karaoke audience screens) so it can go full screen on the TV.
+    if (isTauri()) {
+      openNativeAudience({ label: 'scoreboard-live', path: url, title: 'Scoreboard' })
+        .catch((e) => toast.error(`Could not open the live view: ${e.message}`));
+      return;
+    }
     window.open(url, '_blank', 'fullscreen=yes');
   };
 
