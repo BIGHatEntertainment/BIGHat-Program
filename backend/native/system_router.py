@@ -21,16 +21,18 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 logger = logging.getLogger("bighat-native-system")
 router = APIRouter(prefix="/api/native/system", tags=["native-system"])
 
-# Where each "Buy" button sends the customer.  The Squarespace product pages are not public on bighat.live (no store
-# page is listed in the site map), so until the real addresses are set every button opens the home page, which works.
+# Where each "Buy" button sends the customer: the real software store pages on bighat.live (checked 2026-10-05).
+# Story Generator, Scoreboard, Round creator etc. come WITH the main program, so they use the program's page.
 # Change a link WITHOUT a new release by creating  <AppData>/store_links.json  like:
-#   {"karaoke": "https://bighat.live/...", "standalone": "https://bighat.live/...", "story": "...", "default": "..."}
+#   {"karaoke": "https://www.bighat.live/...", "standalone": "https://www.bighat.live/..."}
+STORE_PAGE = "https://www.bighat.live/bh-franchise"
 STORE_DEFAULTS = {
-    "default": "https://bighat.live/",
-    "standalone": "https://bighat.live/",
-    "karaoke": "https://bighat.live/",
-    "story": "https://bighat.live/",
-    "bingo": "https://bighat.live/",
+    "default": STORE_PAGE,                                                   # all software downloads / purchases
+    "standalone": f"{STORE_PAGE}/p/big-hat-entertainment",                   # BIG Hat Entertainment (Windows/Mac) $49.99
+    "karaoke": f"{STORE_PAGE}/p/bingo-player-add-on-tn5sg",                  # Karaoke Player Add-on $24.99 (yes, the address says "bingo")
+    "bingo": f"{STORE_PAGE}/p/bingo-player-add-on",                          # Bingo Player Add-on $24.99
+    "story": f"{STORE_PAGE}/p/big-hat-entertainment",                        # part of the main program
+    "trivia": f"{STORE_PAGE}/p/big-hat-entertainment",
 }
 
 ALLOWED_HOSTS = ("bighat.live",)              # + any subdomain, e.g. www.bighat.live, api.bighat.live

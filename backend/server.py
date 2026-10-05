@@ -227,6 +227,7 @@ class ScheduleEventCreate(BaseModel):
     duration_hours: float = 2.0
     pay_rate: Optional[float] = None
     notes: Optional[str] = None
+    is_special_event: bool = False      # alpha.79: the form sends this; it used to be silently dropped on create
 
 class ScheduleEventUpdate(BaseModel):
     title: Optional[str] = None
@@ -1564,6 +1565,8 @@ async def delete_venue(venue_id: str):
 
 @api_router.post("/events")
 async def create_schedule_event(event: ScheduleEventCreate):
+    if not (event.venue_id or "").strip():
+        raise HTTPException(status_code=400, detail="Choose a venue for this event. If the list is empty, add the venue first (Schedule > Admin > Venues).")
     venue = await db.venues.find_one({"id": event.venue_id})
     if not venue:
         raise HTTPException(status_code=404, detail="Venue not found")

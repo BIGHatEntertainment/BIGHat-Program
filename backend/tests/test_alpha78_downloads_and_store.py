@@ -41,9 +41,15 @@ def test_missing_url_is_refused(client):
 # ---------- store links ----------
 def test_every_buy_button_has_a_real_working_default(client):
     links = client.get("/api/native/system/store-links").json()
-    assert {"default", "standalone", "karaoke", "story", "bingo"} <= set(links)
+    assert {"default", "standalone", "karaoke", "story", "bingo", "trivia"} <= set(links)
     assert all(client.sr.is_allowed_url(v) for v in links.values())
     assert all("/shop" not in v for v in links.values())            # the old /shop/... pages never existed (404)
+    # the real product pages, checked on the live site on 2026-10-05
+    assert links["default"] == "https://www.bighat.live/bh-franchise"
+    assert links["standalone"].endswith("/bh-franchise/p/big-hat-entertainment")
+    assert links["karaoke"].endswith("/bh-franchise/p/bingo-player-add-on-tn5sg")
+    assert links["bingo"].endswith("/bh-franchise/p/bingo-player-add-on")
+    assert links["story"] == links["trivia"] == links["standalone"]
 
 
 def test_store_links_can_be_changed_without_a_release(client):
@@ -51,10 +57,10 @@ def test_store_links_can_be_changed_without_a_release(client):
     f.write_text(json.dumps({"karaoke": "https://bighat.live/karaoke-key", "story": "https://evil.com/x", "standalone": 5, "junk": "https://bighat.live/j"}))
     links = client.get("/api/native/system/store-links").json()
     assert links["karaoke"] == "https://bighat.live/karaoke-key"        # accepted
-    assert links["story"] == "https://bighat.live/" and links["standalone"] == "https://bighat.live/"   # bad ones ignored
+    assert links["story"] == client.sr.STORE_DEFAULTS["story"] and links["standalone"] == client.sr.STORE_DEFAULTS["standalone"]   # bad ones ignored
     assert links["junk"] == "https://bighat.live/j"
     f.write_text("{ not json")
-    assert client.get("/api/native/system/store-links").json()["karaoke"] == "https://bighat.live/"       # broken file never breaks the buttons
+    assert client.get("/api/native/system/store-links").json()["karaoke"] == client.sr.STORE_DEFAULTS["karaoke"]       # broken file never breaks the buttons
 
 
 # ---------- save-download ----------

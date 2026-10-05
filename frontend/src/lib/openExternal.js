@@ -61,7 +61,7 @@ export async function openExternal(url, onFail) {
 // alpha.78: the address of a "Buy" page, from the app's own backend (editable without a new release).
 // key: 'karaoke' | 'standalone' | 'story' | 'bingo' | 'default'
 export async function openStore(key = "default", onFail) {
-  let url = "https://bighat.live/";
+  let url = "https://www.bighat.live/bh-franchise";
   try {
     const res = await fetch(`${API}/api/native/system/store-links`);
     if (res.ok) {

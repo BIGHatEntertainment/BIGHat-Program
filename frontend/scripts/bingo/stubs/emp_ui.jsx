@@ -10,3 +10,11 @@ export const Label = ({ children, htmlFor }) => <label htmlFor={htmlFor}>{childr
 export const Checkbox = ({ checked, onCheckedChange, id }) => <input type="checkbox" id={id} checked={!!checked} onChange={(e) => onCheckedChange && onCheckedChange(e.target.checked)} />;
 export const Badge = ({ children }) => <span>{children}</span>;
 export default () => null;
+// alpha.79: pieces the Event form and the calendar need
+export const Textarea = (p) => <textarea {...p} />;
+export const Select = ({ value, onValueChange, children }) => <div data-select={value} data-onchange="1">{React.Children.map(children, c => c && React.cloneElement(c, { __value: value, __set: onValueChange }))}</div>;
+export const SelectTrigger = ({ children, id }) => <div id={id} data-testid={'select-' + id}>{children}</div>;
+export const SelectValue = ({ placeholder }) => <span>{placeholder}</span>;
+export const SelectContent = ({ children, __set }) => <div>{React.Children.map(children, c => c && React.cloneElement(c, { __set }))}</div>;
+export const SelectItem = ({ value, children, __set }) => <div role="option" data-value={value} onClick={() => __set && __set(value)}>{children}</div>;
+export const Tabs = ({ children }) => <div>{children}</div>; export const TabsList = Tabs; export const TabsTrigger = Tabs; export const TabsContent = Tabs;

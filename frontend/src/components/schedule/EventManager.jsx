@@ -78,7 +78,7 @@ const EventManager = () => {
         date: format(eventDate, 'yyyy-MM-dd'),
         time: format(eventDate, 'HH:mm'),
         duration_hours: event.duration_hours,
-        pay_rate: event.pay_rate || '',
+        pay_rate: event.pay_rate ?? '',
         notes: event.notes || '',
         is_special_event: event.is_special_event || false
       });
@@ -101,19 +101,44 @@ const EventManager = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // alpha.79: check each required field and say exactly which one is missing (the Venue and Event Type pickers
+    // are not real form fields, so the browser's own "required" check never stops a blank one).
+    const missing = [];
+    if (!String(formData.title || '').trim()) missing.push('Event Title');
+    if (!formData.event_type) missing.push('Event Type');
+    if (!formData.venue_id) missing.push('Venue');
+    if (!formData.date) missing.push('Date');
+    if (!formData.time) missing.push('Time');
+    const hours = parseFloat(formData.duration_hours);
+    if (!(hours > 0)) missing.push('Duration');
+    if (missing.length) {
+      toast.error(`Please fill in: ${missing.join(', ')}`);
+      return;
+    }
+    if (formData.pay_rate !== '' && !(parseFloat(formData.pay_rate) >= 0)) {
+      toast.error('Pay rate must be a number, or leave it empty');
+      return;
+    }
+
     setLoading(true);
 
     try {
       // Combine date and time
       const dateTime = new Date(`${formData.date}T${formData.time}`);
-      
+      if (Number.isNaN(dateTime.getTime())) {
+        toast.error('That date or time is not valid');
+        setLoading(false);
+        return;
+      }
+
       const payload = {
         title: formData.title,
         event_type: formData.event_type,
         venue_id: formData.venue_id,
         date: dateTime.toISOString(),
-        duration_hours: parseFloat(formData.duration_hours),
-        pay_rate: formData.pay_rate ? parseFloat(formData.pay_rate) : null,
+        duration_hours: hours,
+        pay_rate: formData.pay_rate !== '' ? parseFloat(formData.pay_rate) : null,
         notes: formData.notes || null,
         is_special_event: formData.is_special_event
       };
@@ -214,10 +239,11 @@ const EventManager = () => {
               </CardTitle>
               <CardDescription>Create, edit, or remove events</CardDescription>
             </div>
+            {/* alpha.79: this button used to be disabled with no explanation when there were no venues */}
             <Button
               onClick={() => handleOpenDialog()}
               className="bg-blue-500 hover:bg-blue-600 text-white transition-smooth"
-              disabled={venues.length === 0}
+              data-testid="add-event-btn"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Event
@@ -264,7 +290,7 @@ const EventManager = () => {
                               <MapPin className="h-4 w-4" />
                               <span>{getVenueName(event.venue_id)}</span>
                             </div>
-                            {event.pay_rate && (
+                            {event.pay_rate != null && event.pay_rate !== "" && (
                               <div className="font-medium text-foreground">
                                 ${event.pay_rate}/hour
                               </div>
@@ -378,6 +404,11 @@ const EventManager = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="venue_id">Venue *</Label>
+                {venues.length === 0 && (
+                  <p className="text-xs text-red-600" data-testid="no-venues-hint">
+                    No venues yet. Add your locations first in Schedule &gt; Admin &gt; Venues, then come back to add events.
+                  </p>
+                )}
                 <Select
                   value={formData.venue_id}
                   onValueChange={(value) => setFormData({ ...formData, venue_id: value })}

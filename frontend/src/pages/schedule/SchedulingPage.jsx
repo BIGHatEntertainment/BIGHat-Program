@@ -544,6 +544,7 @@ const SchedulingPage = () => {
         open={monthlyCalendarOpen}
         onOpenChange={setMonthlyCalendarOpen}
         events={events}
+        venues={venues}
         currentUserId={loggedInHost?.id}
         onEventClick={(event) => {
           setSelectedEventDetail(event);

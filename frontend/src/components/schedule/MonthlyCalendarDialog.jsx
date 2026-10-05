@@ -12,8 +12,15 @@ const EVENT_TYPE_COLORS = {
   'Special': 'bg-purple-500',
 };
 
-const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEventClick }) => {
+const MonthlyCalendarDialog = ({ open, onOpenChange, events, venues = [], currentUserId, onEventClick }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [venueFilter, setVenueFilter] = useState('all');   // alpha.79: show one location, or all of them
+
+  const venueName = (id) => venues.find(v => v.id === id)?.name || '';
+  // only offer locations that actually have an event this month
+  const monthVenueIds = [...new Set(events
+    .filter(e => isSameDay(startOfMonth(parseISO(e.date)), startOfMonth(currentMonth)))
+    .map(e => e.venue_id))];
 
   const getDaysInMonth = () => {
     const monthStart = startOfMonth(currentMonth);
@@ -22,10 +29,10 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
   };
 
   const getEventsForDay = (day) => {
-    return events.filter(event => {
-      const eventDate = parseISO(event.date);
-      return isSameDay(eventDate, day);
-    });
+    return events
+      .filter(event => venueFilter === 'all' || event.venue_id === venueFilter)
+      .filter(event => isSameDay(parseISO(event.date), day))
+      .sort((a, b) => parseISO(a.date) - parseISO(b.date));       // earliest first
   };
 
   const isUserClaimedDay = (day) => {
@@ -79,6 +86,20 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
             </Button>
           </div>
 
+          {/* Location filter (alpha.79) */}
+          {venues.length > 0 && (
+            <div className="flex items-center justify-center flex-wrap gap-2" data-testid="calendar-venue-filter">
+              <Button size="sm" variant={venueFilter === 'all' ? 'default' : 'outline'} onClick={() => setVenueFilter('all')}>
+                All locations
+              </Button>
+              {monthVenueIds.map(id => (
+                <Button key={id} size="sm" variant={venueFilter === id ? 'default' : 'outline'} onClick={() => setVenueFilter(id)}>
+                  {venueName(id) || 'Unknown venue'}
+                </Button>
+              ))}
+            </div>
+          )}
+
           {/* Legend */}
           <div className="flex items-center justify-center space-x-4 text-sm">
             <div className="flex items-center space-x-2">
@@ -96,6 +117,10 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-pink-500 rounded"></div>
               <span className="text-muted-foreground">Karaoke</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-purple-500 rounded"></div>
+              <span className="text-muted-foreground">Special</span>
             </div>
           </div>
 
@@ -148,10 +173,16 @@ const MonthlyCalendarDialog = ({ open, onOpenChange, events, currentUserId, onEv
                           onOpenChange(false);
                         }}
                         className={`text-xs p-1 rounded cursor-pointer hover:shadow-md transition-shadow ${
-                          EVENT_TYPE_COLORS[event.event_type]
+                          EVENT_TYPE_COLORS[event.event_type] || 'bg-gray-500'
                         } bg-opacity-20 border border-current`}
+                        title={`${event.title} - ${venueName(event.venue_id)}`}
+                        data-testid="calendar-event"
                       >
-                        <div className="font-medium truncate">{event.event_type}</div>
+                        <div className="font-medium truncate">{event.is_special_event ? '★ ' : ''}{event.title || event.event_type}</div>
+                        <div className="text-[10px] truncate flex items-center">
+                          <MapPin className="h-2 w-2 mr-0.5" />
+                          {venueName(event.venue_id) || event.event_type}
+                        </div>
                         <div className="text-[10px] truncate flex items-center">
                           <Clock className="h-2 w-2 mr-0.5" />
                           {format(parseISO(event.date), 'h:mm a')}
