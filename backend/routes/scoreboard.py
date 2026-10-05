@@ -68,6 +68,7 @@ def _local_scores_root() -> Path:
 
 
 # Create a router with the /api prefix
+from native.media_tools import run as _media_run
 router = APIRouter(prefix="/scoreboard", tags=["scoreboard"])
 
 # Configure logging
@@ -166,7 +167,8 @@ async def scoreboard_status() -> Dict[str, Any]:
         pass
 
     import shutil
-    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    from native.media_tools import ffmpeg_ok as _ffok
+    ffmpeg_ok = _ffok()
 
     # Count local files when in native+local mode so the UI knows whether
     # the user has any offline data to render.
@@ -492,7 +494,7 @@ async def upload_export(file: UploadFile = File(...)):
         mp4_id = file_id.replace('.webm', '.mp4')
         mp4_path = EXPORTS_DIR / mp4_id
         try:
-            result = subprocess.run(
+            result = _media_run(
                 ['ffmpeg', '-y', '-i', str(file_path), 
                  '-c:v', 'libx264', '-preset', 'medium',
                  '-crf', '18', '-pix_fmt', 'yuv420p',
@@ -542,28 +544,22 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
     
     try:
         # Detect input dimensions to determine landscape vs portrait
-        probe = subprocess.run(
-            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-             '-show_entries', 'stream=width,height', '-of', 'csv=p=0',
-             str(input_path)],
-            capture_output=True, text=True, timeout=10
-        )
-        
+        from native.media_tools import probe_size
+        size = probe_size(input_path)
+
         # Default to landscape 1920x1080
         out_w, out_h = 1920, 1080
-        if probe.returncode == 0 and probe.stdout.strip():
-            parts = probe.stdout.strip().split(',')
-            if len(parts) == 2:
-                in_w, in_h = int(parts[0]), int(parts[1])
-                if in_h > in_w:
-                    # Portrait input → portrait output
-                    out_w, out_h = 1080, 1920
-                logger.info(f"[Scoreboard Video] Input: {in_w}x{in_h} → Output: {out_w}x{out_h}")
+        if size:
+            in_w, in_h = size
+            if in_h > in_w:
+                # Portrait input → portrait output
+                out_w, out_h = 1080, 1920
+            logger.info(f"[Scoreboard Video] Input: {in_w}x{in_h} → Output: {out_w}x{out_h}")
         
         # Enforce exact output resolution with scale→crop→setsar
         vf = f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1"
         
-        result = subprocess.run(
+        result = _media_run(
             ['ffmpeg', '-y',
              '-loop', '1',
              '-i', str(input_path),
@@ -823,7 +819,7 @@ async def generate_scoreboard_video(req: ScoreboardVideoRequest):
         mp4_id = f"sb_{uuid.uuid4().hex[:8]}.mp4"
         mp4_path = EXPORTS_DIR / mp4_id
         
-        result = subprocess.run(
+        result = _media_run(
             ['ffmpeg', '-y',
              '-framerate', str(FPS),
              '-i', os.path.join(temp_dir, 'frame_%04d.png'),

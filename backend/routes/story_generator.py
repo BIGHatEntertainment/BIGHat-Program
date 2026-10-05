@@ -14,6 +14,7 @@ from typing import List, Dict, Optional
 import logging
 import os
 from pathlib import Path
+from native.media_tools import run as _media_run, ffmpeg_ok as _ffmpeg_ok
 import re
 import io
 import uuid
@@ -119,7 +120,7 @@ async def get_story_generator_status() -> Dict:
 def _probe_ffmpeg() -> bool:
     """Cheap one-shot check that ffmpeg is installed and runnable."""
     import shutil
-    return shutil.which("ffmpeg") is not None
+    return _ffmpeg_ok()
 
 
 @router.get("/presentations")
@@ -1162,7 +1163,7 @@ def _run_video_assembly(job_id: str, request_data: dict):
         
         # Step 1: Encode location clip (3s)
         loc_clip = os.path.join(temp_dir, "clip_loc.mp4")
-        subprocess.run([
+        _media_run([
             'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_LOC), '-i', loc_frame_path,
             '-vf', sf, *encode_opts, loc_clip
         ], capture_output=True, text=True, timeout=30)
@@ -1173,12 +1174,12 @@ def _run_video_assembly(job_id: str, request_data: dict):
         host_clip = os.path.join(temp_dir, "clip_host.mp4")
         if host_is_gif:
             # Pre-convert GIF to fixed-duration clip
-            subprocess.run([
+            _media_run([
                 'ffmpeg', '-y', '-stream_loop', '-1', '-t', str(DUR_HOST), '-i', host_path,
                 '-vf', sf, *encode_opts, host_clip
             ], capture_output=True, text=True, timeout=30)
         else:
-            subprocess.run([
+            _media_run([
                 'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_HOST), '-i', host_path,
                 '-vf', sf, *encode_opts, host_clip
             ], capture_output=True, text=True, timeout=30)
@@ -1187,7 +1188,7 @@ def _run_video_assembly(job_id: str, request_data: dict):
         
         # Step 3: Encode rounds clip (19s) — longest clip, needs more timeout
         rounds_clip = os.path.join(temp_dir, "clip_rounds.mp4")
-        subprocess.run([
+        _media_run([
             'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_ROUNDS), '-i', rounds_frame_path,
             '-vf', sf, *encode_opts, rounds_clip
         ], capture_output=True, text=True, timeout=120)
@@ -1199,7 +1200,7 @@ def _run_video_assembly(job_id: str, request_data: dict):
         with open(concat_file, 'w') as f:
             f.write(f"file '{loc_clip}'\nfile '{host_clip}'\nfile '{rounds_clip}'\n")
         
-        concat_result = subprocess.run([
+        concat_result = _media_run([
             'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_file,
             '-c', 'copy', '-movflags', '+faststart', output_path
         ], capture_output=True, text=True, timeout=30)
@@ -1285,7 +1286,7 @@ async def convert_webm_to_mp4(request: WebmConvertRequest):
         logger.info(f"[WebmConvert] Input: {len(webm_bytes) // 1024}KB")
         
         # Fast transcode — just change container format, minimal re-encoding
-        result = subprocess.run([
+        result = _media_run([
             'ffmpeg', '-y', '-i', webm_path,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
             '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
@@ -1657,7 +1658,7 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         encode_opts = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', '-an']
         
         loc_clip = os.path.join(temp_dir, "clip_loc.mp4")
-        subprocess.run([
+        _media_run([
             'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_LOCATION), '-i', loc_path,
             '-vf', sf, '-r', '1', *encode_opts, loc_clip
         ], capture_output=True, text=True, timeout=60)
@@ -1667,12 +1668,12 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         # Step 4: Encode host clip (10s)
         host_clip = os.path.join(temp_dir, "clip_host.mp4")
         if host_is_gif:
-            subprocess.run([
+            _media_run([
                 'ffmpeg', '-y', '-stream_loop', '-1', '-t', str(DUR_HOST), '-i', host_path,
                 '-vf', sf, '-r', '15', *encode_opts, host_clip
             ], capture_output=True, text=True, timeout=120)
         else:
-            subprocess.run([
+            _media_run([
                 'ffmpeg', '-y', '-loop', '1', '-t', str(DUR_HOST), '-i', host_path,
                 '-vf', sf, '-r', '1', *encode_opts, host_clip
             ], capture_output=True, text=True, timeout=60)
@@ -1685,7 +1686,7 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         with open(concat_file, 'w') as f:
             f.write(f"file '{loc_clip}'\nfile '{host_clip}'\n")
         
-        concat_result = subprocess.run([
+        concat_result = _media_run([
             'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_file,
             '-c', 'copy', '-movflags', '+faststart', output_path
         ], capture_output=True, text=True, timeout=30)

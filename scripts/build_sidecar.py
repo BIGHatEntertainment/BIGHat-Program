@@ -168,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         "--hidden-import", "email_validator",
         "--hidden-import", "bcrypt",
         "--hidden-import", "httpx",
+        # alpha.76: the ffmpeg program inside imageio-ffmpeg is a DATA file; without this the installed app has no ffmpeg
+        "--collect-all", "imageio_ffmpeg",
         "--collect-submodules", "native",
         "--collect-submodules", "routes",
         "--collect-submodules", "cloud",

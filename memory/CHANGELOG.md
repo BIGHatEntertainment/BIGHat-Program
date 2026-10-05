@@ -4017,3 +4017,11 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - Frontend: Story Images manager (components/story/StoryImagesManager.jsx) + button; Bingo story button = Bingo blue #3B82F6, Karaoke story button = Karaoke green #22c55e (event builder accent follows).
 - Story tool is still behind the paid story_generator_enabled flag (unchanged).
 - Tests: tests/test_alpha75_story_images.py (15); real-app run: upload, lists, preview, Karaoke video 540x960, restart, Documents wipe restore.
+
+## alpha.76 (local, not pushed): video generation works on a PC with no ffmpeg
+- ROOT CAUSE: Story, Scoreboard and the Story service ran a bare `ffmpeg` command. A normal Windows PC has no ffmpeg, so every video failed with [WinError 2] at ~5% (first ffmpeg step). imageio-ffmpeg was in requirements-desktop.txt but nothing used it and the installer build did not pack its ffmpeg program.
+- native/media_tools.py: ffmpeg_path() = BIGHAT_FFMPEG, else system ffmpeg, else the one bundled by imageio-ffmpeg; run() swaps a leading "ffmpeg"; probe_size() replaces ffprobe (not bundled). BIGHAT_IGNORE_SYSTEM_FFMPEG=1 simulates a PC without ffmpeg (tests).
+- routes/story_generator.py, routes/scoreboard.py, story_generator_service.py: every ffmpeg launch goes through the helper; no console window flashes on Windows; apt-get install only on Linux root.
+- scripts/build_sidecar.py: added --collect-all imageio_ffmpeg (packs the ffmpeg program; adds ~30 MB to the installer).
+- Tests: tests/test_alpha76_ffmpeg_bundled.py (8, includes a guard that fails if a bare ffmpeg call returns). Real-app: scripts/e2e_story_video.sh (Bingo + Karaoke videos with no system ffmpeg), scoreboard image-to-video landscape+portrait.
+- NOT verified on Windows itself (sandbox is Linux): the Windows wheel contains ffmpeg-win-x86_64-v7.1.exe, and the freeze mechanism was proven on Linux with PyInstaller.

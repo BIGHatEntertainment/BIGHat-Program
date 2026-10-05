@@ -27,6 +27,8 @@ import logging
 import re
 import io
 import subprocess
+import sys
+from native.media_tools import run as _media_run
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -42,7 +44,8 @@ def _ensure_dependencies():
     """Install required system dependencies if missing"""
     
     # Check FFmpeg
-    if not shutil.which('ffmpeg'):
+    from native.media_tools import ffmpeg_ok as _ffmpeg_ok
+    if not _ffmpeg_ok() and sys.platform.startswith('linux') and os.geteuid() == 0:
         logger.warning("FFmpeg not found, attempting to install...")
         try:
             result = subprocess.run(
@@ -1197,7 +1200,7 @@ class StoryGeneratorService:
         
         # Check ffmpeg is available
         try:
-            result = subprocess.run(['ffmpeg', '-version'], capture_output=True, timeout=5)
+            result = _media_run(['ffmpeg', '-version'], capture_output=True, timeout=5)
             if result.returncode != 0:
                 raise RuntimeError("FFmpeg not available")
             logger.info("[INIT] FFmpeg available for fast encoding")
@@ -1459,7 +1462,7 @@ class StoryGeneratorService:
                         str(segment_path)
                     ]
                 
-                result = subprocess.run(
+                result = _media_run(
                     ffmpeg_cmd, 
                     capture_output=True, 
                     text=True,
@@ -1513,7 +1516,7 @@ class StoryGeneratorService:
                 str(output_path)
             ]
             
-            result = subprocess.run(
+            result = _media_run(
                 concat_cmd,
                 capture_output=True,
                 text=True,

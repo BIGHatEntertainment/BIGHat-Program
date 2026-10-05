@@ -1171,3 +1171,5 @@ backend/native/file_map.json
 
 # alpha.75: story videos are generated output, never commit them
 backend/assets/generated/
+backend/routes/exports/*.mp4
+backend/routes/exports/*.png
