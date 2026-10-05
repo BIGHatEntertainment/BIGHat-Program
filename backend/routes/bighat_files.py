@@ -711,8 +711,30 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
         if not _verify_signature(mb, pb, asset_hashes, signature):
             raise HTTPException(400, "Signature mismatch — file may be tampered or signed by a different publisher.")
 
+    # alpha.74: a File Creator ZIP is converted by the shared converter so question images and the cover
+    # survive (the old path kept only the raw payload and dropped the images).
+    try:
+        if content_type == "round" and zipfile.is_zipfile(io.BytesIO(payload)) and str(manifest.get("created_by", "")).lower().startswith("bighat file creator"):
+            from native import creator_bighat
+            conv, _why = creator_bighat.read_zip(payload, str(manifest.get("round_name") or ""))
+            if conv:
+                conv = creator_bighat.normalise(conv)
+                doc = {**conv, "name": conv.get("name") or doc.get("name")}
+    except Exception as exc:                                   # noqa: BLE001
+        logger.warning("[bighat-files] shared converter skipped: %s", exc)
+
     # Mint a fresh id so re-importing creates a new document. Strip BSON id.
+    # alpha.74: EXCEPT a File Creator file. Its manifest.content_id is its identity, so importing the same
+    # file twice updates one round instead of piling up copies.
     new_id = str(uuid.uuid4())
+    creator_id = str(manifest.get("content_id") or "").strip()
+    is_creator = bool(creator_id) and "format_version" in manifest and manifest.get("created_by", "").lower().startswith("bighat file creator")
+    if is_creator and manifest.get("type") is not None:
+        new_id = creator_id
+        try:
+            await db[BIGHAT_TYPES["round"].collection].delete_many({"id": creator_id})   # replace, never duplicate
+        except Exception as exc:                               # noqa: BLE001
+            logger.warning("[bighat-files] could not clear earlier copy of %s: %s", creator_id, exc)
     doc.pop("_id", None)
     doc["id"] = new_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -792,8 +814,18 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
     if assets:
         doc["imported_assets"] = list(assets.keys())
 
+    # alpha.74: a round that is only in the database is lost if the database is reset, and does not appear in the
+    # Files tool. Also write it into Files/Trivia/<TYPE>/ so it is there for recall (disk is the source of truth).
+    # Done BEFORE the insert so the stored row stays clean; a disk problem never blocks the import.
+    disk_path = None
+    if content_type == "round":
+        try:
+            from routes.roundmaker import _write_round_bighat
+            disk_path = _write_round_bighat(doc)
+        except Exception as exc:                               # noqa: BLE001
+            logger.warning("[bighat-files] could not write imported round to disk: %s", exc)
     await db[spec.collection].insert_one(doc)
-    logger.info("[bighat-files] imported %s %s (%s)", content_type, new_id, name)
+    logger.info("[bighat-files] imported %s %s (%s) disk=%s", content_type, new_id, name, disk_path)
 
     return ImportResult(
         id=new_id, name=name, type=content_type,

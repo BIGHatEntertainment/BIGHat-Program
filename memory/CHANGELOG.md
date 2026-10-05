@@ -4000,3 +4000,12 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - Locations safety copy: AppData `locations_backup/` mirrors every location.json + image; restored on list/hydrate when the Documents copy is missing. Fixes silent image drops.
 - Data map: AppData `file_map.json` lists every place the app stores data (native/data_map.py).
 - Trivia scores stored on the PC: native/scores_store.py. routes/scores.py /save writes Documents/.../Files/Trivia/Scores/<location>/ + AppData backups/scores/ FIRST; SharePoint is an optional extra that can never fail the save. /files lists local files, GET/DELETE /files/{location}/{file}. Dashboard text updated. Tests: test_alpha73_scores.py; real-app: scripts/e2e_scores.sh.
+
+## alpha.74 (local, not pushed): BIGHat File Creator .bighat files work in the program
+- ROOT CAUSE: the File Creator makes ZIP archives (manifest.json + payload.json + assets/). The Round Generator's folder reader (routes/roundmaker.py _read_all_disk_rounds) only parsed plain JSON and did not catch UnicodeDecodeError, so ONE Creator ZIP in Files/Trivia/<TYPE>/ crashed GET /roundmaker/rounds with a 500 (or hid the rounds). Round Generator "Open .bighat" imported to the database only (no file in the folder).
+- native/creator_bighat.py: one converter (ZIP -> program round JSON schema bighat-round/v1; cover + question images embedded as data URLs; never raises).
+- routes/roundmaker.py: convert_creator_file() (original ZIP kept in Trivia/<TYPE>/_creator_originals/), reader tolerates any bad file, de-dupes by round id.
+- routes/bighat_files.py: import uses the shared converter, uses the Creator content_id as the round id (importing twice = one round), and writes the round into Files/Trivia/<TYPE>/ too.
+- native/files_router.py: upload converts a Creator ZIP at once; summary reads the program's own JSON rounds (no more "Unreadable archive" for converted files).
+- Tests: tests/test_alpha74_creator_bighat.py (15); real-app: scripts/e2e_bighat_upload.sh.
+- Not done: question images are stored in the round (image_data_url) but the Round Generator/presenter screens do not display them yet.

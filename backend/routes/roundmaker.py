@@ -175,6 +175,8 @@ def _write_round_bighat(doc: dict) -> Optional[str]:
         "created_at": doc.get("created_at") or datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if doc.get("imported_from"):                               # alpha.74: keep where the round came from
+        payload["imported_from"] = doc["imported_from"]
 
     # v32.0.0-alpha.55: embed the cover image INTO the .bighat so the file
     # is fully self-contained (disk is the absolute source of truth). The
@@ -235,6 +237,59 @@ def _delete_round_bighat(doc: dict) -> None:
         logger.warning("[roundmaker] delete failed for %s: %s", target, e)
 
 
+
+def convert_creator_file(entry: Path, rt: str) -> Optional[dict]:
+    """alpha.74: turn a File Creator ZIP into the program's own round JSON, in place.
+    The original ZIP is kept in <TYPE>/_creator_originals/ so nothing the Creator made is ever lost.
+    Returns the round doc, or None (and leaves the file alone) if it cannot be read."""
+    from native import creator_bighat
+    try:
+        raw = entry.read_bytes()
+    except OSError:
+        return None
+    doc, why = creator_bighat.read_zip(raw, entry.name)
+    if doc is None:
+        logger.warning("[roundmaker] %s skipped: %s", entry.name, why)
+        return None
+    doc = creator_bighat.normalise(doc)
+    # use the folder the file is already in as the type if the file did not say
+    doc["round_type"] = doc.get("round_type") or rt
+    try:
+        keep = entry.parent / "_creator_originals"
+        keep.mkdir(parents=True, exist_ok=True)
+        saved = keep / entry.name
+        if not saved.exists():
+            saved.write_bytes(raw)
+        slug = _slugify(doc.get("name") or entry.stem)
+        # Same round (same id) already converted under any file name? Replace that file, never add a copy.
+        for other in entry.parent.glob("*.bighat"):
+            if other == entry:
+                continue
+            try:
+                head = other.read_bytes()
+                if head[:1].lstrip() == b"{" and json.loads(head.decode("utf-8-sig")).get("id") == doc["id"]:
+                    other.unlink()
+            except (OSError, ValueError, AttributeError):
+                continue
+        target = entry.with_name(f"{slug}.bighat")
+        if target.exists() and target != entry:
+            # Same round already on disk (same id)? Replace it. A different round with the same name gets a suffix.
+            try:
+                same = json.loads(target.read_text(encoding="utf-8-sig")).get("id") == doc["id"]
+            except (OSError, ValueError, AttributeError):
+                same = True                                    # unreadable leftover: safe to replace
+            if not same:
+                target = entry.with_name(f"{slug}-{str(doc['id'])[:8]}.bighat")
+        tmp = target.with_name(target.name + ".part")
+        tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        tmp.replace(target)
+        if target != entry:
+            entry.unlink()
+        doc["_converted_from"] = entry.name
+    except OSError as e:
+        logger.warning("[roundmaker] could not convert %s on disk: %s", entry.name, e)
+    return doc
+
 def _read_all_disk_rounds() -> List[dict]:
     """Walk every `Files/Trivia/<TYPE>/*.bighat` and return the parsed
     round docs. Used by list_rounds and the boot-migration."""
@@ -254,9 +309,27 @@ def _read_all_disk_rounds() -> List[dict]:
             if not entry.is_file() or entry.suffix.lower() != ".bighat":
                 continue
             try:
-                data = json.loads(entry.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as e:
+                raw = entry.read_bytes()
+            except OSError as e:
+                logger.warning("[roundmaker] cannot read %s: %s", entry, e)
+                continue
+            # alpha.74: a .bighat may be the program's own JSON OR a ZIP made by the File Creator tool.
+            # Convert the ZIP once (original kept safe) and never let one bad file break the whole list.
+            try:
+                from native import creator_bighat
+                if creator_bighat.is_zip(raw):
+                    data = convert_creator_file(entry, rt)
+                    if data is None:
+                        continue
+                else:
+                    data = json.loads(raw.decode("utf-8-sig"))
+            except (ValueError, UnicodeDecodeError) as e:
                 logger.warning("[roundmaker] bad .bighat %s: %s", entry, e)
+                continue
+            if not isinstance(data, dict):
+                continue
+            # alpha.74: a file replaced during this scan (same round id) must be returned once
+            if data.get("id") and data["id"] in {x.get("id") for x in out}:
                 continue
             # Some archived rounds may not carry `id`; fall back to
             # slug-based synthetic id so the presenter can address it.

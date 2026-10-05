@@ -584,7 +584,23 @@ def _host_dir(host: str) -> Path:
 # ---------- .bighat archive parsing ----------
 
 def _summarise_bighat(path: Path) -> dict[str, Any]:
-    """Read manifest.json + payload.json. Returns at minimum `type`."""
+    """Read manifest.json + payload.json. Returns at minimum `type`.
+    alpha.74: also understands the program's own plain-JSON round files (schema bighat-round/v1)."""
+    try:
+        head = path.read_bytes()[:1].lstrip()
+    except OSError:
+        head = b""
+    if head == b"{":
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8-sig"))
+            schema = str(doc.get("schema") or "").lower()
+            if schema.startswith("bighat-round"):
+                manifest = {"round_type": doc.get("round_type"), "round_name": doc.get("name")}
+                return {"type": "round", "summary": _trivia_summary("round", manifest, doc)}
+            if schema.startswith("bighat-presentation"):
+                return {"type": "presentation", "summary": _trivia_summary("presentation", {}, doc)}
+        except (OSError, ValueError):
+            return {"type": "unknown", "summary": "Unreadable file"}
     try:
         with zipfile.ZipFile(path, "r") as zf:
             names = set(zf.namelist())
@@ -1173,12 +1189,26 @@ async def files_upload(
         staged.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"upload_failed: {e}")
 
+    # alpha.74: a File Creator ZIP in a Trivia/<TYPE> folder is converted right away into a round the
+    # Round Generator can list and use (the original ZIP is kept in _creator_originals/). Never blocks the upload.
+    converted = None
+    try:
+        if canonical.startswith("Trivia/") and dest.suffix.lower() == ".bighat":
+            from native import creator_bighat
+            if creator_bighat.is_zip(dest.read_bytes()):
+                from routes.roundmaker import convert_creator_file
+                doc = convert_creator_file(dest, canonical.split("/", 1)[1])
+                converted = bool(doc)
+    except Exception as e:                                     # noqa: BLE001
+        logger.warning("[native-files] creator conversion skipped for %s: %s", name, e)
+
     return {
         "ok": True,
         "name": name,
         "folder": canonical,
         "size_bytes": size,
         "path": str(dest),
+        "converted_to_round": converted,
     }
 
 
