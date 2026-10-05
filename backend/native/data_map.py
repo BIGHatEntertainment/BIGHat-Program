@@ -54,6 +54,8 @@ def entries() -> List[Dict[str, Any]]:
         {"name": "Credential ledger (encrypted)", "home": "appdata", "path": str(secure_dir() / "credentials.ledger"), "secret": True, "backed_up": False},
         {"name": "Locations backup (copy of the images + settings)", "home": "appdata", "path": str(locations_backup_dir()), "secret": False, "backed_up": False},
         {"name": "Locations, branding + overlay images", "home": "documents", "path": str(d / "Locations"), "secret": False, "backed_up": True},
+        {"name": "Story images (Trivia, Bingo, Karaoke, Hosts)", "home": "documents", "path": str(d / "Story"), "secret": False, "backed_up": True},
+        {"name": "Story images safety copy", "home": "appdata", "path": str(backups_dir() / "story"), "secret": False, "backed_up": True},
         {"name": "Trivia scores (saved nights)", "home": "documents", "path": str(d / "Trivia" / "Scores"), "secret": False, "backed_up": True},
         {"name": "Trivia scores safety copy", "home": "appdata", "path": str(backups_dir() / "scores"), "secret": False, "backed_up": True},
         {"name": "Trivia files", "home": "documents", "path": str(d / "Trivia"), "secret": False, "backed_up": True},

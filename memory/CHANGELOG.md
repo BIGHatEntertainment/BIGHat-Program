@@ -4009,3 +4009,11 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - native/files_router.py: upload converts a Creator ZIP at once; summary reads the program's own JSON rounds (no more "Unreadable archive" for converted files).
 - Tests: tests/test_alpha74_creator_bighat.py (15); real-app: scripts/e2e_bighat_upload.sh.
 - Not done: question images are stored in the round (image_data_url) but the Round Generator/presenter screens do not display them yet.
+
+## alpha.75 (local, not pushed): Story Generator images live on the PC
+- native/story_images.py: Documents/BIG Hat Entertainment/Files/Story/{Trivia,Bingo,Karaoke,Hosts}/. Trivia = <Location>.ext + <Location>_background.ext; Bingo/Karaoke = <Location>.ext; Hosts = <Host>.gif. AppData safety copy backups/story/. Loose name matching (case, spaces, underscores, leading 01_).
+- routes/story_generator.py: /story-images/{kind} list+upload, /file/{name} get+delete; event-assets, event-preview and generate-event-video read the Story folders (no SharePoint); drive-id fields now optional.
+- story_generator_service.py: Trivia location/background/host look in the Story folders first (SharePoint only a fallback, does nothing on the desktop).
+- Frontend: Story Images manager (components/story/StoryImagesManager.jsx) + button; Bingo story button = Bingo blue #3B82F6, Karaoke story button = Karaoke green #22c55e (event builder accent follows).
+- Story tool is still behind the paid story_generator_enabled flag (unchanged).
+- Tests: tests/test_alpha75_story_images.py (15); real-app run: upload, lists, preview, Karaoke video 540x960, restart, Documents wipe restore.

@@ -752,10 +752,27 @@ class StoryGeneratorService:
                 logger.error(f"Error opening SharePoint image {sp_path}: {e}")
         return None
     
+    def _story_folder_image(self, kind: str, name: str, variant: str) -> Optional[Image.Image]:
+        """Open an image from Files/Story/<kind>/ on this PC, or None. Never raises."""
+        try:
+            from native import story_images
+            p = story_images.find(kind, name, variant)
+            if p:
+                logger.info(f"Loaded {variant} image from the Story folder: {p.name}")
+                return Image.open(p)
+        except Exception as e:
+            logger.warning(f"Story folder lookup skipped for {name}: {e}")
+        return None
+
     def _get_location_image(self, location_name: str) -> Optional[Image.Image]:
         """Get location image from SharePoint via Graph API"""
         extensions = ['.jpg', '.jpeg', '.png', '.webp']
-        
+
+        # alpha.75: the Story folder on this PC comes first (Files/Story/Trivia/<Location>.jpg)
+        local_story = self._story_folder_image('Trivia', location_name, 'location')
+        if local_story:
+            return local_story
+
         # Try Graph API direct download first
         content = self._graph_find_and_download('locations', location_name, extensions)
         if content:
@@ -776,6 +793,15 @@ class StoryGeneratorService:
     
     def _get_host_image(self, host_name: str) -> Tuple[Optional[Image.Image], bool]:
         """Get host image from SharePoint via Graph API. Tries .gif first (animated), then static."""
+
+        # alpha.75: Files/Story/Hosts/<Host>.gif comes first
+        try:
+            from native import story_images
+            p = story_images.find('Hosts', host_name)
+            if p:
+                return Image.open(p), p.suffix.lower() == '.gif'
+        except Exception as e:
+            logger.warning(f"Story host lookup skipped: {e}")
         
         # Try GIF first from Graph API
         content = self._graph_find_and_download('hosts', host_name, ['.gif'])
@@ -809,7 +835,12 @@ class StoryGeneratorService:
     def _get_background_image(self, location_name: str, num_rounds: int = 5) -> Optional[Image.Image]:
         """Get background image from SharePoint via Graph API"""
         extensions = ['.png', '.jpg', '.jpeg', '.webp']
-        
+
+        # alpha.75: Files/Story/Trivia/<Location>_background.jpg comes first
+        local_story = self._story_folder_image('Trivia', location_name, 'background')
+        if local_story:
+            return local_story
+
         # Try Graph API - look in backgrounds folder for matching location subfolder
         content = self._graph_find_and_download('backgrounds', location_name, extensions)
         if content:

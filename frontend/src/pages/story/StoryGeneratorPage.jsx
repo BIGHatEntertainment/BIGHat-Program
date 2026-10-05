@@ -5,10 +5,11 @@ import axios from 'axios';
 import {
   Video, ArrowLeft, Home, RefreshCw, MapPin, Calendar, User,
   Loader2, Download, Play, ChevronRight, Sparkles, Clock,
-  CheckCircle2, AlertCircle, Settings, Music, Mic
+  CheckCircle2, AlertCircle, Settings, Music, Mic, Image as ImageIcon
 } from 'lucide-react';
 import { toast } from '../../utils/toastCompat';
 import { QRCodeSVG } from 'qrcode.react';
+import StoryImagesManager from '../../components/story/StoryImagesManager';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -36,6 +37,7 @@ export default function StoryGeneratorPage() {
   const [genProgress, setGenProgress] = useState({ step: '', progress: 0 });
   const [viewAll, setViewAll] = useState(false);
   const [eventMode, setEventMode] = useState(null); // null, 'bingo', or 'karaoke'
+  const [showImages, setShowImages] = useState(false); // Story Images manager
   const [assetImages, setAssetImages] = useState(null); // {locationUrl, hostUrl} from asset-urls
   const [triviaQrUrl, setTriviaQrUrl] = useState(null);
 
@@ -223,7 +225,7 @@ export default function StoryGeneratorPage() {
             <button
               onClick={() => setEventMode('bingo')}
               className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.03] hover:shadow-lg"
-              style={{ backgroundColor: '#a855f7', color: '#fff', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}
+              style={{ backgroundColor: '#3B82F6', color: '#fff', boxShadow: '0 0 20px rgba(59,130,246,0.3)' }}
               data-testid="story-bingo-btn"
             >
               <Music size={16} /> Bingo Story
@@ -231,12 +233,21 @@ export default function StoryGeneratorPage() {
             <button
               onClick={() => setEventMode('karaoke')}
               className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.03] hover:shadow-lg"
-              style={{ backgroundColor: '#ef4444', color: '#fff', boxShadow: '0 0 20px rgba(239,68,68,0.3)' }}
+              style={{ backgroundColor: '#22c55e', color: '#fff', boxShadow: '0 0 20px rgba(34,197,94,0.3)' }}
               data-testid="story-karaoke-btn"
             >
               <Mic size={16} /> Karaoke Story
             </button>
+            <button
+              onClick={() => setShowImages(true)}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.03] ml-auto"
+              style={{ border: '1px solid rgba(251, 221, 104, 0.4)', color: '#fbdd68' }}
+              data-testid="story-images-btn"
+            >
+              <ImageIcon size={16} /> Story Images
+            </button>
           </div>
+          {showImages && <StoryImagesManager onClose={() => setShowImages(false)} />}
 
           {/* Section Header */}
           <div className="mb-8">
@@ -561,9 +572,9 @@ function EventStoryBuilder({ eventType, onBack }) {
 
   const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
   const eventLabel = eventType === 'bingo' ? 'Music Bingo' : 'Karaoke';
-  const accentColor = eventType === 'bingo' ? '#a855f7' : '#ef4444';
+  const accentColor = eventType === 'bingo' ? '#3B82F6' : '#22c55e';
 
-  // Load available assets from SharePoint
+  // Load the location images and hosts from the Story folders on this PC
   useEffect(() => {
     loadAssets();
   }, [eventType]);
@@ -577,7 +588,7 @@ function EventStoryBuilder({ eventType, onBack }) {
         setHosts(res.data.hosts || []);
       }
     } catch (err) {
-      toast({ title: 'Error', description: 'Failed to load assets from SharePoint', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to read the Story images folder', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -728,7 +739,7 @@ function EventStoryBuilder({ eventType, onBack }) {
         {loading ? (
           <div className="text-center py-20">
             <Loader2 size={32} className="animate-spin mx-auto" style={{ color: accentColor }} />
-            <p className="mt-4 text-sm" style={{ color: '#8892b0' }}>Loading {eventLabel} assets from SharePoint...</p>
+            <p className="mt-4 text-sm" style={{ color: '#8892b0' }}>Loading {eventLabel} images...</p>
           </div>
         ) : (
           <div className="grid grid-cols-12 gap-8">

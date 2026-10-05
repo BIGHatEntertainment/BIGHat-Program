@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional
 import logging
 import os
+from pathlib import Path
 import re
 import io
 import uuid
@@ -397,7 +398,17 @@ async def get_asset_urls_for_client(presentation_id: str) -> Dict:
             logger.warning(f"[AssetURLs] Location image not found: {location_name}")
         
         # Host image — GIF ONLY (raw bytes, preserves animation)
-        host_gif_content = service._graph_find_and_download('hosts', host_name, ['.gif'])
+        # alpha.75: the Story folder on this PC first (Files/Story/Hosts/<Host>.gif), SharePoint only as a fallback
+        host_gif_content = None
+        try:
+            from native import story_images
+            hp = story_images.find('Hosts', host_name)
+            if hp and hp.suffix.lower() == '.gif':
+                host_gif_content = hp.read_bytes()
+        except Exception as e:                                 # noqa: BLE001
+            logger.warning(f"[AssetURLs] Story host lookup skipped: {e}")
+        if not host_gif_content:
+            host_gif_content = service._graph_find_and_download('hosts', host_name, ['.gif'])
         if host_gif_content:
             assets['hostUrl'] = f"data:image/gif;base64,{base64.b64encode(host_gif_content).decode()}"
             assets['hostIsGif'] = True
@@ -1425,52 +1436,90 @@ async def download_temp_video(file_id: str):
 @router.get("/event-assets/{event_type}")
 async def get_event_assets(event_type: str) -> Dict:
     """
-    List available locations and hosts for an event type (bingo/karaoke).
+    List the location images and hosts for an event story (bingo/karaoke), from the Story folders on this PC.
     Returns dropdown options for the Event Story Builder.
     """
     if event_type not in ['bingo', 'karaoke']:
         raise HTTPException(status_code=400, detail="Invalid event type. Use 'bingo' or 'karaoke'.")
-    
+    from native import story_images
     try:
-        service = get_story_service()
-        assets = service.get_event_assets(event_type)
-        return {
-            "success": True,
-            "event_type": event_type,
-            "locations": assets["locations"],
-            "hosts": assets["hosts"]
-        }
-    except Exception as e:
+        return {"success": True, "event_type": event_type,
+                "locations": story_images.locations(event_type), "hosts": story_images.hosts()}
+    except Exception as e:                                     # noqa: BLE001
         logger.error(f"[EventAssets] Error listing {event_type} assets: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/event-assets/{event_type}/refresh")
 async def refresh_event_assets(event_type: str) -> Dict:
-    """Clear event assets cache and refetch from SharePoint."""
-    if event_type not in ['bingo', 'karaoke']:
-        raise HTTPException(status_code=400, detail="Invalid event type.")
+    """Re-read the Story folders (kept so the screen's Refresh still works)."""
+    return await get_event_assets(event_type)
+
+
+# ─── alpha.75: Story images live on this PC (Documents/.../Files/Story/{Trivia,Bingo,Karaoke,Hosts}) ───
+@router.get("/story-images/{kind}")
+async def list_story_images(kind: str) -> Dict:
+    from native import story_images
     try:
-        service = get_story_service()
-        # Clear cache for this event type
-        cache_key = f"{event_type}"
-        if cache_key in service._event_assets_cache:
-            del service._event_assets_cache[cache_key]
-        assets = service.get_event_assets(event_type)
-        return {"success": True, "locations": assets["locations"], "hosts": assets["hosts"]}
-    except Exception as e:
-        logger.error(f"[EventAssets] Refresh error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        story_images.ensure_folders()
+        return {"success": True, "kind": kind.capitalize(), "files": story_images.list_files(kind),
+                "folder": str(story_images.root() / kind.capitalize())}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/story-images/{kind}", dependencies=_story_gate)
+async def upload_story_image(kind: str, file: UploadFile = File(...), name: str = Form(...), variant: str = Form("location")) -> Dict:
+    from native import story_images
+    data = await file.read()
+    ext = Path(file.filename or "").suffix or ".jpg"
+    try:
+        saved = story_images.save(kind, name, data, variant=variant, ext=ext)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not save the image on this PC: {e}")
+    return {"success": True, **saved}
+
+
+@router.get("/story-images/{kind}/file/{filename}")
+async def get_story_image(kind: str, filename: str):
+    from fastapi.responses import Response
+    from native import story_images
+    try:
+        data = story_images.read_by_filename(kind, filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if data is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    mime = {".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}.get(Path(filename).suffix.lower(), "image/jpeg")
+    return Response(content=data, media_type=mime)
+
+
+@router.delete("/story-images/{kind}/file/{filename}", dependencies=_story_gate)
+async def delete_story_image(kind: str, filename: str) -> Dict:
+    from native import story_images
+    try:
+        ok = story_images.delete_file(kind, filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return {"success": True}
+
+
+def _event_image_bytes(kind: str, file_id: str):
+    """Read a Story-folder image by the id the dropdown gave the screen (its file name)."""
+    from native import story_images
+    return story_images.read_by_filename(kind, file_id)
 
 
 class EventPreviewRequest(BaseModel):
     event_type: str  # 'bingo' or 'karaoke'
     location_id: str
-    location_drive_id: str
+    location_drive_id: str = ""      # alpha.75: not used any more (images are local); kept so older screens still work
     host_id: str
-    host_drive_id: str
+    host_drive_id: str = ""
     host_is_gif: bool = True
 
 
@@ -1481,21 +1530,20 @@ async def get_event_preview(request: EventPreviewRequest) -> Dict:
     Used for the client-side preview before generating video.
     """
     try:
-        service = get_story_service()
-        
-        # Download location image
-        loc_bytes = service.download_event_asset(request.location_drive_id, request.location_id)
+        if request.event_type not in ('bingo', 'karaoke'):
+            raise HTTPException(status_code=400, detail="Invalid event type")
+        # alpha.75: read the picture from the Story folder on this PC
+        loc_bytes = _event_image_bytes(request.event_type, request.location_id)
         loc_b64 = None
         if loc_bytes:
             loc_b64 = f"data:image/png;base64,{base64.b64encode(loc_bytes).decode()}"
-        
-        # Download host image/GIF (just the first frame for preview)
-        host_bytes = service.download_event_asset(request.host_drive_id, request.host_id)
+
+        host_bytes = _event_image_bytes("hosts", request.host_id)
         host_b64 = None
         if host_bytes:
             mime = "image/gif" if request.host_is_gif else "image/png"
             host_b64 = f"data:{mime};base64,{base64.b64encode(host_bytes).decode()}"
-        
+
         return {
             "success": True,
             "locationImage": loc_b64,
@@ -1509,10 +1557,10 @@ async def get_event_preview(request: EventPreviewRequest) -> Dict:
 class GenerateEventVideoRequest(BaseModel):
     event_type: str  # 'bingo' or 'karaoke'
     location_id: str
-    location_drive_id: str
+    location_drive_id: str = ""
     location_name: str
     host_id: str
-    host_drive_id: str
+    host_drive_id: str = ""
     host_name: str
     host_is_gif: bool = True
 
@@ -1579,9 +1627,7 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         service = get_story_service()
         
         # Step 1: Download location image
-        loc_bytes = service.download_event_asset(
-            request_data["location_drive_id"], request_data["location_id"]
-        )
+        loc_bytes = _event_image_bytes(request_data["event_type"], request_data["location_id"])
         if not loc_bytes:
             raise Exception(f"Could not download location image: {request_data['location_name']}")
         
@@ -1594,9 +1640,7 @@ def _run_event_video_generation(job_id: str, request_data: dict):
         update_job(progress=25, step='Downloading host GIF...')
         
         # Step 2: Download host GIF/image
-        host_bytes = service.download_event_asset(
-            request_data["host_drive_id"], request_data["host_id"]
-        )
+        host_bytes = _event_image_bytes("hosts", request_data["host_id"])
         if not host_bytes:
             raise Exception(f"Could not download host image: {request_data['host_name']}")
         

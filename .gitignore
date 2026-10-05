@@ -1168,3 +1168,6 @@ backend/native/data/bighat_db/bighat/*.collection
 backend/native/secure/
 backend/native/backups/
 backend/native/file_map.json
+
+# alpha.75: story videos are generated output, never commit them
+backend/assets/generated/
