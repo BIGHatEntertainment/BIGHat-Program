@@ -4,6 +4,12 @@
 1. **File drop:** Story Generator and Scoreboard upload a finished video/PNG, get a public link, show it as a QR. Files expire.
 2. **Karaoke song requests:** the phone opens a page on the relay and sends a request; the PC pulls it every 3 s over outbound HTTPS. No router or firewall changes at the venue.
 
+## Before you redeploy (order matters)
+1. The relay code is in the repo as of alpha.82 (`backend/cloud/relay_router.py`, mounted in `backend/server.py`). Redeploy api.bighat.live from that version of `main`.
+2. Set the proxy items in "Things you must do" below (upload size, real client IP) BEFORE testing, or big uploads and phone limits will misbehave.
+3. Nothing else changes: same env vars as today (`BIGHAT_CLOUD_MODE=1`, your Mongo settings). The new settings are all optional.
+4. Existing license, download and update routes are untouched.
+
 **Code:** `backend/cloud/relay_router.py` (mounted in `backend/server.py` next to the other cloud routers, inside the `BIGHAT_CLOUD_MODE` block, after `cloud_download_landing_router`). No new packages (uses `fastapi`, already installed).
 
 ## Routes (all on api.bighat.live)
