@@ -338,6 +338,7 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
   const [savingName, setSavingName] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadingOverlay, setUploadingOverlay] = useState(false);
+  const [uploadingSponsor, setUploadingSponsor] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showStyle, setShowStyle] = useState(false);
   const master = isMaster(currentUser);
@@ -385,6 +386,35 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
       setError?.(e.response?.data?.detail || 'Overlay upload failed');
     } finally {
       setUploadingOverlay(false);
+    }
+  };
+
+  // alpha.88: this location's ONE sponsor slide (plays after the global sponsor slides)
+  const handleSponsorFile = async (files) => {
+    const f = files && files[0];
+    if (!f) return;
+    setUploadingSponsor(true);
+    try {
+      await api.uploadLocationSponsor(location.id, f);
+      setSuccess?.(location.sponsor_image ? 'Sponsor slide replaced' : 'Sponsor slide uploaded');
+      onChange();
+    } catch (e) {
+      setError?.(e.response?.data?.detail || 'Sponsor slide upload failed');
+    } finally {
+      setUploadingSponsor(false);
+    }
+  };
+
+  const removeSponsor = async () => {
+    setUploadingSponsor(true);
+    try {
+      await api.deleteLocationSponsor(location.id);
+      setSuccess?.('Sponsor slide removed');
+      onChange();
+    } catch (e) {
+      setError?.(e.response?.data?.detail || 'Could not remove the sponsor slide');
+    } finally {
+      setUploadingSponsor(false);
     }
   };
 
@@ -500,6 +530,57 @@ function LocationEditor({ location, currentUser, allUsers, onChange, onClose, on
           setError={setError}
           setSuccess={setSuccess}
         />
+      </div>
+
+      {/* Sponsor slide (alpha.88): this location's own sponsor image. Plays after the global
+          sponsor slides and before the final "become a sponsor" slide. */}
+      <div data-testid="location-sponsor-section">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h4 className="text-sm font-semibold text-white">Sponsor slide</h4>
+            <p className="text-xs" style={{ color: PALETTE.textDim }}>
+              This location&apos;s own sponsor image (16:9). It plays after the global sponsor slides and before the final sponsor slide. One image only.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {location.sponsor_image && (
+              <button onClick={removeSponsor} disabled={uploadingSponsor}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs disabled:opacity-40"
+                      style={{ border: '1px solid rgba(239,68,68,0.5)', color: '#ef4444' }}
+                      data-testid="remove-sponsor-btn">
+                <Trash2 size={12} /> Remove
+              </button>
+            )}
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition"
+                   style={{ backgroundColor: PALETTE.accent, color: PALETTE.bg, opacity: uploadingSponsor ? 0.5 : 1 }}
+                   data-testid="upload-sponsor-btn">
+              {uploadingSponsor ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+              {uploadingSponsor ? 'Uploading…' : (location.sponsor_image ? 'Replace' : 'Upload')}
+              <input type="file"
+                     accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                     className="hidden"
+                     disabled={uploadingSponsor}
+                     onChange={(e) => { handleSponsorFile(Array.from(e.target.files || [])); e.target.value = ''; }}
+                     data-testid="upload-sponsor-input"
+              />
+            </label>
+          </div>
+        </div>
+        {location.sponsor_image ? (
+          <div className="rounded-lg overflow-hidden" style={{ width: 260, border: `1px solid ${PALETTE.border}` }}
+               data-testid="sponsor-preview">
+            <ImageWithRetry
+              src={api.locationSponsorRawUrl(location.id, location.sponsor_image.id)}
+              alt={location.sponsor_image.filename || 'Sponsor slide'}
+              size={location.sponsor_image.size}
+              className="w-full object-cover"
+            />
+          </div>
+        ) : (
+          <div className="text-xs" style={{ color: PALETTE.textDim }} data-testid="sponsor-empty">
+            No sponsor slide uploaded yet.
+          </div>
+        )}
       </div>
 
       {/* Per-location slide customization (alpha.61) */}

@@ -109,6 +109,20 @@ const api = {
   locationOverlayRawUrl: (id, imageId) =>
     `${API}/api/native/locations/${id}/overlays/${imageId}/raw`,
 
+  // Sponsor slide image — alpha.88: ONE per location (a new upload replaces the old one)
+  uploadLocationSponsor: (id, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return axios.post(`${API}/api/native/locations/${id}/sponsor`, form, {
+      withCredentials: true,
+      headers: { ...authHeaders() },
+    });
+  },
+  deleteLocationSponsor: (id) =>
+    axios.delete(`${API}/api/native/locations/${id}/sponsor`, { withCredentials: true, headers: authHeaders() }),
+  locationSponsorRawUrl: (id, imageId) =>
+    `${API}/api/native/locations/${id}/sponsor/raw?v=${imageId || ''}`,
+
   // Backup (master_admin only)
   backupStatus: () =>
     axios.get(`${API}/api/native/backup/status`, { withCredentials: true, headers: authHeaders() }),

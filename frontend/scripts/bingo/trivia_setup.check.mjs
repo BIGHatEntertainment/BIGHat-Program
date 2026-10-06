@@ -94,6 +94,37 @@ ok(/1 place is not listed/.test(q('trivia-noprice-note')?.textContent || ''), 'w
 cleanup();
 globalThis.__locationsByGame = null; globalThis.__allLocations = null; globalThis.__locGames = [];
 
+
+// 6. alpha.88: each location has ONE sponsor slide image (upload / replace / remove)
+globalThis.__sponsorCalls = [];
+globalThis.__allLocations = null; globalThis.__locationsByGame = null;
+globalThis.__locations = [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [] }];
+as('master_admin'); app('/trivia/setup'); await wait(400);
+await act(async () => { fireEvent.click(q('location-card-pub-one')); }); await wait(300);
+ok(!!q('location-sponsor-section'), 'the location editor has a Sponsor slide section');
+ok(!!q('sponsor-empty') && !q('sponsor-preview'), 'a location with no sponsor image says so and shows no preview');
+ok(!q('remove-sponsor-btn'), 'no Remove button when there is nothing to remove');
+ok(/Upload/.test(q('upload-sponsor-btn')?.textContent || ''), 'the button says Upload when empty');
+ok(!q('upload-sponsor-input')?.hasAttribute('multiple'), 'only ONE sponsor image can be picked');
+const fileA = new window.File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
+await act(async () => { fireEvent.change(q('upload-sponsor-input'), { target: { files: [fileA] } }); }); await wait(300);
+ok(JSON.stringify(globalThis.__sponsorCalls) === JSON.stringify([['upload', 'l1', 'logo.png']]), 'picking a file uploads it to THIS location: ' + JSON.stringify(globalThis.__sponsorCalls));
+cleanup();
+
+globalThis.__sponsorCalls = [];
+globalThis.__locations = [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [],
+  sponsor_image: { id: 'sp-1', filename: 'old.png', size: 2048, mime: 'image/png', ext: '.png' } }];
+as('master_admin'); app('/trivia/setup'); await wait(400);
+await act(async () => { fireEvent.click(q('location-card-pub-one')); }); await wait(300);
+ok(!!q('sponsor-preview') && !q('sponsor-empty'), 'a location with a sponsor image shows its preview');
+ok((q('sponsor-preview')?.querySelector('img')?.getAttribute('src') || '').endsWith('/l1/sponsor/raw?v=sp-1'), 'the preview loads THIS location\'s sponsor image: ' + q('sponsor-preview')?.querySelector('img')?.getAttribute('src'));
+ok(/Replace/.test(q('upload-sponsor-btn')?.textContent || ''), 'the button says Replace when an image exists');
+ok(!!q('remove-sponsor-btn'), 'a Remove button is shown');
+await act(async () => { fireEvent.click(q('remove-sponsor-btn')); }); await wait(300);
+ok(JSON.stringify(globalThis.__sponsorCalls) === JSON.stringify([['delete', 'l1']]), 'Remove deletes THIS location\'s sponsor image: ' + JSON.stringify(globalThis.__sponsorCalls));
+cleanup();
+globalThis.__locations = null; globalThis.__sponsorCalls = [];
+
 reachedEnd = true;
 if (fails.length) { console.log('FAILED:\n - ' + fails.join('\n - ')); process.exit(1); }
 reachedEnd = true;

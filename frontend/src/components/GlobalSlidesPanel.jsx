@@ -89,6 +89,58 @@ function ImageGroup({ title, hint, kind, state, canEdit, onChange, busy, setBusy
   );
 }
 
+
+/** alpha.88: ONE special slide that always plays LAST in the sponsor section ("become a sponsor"). */
+function FinalSponsorSlot({ state, canEdit, busy, setBusy, setError, onChange }) {
+  const input = useRef(null);
+  const file = state.sponsors.final;
+  const upload = async (f) => {
+    setBusy(true);
+    try {
+      const fd = new FormData(); fd.append('file', f);
+      onChange((await axios.post(`${base}/sponsor_final/upload`, fd, opts())).data);
+    } catch (e) { setError?.(e.response?.data?.detail || 'Upload failed'); }
+    finally { setBusy(false); if (input.current) input.current.value = ''; }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try { onChange((await axios.delete(`${base}/file/${file}`, opts())).data); }
+    catch (e) { setError?.(e.response?.data?.detail || 'Delete failed'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="rounded-lg p-4 mt-3" style={{ border: '1px solid rgba(251,221,104,0.5)', background: 'rgba(251,221,104,0.05)' }}
+         data-testid="global-sponsor-final">
+      <div className="text-sm font-semibold text-white mb-1">Final sponsor slide (always plays last)</div>
+      <p className="text-xs mb-3" style={{ color: '#8892b0' }}>
+        One special slide, for example how to reach us to become a sponsor. It always plays after the other sponsor slides and the location's own sponsor slide.
+      </p>
+      {file ? (
+        <div className="mb-3" style={{ width: 240 }} data-testid="global-sponsor-final-img">
+          <img src={`${base}/file/${file}`} alt="" style={{ width: 240, height: 135, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(251,221,104,0.4)' }} />
+        </div>
+      ) : (
+        <div className="text-xs mb-3" style={{ color: '#8892b0' }} data-testid="global-sponsor-final-empty">No final slide uploaded yet.</div>
+      )}
+      {canEdit && (
+        <div className="flex gap-2">
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden"
+                 data-testid="global-sponsor-final-file" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+          <button disabled={busy} onClick={() => input.current?.click()} data-testid="global-sponsor-final-upload"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium"
+                  style={{ backgroundColor: '#fbdd68', color: '#000e2a' }}>
+            <Upload size={12} /> {file ? 'Replace final slide' : 'Upload final slide'}
+          </button>
+          {file && (
+            <button disabled={busy} onClick={remove} data-testid="global-sponsor-final-remove" className="px-3 py-1.5 rounded-md text-xs"
+                    style={{ border: '1px solid rgba(239,68,68,0.5)', color: '#ef4444' }}>Remove</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Company intro, Rules, and the auto Format slide. Played after the location slides, before round 1. */
 export default function GlobalSlidesPanel({ canEdit, setError, setSuccess }) {
   const [state, setState] = useState(null);
@@ -127,13 +179,19 @@ export default function GlobalSlidesPanel({ canEdit, setError, setSuccess }) {
   return (
     <div className="space-y-4" data-testid="global-slides-panel">
       <p className="text-xs" style={{ color: '#8892b0' }}>
-        Order in every presentation: host, rewards slot, location images, <b>company</b>, <b>rules</b>, <b>format</b>, then round 1.
+        Order in every presentation: host, rewards slot, location images, <b>company</b>, <b>rules</b>, <b>format</b>, then round 1. The <b>sponsor</b> slides play just before the last (BIG) round.
         These are global; locations cannot change them.
       </p>
       <ImageGroup title="Company slides (About BIG Hat Entertainment)" hint="Upload 16:9 images (1920x1080 recommended). They play in the order shown."
                   kind="company" state={state.company} {...common} />
       <ImageGroup title="Rules slides" hint="Upload your house rules as 16:9 images. They play in the order shown."
                   kind="rules" state={state.rules} {...common} />
+      <div data-testid="global-sponsors-section">
+        <ImageGroup title="Sponsor slides"
+                    hint="Upload sponsor slides as 16:9 images. They play in the order shown, then this location's own sponsor slide (set in Trivia Setup), then the final sponsor slide below."
+                    kind="sponsors" state={state.sponsors} {...common} />
+        <FinalSponsorSlot state={state} {...common} />
+      </div>
       <div className="rounded-lg p-4" style={{ border: '1px solid rgba(251,221,104,0.2)' }} data-testid="global-format">
         <div className="flex items-center justify-between mb-1">
           <div className="text-sm font-semibold text-white">Format slide (automatic)</div>

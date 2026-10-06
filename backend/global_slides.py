@@ -21,13 +21,15 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-KINDS = ("company", "rules")          # image-slide kinds the merchant uploads
+KINDS = ("company", "rules", "sponsors")   # image-slide lists the merchant uploads (alpha.88: + sponsors)
+SPONSOR_FINAL = "sponsor_final"        # alpha.88: ONE special last sponsor slide ("become a sponsor")
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 MAX_BYTES = 100 * 1024 * 1024
 
 DEFAULTS: Dict[str, Any] = {
     "company": {"enabled": True, "images": []},
     "rules": {"enabled": True, "images": []},
+    "sponsors": {"enabled": True, "images": [], "final": None},
     "format": {"enabled": True, "background": None, "show_themes": True},
 }
 
@@ -51,6 +53,9 @@ def _merge(saved: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     # drop references to files that no longer exist
     for k in KINDS:
         out[k]["images"] = [f for f in out[k].get("images", []) if (_root() / f).is_file()]
+    fin = out["sponsors"].get("final")
+    if fin and not (_root() / fin).is_file():
+        out["sponsors"]["final"] = None
     bg = out["format"].get("background")
     if bg and not (_root() / bg).is_file():
         out["format"]["background"] = None
@@ -76,8 +81,8 @@ def save(settings: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def add_image(kind: str, filename: str, data: bytes) -> Dict[str, Any]:
-    """kind: 'company' | 'rules' | 'format_bg'."""
-    if kind not in KINDS + ("format_bg",):
+    """kind: 'company' | 'rules' | 'sponsors' | 'sponsor_final' | 'format_bg'."""
+    if kind not in KINDS + ("format_bg", SPONSOR_FINAL):
         raise ValueError(f"unknown kind {kind!r}")
     ext = Path(filename or "").suffix.lower()
     if ext not in IMG_EXTS:
@@ -89,7 +94,15 @@ def add_image(kind: str, filename: str, data: bytes) -> Dict[str, Any]:
     name = f"{kind}-{uuid.uuid4().hex[:10]}{ext}"
     (_root() / name).write_bytes(data)
     cur = load()
-    if kind == "format_bg":
+    if kind == SPONSOR_FINAL:                      # a single slot: a new upload replaces the old one
+        old = cur["sponsors"].get("final")
+        cur["sponsors"]["final"] = name
+        if old:
+            try:
+                (_root() / old).unlink()
+            except OSError:
+                pass
+    elif kind == "format_bg":
         old = cur["format"].get("background")
         cur["format"]["background"] = name
         if old:
@@ -108,6 +121,8 @@ def remove_image(file: str) -> Dict[str, Any]:
     cur = load()
     for k in KINDS:
         cur[k]["images"] = [f for f in cur[k]["images"] if f != file]
+    if cur["sponsors"].get("final") == file:
+        cur["sponsors"]["final"] = None
     if cur["format"].get("background") == file:
         cur["format"]["background"] = None
     try:

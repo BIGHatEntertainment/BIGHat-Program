@@ -75,6 +75,18 @@ def remove(slug: str) -> None:
         pass
 
 
+def remove_file(slug: str, relative: str) -> None:
+    """alpha.88: a single file was replaced/deleted on purpose (e.g. an old sponsor image).
+    Drop its safety copy too, or a restore would bring the old file back. Never raises."""
+    try:
+        base = (backup_root() / slug).resolve()
+        target = (base / relative).resolve()
+        if base in target.parents and target.is_file():     # stays inside this location's backup
+            target.unlink()
+    except OSError:
+        pass
+
+
 def restore_missing() -> Dict[str, int]:
     """AppData -> Documents for anything that is missing there.  Run at startup.  Never overwrites a Documents file."""
     restored: Dict[str, int] = {}

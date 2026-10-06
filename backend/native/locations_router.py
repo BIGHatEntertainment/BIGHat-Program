@@ -231,6 +231,13 @@ def _branding_dir(slug: str) -> Path:
     return root
 
 
+def _sponsor_dir(slug: str) -> Path:
+    """alpha.88: <Files>/Locations/<slug>/sponsor/ holds the location's ONE sponsor slide image."""
+    root = _files_locations_root() / slug / "sponsor"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def _overlays_dir(slug: str) -> Path:
     """Resolve `<Files>/Locations/<slug>/overlays/` and mkdir.
 
@@ -388,7 +395,8 @@ async def list_locations(request: Request, game: Optional[str] = None) -> List[D
 # ---------------------------------------------------------------------------
 _PERSIST_KEYS = ("id", "name", "slug", "branding_images", "overlay_images",
                  "assigned_user_ids", "created_at", "updated_at", "created_by",
-                 "venue_id", "retired")      # alpha.80: the link to the Schedule venue + "venue was deleted"
+                 "venue_id", "retired",      # alpha.80: the link to the Schedule venue + "venue was deleted"
+                 "sponsor_image")            # alpha.88: the location's own sponsor slide image
 
 
 def _location_json_path(slug: str) -> Path:
@@ -513,6 +521,7 @@ async def _hydrate_from_disk() -> Dict[str, Any]:
                 "created_by": saved.get("created_by") or "restored",
                 "venue_id": saved.get("venue_id"),          # alpha.80: keep the link to the Schedule venue
                 "retired": bool(saved.get("retired")),      # alpha.80: and "its venue was deleted"
+                "sponsor_image": saved.get("sponsor_image"),  # alpha.88: the location's sponsor slide
             }
         else:
             doc = {
@@ -521,6 +530,7 @@ async def _hydrate_from_disk() -> Dict[str, Any]:
                 "slug": slug,
                 "branding_images": [],
                 "overlay_images": [],
+                "sponsor_image": None,
                 "assigned_user_ids": [],
                 "created_at": now,
                 "updated_at": now,
@@ -1104,6 +1114,83 @@ async def tag_overlay_image(
 
 
 # ----- Endpoints: admin assignments -----
+@router.post("/{location_id}/sponsor", status_code=201)
+async def upload_sponsor_image(
+    location_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+) -> Dict[str, Any]:
+    """alpha.88: upload THIS location's sponsor slide image. A location has ONE;
+    a new upload replaces the old one. Same rules as branding uploads."""
+    user, loc = await _require_location_access(location_id, request)
+    mime = (file.content_type or "").lower()
+    if mime not in _ALLOWED_MIMES:
+        guessed, _ = mimetypes.guess_type(file.filename or "")
+        if (guessed or "").lower() in _ALLOWED_MIMES:
+            mime = (guessed or "").lower()
+        else:
+            raise HTTPException(415, detail=f"unsupported_mime:{mime or 'unknown'}")
+    raw = await file.read()
+    if len(raw) > _MAX_IMAGE_BYTES:
+        raise HTTPException(413, detail=f"file_too_large:{len(raw)}")
+    if not raw:
+        raise HTTPException(400, detail="empty_file")
+    ext = mimetypes.guess_extension(mime) or Path(file.filename or "").suffix or ".bin"
+    image_id = str(uuid.uuid4())
+    d = _sponsor_dir(loc["slug"])
+    old = loc.get("sponsor_image")
+    (d / f"{image_id}{ext}").write_bytes(raw)
+    record = {
+        "id": image_id, "filename": file.filename or f"sponsor{ext}", "mime": mime,
+        "size": len(raw), "ext": ext,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(), "uploaded_by": _user_id(user),
+    }
+    await _db.locations.update_one(
+        {"id": location_id},
+        {"$set": {"sponsor_image": record, "updated_at": record["uploaded_at"]}},
+    )
+    if isinstance(old, dict) and old.get("id"):                 # the replaced file goes away
+        try:
+            (d / f"{old['id']}{old.get('ext', '.bin')}").unlink()
+        except OSError:
+            pass
+        from native import locations_backup
+        locations_backup.remove_file(loc["slug"], f"sponsor/{old['id']}{old.get('ext', '.bin')}")
+    await _persist_location(location_id)
+    return record
+
+
+@router.get("/{location_id}/sponsor/raw")
+async def get_sponsor_image_raw(location_id: str, request: Request):
+    _, loc = await _require_location_access(location_id, request)
+    img = loc.get("sponsor_image")
+    if not isinstance(img, dict) or not img.get("id"):
+        raise HTTPException(404, detail="no_sponsor_image")
+    path = _sponsor_dir(loc["slug"]) / f"{img['id']}{img.get('ext', '.bin')}"
+    if not path.is_file():
+        raise HTTPException(404, detail="sponsor_file_missing")
+    return FileResponse(str(path), media_type=img.get("mime") or "application/octet-stream")
+
+
+@router.delete("/{location_id}/sponsor", status_code=204)
+async def delete_sponsor_image(location_id: str, request: Request):
+    _, loc = await _require_location_access(location_id, request)
+    img = loc.get("sponsor_image")
+    if not isinstance(img, dict) or not img.get("id"):
+        raise HTTPException(404, detail="no_sponsor_image")
+    try:
+        (_sponsor_dir(loc["slug"]) / f"{img['id']}{img.get('ext', '.bin')}").unlink()
+    except OSError:
+        pass
+    from native import locations_backup
+    locations_backup.remove_file(loc["slug"], f"sponsor/{img['id']}{img.get('ext', '.bin')}")
+    await _db.locations.update_one(
+        {"id": location_id},
+        {"$set": {"sponsor_image": None, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await _persist_location(location_id)
+
+
 @router.patch("/{location_id}/admins")
 async def set_assignments(
     location_id: str,

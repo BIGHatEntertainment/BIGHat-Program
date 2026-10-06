@@ -1406,29 +1406,92 @@ def render_round_section(
     return slides
 
 
+def _location_sponsor_src(pres: Dict[str, Any]) -> Optional[str]:
+    """alpha.88: the location's ONE sponsor slide image, as a data URL, read from
+    DISK (Files/Locations/<slug>/location.json -> sponsor_image, file in sponsor/).
+    Finds the location the same ways the branding images do."""
+    loc_root = _docs_root() / "Files" / "Locations"
+    if not loc_root.is_dir():
+        return None
+    for key in ("location_id", "location_slug", "location_name", "location"):
+        raw = str(pres.get(key) or "").strip()
+        if not raw:
+            continue
+        tail = raw.replace("\\", "/").rstrip("/").split("/")[-1]
+        d = _location_dir_by_id(loc_root, tail) or _location_dir_by_id(loc_root, raw)
+        if d is None:
+            cand = loc_root / (tail if "-" in tail else _slugify(tail))
+            d = cand if (cand / "location.json").is_file() else None
+        if d is None:
+            continue
+        try:
+            meta = json.loads((d / "location.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        img = meta.get("sponsor_image")
+        if not isinstance(img, dict) or not img.get("id"):
+            return None
+        f = d / "sponsor" / f"{img['id']}{img.get('ext', '.bin')}"
+        if not f.is_file():
+            return None
+        try:
+            import base64, mimetypes
+            mime = img.get("mime") or mimetypes.guess_type(f.name)[0] or "image/png"
+            return f"data:{mime};base64," + base64.b64encode(f.read_bytes()).decode("ascii")
+        except OSError:
+            return None
+    return None
+
+
 def render_sponsors_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
-    sponsor_files = pres.get("sponsorFiles") or []
-    if not sponsor_files:
-        # Single generic sponsor placeholder
-        return [_slide(0, [
-            _text("Thanks to our Sponsors", x=160, y=440, w=1600, h=200,
-                  size=90, weight="800", color="#F4C430"),
-        ], background=BG_DARK, metadata={
-            "roundType": "SPONSOR", "slideIndexInRound": 0, "isRoundTitle": True,
-        })]
+    """alpha.88 SPONSORS section, in this order:
+         1. every GLOBAL sponsor slide the admin loaded (Global Slides > Sponsors), in their order
+         2. THIS location's own sponsor slide (Trivia Setup), if it has one
+         3. the FINAL sponsor slide ("become a sponsor"), always last, if one is loaded
+       Each is a full-bleed image slide. Nothing loaded anywhere = the old
+       "Thanks to our Sponsors" placeholder, so the show never has a hole."""
+    import global_slides as gs
+    st = gs.load()["sponsors"]
+    srcs: List[Any] = []                      # (src, kind)
+    if st.get("enabled", True):
+        for f in st.get("images", []):
+            src = _global_image_src(f)
+            if src:
+                srcs.append((src, "global"))
+        loc_src = _location_sponsor_src(pres)
+        if loc_src:
+            srcs.append((loc_src, "location"))
+        if st.get("final"):
+            fin = _global_image_src(st["final"])
+            if fin:
+                srcs.append((fin, "final"))
+    else:
+        return []
+    if not srcs:
+        legacy = pres.get("sponsorFiles") or []
+        if not legacy:
+            return [_slide(0, [
+                _text("Thanks to our Sponsors", x=160, y=440, w=1600, h=200,
+                      size=90, weight="800", color="#F4C430"),
+            ], background=BG_DARK, metadata={
+                "roundType": "SPONSOR", "slideIndexInRound": 0, "isRoundTitle": True,
+            })]
+        for ref in legacy:                    # old presentations that listed files
+            if isinstance(ref, str) and any(ref.lower().endswith(e) for e in (".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                srcs.append((ref, "legacy"))
+        if not srcs:
+            return [_slide(0, [
+                _text("Thanks to our Sponsors", x=160, y=440, w=1600, h=200,
+                      size=90, weight="800", color="#F4C430"),
+            ], background=BG_DARK, metadata={
+                "roundType": "SPONSOR", "slideIndexInRound": 0, "isRoundTitle": True,
+            })]
     out: List[Dict[str, Any]] = []
-    for i, ref in enumerate(sponsor_files):
-        # If ref looks like an image path, embed it. Otherwise show the name.
-        elements: List[Dict[str, Any]] = [
-            _text("Sponsor", x=160, y=90, w=1600, h=80, size=44, color="#F4C430"),
-        ]
-        if isinstance(ref, str) and any(ref.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")):
-            elements.append(_image(ref, x=460, y=220, w=1000, h=700))
-        else:
-            label = ref if isinstance(ref, str) else str(ref)
-            elements.append(_text(label, x=160, y=440, w=1600, h=200, size=110, weight="800"))
-        out.append(_slide(i, elements, background=BG_DARK, metadata={
-            "roundType": "SPONSOR", "slideIndexInRound": i,
+    for i, (src, kind) in enumerate(srcs):
+        out.append(_slide(i, [_image(src, x=0, y=0, w=STAGE_W, h=STAGE_H)],
+                          background=BG_DARK, metadata={
+            "roundType": "SPONSOR", "slideIndexInRound": i, "isRoundTitle": False,
+            "sponsorKind": kind,
         }))
     return out
 

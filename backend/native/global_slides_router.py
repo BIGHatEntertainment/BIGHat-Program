@@ -39,7 +39,7 @@ async def put_settings(request: Request, payload: Dict[str, Any] = Body(...)) ->
     await _admin(request)
     cur = gs.load()
     # only the toggles / order are editable here; files go through upload/delete
-    for k in ("company", "rules"):
+    for k in ("company", "rules", "sponsors"):
         if isinstance(payload.get(k), dict):
             if "enabled" in payload[k]:
                 cur[k]["enabled"] = bool(payload[k]["enabled"])
