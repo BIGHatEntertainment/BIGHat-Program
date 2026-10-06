@@ -91,3 +91,11 @@ async def test_relay_client_never_raises_when_the_internet_is_down(monkeypatch, 
     assert (await relay_client.publish_file(str(tmp_path / "gone.png")))["error"] == "missing_file"
     monkeypatch.setattr(relay_client, "_auth", lambda: None)
     assert (await relay_client.publish_file(str(f)))["error"] == "no_license"
+
+
+def test_qr_links_always_use_the_path_that_reaches_the_relay(monkeypatch):
+    from native import relay_client
+    monkeypatch.setenv("BIGHAT_LICENSE_API_BASE_URL", "https://api.bighat.live")
+    assert relay_client.public_url("/d/ABC") == "https://api.bighat.live/api/relay/d/ABC"          # old relay answer
+    assert relay_client.public_url("/k/ABC") == "https://api.bighat.live/api/relay/k/ABC"
+    assert relay_client.public_url("/api/relay/k/ABC") == "https://api.bighat.live/api/relay/k/ABC"  # new relay answer: untouched

@@ -124,7 +124,7 @@ async def upload_file(
         "id": fid, "owner": owner, "path": str(path), "name": safe, "ext": ext, "size": size,
         "label": (label or "")[:60], "created_at": _iso(_now()), "expires_at": _iso(expires),
     })
-    return {"id": fid, "url": f"/d/{fid}", "expires_at": _iso(expires), "size": size}
+    return {"id": fid, "url": f"/api/relay/d/{fid}", "expires_at": _iso(expires), "size": size}
 
 
 _MIME = {"mp4": "video/mp4", "webm": "video/webm", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
@@ -132,6 +132,7 @@ _MIME = {"mp4": "video/mp4", "webm": "video/webm", "png": "image/png", "jpg": "i
 
 
 @router.get("/d/{fid}")
+@router.get("/api/relay/d/{fid}")
 async def download_file(fid: str):
     """What the phone opens after scanning. Public, but needs the unguessable id."""
     _need()
@@ -183,14 +184,14 @@ async def open_session(payload: Dict[str, Any]):
     if existing:
         await _db.relay_sessions.update_one({"id": existing["id"]}, {"$set": {
             "venue": venue, "expires_at": _iso(_now() + timedelta(hours=SESSION_TTL_HOURS))}})
-        return {"session": existing["id"], "url": f"/k/{existing['id']}"}
+        return {"session": existing["id"], "url": f"/api/relay/k/{existing['id']}"}
     if await _db.relay_sessions.count_documents({"owner": owner}) >= MAX_SESSIONS_PER_LICENSE:
         raise HTTPException(status_code=429, detail="too_many_sessions")
     sid = _token()
     await _db.relay_sessions.insert_one({
         "id": sid, "owner": owner, "venue": venue, "open": True, "created_at": _iso(_now()),
         "expires_at": _iso(_now() + timedelta(hours=SESSION_TTL_HOURS))})
-    return {"session": sid, "url": f"/k/{sid}"}
+    return {"session": sid, "url": f"/api/relay/k/{sid}"}
 
 
 @router.post("/api/relay/karaoke/sessions/{sid}/close")
@@ -309,6 +310,7 @@ async function poll(){try{const r=await fetch('/api/relay/karaoke/'+SID+'/status
 
 
 @router.get("/k/{sid}")
+@router.get("/api/relay/k/{sid}")
 async def phone_page(sid: str):
     try:
         s = await _session_open(sid)

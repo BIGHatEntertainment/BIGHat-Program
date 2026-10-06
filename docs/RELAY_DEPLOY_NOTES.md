@@ -16,10 +16,10 @@
 | Route | Who calls it | Needs |
 |---|---|---|
 | `POST /api/relay/files` | the PC | license key + machine id (form fields) |
-| `GET /d/{id}` | a phone (the QR) | nothing, id is a 128-bit random token |
+| `GET /api/relay/d/{id}` (also `/d/{id}`) | a phone (the QR) | nothing, id is a 128-bit random token |
 | `DELETE /api/relay/files/{id}` | the PC | license key + machine id |
 | `POST /api/relay/karaoke/sessions` (+ `/{id}/close`, `/{id}/pull`) | the PC | license key + machine id |
-| `GET /k/{id}` | a phone (the QR) | nothing (random token) |
+| `GET /api/relay/k/{id}` (also `/k/{id}`) | a phone (the QR) | nothing (random token) |
 | `POST /api/relay/karaoke/{id}/request`, `GET .../status/{rid}` | a phone | nothing (random token) |
 
 Every PC call is checked with the existing `LicenseService.validate(key, hwid)`: unknown, revoked or un-activated copies get `401`.
@@ -34,8 +34,14 @@ Every PC call is checked with the existing `LicenseService.validate(key, hwid)`:
 ## Settings (all optional environment variables)
 `RELAY_FILE_TTL_HOURS` (48) | `RELAY_MAX_FILE_MB` (150) | `RELAY_MAX_FILES_PER_LICENSE` (20) | `RELAY_SESSION_TTL_HOURS` (14) | `RELAY_MAX_REQUESTS_PER_SESSION` (300) | `RELAY_MAX_SESSIONS_PER_LICENSE` (5) | `RELAY_PHONE_COOLDOWN_SECONDS` (20) | `RELAY_FILES_DIR`
 
+## Link paths (alpha.83)
+On api.bighat.live only `/api/...` paths reach the backend; anything else shows the website. So the relay now hands out `/api/relay/d/{id}` and `/api/relay/k/{id}`, and the desktop program rewrites the short `/d/` and `/k/` forms the same way. The short routes still exist but are not used in QRs.
+
+## Differences between this repo and the deployed copy
+The deployed relay (branch `QR-Integration`) swaps the upload loop for a helper `local_disk.stream_to_disk` that exists only in that codebase. This repo keeps its own loop. Both behave the same (150 MB cap, `file_too_big` 413). Do not copy either file over the other.
+
 ## Quick check after deploying
-1. `GET https://api.bighat.live/d/aaaaaaaaaaaaaaaaaaaaaa` should return a small "link has expired" page (404), not a server error.
+1. `GET https://api.bighat.live/api/relay/d/aaaaaaaaaaaaaaaaaaaaaa` should return a small "link has expired" page (404), not a server error.
 2. In the desktop program (alpha.82), start a Karaoke night, scan the QR with a phone on mobile data (not the venue Wi-Fi), send a song, and watch it appear in the host's request list within a few seconds.
 3. Export a Scoreboard PNG, click the QR button, scan it on mobile data: the image should open.
 

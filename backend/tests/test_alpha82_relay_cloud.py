@@ -69,7 +69,8 @@ def up(c, data=b"x" * 100, name="story.mp4", key=KEY, hw=HW):
 def test_upload_then_phone_can_download(env):
     c, rr, svc, db = env
     r = up(c); assert r.status_code == 200, r.text
-    url = r.json()["url"]; assert url.startswith("/d/")
+    url = r.json()["url"]; assert url.startswith("/api/relay/d/")      # the path that reaches the relay behind the website ingress
+    assert c.get("/d/" + url.rsplit("/", 1)[1]).status_code == 200  # the short form keeps working
     g = c.get(url); assert g.status_code == 200 and g.content == b"x" * 100
     assert g.headers["content-type"] == "video/mp4"
 
@@ -101,6 +102,7 @@ def test_expired_and_unknown_links_are_dead(env):
     db.relay_files.rows[0]["expires_at"] = "2000-01-01T00:00:00+00:00"
     r = c.get(url); assert r.status_code == 404 and "expired" in r.text.lower()
     assert c.get("/d/not-a-real-id-aaaaaaaa").status_code == 404
+    assert c.get("/api/relay/d/not-a-real-id-aaaaaaaa").status_code == 404
     assert c.get("/d/..%2f..%2fetc%2fpasswd").status_code == 404
 
 
@@ -120,6 +122,7 @@ def test_karaoke_full_round_trip(env):
     c, rr, svc, db = env
     s = _open(c); sid = s["session"]
     assert _open(c)["session"] == sid                                  # re-open = same QR
+    assert s["url"].startswith("/api/relay/k/")
     page = c.get(s["url"]); assert page.status_code == 200 and "Request this song" in page.text and "Monkey Pants" in page.text
     r = c.post(f"/api/relay/karaoke/{sid}/request", json={"singer_name": "Sam", "song_title": "Africa", "song_artist": "Toto"})
     assert r.status_code == 200; rid = r.json()["request_id"]

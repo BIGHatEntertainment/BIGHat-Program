@@ -27,6 +27,10 @@ def _auth() -> Optional[Dict[str, str]]:
 
 
 def public_url(path: str) -> str:
+    """Full link for a QR. On api.bighat.live only /api/... reaches the relay (other paths show the website),
+    so the short /d/... and /k/... forms are always turned into /api/relay/d/... and /api/relay/k/...."""
+    if path.startswith("/d/") or path.startswith("/k/"):
+        path = "/api/relay" + path
     return f"{base_url()}{path}"
 
 
