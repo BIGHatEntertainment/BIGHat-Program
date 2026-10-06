@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import Header from '../components/Header';
 import ProductKeyTab from '../components/admin/ProductKeyTab';
+import IntegrationsTab from '../components/admin/IntegrationsTab';
 import {
   Users, Plus, Trash2, Edit, Shield, ShieldCheck,
   Calendar, X, Save, ChevronRight, AlertTriangle,
-  Archive, Download, Loader2, KeyRound,
+  Archive, Download, Loader2, KeyRound, Package,
 } from 'lucide-react';
 
 export default function AdminPage() {
@@ -50,6 +51,7 @@ export default function AdminPage() {
   const tabs = [
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'events', label: 'Event Management', icon: Calendar },
+    { id: 'integrations', label: 'Integrations', icon: Package },
     ...(user?.role === 'master_admin' ? [{ id: 'product_key', label: 'Product Key', icon: KeyRound }] : []),
   ];
 
@@ -109,6 +111,9 @@ export default function AdminPage() {
             setError={setError}
             setSuccess={setSuccess}
           />
+        )}
+        {activeTab === 'integrations' && (
+          <IntegrationsTab isMaster={user?.role === 'master_admin'} setError={setError} setSuccess={setSuccess} />
         )}
         {activeTab === 'product_key' && user?.role === 'master_admin' && (
           <ProductKeyTab setError={setError} setSuccess={setSuccess} />

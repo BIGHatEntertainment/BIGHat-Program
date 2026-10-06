@@ -60,3 +60,30 @@ A singer's first name and song title for the length of the night, and exported f
 - **Not measured:** real uploads at scale, production proxy limits, multi-worker behavior.
 - **Load test scripts:** `backend/scripts/load_relay_multi.sh` (local only; refuses the live address). Never run against api.bighat.live.
 - **When to split the relay into its own service:** if licensing and update checks slow down on busy nights, or you pass roughly 100 active venues. Then set `relay_base_url` and move `cloud/relay_router.py` to its own deployment.
+
+---
+
+# Setup Package (alpha.85): ALSO needs a redeploy of api.bighat.live
+
+**What it is.** A second small feature in the same cloud service. The master admin publishes the business's shared setup (venues, venue pricing, people without passwords, who works where, location pictures) and every other copy under the same license email pulls it. One package per master-admin EMAIL.
+
+**Code:** `backend/cloud/setup_package_router.py`, mounted in `backend/server.py` in the same `BIGHAT_CLOUD_MODE` block as the relay, plus index creation in `_cloud_relay_startup` (called from the lifespan). No new packages. Uses the existing `LicenseService.validate` (its returned license record must have an `email`) and the existing `_license_email` sender for the transfer confirmation code.
+
+| Route | Who | Notes |
+|---|---|---|
+| `POST /api/setup-package/publish` | master's PC | multipart: license_key, hwid, is_master=1, expected_version, file (zip). Refused with 403 unless is_master=1; 409 if another computer published a newer version |
+| `POST /api/setup-package/status` | any activated copy | `{exists, version, hash, counts, published_at}` |
+| `POST /api/setup-package/pull` | any activated copy | returns the zip; headers `X-Package-Version`, `X-Package-Hash` |
+| `POST /api/setup-package/transfer/start` / `/confirm` | master's PC | emails a 6-digit code to the CURRENT owner email; 5 wrong tries lock it |
+
+**Safety rules built in:** the upload is a zip that may only contain `package.json` and `images/...` files (png, jpg, gif, webp, mp4, webm, mov); any key or value path containing password, hash, secret, token, api_key or license_key is refused (HTTP 400); 40 MB, 600 entries and a zip-bomb limit; a package is stored under the license email, so a second key bought with the same email shares it and a different email can never see it.
+
+**Collections created automatically:** `setup_packages` (unique `email`), `setup_transfers`.
+
+**Deploy checks (same style as the relay):**
+1. Make sure the proxy allows request bodies of at least 40 MB on `/api/setup-package/publish`.
+2. Make sure the license record's `email` is filled in for every license. A license with no email is refused with 401 `license_has_no_email`.
+3. After deploying, from alpha.85: Admin > Integrations > "Publish setup", then on a second computer "Pull setup".
+4. Quick API check: `POST /api/setup-package/status` with a bad key returns 401.
+
+Settings (optional env vars): `PACKAGE_MAX_MB` (40), `PACKAGE_MAX_ENTRIES` (600), `PACKAGE_TRANSFER_MINUTES` (30), `PACKAGE_PUBLISH_COOLDOWN_SECONDS` (10).

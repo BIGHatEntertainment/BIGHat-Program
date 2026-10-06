@@ -2472,6 +2472,17 @@ except Exception as e:
     logger.warning(f"Could not load Native locations router: {e}")
 
 
+# Setup Package router (alpha.85): Admin Settings > Integrations. Desktop only (never loaded in cloud mode).
+if not _native_router_skipped_cloud:
+    try:
+        from native.package_router import router as package_router, set_db as package_set_db
+        package_set_db(db)
+        app.include_router(package_router, prefix="/api")
+        logger.info("Native setup-package router registered at /api/native/setup-package/*")
+    except Exception as e:
+        logger.warning(f"Could not load Native setup-package router: {e}")
+
+
 # Global slides router (alpha.64): company / rules / Format slides.
 try:
     from native.global_slides_router import router as global_slides_router
@@ -2543,8 +2554,14 @@ try:
         from cloud.relay_router import router as cloud_relay_router, set_runtime as cloud_relay_set_runtime, ensure_indexes as cloud_relay_ensure_indexes
         cloud_relay_set_runtime(service=_license_service, db=db)
 
+        # alpha.85: Setup Package (venues, pricing, people, location images; one per master admin email)
+        from cloud import setup_package_router as cloud_setup_package
+        cloud_setup_package.set_runtime(service=_license_service, db=db, mailer=_license_email)
+        app.include_router(cloud_setup_package.router)
+
         async def _cloud_relay_startup():          # called from lifespan (FastAPI ignores @app.on_event when lifespan is set)
             await cloud_relay_ensure_indexes(db)
+            await cloud_setup_package.ensure_indexes(db)
         app.include_router(cloud_relay_router)
 
         # Phase 10.6: Squarespace Orders poller — replaces webhooks because

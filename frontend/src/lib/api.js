@@ -24,6 +24,20 @@ const api = {
   addProductKey: (productKey) =>
     axios.post(`${API}/api/native/license/product-key`, { product_key: productKey }, { withCredentials: true, headers: authHeaders() }),
 
+  // Setup Package (Admin > Integrations)
+  pkgCheck: () => axios.get(`${API}/api/native/setup-package/check`, { withCredentials: true, headers: authHeaders() }),
+  pkgPublish: () => axios.post(`${API}/api/native/setup-package/publish`, {}, { withCredentials: true, headers: authHeaders(), timeout: 150000 }),
+  pkgPull: (apply, overwrite) =>
+    axios.post(`${API}/api/native/setup-package/pull?apply=${apply ? 'true' : 'false'}&overwrite_changed=${overwrite ? 'true' : 'false'}`, {}, { withCredentials: true, headers: authHeaders(), timeout: 150000 }),
+  pkgExportUrl: () => `${API}/api/native/setup-package/export`,
+  pkgExport: () => axios.get(`${API}/api/native/setup-package/export`, { withCredentials: true, headers: authHeaders(), responseType: 'blob', timeout: 150000 }),
+  pkgImport: (file, apply, overwrite) => {
+    const f = new FormData(); f.append('file', file);
+    return axios.post(`${API}/api/native/setup-package/import?apply=${apply ? 'true' : 'false'}&overwrite_changed=${overwrite ? 'true' : 'false'}`, f, { withCredentials: true, headers: authHeaders(), timeout: 150000 });
+  },
+  pkgTransferStart: (toEmail) => axios.post(`${API}/api/native/setup-package/transfer/start`, { to_email: toEmail }, { withCredentials: true, headers: authHeaders() }),
+  pkgTransferConfirm: (code) => axios.post(`${API}/api/native/setup-package/transfer/confirm`, { code }, { withCredentials: true, headers: authHeaders() }),
+
   // Users
   getUsers: () =>
     axios.get(`${API}/api/users`, { withCredentials: true, headers: authHeaders() }),
