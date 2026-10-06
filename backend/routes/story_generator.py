@@ -1391,6 +1391,24 @@ async def store_temp_video(request: StoreVideoRequest):
         logger.error(f"[TempVideo] Store error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/qr-publish/{file_id}")
+async def qr_publish(file_id: str):
+    """alpha.82: upload the stored video to the QR relay and return a link a PHONE can open (https, expires in ~2 days).
+    Only files this tool stored itself can be published (id lookup; never a path from the screen)."""
+    import re as _re
+    from native import relay_client
+    if not _re.fullmatch(r"[A-Za-z0-9-]{6,40}", file_id or ""):
+        raise HTTPException(status_code=400, detail="bad file id")
+    info = _temp_video_store.get(file_id)
+    path = info["path"] if info and os.path.exists(info["path"]) else os.path.join(tempfile.gettempdir(), "story_videos", f"{file_id}.mp4")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="That video is no longer on this computer. Generate it again.")
+    res = await relay_client.publish_file(path, label="story")
+    if not res.get("ok"):
+        return {"success": False, "error": res.get("error"), "message": res.get("message")}
+    return {"success": True, "url": res["url"], "expires_at": res.get("expires_at")}
+
+
 @router.get("/qr-download/{file_id}")
 async def download_temp_video(file_id: str):
     """

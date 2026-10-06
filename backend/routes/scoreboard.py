@@ -864,6 +864,21 @@ async def generate_scoreboard_video(req: ScoreboardVideoRequest):
 
 
 
+@router.post("/exports/{file_id}/qr-publish")
+async def qr_publish_export(file_id: str):
+    """alpha.82: upload an exported PNG/MP4 to the QR relay and return a link a PHONE can open (https, ~2 days)."""
+    from native import relay_client
+    if file_id != Path(file_id).name or "/" in file_id or "\\" in file_id or file_id.startswith("."):
+        raise HTTPException(status_code=400, detail="bad file id")
+    file_path = EXPORTS_DIR / file_id
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="That export is no longer on this computer. Export it again.")
+    res = await relay_client.publish_file(str(file_path), label="scoreboard")
+    if not res.get("ok"):
+        return {"success": False, "error": res.get("error"), "message": res.get("message")}
+    return {"success": True, "url": res["url"], "expires_at": res.get("expires_at")}
+
+
 @router.get("/exports/{file_id}")
 async def serve_export(file_id: str):
     """Serve an exported file for download"""

@@ -21,6 +21,8 @@ const api = {
   uploadExport: (formData) => axios.post(`${API}/exports/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000,
   }),
+  // alpha.82: upload an exported file to the QR relay; returns {success, url} with a link a phone can open
+  qrPublishExport: (fileId) => axios.post(`${API}/exports/${encodeURIComponent(fileId)}/qr-publish`, {}, { timeout: 180000 }).then(r => r.data),
   imageToVideo: (formData, duration = 15) => axios.post(`${API}/exports/image-to-video?duration=${duration}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000,
   }),

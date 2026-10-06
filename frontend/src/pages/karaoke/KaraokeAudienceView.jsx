@@ -257,8 +257,14 @@ export default function KaraokeAudienceView() {
   }, [apply, handlePreload]);
 
   // what address should the phone QR point to?
+  // alpha.82: only a link a PHONE can open (cloud relay) is shown; keep asking until it is ready.
   useEffect(() => {
-    axios.get(`${API}/karaoke/request-info`).then((r) => { if (r.data && r.data.url) setRequestUrl(r.data.url); }).catch(() => {});
+    const ask = () => axios.get(`${API}/karaoke/request-info`).then((r) => {
+      setRequestUrl(r.data && r.data.phone_reachable && r.data.url ? r.data.url : "");
+    }).catch(() => {});
+    ask();
+    const t = setInterval(ask, 10000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => () => { destroyPlayer(); if (channelRef.current) channelRef.current.close(); }, [destroyPlayer]);
@@ -335,7 +341,7 @@ export default function KaraokeAudienceView() {
       </div>
 
       {/* 4. REQUEST QR */}
-      {qrEnabled && (
+      {qrEnabled && requestUrl && (
         <div className="absolute overflow-hidden flex items-center justify-center" style={{ ...OVERLAY.qr, zIndex: 2, backgroundColor: "#fff", borderRadius: "12px", padding: "1%" }} data-testid="karaoke-audience-qr">
           <QRCodeSVG value={requestUrl} size={200} style={{ width: "100%", height: "100%" }} />
         </div>

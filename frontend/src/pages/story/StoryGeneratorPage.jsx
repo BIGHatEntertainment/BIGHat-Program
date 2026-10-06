@@ -1,3 +1,4 @@
+import { publishStoryQr } from './storyQr';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +12,7 @@ import { toast } from '../../utils/toastCompat';
 import { QRCodeSVG } from 'qrcode.react';
 import StoryImagesManager from '../../components/story/StoryImagesManager';
 import { saveBlob } from '../../lib/saveFile';
+
 import { openStore } from '../../lib/openExternal';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -58,6 +60,7 @@ export default function StoryGeneratorPage() {
   const [showImages, setShowImages] = useState(false); // Story Images manager
   const [assetImages, setAssetImages] = useState(null); // {locationUrl, hostUrl} from asset-urls
   const [triviaQrUrl, setTriviaQrUrl] = useState(null);
+  const [qrNote, setQrNote] = useState(null);
 
   useEffect(() => {
     if (isAdmin) setViewAll(true);
@@ -103,6 +106,7 @@ export default function StoryGeneratorPage() {
     setGenProgress({ step: 'Starting generation...', progress: 5 });
     setGeneratedVideo(null);
     setTriviaQrUrl(null);
+    setQrNote(null);
     
     let jobId = null;
     
@@ -164,7 +168,9 @@ export default function StoryGeneratorPage() {
                 filename: filename.replace('.mp4', ''),
               }, { timeout: 30000 });
               if (storeRes.data.success) {
-                setTriviaQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
+                const q = await publishStoryQr(API, storeRes.data.file_id);
+                setTriviaQrUrl(q.url);
+                setQrNote(q.message);
               }
             } catch (qrErr) {
               // QR is optional — don't fail the flow
@@ -533,8 +539,11 @@ export default function StoryGeneratorPage() {
                       <div className="p-3 bg-white rounded-xl">
                         <QRCodeSVG value={triviaQrUrl} size={140} />
                       </div>
-                      <p className="text-[10px]" style={{ color: '#8892b0' }}>Expires in 1 hour</p>
+                      <p className="text-[10px]" style={{ color: '#8892b0' }}>Link works for 2 days</p>
                     </div>
+                  )}
+                  {!triviaQrUrl && qrNote && (
+                    <p className="text-xs mt-3 text-center" style={{ color: '#fbdd68' }} data-testid="story-qr-note">{qrNote} The video is still saved on this computer.</p>
                   )}
                 </>
               ) : (
@@ -590,6 +599,7 @@ function EventStoryBuilder({ eventType, onBack }) {
   const [genProgress, setGenProgress] = useState(0);
   const [generatedVideo, setGeneratedVideo] = useState(null);
   const [qrUrl, setQrUrl] = useState(null);
+  const [qrNote, setQrNote] = useState(null);
 
   const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
   const eventLabel = eventType === 'bingo' ? 'Music Bingo' : 'Karaoke';
@@ -652,6 +662,7 @@ function EventStoryBuilder({ eventType, onBack }) {
     setGenProgress(5);
     setGeneratedVideo(null);
     setQrUrl(null);
+    setQrNote(null);
 
     try {
       // Start generation job (same pattern as trivia)
@@ -694,7 +705,9 @@ function EventStoryBuilder({ eventType, onBack }) {
               filename: filename?.replace('.mp4', '') || `${eventType}_story`,
             }, { timeout: 30000 });
             if (storeRes.data.success) {
-              setQrUrl(`${process.env.REACT_APP_BACKEND_URL}/api/story-generator/qr-download/${storeRes.data.file_id}`);
+              const q = await publishStoryQr(API, storeRes.data.file_id);
+              setQrUrl(q.url);
+              setQrNote(q.message);
             }
           } catch (qrErr) { console.warn('[EventStory] QR store failed:', qrErr.message); }
           
@@ -902,8 +915,11 @@ function EventStoryBuilder({ eventType, onBack }) {
                         <div className="p-3 bg-white rounded-xl">
                           <QRCodeSVG value={qrUrl} size={140} />
                         </div>
-                        <p className="text-[10px]" style={{ color: '#8892b0' }}>Expires in 1 hour</p>
+                        <p className="text-[10px]" style={{ color: '#8892b0' }}>Link works for 2 days</p>
                       </div>
+                    )}
+                    {!qrUrl && qrNote && (
+                      <p className="text-xs text-center" style={{ color: '#fbdd68' }} data-testid="event-story-qr-note">{qrNote} The video is still saved on this computer.</p>
                     )}
                     <button
                       onClick={() => { setGeneratedVideo(null); setQrUrl(null); }}

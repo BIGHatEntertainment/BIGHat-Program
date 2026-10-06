@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, Request
 
 from native import karaoke_library as kl
+from native import karaoke_relay
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/karaoke", tags=["karaoke"])
@@ -80,7 +81,13 @@ async def create_session(request: Request):
     }
     await db.karaoke_sessions.insert_one(doc)
     logger.info("[Karaoke] session %s at %s", doc["id"], doc["location"])
-    return {"success": True, "session": {k: v for k, v in doc.items() if k != "_id"}}
+    relay = {"ok": False}
+    if doc["qr_enabled"]:
+        try:                                    # alpha.82: phones can request songs through the cloud relay
+            relay = await karaoke_relay.start(db, doc["location"] or "Karaoke Night")
+        except Exception as e:                  # noqa: BLE001  (a QR problem must never stop the night)
+            logger.warning("[Karaoke] relay start failed: %s", e)
+    return {"success": True, "session": {k: v for k, v in doc.items() if k != "_id"}, "qr": relay}
 
 
 @router.get("/session/active")
@@ -92,6 +99,10 @@ async def get_active_session():
 @router.post("/session/end")
 async def end_session():
     await _end_open_sessions()
+    try:
+        await karaoke_relay.stop()
+    except Exception:                           # noqa: BLE001
+        pass
     return {"success": True}
 
 
@@ -312,8 +323,11 @@ async def request_info(request: Request):
     """The address the request QR points to. TODO (deferred, 'very nice to have'): a phone on the venue Wi-Fi
     cannot open localhost, so this will return the PC's Wi-Fi address (or a cloud relay) once that is built.
     Until then it is this app's own address."""
+    relay_url = karaoke_relay.current_url()
+    if relay_url:                               # alpha.82: a link a phone anywhere can open
+        return {"url": relay_url, "phone_reachable": True, "online": karaoke_relay.status()["online"]}
     base = str(request.base_url).rstrip("/")
-    return {"url": f"{base}/karaoke/request", "phone_reachable": False}
+    return {"url": f"{base}/karaoke/request", "phone_reachable": False, "online": karaoke_relay.status()["online"]}
 
 
 # ===================== QR song requests =====================
@@ -359,6 +373,7 @@ async def accept_request(request_id: str):
         raise HTTPException(status_code=404, detail="Request not found")
     ahead = await db.karaoke_queue.count_documents({"status": "waiting"})
     await db.karaoke_requests.update_one({"id": request_id}, {"$set": {"status": "accepted", "position": ahead}})
+    karaoke_relay.note_answer(r.get("remote_id", ""), "accepted", ahead)
     entry = {
         "id": _id(), "singer_name": r["singer_name"], "song_title": r["song_title"],
         "song_artist": r.get("song_artist", ""), "embed_url": "", "duration_seconds": 0,
@@ -371,7 +386,9 @@ async def accept_request(request_id: str):
 
 @router.post("/requests/{request_id}/reject")
 async def reject_request(request_id: str):
+    r = await db.karaoke_requests.find_one({"id": request_id}, {"_id": 0})
     await db.karaoke_requests.update_one({"id": request_id}, {"$set": {"status": "rejected"}})
+    karaoke_relay.note_answer((r or {}).get("remote_id", ""), "rejected")
     return {"success": True}
 
 

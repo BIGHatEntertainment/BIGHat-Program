@@ -65,6 +65,7 @@ export default function KaraokePlayer() {
   const [overlayEnabled, setOverlayEnabled] = useState(true);
   const [showQr, setShowQr] = useState(true);
   const [requestUrl, setRequestUrl] = useState("");
+  const [qrOnline, setQrOnline] = useState(true);
 
   const audioRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -88,9 +89,15 @@ export default function KaraokePlayer() {
       setFolderName(r.data.session.filler_folder || "");
       setLoadingSession(false);
     }).catch(() => navigate("/karaoke"));
-    axios.get(`${API}/karaoke/request-info`).then((r) => setRequestUrl(r.data.url || "")).catch(() => {});
+    // alpha.82: the QR must be a link a PHONE can open (cloud relay). Keep asking until it is ready, and notice if it drops.
+    const askQr = () => axios.get(`${API}/karaoke/request-info`).then((r) => {
+      setRequestUrl(r.data.phone_reachable ? (r.data.url || "") : "");
+      setQrOnline(r.data.online !== false);
+    }).catch(() => {});
+    askQr();
+    const qrTimer = setInterval(askQr, 10000);
     channelRef.current = new BroadcastChannel("karaoke-state");
-    return () => { channelRef.current && channelRef.current.close(); };
+    return () => { clearInterval(qrTimer); channelRef.current && channelRef.current.close(); };
   }, [navigate]);
 
   const loadFiller = useCallback(async (folder) => {
@@ -613,6 +620,12 @@ export default function KaraokePlayer() {
       {/* QR panel for the host */}
       {showQr && requestUrl && mode === "karaoke" && (
         <div className="fixed bottom-4 right-4 rounded-xl p-3 bg-white" data-testid="karaoke-host-qr"><QRCodeSVG value={requestUrl} size={96} /></div>
+      )}
+      {showQr && !requestUrl && (
+        <div className="fixed bottom-4 right-4 rounded-xl px-3 py-2 text-xs font-semibold" data-testid="karaoke-qr-offline"
+             style={{ backgroundColor: "rgba(251,221,104,0.15)", color: "#fbdd68", border: "1px solid rgba(251,221,104,0.4)", maxWidth: 220 }}>
+          Phone requests are not available right now. Check the internet connection. You can still add songs by hand.
+        </div>
       )}
 
       {/* right-click menu */}

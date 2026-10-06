@@ -39,7 +39,7 @@ fresh();
 const entry = (name, song = '', url = '') => ({ id: 'e' + (S.nextId++), singer_name: name, song_title: song, song_artist: '', embed_url: url, status: 'waiting', position: S.queue.length, duration_seconds: 200 });
 axios.get = async (u, cfg) => {
   if (u.endsWith('/session/active')) return { data: { session: S.session } };
-  if (u.endsWith('/request-info')) return { data: { url: 'http://192.168.1.5:8001/karaoke/request' } };
+  if (u.endsWith('/request-info')) return { data: globalThis.__reqInfo || { url: 'http://192.168.1.5:8001/karaoke/request', phone_reachable: false } };
   if (u.endsWith('/filler/folders')) { if (!S.fillerOk) throw new Error('x'); return { data: { ok: true, folders: S.folders, tracks: S.tracks.length } }; }
   if (u.endsWith('/filler/tracks')) { if (!S.fillerOk) { const e = new Error('404'); e.response = { status: 404 }; throw e; } const f = (cfg && cfg.params && cfg.params.folder) || ''; return { data: { tracks: f ? S.tracks.filter(t => t.artist === f) : S.tracks } }; }
   if (u.endsWith('/karaoke/queue')) return { data: { queue: S.queue.filter(e => e.status !== 'done') } };
@@ -249,6 +249,40 @@ ok(S.session.is_active === false && !!q('lobby') && ended.some(m => m.ended), 'E
 cleanup();
 
 audience.close();
+
+// ---------- alpha.82: the QR must be a link a PHONE can open (cloud relay)
+{
+  const goKaraoke = async () => { await click('karaoke-tab-karaoke'); await wait(300); };
+  // a) relay link -> QR shows and encodes exactly that link
+  fresh(); globalThis.__reqInfo = { url: 'https://api.bighat.live/k/ABCDEFGHIJKLMNOP', phone_reachable: true, online: true };
+  app(); await wait(500); await goKaraoke();
+  const qrBox = q('karaoke-host-qr');
+  ok(!!qrBox, 'QR: shown when the cloud relay gave a phone-reachable link');
+  ok(qrBox && qrBox.querySelector('svg') != null, 'QR: it is a real QR image');
+  ok(!q('karaoke-qr-offline'), 'QR: no offline note while the link is ready');
+  cleanup();
+  // b) only the PC's own address -> NO QR (a phone cannot open it), and the host is told why
+  fresh(); globalThis.__reqInfo = { url: 'http://192.168.1.5:8001/karaoke/request', phone_reachable: false, online: null };
+  app(); await wait(500); await goKaraoke();
+  ok(!q('karaoke-host-qr'), 'QR: NOT shown for a PC-only address (phones cannot open it)');
+  ok(!!q('karaoke-qr-offline') && /internet connection/i.test(q('karaoke-qr-offline')?.textContent || ''), 'QR: host sees a plain note instead of a blank corner');
+  ok(/by hand/i.test(q('karaoke-qr-offline')?.textContent || ''), 'QR: the note says songs can still be added by hand');
+  cleanup();
+  // c) QR switched off by the host -> neither the QR nor the note
+  fresh(); S.session.qr_enabled = false; globalThis.__reqInfo = { url: 'https://api.bighat.live/k/ABCDEFGHIJKLMNOP', phone_reachable: true, online: true };
+  app(); await wait(500); await goKaraoke();
+  ok(!q('karaoke-host-qr') && !q('karaoke-qr-offline'), 'QR: host turned the QR off -> nothing shown, no note');
+  cleanup();
+  // d) link becomes ready later (internet came back) -> QR appears by itself, no reload
+  fresh(); globalThis.__reqInfo = { url: 'http://192.168.1.5:8001/karaoke/request', phone_reachable: false };
+  app(); await wait(500); await goKaraoke();
+  ok(!q('karaoke-host-qr'), 'QR: starts hidden while offline');
+  globalThis.__reqInfo = { url: 'https://api.bighat.live/k/ZZZZZZZZZZZZZZZZ', phone_reachable: true, online: true };
+  await act(async () => { await new Promise(r => setTimeout(r, 10500)); });
+  ok(!!q('karaoke-host-qr') && !q('karaoke-qr-offline'), 'QR: appears on its own within ~10 s once the link is ready');
+  cleanup();
+  globalThis.__reqInfo = null;
+}
 if (fails.length) { console.log('FAILED:\n - ' + fails.join('\n - ')); process.exit(1); }
 console.log('karaoke player: checks ok');
 process.exit(0);

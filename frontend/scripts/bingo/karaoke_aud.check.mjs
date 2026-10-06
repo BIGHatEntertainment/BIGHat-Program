@@ -40,7 +40,7 @@ reset();
 axios.get = async (u) => {
   if (u.endsWith('/session/playback')) return { data: { playback: pb, location: 'Pub One', qr_enabled: true, overlay_enabled: true } };
   if (u.endsWith('/karaoke/queue')) return { data: { queue } };
-  if (u.endsWith('/request-info')) return { data: { url: 'http://192.168.1.50:8001/karaoke/request' } };
+  if (u.endsWith('/request-info')) return { data: globalThis.__reqInfo || { url: 'https://api.bighat.live/k/AUDQRLINKAUDQRLINK', phone_reachable: true, online: true } };
   return { data: {} };
 };
 axios.post = async (u, body) => { if (u.endsWith('/session/audience-report')) reports.push(body); return { data: { success: true } }; };
@@ -117,6 +117,15 @@ render(React.createElement(Aud)); await fullscreen(); await wait(3200);
 ok(yt.players.length === 1 && yt.players[0].opts.videoId === 'BBB222', 'a refreshed audience window picks the current song back up from the server');
 // 11. QR address from the backend
 ok(q('karaoke-audience-qr') && !!q('karaoke-audience-qr').querySelector('svg'), 'QR is drawn');
+// 11b. alpha.82: a PC-only address (phones cannot open it) must NOT be drawn, and no empty QR box either
+cleanup(); reset(); globalThis.__reqInfo = { url: 'http://192.168.1.50:8001/karaoke/request', phone_reachable: false };
+render(React.createElement(Aud)); await fullscreen(); await wait(600);
+ok(!q('karaoke-audience-qr'), 'no QR on the big screen for a PC-only address (and no empty white box)');
+// 11c. ... and it appears by itself once the cloud link is ready (within ~10 s)
+globalThis.__reqInfo = { url: 'https://api.bighat.live/k/LATEREADYLINK1234', phone_reachable: true, online: true };
+await act(async () => { await new Promise(r => setTimeout(r, 10600)); });
+ok(!!q('karaoke-audience-qr') && !!q('karaoke-audience-qr').querySelector('svg'), 'QR appears on the big screen by itself once the cloud link is ready');
+globalThis.__reqInfo = null;
 // 12. QR off / overlay off
 pb = { ...pb, song_playing: false, current_singer: null };
 cleanup();

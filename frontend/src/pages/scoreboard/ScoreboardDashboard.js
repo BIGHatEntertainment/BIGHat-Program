@@ -287,17 +287,24 @@ const Dashboard = () => {
   // ===== Export =====
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
+  const publishForQr = async (fileId) => {
+    setQrUrl(null);
+    const r = await api.qrPublishExport(fileId);
+    if (r && r.success && r.url) { setQrUrl(r.url); return r.url; }
+    toast.error((r && r.message) || 'The QR code is not available right now. Your file was still saved.');
+    return null;
+  };
+
   const uploadForQr = async (blob, filename) => {
     try {
       const formData = new FormData();
       formData.append('file', blob, filename);
       const res = await api.uploadExport(formData);
-      // Build the full public URL for the QR code
-      const publicUrl = `${BACKEND_URL}${res.data.url}`;
-      setQrUrl(publicUrl);
-      return publicUrl;
+      // alpha.82: a phone can't open the PC's address, so put a copy on the QR relay and use that link
+      return await publishForQr(res.data.file_id);
     } catch (err) {
       console.error('Upload for QR failed:', err);
+      setQrUrl(null);
       return null;
     }
   };
@@ -371,8 +378,8 @@ const Dashboard = () => {
         } catch {
           openExternal(mp4Url);
         }
-        setQrUrl(mp4Url);
-        setExportStatus('MP4 exported! QR ready.');
+        const qrLink = await publishForQr(videoRes.data.file_id);
+        setExportStatus(qrLink ? 'MP4 exported! QR ready.' : 'MP4 exported! (QR not available right now)');
         toast.success('Video exported!');
       } else {
         throw new Error('No video URL returned');

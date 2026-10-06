@@ -2531,6 +2531,11 @@ try:
         app.include_router(cloud_admin_router)
         app.include_router(cloud_download_landing_router)
 
+        # alpha.82: QR relay (file drop for download QRs + Karaoke phone song requests)
+        from cloud.relay_router import router as cloud_relay_router, set_runtime as cloud_relay_set_runtime
+        cloud_relay_set_runtime(service=_license_service, db=db)
+        app.include_router(cloud_relay_router)
+
         # Phase 10.6: Squarespace Orders poller — replaces webhooks because
         # Squarespace's webhook subscriptions API requires an OAuth Extension.
         # Polls /commerce/orders every N seconds, mints + emails licenses for
