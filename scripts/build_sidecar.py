@@ -82,6 +82,12 @@ def _verify_seeds() -> None:
     if not ty.is_file() or ty.stat().st_size < 50_000 or ty.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
         raise SystemExit("[build-sidecar] LOCK-IN FAIL: backend/assets/slides/thank_you.png (Thank you for playing image) is missing or not a real PNG")
     print(f"[build-sidecar] thank-you lock-in OK: thank_you.png {ty.stat().st_size} B")
+    # alpha.87: the three winners videos must be bundled (1st / 2nd / 3rd place).
+    for w in ("1st", "2nd", "3rd"):
+        v = BACKEND / "assets" / "slides" / "winners" / f"place_{w}.mp4"
+        if not v.is_file() or v.stat().st_size < 1_000_000:
+            raise SystemExit(f"[build-sidecar] LOCK-IN FAIL: backend/assets/slides/winners/place_{w}.mp4 ({w} place video) is missing or too small.")
+    print("[build-sidecar] winners videos lock-in OK: 1st / 2nd / 3rd")
 
 
 def main(argv: list[str] | None = None) -> int:

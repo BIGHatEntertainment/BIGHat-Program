@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/button';
 import { presentationAPI, storyBuildsAPI } from '../../services/triviaApi';
 
 import ScoreTrackerModal from '../../components/trivia/editor/ScoreTrackerModal';
+import { WINNER_AREA, fitWinnerName } from '../../lib/winnerNames';
 
 // HOST CONTROL BOX: The Audience Control panel's blue border top edge
 // Based on user feedback, moving options closer - approximately y=930 in 1080p coordinates
@@ -794,31 +795,31 @@ const Editor = () => {
                     id: 'winner-3rd-name',
                     type: 'text',
                     content: top3[2].name || 'Team 3',
-                    x: 360,
-                    y: 100,
-                    width: 1200,
-                    height: 100,
-                    fontSize: nameFontSize,
+                    x: WINNER_AREA['3rd'].x,
+                    y: WINNER_AREA['3rd'].y,
+                    width: WINNER_AREA['3rd'].w,
+                    height: WINNER_AREA['3rd'].h * 0.7,
+                    fontSize: fitWinnerName(top3[2].name, WINNER_AREA['3rd']),
                     fontWeight: 'bold',
-                    color: '#FFFFFF',
+                    color: WINNER_AREA['3rd'].color,
                     textAlign: 'center',
                     fontFamily: 'Lemonada, cursive',
-                    textShadow: '4px 4px 12px rgba(0,0,0,0.9), -2px -2px 8px rgba(0,0,0,0.7)'
+                    textShadow: WINNER_AREA['3rd'].shadow
                   },
                   {
                     id: 'winner-3rd-score',
                     type: 'text',
                     content: `${top3[2].total || 0} Points`,
-                    x: 360,
-                    y: 210,
-                    width: 1200,
-                    height: 80,
-                    fontSize: 48,
+                    x: WINNER_AREA['3rd'].x,
+                    y: WINNER_AREA['3rd'].y + WINNER_AREA['3rd'].h * 0.68,
+                    width: WINNER_AREA['3rd'].w,
+                    height: WINNER_AREA['3rd'].h * 0.32,
+                    fontSize: Math.floor(WINNER_AREA['3rd'].h * 0.26),
                     fontWeight: 'bold',
-                    color: '#FFD700',
+                    color: WINNER_AREA['3rd'].color,
                     textAlign: 'center',
                     fontFamily: 'Inter, sans-serif',
-                    textShadow: '4px 4px 12px rgba(0,0,0,0.9), -2px -2px 8px rgba(0,0,0,0.7)'
+                    textShadow: WINNER_AREA['3rd'].shadow
                   }
                 ]
               };
@@ -855,31 +856,31 @@ const Editor = () => {
                     id: 'winner-2nd-name',
                     type: 'text',
                     content: top3[1].name || 'Team 2',
-                    x: 360,
-                    y: 100,
-                    width: 1200,
-                    height: 100,
-                    fontSize: nameFontSize,
+                    x: WINNER_AREA['2nd'].x,
+                    y: WINNER_AREA['2nd'].y,
+                    width: WINNER_AREA['2nd'].w,
+                    height: WINNER_AREA['2nd'].h * 0.7,
+                    fontSize: fitWinnerName(top3[1].name, WINNER_AREA['2nd']),
                     fontWeight: 'bold',
-                    color: '#FFFFFF',
+                    color: WINNER_AREA['2nd'].color,
                     textAlign: 'center',
                     fontFamily: 'Lemonada, cursive',
-                    textShadow: '4px 4px 12px rgba(0,0,0,0.9), -2px -2px 8px rgba(0,0,0,0.7)'
+                    textShadow: WINNER_AREA['2nd'].shadow
                   },
                   {
                     id: 'winner-2nd-score',
                     type: 'text',
                     content: `${top3[1].total || 0} Points`,
-                    x: 360,
-                    y: 210,
-                    width: 1200,
-                    height: 80,
-                    fontSize: 48,
+                    x: WINNER_AREA['2nd'].x,
+                    y: WINNER_AREA['2nd'].y + WINNER_AREA['2nd'].h * 0.68,
+                    width: WINNER_AREA['2nd'].w,
+                    height: WINNER_AREA['2nd'].h * 0.32,
+                    fontSize: Math.floor(WINNER_AREA['2nd'].h * 0.26),
                     fontWeight: 'bold',
-                    color: '#FFD700',
+                    color: WINNER_AREA['2nd'].color,
                     textAlign: 'center',
                     fontFamily: 'Inter, sans-serif',
-                    textShadow: '4px 4px 12px rgba(0,0,0,0.9), -2px -2px 8px rgba(0,0,0,0.7)'
+                    textShadow: WINNER_AREA['2nd'].shadow
                   }
                 ]
               };
@@ -916,31 +917,31 @@ const Editor = () => {
                     id: 'winner-1st-name',
                     type: 'text',
                     content: top3[0].name || 'Winner',
-                    x: 360,
-                    y: 100,
-                    width: 1200,
-                    height: 120,
-                    fontSize: nameFontSize,
+                    x: WINNER_AREA['1st'].x,
+                    y: WINNER_AREA['1st'].y,
+                    width: WINNER_AREA['1st'].w,
+                    height: WINNER_AREA['1st'].h * 0.7,
+                    fontSize: fitWinnerName(top3[0].name, WINNER_AREA['1st']),
                     fontWeight: 'bold',
-                    color: '#FFD700',
+                    color: WINNER_AREA['1st'].color,
                     textAlign: 'center',
                     fontFamily: 'Lemonada, cursive',
-                    textShadow: '4px 4px 12px rgba(0,0,0,0.9), -2px -2px 8px rgba(0,0,0,0.7)'
+                    textShadow: WINNER_AREA['1st'].shadow
                   },
                   {
                     id: 'winner-1st-score',
                     type: 'text',
                     content: `${top3[0].total || 0} Points`,
-                    x: 360,
-                    y: 230,
-                    width: 1200,
-                    height: 80,
-                    fontSize: 56,
+                    x: WINNER_AREA['1st'].x,
+                    y: WINNER_AREA['1st'].y + WINNER_AREA['1st'].h * 0.68,
+                    width: WINNER_AREA['1st'].w,
+                    height: WINNER_AREA['1st'].h * 0.32,
+                    fontSize: Math.floor(WINNER_AREA['1st'].h * 0.26),
                     fontWeight: 'bold',
-                    color: '#FFD700',
+                    color: WINNER_AREA['1st'].color,
                     textAlign: 'center',
                     fontFamily: 'Inter, sans-serif',
-                    textShadow: '4px 4px 12px rgba(0,0,0,0.9), -2px -2px 8px rgba(0,0,0,0.7)'
+                    textShadow: WINNER_AREA['1st'].shadow
                   }
                 ]
               };

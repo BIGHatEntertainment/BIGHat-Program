@@ -7,6 +7,13 @@ import axios from 'axios';
 import { needsTiebreaker } from '../../../lib/tiebreaker';
 import FinalScoresBoard from '../final/FinalScoresBoard';
 
+// alpha.87: bundled winners videos are stored as a short relative URL
+// (/api/native/winners-video/1st). Make it absolute for the backend.
+const resolveVideoSrc = (src) =>
+  (typeof src === 'string' && src.startsWith('/api/'))
+    ? `${process.env.REACT_APP_BACKEND_URL || ''}${src}` : src;
+
+
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, isScoreTrackerOpen = false, overlayCache, overlayCacheVersion }) => {
@@ -901,10 +908,10 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
                 {/* Video element — muted on host view, audio plays on audience view */}
                 {element.type === 'video' && element.videoSrc && (
                   <video 
-                    src={element.videoSrc}
+                    src={resolveVideoSrc(element.videoSrc)}
                     className="w-full h-full object-contain"
                     autoPlay
-                    loop
+                    loop={element.loop !== false}
                     muted
                     playsInline
                   />

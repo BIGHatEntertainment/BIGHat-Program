@@ -36,16 +36,21 @@ def test_winners_section_is_thank_you_then_3rd_2nd_1st():
     assert [s["metadata"]["slideIndexInRound"] for s in w] == [0, 1, 2, 3]
     assert all(s["metadata"]["roundType"] == "WINNERS" for s in w)
     assert w[0]["metadata"].get("isThankYou") and not w[0]["metadata"].get("isPlaceSlide")
-    labels = [[e["content"] for e in s["elements"] if e["type"] == "text"][0] for s in w[1:]]
-    assert labels == ["3rd Place", "2nd Place", "1st Place"]
+    # alpha.87: each place slide is a full-screen VIDEO that says its own place
+    # ("3rd" / "2nd" / "1st"), so there are no text labels any more.
+    vids = [[e["videoSrc"] for e in s["elements"] if e["type"] == "video"] for s in w[1:]]
+    assert vids == [["/api/native/winners-video/3rd"], ["/api/native/winners-video/2nd"],
+                    ["/api/native/winners-video/1st"]]
     assert [s["metadata"]["place"] for s in w[1:]] == [3, 2, 1]
 
 def test_place_slides_leave_the_top_free_for_the_injected_team_name():
-    # editor injects name at y=100 (h<=120) and points at y=210..310
+    # alpha.87: the video's own top area holds the name; the slide itself must not
+    # carry any text of its own (it would sit on top of the name), and must hold
+    # no pre-made winner-* elements (the editor adds those).
     for s in ns.render_winners_section()[1:]:
-        for e in s["elements"]:
-            assert e["y"] >= 320, e["content"]
+        assert not [e for e in s["elements"] if e["type"] == "text"]
         assert not [e for e in s["elements"] if (e.get("id") or "").startswith("winner-")]
+
 
 def test_final_scores_follow_the_place_slides_at_index_4():
     f = ns.native_render_section({"roundFiles": []}, "final_scores", {})

@@ -2483,6 +2483,14 @@ if not _native_router_skipped_cloud:
         logger.warning(f"Could not load Native setup-package router: {e}")
 
 
+# Winners videos (alpha.87): 1st / 2nd / 3rd place clips.
+try:
+    from native.winners_video_router import router as winners_video_router
+    app.include_router(winners_video_router, prefix="/api")
+except Exception as e:
+    logger.warning(f"Could not load winners video router: {e}")
+
+
 # Global slides router (alpha.64): company / rules / Format slides.
 try:
     from native.global_slides_router import router as global_slides_router

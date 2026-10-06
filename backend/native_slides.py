@@ -1441,18 +1441,32 @@ _PLACES = (
 )
 
 
+def _video(src: str, *, x: int, y: int, w: int, h: int) -> Dict[str, Any]:
+    return {"id": _uid("video"), "type": "video", "videoSrc": src, "loop": False,
+            "x": x, "y": y, "width": w, "height": h}
+
+
+_PLACE_WORD = {1: "1st", 2: "2nd", 3: "3rd"}
+
+
 def _place_slide(idx: int, label: str, accent: str, sub: str) -> Dict[str, Any]:
-    """alpha.66: one place slide. The team name + points are injected at the
-    TOP of the slide (y 100..310) by the editor when the host sends the
-    Score Tracker scores (ids winner-3rd-name / winner-2nd-name / winner-1st-name).
-    Until then the top area is empty."""
-    return _slide(idx, [
-        _text(label, x=160, y=470, w=1600, h=260, size=190 if idx == 3 else 170,
-              color=accent, weight="800"),
-        _text(sub, x=160, y=760, w=1600, h=100, size=56, color="#FFFFFF", weight="500"),
-    ], background=BG_BLUE, metadata={
+    """alpha.87: a full-screen winners VIDEO per place (bundled in
+    assets/slides/winners). The editor writes the team name into the top area
+    of the video (ids winner-Nth-name / winner-Nth-score). If a video file is
+    missing the old text slide is used so the show never breaks."""
+    place = 4 - idx
+    word = _PLACE_WORD[place]
+    if bundled_asset_path("assets", "slides", "winners", f"place_{word}.mp4") is not None:
+        elements = [_video(f"/api/native/winners-video/{word}", x=0, y=0, w=STAGE_W, h=STAGE_H)]
+    else:
+        elements = [
+            _text(label, x=160, y=470, w=1600, h=260, size=190 if idx == 3 else 170,
+                  color=accent, weight="800"),
+            _text(sub, x=160, y=760, w=1600, h=100, size=56, color="#FFFFFF", weight="500"),
+        ]
+    return _slide(idx, elements, background=BG_BLUE, metadata={
         "roundType": "WINNERS", "slideIndexInRound": idx,
-        "isPlaceSlide": True, "place": 4 - idx,
+        "isPlaceSlide": True, "place": place,
     })
 
 

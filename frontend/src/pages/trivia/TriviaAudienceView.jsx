@@ -21,6 +21,13 @@
 import FinalScoresBoard from '../../components/trivia/final/FinalScoresBoard';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
+// alpha.87: bundled winners videos are stored as a short relative URL
+// (/api/native/winners-video/1st). Make it absolute for the backend.
+const resolveVideoSrc = (src) =>
+  (typeof src === 'string' && src.startsWith('/api/'))
+    ? `${process.env.REACT_APP_BACKEND_URL || ''}${src}` : src;
+
+
 const BC_NAME = 'bighat-trivia-audience';
 
 // _verified_from_prototype: PresentationMode.jsx renderSlide() fontMultiplier
@@ -244,10 +251,10 @@ export default function TriviaAudienceView() {
           <div key={element.id || idx} style={positionStyle(element)}>
             {/* Video with AUDIO enabled on audience view */}
             <video
-              src={element.videoSrc}
+              src={resolveVideoSrc(element.videoSrc)}
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               autoPlay
-              loop
+              loop={element.loop !== false}
               playsInline
               muted={false}
             />
