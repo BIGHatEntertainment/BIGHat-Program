@@ -11,15 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from . import relay_client
 
 logger = logging.getLogger("bighat-karaoke-relay")
 
-POLL_SECONDS = 3.0
+POLL_SECONDS = 3.0          # while requests are coming in
+IDLE_POLL_SECONDS = 10.0    # after a quiet minute (hundreds of venues share one server, so quiet nights should be cheap)
+QUIET_AFTER_SECONDS = 60.0
 
-_state: Dict[str, Any] = {"session": None, "url": None, "task": None, "answers": [], "online": None, "db": None}
+_state: Dict[str, Any] = {"session": None, "url": None, "task": None, "answers": [], "online": None, "db": None, "last_activity": 0.0}
 
 
 def status() -> Dict[str, Any]:
@@ -41,7 +44,7 @@ async def start(db, venue: str) -> Dict[str, Any]:
         logger.warning("[karaoke-relay] could not open a night: %s", res.get("error"))
         _ensure_loop()                         # keep trying: the internet may come back during the night
         return {"ok": False, "error": res.get("error"), "message": res.get("message")}
-    _state.update(session=res["session"], url=res["url"], online=True, answers=[])
+    _state.update(session=res["session"], url=res["url"], online=True, answers=[], last_activity=time.monotonic())
     _ensure_loop()
     return {"ok": True, "url": res["url"]}
 
@@ -67,6 +70,7 @@ async def stop(close_remote: bool = True) -> None:
 def note_answer(request_remote_id: str, status_value: str, position: int = 0) -> None:
     """Host accepted/rejected a phone request: remember to tell the phone on the next pull."""
     if request_remote_id and status_value in ("accepted", "rejected"):
+        _state["last_activity"] = time.monotonic()
         _state["answers"].append({"id": request_remote_id, "status": status_value, "position": int(position or 0)})
 
 
@@ -92,7 +96,16 @@ async def _pull_once() -> int:
             "song_artist": r.get("song_artist", ""), "status": "pending", "position": 0,
             "created_at": r.get("created_at", ""), "source": "relay"})
         n += 1
+    if n:
+        _state["last_activity"] = time.monotonic()
     return n
+
+
+def next_delay() -> float:
+    """How long to wait before the next 'anything new?': quick while busy, relaxed after a quiet minute.
+    A phone request waits at most IDLE_POLL_SECONDS the first time, then the loop is quick again."""
+    quiet = time.monotonic() - float(_state.get("last_activity") or 0.0)
+    return IDLE_POLL_SECONDS if quiet > QUIET_AFTER_SECONDS else POLL_SECONDS
 
 
 async def _loop() -> None:
@@ -100,7 +113,7 @@ async def _loop() -> None:
     while True:
         try:
             if not _state.get("session"):
-                reopen_in -= POLL_SECONDS
+                reopen_in -= next_delay()
                 if reopen_in <= 0 and _state.get("db") is not None:
                     reopen_in = 20.0
                     res = await relay_client.open_night(_state.get("venue") or "Karaoke Night")
@@ -112,4 +125,4 @@ async def _loop() -> None:
             raise
         except Exception as e:                  # noqa: BLE001
             logger.warning("[karaoke-relay] loop error: %s", e)
-        await asyncio.sleep(POLL_SECONDS)
+        await asyncio.sleep(next_delay())

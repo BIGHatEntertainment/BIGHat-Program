@@ -40,6 +40,8 @@ SESSION_TTL_HOURS = int(os.environ.get("RELAY_SESSION_TTL_HOURS", "14"))
 MAX_REQUESTS_PER_SESSION = int(os.environ.get("RELAY_MAX_REQUESTS_PER_SESSION", "300"))
 MAX_SESSIONS_PER_LICENSE = int(os.environ.get("RELAY_MAX_SESSIONS_PER_LICENSE", "5"))
 PHONE_MIN_SECONDS_BETWEEN_REQUESTS = int(os.environ.get("RELAY_PHONE_COOLDOWN_SECONDS", "20"))
+MAX_BYTES_PER_LICENSE = int(os.environ.get("RELAY_MAX_MB_PER_LICENSE", "600")) * 1024 * 1024   # all stored files together
+AUTH_CACHE_SECONDS = int(os.environ.get("RELAY_AUTH_CACHE_SECONDS", "300"))                    # 0 = off
 ALLOWED_EXT = {"mp4", "png", "jpg", "jpeg", "pdf", "webm", "gif"}
 
 _service = None
@@ -47,9 +49,26 @@ _db = None
 _files_dir: Optional[Path] = None
 
 
+async def ensure_indexes(db) -> None:
+    """Indexes so lookups stay fast with many venues. Safe to call on every start; failures are only logged."""
+    try:
+        await db.relay_files.create_index("id", unique=True)
+        await db.relay_files.create_index("owner")
+        await db.relay_files.create_index("expires_at")
+        await db.relay_sessions.create_index("id", unique=True)
+        await db.relay_sessions.create_index([("owner", 1), ("open", 1)])
+        await db.relay_sessions.create_index("expires_at")
+        await db.relay_requests.create_index("id", unique=True)
+        await db.relay_requests.create_index([("session", 1), ("pulled", 1), ("created_ts", 1)])
+        await db.relay_requests.create_index([("session", 1), ("phone", 1), ("created_ts", -1)])
+    except Exception as e:                              # noqa: BLE001
+        logger.warning("relay indexes not created: %s", e)
+
+
 def set_runtime(*, service, db, files_dir: Optional[str] = None) -> None:
     global _service, _db, _files_dir
     _service, _db = service, db
+    _clear_auth_cache()
     _files_dir = Path(files_dir or os.environ.get("RELAY_FILES_DIR") or "/tmp/bighat_relay_files")
     _files_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,14 +86,37 @@ def _need() -> None:
         raise HTTPException(status_code=503, detail="relay_not_ready")
 
 
+_auth_cache: Dict[str, float] = {}      # sha256(key|hwid) -> time it was last proven good
+
+
+def _clear_auth_cache() -> None:
+    _auth_cache.clear()
+
+
 async def _auth(license_key: str, hwid: str) -> str:
-    """Only a real, activated, un-revoked license may use the relay. Returns a short hash of the key (never the key)."""
+    """Only a real, activated, un-revoked license may use the relay. Returns a short hash of the key (never the key).
+    A copy that passed in the last few minutes is not looked up again: validate() writes to the database on every
+    call, and a busy night polls every few seconds. Cost: a revoked license keeps working for up to AUTH_CACHE_SECONDS."""
     _need()
     key = (license_key or "").strip().upper()
-    ok, why, _lic = await _service.validate(key=key, hwid=(hwid or "").strip())
+    hw = (hwid or "").strip()
+    owner = hashlib.sha256(key.encode()).hexdigest()[:16]
+    ck = hashlib.sha256(f"{key}|{hw}".encode()).hexdigest()
+    now = time.time()
+    if AUTH_CACHE_SECONDS > 0 and now - _auth_cache.get(ck, 0.0) < AUTH_CACHE_SECONDS:
+        return owner
+    ok, why, _lic = await _service.validate(key=key, hwid=hw)
     if not ok:
+        _auth_cache.pop(ck, None)
         raise HTTPException(status_code=401, detail=f"not_allowed:{why}")
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
+    if len(_auth_cache) > 5000:                      # never grow without limit
+        for k in [k for k, t in _auth_cache.items() if now - t >= AUTH_CACHE_SECONDS]:
+            _auth_cache.pop(k, None)
+        if len(_auth_cache) > 5000:
+            _auth_cache.clear()
+    if AUTH_CACHE_SECONDS > 0:
+        _auth_cache[ck] = now
+    return owner
 
 
 def _token() -> str:
@@ -98,6 +140,7 @@ async def upload_file(
     count = await _db.relay_files.count_documents({"owner": owner})
     if count >= MAX_FILES_PER_LICENSE:
         raise HTTPException(status_code=429, detail="too_many_files")
+    used = sum(int(d.get("size", 0)) for d in await _db.relay_files.find({"owner": owner}, {"_id": 0, "size": 1}).to_list(500))
     fid = _token()
     path = _files_dir / f"{fid}.{ext}"
     size, limit = 0, MAX_FILE_MB * 1024 * 1024
@@ -110,6 +153,8 @@ async def upload_file(
                 size += len(chunk)
                 if size > limit:
                     raise HTTPException(status_code=413, detail="file_too_big")
+                if used + size > MAX_BYTES_PER_LICENSE:
+                    raise HTTPException(status_code=429, detail="storage_full")
                 out.write(chunk)
     except HTTPException:
         path.unlink(missing_ok=True)

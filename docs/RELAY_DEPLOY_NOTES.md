@@ -32,6 +32,8 @@ Every PC call is checked with the existing `LicenseService.validate(key, hwid)`:
 5. **Cleanup** happens on each upload and each new night (expired files and nights are deleted). If you want it on a timer too, add a cron that calls the purge; not required.
 
 ## Settings (all optional environment variables)
+(alpha.84 adds `RELAY_AUTH_CACHE_SECONDS` (300; a revoked license can keep using the relay for up to this long) and `RELAY_MAX_MB_PER_LICENSE` (600; total stored files per license).)
+
 `RELAY_FILE_TTL_HOURS` (48) | `RELAY_MAX_FILE_MB` (150) | `RELAY_MAX_FILES_PER_LICENSE` (20) | `RELAY_SESSION_TTL_HOURS` (14) | `RELAY_MAX_REQUESTS_PER_SESSION` (300) | `RELAY_MAX_SESSIONS_PER_LICENSE` (5) | `RELAY_PHONE_COOLDOWN_SECONDS` (20) | `RELAY_FILES_DIR`
 
 ## Link paths (alpha.83)
@@ -51,3 +53,10 @@ A singer's first name and song title for the length of the night, and exported f
 ## Not included yet (planned)
 - Rewards sign-up QR for Trivia and Bingo (waiting for the Rewards app README).
 - Bingo player-join QR still uses the PC address (unchanged).
+
+## Scaling notes (alpha.84)
+- **What changed for growth:** MongoDB indexes are created at startup (`ensure_indexes`, called from the app lifespan); license checks are cached for 5 minutes (`validate()` writes to the license record on every call, so a polling PC would otherwise write every 3 s); a PC polls every 3 s while busy and every 10 s after a quiet minute; a per-license storage cap; and the desktop can point at a separate relay address (`relay_base_url` in system_config.json, or `BIGHAT_RELAY_BASE_URL`) without a new release.
+- **Measured (local, one small machine, real MongoDB, load from several client processes):** 10 venues is trivial; 100 venues is fine (median 5 ms, 95th percentile under 1 s, no errors). At 300 venues one server process starts timing out. These are LOCAL numbers, not production: run it with 2 or more workers behind your proxy for headroom. The expected size (10 venues, about 300 rewards members by end of 2027) is far below this.
+- **Not measured:** real uploads at scale, production proxy limits, multi-worker behavior.
+- **Load test scripts:** `backend/scripts/load_relay_multi.sh` (local only; refuses the live address). Never run against api.bighat.live.
+- **When to split the relay into its own service:** if licensing and update checks slow down on busy nights, or you pass roughly 100 active venues. Then set `relay_base_url` and move `cloud/relay_router.py` to its own deployment.

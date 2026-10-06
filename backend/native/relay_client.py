@@ -17,8 +17,19 @@ from .hwid import generate_hwid
 logger = logging.getLogger("bighat-relay-client")
 
 
+DEFAULT_BASE = "https://api.bighat.live"
+
+
 def base_url() -> str:
-    return os.environ.get("BIGHAT_LICENSE_API_BASE_URL", "https://api.bighat.live").rstrip("/")
+    """Where the QR relay lives. Today it shares api.bighat.live with licensing. When it grows into its own
+    service, set `relay_base_url` in system_config.json (or BIGHAT_RELAY_BASE_URL) and no new release is needed.
+    Order: BIGHAT_RELAY_BASE_URL > config relay_base_url > BIGHAT_LICENSE_API_BASE_URL > api.bighat.live."""
+    env = (os.environ.get("BIGHAT_RELAY_BASE_URL") or "").strip()
+    cfg = str(config_manager.config.get("relay_base_url") or "").strip()
+    chosen = env or cfg
+    if chosen.startswith("https://") or chosen.startswith("http://127.0.0.1") or chosen.startswith("http://localhost"):
+        return chosen.rstrip("/")                 # only https (or local testing); anything else is ignored
+    return os.environ.get("BIGHAT_LICENSE_API_BASE_URL", DEFAULT_BASE).rstrip("/")
 
 
 def _auth() -> Optional[Dict[str, str]]:

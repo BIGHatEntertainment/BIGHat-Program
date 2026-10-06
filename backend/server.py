@@ -716,6 +716,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:    # noqa: BLE001
             logger.exception("Cloud lifespan startup failed: %s", e)
 
+    # ─── alpha.84: QR relay indexes (cloud mode only; a failure here must never stop the server)
+    _relay_startup_fn = globals().get("_cloud_relay_startup")
+    if callable(_relay_startup_fn):
+        try:
+            await _relay_startup_fn()
+        except Exception as e:    # noqa: BLE001
+            logger.warning("Relay startup failed: %s", e)
+
     # ─── v32.0.0-alpha.40: two-way rounds ↔ disk `.bighat` migration ──
     # Ensures the merchant's existing DB rounds land as portable
     # `.bighat` files at `Files/Trivia/<TYPE>/`, and any manually-
@@ -2532,8 +2540,11 @@ try:
         app.include_router(cloud_download_landing_router)
 
         # alpha.82: QR relay (file drop for download QRs + Karaoke phone song requests)
-        from cloud.relay_router import router as cloud_relay_router, set_runtime as cloud_relay_set_runtime
+        from cloud.relay_router import router as cloud_relay_router, set_runtime as cloud_relay_set_runtime, ensure_indexes as cloud_relay_ensure_indexes
         cloud_relay_set_runtime(service=_license_service, db=db)
+
+        async def _cloud_relay_startup():          # called from lifespan (FastAPI ignores @app.on_event when lifespan is set)
+            await cloud_relay_ensure_indexes(db)
         app.include_router(cloud_relay_router)
 
         # Phase 10.6: Squarespace Orders poller — replaces webhooks because

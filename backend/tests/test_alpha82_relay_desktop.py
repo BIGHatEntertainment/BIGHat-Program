@@ -99,3 +99,41 @@ def test_qr_links_always_use_the_path_that_reaches_the_relay(monkeypatch):
     assert relay_client.public_url("/d/ABC") == "https://api.bighat.live/api/relay/d/ABC"          # old relay answer
     assert relay_client.public_url("/k/ABC") == "https://api.bighat.live/api/relay/k/ABC"
     assert relay_client.public_url("/api/relay/k/ABC") == "https://api.bighat.live/api/relay/k/ABC"  # new relay answer: untouched
+
+
+def test_polling_slows_down_after_a_quiet_minute_and_speeds_up_again(kr, monkeypatch):
+    k, calls, q = kr
+    import time as _t
+    now = [1000.0]; monkeypatch.setattr(k.time, "monotonic", lambda: now[0])
+    k._state["last_activity"] = 1000.0
+    assert k.next_delay() == k.POLL_SECONDS                          # busy: quick
+    now[0] += 61;  assert k.next_delay() == k.IDLE_POLL_SECONDS      # quiet: relaxed
+    k.note_answer("remote-1-abcdefghij", "accepted"); assert k.next_delay() == k.POLL_SECONDS     # host answered: quick again
+
+
+@pytest.mark.asyncio
+async def test_a_new_request_makes_polling_quick_again(kr, monkeypatch):
+    k, calls, q = kr
+    now = [1000.0]; monkeypatch.setattr(k.time, "monotonic", lambda: now[0])
+    await k.start(DB(), "Pub"); now[0] += 120
+    assert k.next_delay() == k.IDLE_POLL_SECONDS
+    q["requests"] = [req(9)]; await k._pull_once()
+    assert k.next_delay() == k.POLL_SECONDS
+    await k.stop()
+
+
+def test_relay_address_order_and_safety(monkeypatch):
+    from native import relay_client
+    cfg = relay_client.config_manager.config
+    for var in ("BIGHAT_RELAY_BASE_URL", "BIGHAT_LICENSE_API_BASE_URL"): monkeypatch.delenv(var, raising=False)
+    monkeypatch.setitem(cfg, "relay_base_url", "")
+    assert relay_client.base_url() == "https://api.bighat.live"                                   # default
+    monkeypatch.setitem(cfg, "relay_base_url", "https://relay.bighat.live/")
+    assert relay_client.base_url() == "https://relay.bighat.live"                                 # config setting
+    monkeypatch.setenv("BIGHAT_RELAY_BASE_URL", "https://other.example.com")
+    assert relay_client.base_url() == "https://other.example.com"                                 # env beats config
+    monkeypatch.setenv("BIGHAT_RELAY_BASE_URL", "http://evil.example.com")
+    monkeypatch.setitem(cfg, "relay_base_url", "ftp://nope")
+    assert relay_client.base_url() == "https://api.bighat.live"                                   # plain http / odd schemes ignored
+    monkeypatch.setenv("BIGHAT_RELAY_BASE_URL", "http://127.0.0.1:9000")
+    assert relay_client.base_url() == "http://127.0.0.1:9000"                                     # local testing allowed

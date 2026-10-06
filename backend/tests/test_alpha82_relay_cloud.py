@@ -45,7 +45,9 @@ class FakeDB:
 
 class FakeService:
     revoked = False
+    calls = 0
     async def validate(self, *, key, hwid):
+        self.calls += 1
         if key != KEY: return False, "unknown_key", None
         if self.revoked: return False, "revoked", None
         if hwid != HW: return False, "hwid_not_activated", None
@@ -158,3 +160,65 @@ def test_closed_night_and_other_owners_cannot_touch_it(env):
     assert c.get(s["url"]).status_code == 404
     assert c.post(f"/api/relay/karaoke/{sid}/request", json={"singer_name": "Sam", "song_title": "x"}).status_code == 404
     assert db.relay_sessions.rows == [] and db.relay_requests.rows == []
+
+
+
+# ---------------- alpha.84: scale-up changes ----------------
+def test_license_check_is_cached_so_busy_nights_do_not_hit_the_license_database(env):
+    c, rr, svc, db = env
+    sid = _open(c)["session"]
+    before = svc.calls
+    for _ in range(20):
+        assert c.post(f"/api/relay/karaoke/sessions/{sid}/pull", json={"license_key": KEY, "hwid": HW}).status_code == 200
+    assert svc.calls - before == 0, "20 polls must not each look up (and write to) the license record"
+
+
+def test_cache_does_not_let_a_wrong_machine_or_a_wrong_key_in(env):
+    c, rr, svc, db = env
+    _open(c)                                                      # primes the cache for (KEY, HW)
+    assert c.post("/api/relay/karaoke/sessions", json={"license_key": KEY, "hwid": "other-pc", "venue": "x"}).status_code == 401
+    assert c.post("/api/relay/karaoke/sessions", json={"license_key": "BHE-ZZZZ-ZZZZ-ZZZZ-ZZZZ", "hwid": HW, "venue": "x"}).status_code == 401
+
+
+def test_a_revoked_license_stops_working_when_the_cache_runs_out(env, monkeypatch):
+    c, rr, svc, db = env
+    _open(c); svc.revoked = True
+    assert c.post("/api/relay/karaoke/sessions", json={"license_key": KEY, "hwid": HW, "venue": "x"}).status_code == 200   # still cached
+    monkeypatch.setattr(rr, "AUTH_CACHE_SECONDS", 0)                                                                         # cache window over
+    assert c.post("/api/relay/karaoke/sessions", json={"license_key": KEY, "hwid": HW, "venue": "x"}).status_code == 401
+
+
+def test_cache_can_be_switched_off(env, monkeypatch):
+    c, rr, svc, db = env
+    monkeypatch.setattr(rr, "AUTH_CACHE_SECONDS", 0)
+    before = svc.calls; _open(c); _open(c)
+    assert svc.calls - before == 2
+
+
+def test_storage_cap_per_license_stops_big_totals(env, monkeypatch):
+    c, rr, svc, db = env
+    monkeypatch.setattr(rr, "MAX_BYTES_PER_LICENSE", 1000)
+    assert up(c, data=b"a" * 600).status_code == 200
+    r = up(c, data=b"b" * 600)
+    assert r.status_code == 429 and "storage_full" in r.text
+    assert list(rr._files_dir.glob("*.mp4")) and len(list(rr._files_dir.glob("*"))) == 1        # the refused file left nothing on disk
+    assert up(c, data=b"c" * 300).status_code == 200                                              # smaller one still fits
+
+
+@pytest.mark.asyncio
+async def test_indexes_are_requested_for_every_relay_collection_and_never_crash_startup():
+    from cloud import relay_router as rr
+    made = []
+    class C:
+        def __init__(s, n): s.n = n
+        async def create_index(s, spec, **kw): made.append((s.n, spec if isinstance(spec, str) else tuple(k for k, _ in spec)))
+    class D:
+        relay_files, relay_sessions, relay_requests = C("files"), C("sessions"), C("requests")
+    await rr.ensure_indexes(D())
+    names = {n for n, _ in made}
+    assert names == {"files", "sessions", "requests"} and ("requests", ("session", "pulled", "created_ts")) in made and ("sessions", "id") in made
+    class Broken:
+        class relay_files:
+            @staticmethod
+            async def create_index(*a, **k): raise RuntimeError("boom")
+    await rr.ensure_indexes(Broken())            # must not raise
