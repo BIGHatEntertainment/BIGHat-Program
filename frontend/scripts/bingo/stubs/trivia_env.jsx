@@ -3,7 +3,7 @@ export const state = (globalThis.__triviaEnv = globalThis.__triviaEnv || { user:
 export function useAuth() { return { user: state.user, logout() {} }; }
 const resp = (data) => Promise.resolve({ data });
 const api = {
-  listLocations: () => { state.calls.push('listLocations'); return resp(globalThis.__locations || [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [] }]); },
+  listLocations: (game) => { state.calls.push('listLocations'); (globalThis.__locGames = globalThis.__locGames || []).push(game || ''); if (game && globalThis.__locationsByGame) return resp(globalThis.__locationsByGame[game] || []); if (!game && globalThis.__allLocations) return resp(globalThis.__allLocations); return resp(globalThis.__locations || [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [] }]); },
   getUsers: () => { state.calls.push('getUsers'); return resp([{ id: 'u1', name: 'Ann', role: 'admin' }]); },
   getEvents: () => resp([]),
 };

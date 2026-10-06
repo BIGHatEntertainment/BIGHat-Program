@@ -65,8 +65,9 @@ const api = {
     axios.get(`${API}/api/changelog`, { withCredentials: true, headers: authHeaders() }),
 
   // Trivia Setup (Locations)
-  listLocations: () =>
-    axios.get(`${API}/api/native/locations`, { withCredentials: true, headers: authHeaders() }),  createLocation: (data) =>
+  // game: 'trivia' | 'bingo' | 'karaoke' shows only places whose Schedule price for that game is above $0; leave empty for every place
+  listLocations: (game) =>
+    axios.get(`${API}/api/native/locations${game ? `?game=${game}` : ''}`, { withCredentials: true, headers: authHeaders() }),  createLocation: (data) =>
     axios.post(`${API}/api/native/locations`, data, { withCredentials: true, headers: authHeaders() }),
   getLocation: (id) =>
     axios.get(`${API}/api/native/locations/${id}`, { withCredentials: true, headers: authHeaders() }),

@@ -56,7 +56,7 @@ export default function KaraokeLobby() {
   useEffect(() => {
     loadFiller();
     axios.get(`${API}/karaoke/setup`).then((r) => setKeySet(!!r.data.youtube_key_set)).catch(() => {});
-    api.listLocations().then((r) => {
+    api.listLocations('karaoke').then((r) => {
       const list = r.data || [];
       setVenues(list);
       if (list.length === 1) setLocation(list[0].name);

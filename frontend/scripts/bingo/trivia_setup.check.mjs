@@ -17,6 +17,8 @@ const { default: TriviaSetupPage } = await import('/tmp/rtest/tsetup.bundle.mjs'
 const { default: TriviaDashboard } = await import('/tmp/rtest/tdash.bundle.mjs');
 const { default: AdminPage } = await import('/tmp/rtest/admin.bundle.mjs');
 const fails = []; const ok = (c, m) => { if (!c) fails.push(m); };
+let reachedEnd = false;
+process.on('exit', () => { if (!reachedEnd) { console.log('FAILED: the check stopped early and never reached its summary'); process.exitCode = 1; } });
 const q = (id) => document.querySelector(`[data-testid="${id}"]`);
 const wait = (ms = 250) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
 const app = (start) => render(React.createElement(MemoryRouter, { initialEntries: [start] },
@@ -69,5 +71,30 @@ ok(!tabs.includes('Trivia Setup'), 'Admin page no longer has a Trivia Setup tab:
 ok(tabs.some(t => /User Management/.test(t)) && tabs.some(t => /Event Management/.test(t)), 'User Management + Event Management tabs are still there');
 cleanup();
 
+
+// alpha.86: Trivia Setup lists only places priced for trivia, and tells the master how many are waiting for a price
+const P = (id, name) => ({ id, slug: id, name, branding_images: [], overlay_images: [], assigned_user_ids: [] });
+globalThis.__locGames = []; globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub'), P('b', 'No Price Bar'), P('c', 'Also No Price')];
+as('master_admin'); app('/trivia/setup'); await wait(500);
+ok(globalThis.__locGames.includes('trivia'), 'Trivia Setup asks only for places on for TRIVIA (got: ' + JSON.stringify(globalThis.__locGames) + ')');
+ok(!!q('location-card-a') && !q('location-card-b') && !q('location-card-c'), 'only the trivia-priced place is listed');
+ok(/2 places are not listed/.test(q('trivia-noprice-note')?.textContent || '') && /Schedule/.test(q('trivia-noprice-note')?.textContent || ''), 'the master is told 2 places are waiting for a price, and where to set it (got: ' + (q('trivia-noprice-note')?.textContent || 'no note') + ')');
+cleanup();
+globalThis.__locGames = []; globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub'), P('b', 'No Price Bar')];
+as('master_admin'); app('/trivia/setup'); await wait(500);
+ok(/1 place is not listed because it has no trivia price/.test(q('trivia-noprice-note')?.textContent || ''), 'one waiting place uses the singular wording (got: ' + (q('trivia-noprice-note')?.textContent || 'no note') + ')');
+cleanup();
+globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub')];
+as('master_admin'); app('/trivia/setup'); await wait(500);
+ok(!q('trivia-noprice-note') && !!q('location-card-a'), 'when every place is priced there is no note');
+cleanup();
+globalThis.__locationsByGame = { trivia: [] }; globalThis.__allLocations = [P('b', 'No Price Bar')];
+as('master_admin'); app('/trivia/setup'); await wait(500);
+ok(/1 place is not listed/.test(q('trivia-noprice-note')?.textContent || ''), 'with nothing priced yet the master still sees why the list is empty');
+cleanup();
+globalThis.__locationsByGame = null; globalThis.__allLocations = null; globalThis.__locGames = [];
+
+reachedEnd = true;
 if (fails.length) { console.log('FAILED:\n - ' + fails.join('\n - ')); process.exit(1); }
+reachedEnd = true;
 console.log('trivia setup move: checks ok');

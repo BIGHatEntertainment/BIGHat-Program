@@ -153,7 +153,7 @@ def list_files(kind: str) -> List[Dict]:
     return out
 
 
-def locations(kind: str, venue_names=None) -> List[Dict]:
+def locations(kind: str, venue_names=None, only_venues: bool = False) -> List[Dict]:
     """The dropdown list for a story builder.
 
     alpha.80: the Schedule's VENUES are the list of places.  With `venue_names`, every venue is listed and marked
@@ -176,6 +176,8 @@ def locations(kind: str, venue_names=None) -> List[Dict]:
         out.append({"id": f["filename"] if f else "", "name": name, "filename": f["filename"] if f else "",
                     "has_image": bool(f), "has_background": key in bgs})
     for f in files:                                           # pictures with no matching venue stay visible
+        if only_venues:                                       # alpha.86: the Schedule decides; a $0 venue is not offered
+            break
         if match_key(f["name"]) not in seen:
             seen.add(match_key(f["name"]))
             out.append({"id": f["filename"], "name": f["name"], "filename": f["filename"], "has_image": True,

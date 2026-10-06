@@ -44,6 +44,7 @@ const isMaster = (u) => u?.role === 'master_admin';
 export default function TriviaSetup({ currentUser, allUsers = [], setError, setSuccess }) {
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [noPrice, setNoPrice] = useState(0);
   const [selectedId, setSelectedId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showGlobalSetup, setShowGlobalSetup] = useState(false);
@@ -51,7 +52,10 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
   const refresh = async () => {
     setLoading(true);
     try {
-      const r = await api.listLocations();
+      // The Schedule decides: only places whose TRIVIA price is above $0 are listed. We also ask for every place so we can tell
+      // the master how many are waiting for a price (otherwise a brand-new place would seem to vanish).
+      const [r, all] = await Promise.all([api.listLocations('trivia'), api.listLocations().catch(() => ({ data: [] }))]);
+      setNoPrice(Math.max(0, (all.data || []).length - (r.data || []).length));
       setLocations(r.data);
       // If the currently-selected one disappeared (delete from another tab),
       // drop the selection so we don't 404 in the editor.
@@ -100,6 +104,11 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
           )}
         </div>
 
+        {noPrice > 0 && !loading && (
+          <p className="text-xs mb-3 rounded-md px-2 py-1.5" style={{ color: PALETTE.accent, backgroundColor: 'rgba(251,221,104,0.08)', border: `1px solid ${PALETTE.border}` }} data-testid="trivia-noprice-note">
+            {noPrice} {noPrice === 1 ? 'place is' : 'places are'} not listed because {noPrice === 1 ? 'it has' : 'they have'} no trivia price. Set a trivia price above $0 for {noPrice === 1 ? 'it' : 'them'} in the Schedule (Venues).
+          </p>
+        )}
         {loading ? (
           <div className="flex items-center gap-2 text-sm" style={{ color: PALETTE.textDim }}>
             <Loader2 size={14} className="animate-spin" /> Loading…

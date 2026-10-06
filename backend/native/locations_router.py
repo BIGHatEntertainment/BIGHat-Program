@@ -323,7 +323,7 @@ class ImageOrder(BaseModel):
 
 # ----- Endpoints: locations CRUD -----
 @router.get("")
-async def list_locations(request: Request) -> List[Dict[str, Any]]:
+async def list_locations(request: Request, game: Optional[str] = None) -> List[Dict[str, Any]]:
     """List locations the current user can see.
 
     master_admin: every location.
@@ -344,15 +344,37 @@ async def list_locations(request: Request) -> List[Dict[str, Any]]:
         raise HTTPException(500, detail="database_not_initialised")
 
     await _hydrate_from_disk()  # fail-loud self-heal
+    # alpha.86: the Schedule's venues are the source of truth. A place that just appeared (a folder restored from OneDrive,
+    # a pulled Setup Package) gets its venue NOW, not at the next restart.
+    try:
+        from . import venue_sync
+        await venue_sync.ensure_all_linked(_db)
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning("[locations] could not link places to Schedule venues: %s", e)
 
     query: Dict[str, Any] = {"retired": {"$ne": True}}      # alpha.80: a deleted venue's location is hidden, not destroyed
     if not _is_master(user):
         query["assigned_user_ids"] = _user_id(user)
 
     docs = await _db.locations.find(query, {"_id": 0}).sort("name", 1).to_list(500)
+    # alpha.86: tell every screen which games each place is ON for (price above $0 in the Schedule), and,
+    # when a screen asks for one game, show only the places that are on for it.
+    try:
+        from . import venue_sync
+        on = {g: await venue_sync.location_ids_for_game(_db, g) for g in venue_sync.GAME_PRICE_FIELD}
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning("[locations] could not read venue prices: %s", e)
+        on = {}
+    if on:
+        for d in docs:
+            d["games"] = [g for g in ("trivia", "bingo", "karaoke") if d.get("id") in on.get(g, set())]
+        if game:
+            if game not in on:
+                raise HTTPException(400, detail="game must be trivia, bingo or karaoke")
+            docs = [d for d in docs if game in d["games"]]
     logger.info(
-        "[locations] list_locations: user=%s master=%s -> %d rows",
-        _user_id(user), _is_master(user), len(docs),
+        "[locations] list_locations: user=%s master=%s game=%s -> %d rows",
+        _user_id(user), _is_master(user), game, len(docs),
     )
     return [_strip_admin_only(d, user) for d in docs]
 

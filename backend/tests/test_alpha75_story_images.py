@@ -127,13 +127,36 @@ def test_routes_upload_list_fetch_delete(client):
     assert client.delete("/api/story-generator/story-images/trivia/file/Monkey Pants.jpg").status_code == 404
 
 
-def test_event_lists_come_from_the_story_folders_not_sharepoint(client):
+class _Coll:
+    def __init__(self, rows): self.rows = rows
+    def find(self, q=None, proj=None):
+        rows = [dict(r) for r in self.rows]
+        class C:
+            async def to_list(s, n): return rows[:n]
+        return C()
+
+
+class _VenueDB:
+    """A tiny stand-in for the Schedule: two venues, priced for different games (alpha.86 rule)."""
+    def __init__(self):
+        self.venues = _Coll([{"id": "1", "name": "Bingo Bar"}, {"id": "2", "name": "Sing Bar"}, {"id": "3", "name": "Unpriced Bar"}])
+        self.venue_pricing = _Coll([{"venue_id": "1", "trivia_price": 0, "music_bingo_price": 90, "karaoke_price": 0},
+                                    {"venue_id": "2", "trivia_price": 0, "music_bingo_price": 0, "karaoke_price": 75}])
+
+
+def test_event_lists_follow_the_schedule_venues_and_their_prices(client, monkeypatch):
+    """alpha.86: the Schedule is the source of truth. A place is offered for Bingo/Karaoke only when it is a venue with that
+    game's price above $0. Pictures still come from the local Story folders (never SharePoint); hosts are unaffected."""
+    import routes.story_generator as sg
+    monkeypatch.setattr(sg, "db", _VenueDB())
     client.post("/api/story-generator/story-images/bingo", files={"file": ("a.jpg", JPG, "image/jpeg")}, data={"name": "Bingo Bar"})
     client.post("/api/story-generator/story-images/karaoke", files={"file": ("a.jpg", JPG, "image/jpeg")}, data={"name": "Sing Bar"})
+    client.post("/api/story-generator/story-images/karaoke", files={"file": ("a.jpg", JPG, "image/jpeg")}, data={"name": "Old Closed Bar"})   # a picture with no venue
     client.post("/api/story-generator/story-images/hosts", files={"file": ("a.gif", GIF, "image/gif")}, data={"name": "Alex"})
     b = client.get("/api/story-generator/event-assets/bingo").json()
     k = client.get("/api/story-generator/event-assets/karaoke").json()
-    assert [l["name"] for l in b["locations"]] == ["Bingo Bar"] and [l["name"] for l in k["locations"]] == ["Sing Bar"]
+    assert [(l["name"], l["has_image"]) for l in b["locations"]] == [("Bingo Bar", True)]                # Sing Bar has no bingo price; Unpriced has none
+    assert [(l["name"], l["has_image"]) for l in k["locations"]] == [("Sing Bar", True)]                 # the orphan picture is NOT offered
     assert b["hosts"][0]["name"] == "Alex" and b["hosts"][0]["is_gif"] is True and b["success"] is True
     assert client.get("/api/story-generator/event-assets/trivia").status_code == 400
 

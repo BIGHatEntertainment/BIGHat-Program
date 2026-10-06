@@ -159,3 +159,51 @@ async def reconcile(db) -> Dict[str, int]:
     except Exception as e:                                        # noqa: BLE001
         logger.warning("[venue-sync] reconcile failed: %s", e)
     return out
+
+
+# ------------------------------------------------------------------ alpha.86: one rule for "which venues are on for this game"
+GAME_PRICE_FIELD = {"trivia": "trivia_price", "bingo": "music_bingo_price", "karaoke": "karaoke_price"}
+
+
+async def ensure_all_linked(db) -> Dict[str, int]:
+    """Safe to call at any time (it is cheap when everything is already linked).
+    Called at startup AND whenever a list of places is asked for, so a place that appears later
+    (a folder restored from OneDrive, a pulled Setup Package) gets its Schedule venue right away,
+    instead of only after the next restart."""
+    return await reconcile(db)
+
+
+async def venue_prices(db) -> Dict[str, Dict[str, float]]:
+    """venue id -> {trivia_price, music_bingo_price, karaoke_price}."""
+    out: Dict[str, Dict[str, float]] = {}
+    for p in await db.venue_pricing.find({}, {"_id": 0}).to_list(5000):
+        vid = p.get("venue_id")
+        if vid:
+            out[vid] = {f: float(p.get(f) or 0) for f in GAME_PRICE_FIELD.values()}
+    return out
+
+
+async def venues_for_game(db, game: str) -> List[Dict[str, Any]]:
+    """THE rule (user, 2026-10-06): the Schedule's venues are the source of truth, and a venue is available for a game
+    only when that game's price is above $0.  Returns the venue records (with their `location_id`), A to Z."""
+    field = GAME_PRICE_FIELD.get(game)
+    if not field:
+        return []
+    prices = await venue_prices(db)
+    venues = await db.venues.find({}, {"_id": 0}).to_list(5000)
+    on = [v for v in venues if prices.get(v.get("id"), {}).get(field, 0.0) > 0]
+    on.sort(key=lambda v: (v.get("name") or "").lower())
+    return on
+
+
+async def location_ids_for_game(db, game: str) -> set:
+    """The ids of the LOCATIONS (picture folders) that belong to venues available for this game."""
+    ids = set()
+    for v in await venues_for_game(db, game):
+        if v.get("location_id"):
+            ids.add(v["location_id"])
+        else:
+            loc = await _find_location_by_name(db, v.get("name", ""))
+            if loc:
+                ids.add(loc["id"])
+    return ids

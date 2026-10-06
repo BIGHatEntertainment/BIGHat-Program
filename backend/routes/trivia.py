@@ -276,7 +276,13 @@ async def get_locations() -> List[Dict[str, Any]]:
             logger.warning(f"[trivia/locations] hydrate skipped: {e}")
 
         try:
-            docs = await db_obj.locations.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+            # alpha.86: the Schedule's venues are the source of truth. Link any new place to a venue first, then show
+            # only places whose venue has a TRIVIA price above $0 (and never a deleted/retired one).
+            from native import venue_sync
+            await venue_sync.ensure_all_linked(db_obj)
+            on_for_trivia = await venue_sync.location_ids_for_game(db_obj, "trivia")
+            docs = await db_obj.locations.find({"retired": {"$ne": True}}, {"_id": 0}).sort("name", 1).to_list(500)
+            docs = [d for d in docs if d.get("id") in on_for_trivia]
             for d in docs:
                 loc_id = d.get("id") or d.get("slug")
                 if not loc_id:

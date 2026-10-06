@@ -75,7 +75,7 @@ export default function KaraokeSetup() {
 
   useEffect(() => {
     load();
-    api.listLocations().then((r) => setLocations(r.data || [])).catch(() => setLocations([]));
+    api.listLocations('karaoke').then((r) => setLocations(r.data || [])).catch(() => setLocations([]));
   }, [load]);
 
   // ---- filler music
