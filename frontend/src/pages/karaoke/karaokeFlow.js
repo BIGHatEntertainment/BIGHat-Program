@@ -2,7 +2,8 @@
 // The Player calls these. Nothing here touches the page, the network or timers.
 
 export const FADE_SECONDS = 3;          // the last 3 seconds of a song fade out, filler fades back in over 3 seconds
-export const PRELOAD_READY = 60;        // "Next Singer" waits until the next video is at least this loaded (percent)
+export const PRELOAD_READY = 100;       // alpha.89: "Next Singer" waits until the audience says the buffer is enough (percent of what we NEED)
+export const BUFFER_NEED_SECONDS = 45;  // alpha.89: how many seconds of the song must be buffered up front (a short song needs all of it)
 export const AMP_FACTOR = 1.5;          // master volume goes to 150%
 export const FILLER_FADE_STEPS = 30;
 
@@ -17,6 +18,38 @@ export const nextWaiting = (queue) => (queue || []).filter((e) => e.status === "
 
 /** Does this waiting singer have a song picked? Only singers with a song can be started. */
 export const hasSong = (entry) => !!(entry && entry.song_title && entry.embed_url);
+
+/**
+ * alpha.89: how much of the song is buffered, as a percent of what we need.
+ * YouTube only buffers part of a paused video, so "enough" is the first BUFFER_NEED_SECONDS
+ * (or the whole song when it is shorter). loadedFraction is 0..1 from YouTube's getVideoLoadedFraction().
+ */
+export function bufferStatus(loadedFraction, duration, need = BUFFER_NEED_SECONDS) {
+  const d = Number(duration) || 0;
+  const f = Math.max(0, Math.min(1, Number(loadedFraction) || 0));
+  if (d <= 0) return { percent: 0, bufferedSeconds: 0, ready: false };
+  const target = Math.min(need, d);
+  const bufferedSeconds = f * d;
+  const percent = Math.max(0, Math.min(100, Math.round((bufferedSeconds / target) * 100)));
+  return { percent, bufferedSeconds: Math.round(bufferedSeconds * 10) / 10, ready: bufferedSeconds >= target - 0.25 };
+}
+
+/**
+ * alpha.89: what the host should SHOW for the queued singer's buffer.
+ *  state: "none" (no song / nobody next), "no_screen" (TV window not open, so nothing can load),
+ *         "loading" (bar), "ready" (green).
+ */
+export function bufferView({ next, preload, audienceOpen }) {
+  if (!next || !hasSong(next)) return { state: "none", percent: 0 };
+  const pre = preload && preload.singer_id === next.id ? preload : null;
+  if (pre && pre.ready) return { state: "ready", percent: 100 };
+  if (!audienceOpen) return { state: "no_screen", percent: pre ? Math.min(99, pre.percent || 0) : 0 };
+  if (pre && pre.error) return { state: "error", percent: pre.percent || 0, error: pre.error };
+  return { state: "loading", percent: pre ? Math.min(99, pre.percent || 0) : 0 };
+}
+
+/** alpha.89: true on the moment a singer's buffer turns ready (so the host is told ONCE per singer). */
+export const justBecameReady = (prevReadyFor, view, singerId) => view.state === "ready" && prevReadyFor !== singerId;
 
 /**
  * Can the host press Next Singer now?

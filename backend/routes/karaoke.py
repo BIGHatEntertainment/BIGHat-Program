@@ -191,20 +191,41 @@ async def audience_report(request: Request):
 async def set_preload(request: Request):
     """Host tells the audience which song to load in the background (the next singer), or clears it."""
     data = await request.json()
-    pre = {"singer_id": data.get("singer_id"), "embed_url": data.get("embed_url", ""), "ready": False} if data.get("singer_id") else None
+    pre = {"singer_id": data.get("singer_id"), "embed_url": data.get("embed_url", ""), "ready": False, "percent": 0} if data.get("singer_id") else None
     await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"preload": pre}})
     return {"success": True}
 
 
 @router.post("/session/preload-report")
 async def preload_report(request: Request):
-    """The audience screen reports that the background video is really loaded."""
+    """The audience screen reports how much of the next song is REALLY buffered (alpha.89).
+    percent: 0-100 of what we need before the song can start cleanly. ready: true once it is enough."""
     data = await request.json()
     s = await db.karaoke_sessions.find_one({"is_active": True}, {"_id": 0, "preload": 1})
     pre = (s or {}).get("preload") or {}
     if not pre.get("singer_id") or data.get("singer_id") != pre.get("singer_id"):
         return {"success": False, "reason": "stale"}
-    await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"preload.ready": bool(data.get("ready", True))}})
+    upd = {}
+    if "percent" in data:
+        try:
+            pct = max(0, min(100, int(round(float(data.get("percent") or 0)))))
+        except (TypeError, ValueError):
+            pct = 0
+        pct = max(pct, int(pre.get("percent") or 0)) if not pre.get("ready") else pct      # never goes backwards while loading
+        upd["preload.percent"] = pct
+    if "buffered_seconds" in data:
+        try:
+            upd["preload.buffered_seconds"] = round(float(data.get("buffered_seconds") or 0), 1)
+        except (TypeError, ValueError):
+            pass
+    if "ready" in data:
+        upd["preload.ready"] = bool(data.get("ready"))
+        if data.get("ready"):
+            upd["preload.percent"] = 100
+    if data.get("error"):
+        upd["preload.error"] = str(data.get("error"))[:80]
+    if upd:
+        await db.karaoke_sessions.update_one({"is_active": True}, {"$set": upd})
     return {"success": True}
 
 

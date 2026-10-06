@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Mic, Music, Maximize } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import axios from "axios";
+import { bufferStatus } from "./karaokeFlow";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -60,6 +61,7 @@ export default function KaraokeAudienceView() {
   const rootRef = useRef(null);
   const playerRef = useRef(null);
   const playerHostRef = useRef(null);
+  const bufferHostRef = useRef(null);      // alpha.89: where the next song buffers
   const songRef = useRef({ id: null, videoId: null, startedReported: false, endedReported: false });
   const wantPlayingRef = useRef(false);
   const timerRef = useRef(null);
@@ -122,6 +124,33 @@ export default function KaraokeAudienceView() {
 
   // ---- start the video for a new song
   const startSong = useCallback(async (videoId, singerId) => {
+    // alpha.89: if this exact song was already buffered in the background, REVEAL that player instead of building a new one.
+    const buf = preloadRef.current;
+    if (buf && buf.singerId === singerId && buf.videoId === videoId && buf.player && buf.ready && !buf.adopted && playerHostRef.current && bufferHostRef.current) {
+      try {
+        destroyPlayer();
+        songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
+        setYtProblem(false);
+        buf.adopted = true;
+        if (buf.timer) { clearInterval(buf.timer); buf.timer = null; }
+        const player = buf.player;
+        playerRef.current = player;
+        // the buffered player was made inside bufferHostRef; show it by raising that holder over the video box
+        bufferHostRef.current.style.opacity = "1";
+        bufferHostRef.current.style.zIndex = "1";
+        // events set at creation time cannot be swapped, so listen to the state through the player itself
+        player.addEventListener("onStateChange", onYtState);
+        player.addEventListener("onError", () => setYtProblem(true));
+        player.unMute();
+        player.seekTo(0, true);
+        if (wantPlayingRef.current) player.playVideo();
+        preloadRef.current = { singerId: null, player: null };       // consumed: the next preload starts fresh
+        return;
+      } catch (err) {
+        console.warn("[karaoke audience] could not reuse the buffered song, loading it normally:", err);
+        try { bufferHostRef.current.style.opacity = "0"; bufferHostRef.current.style.zIndex = "0"; } catch { /* gone */ }
+      }
+    }
     destroyPlayer();
     songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
     setYtProblem(false);
@@ -180,42 +209,59 @@ export default function KaraokeAudienceView() {
     }
   }, [startSong, destroyPlayer]);
 
-  // ---- preload: load the NEXT singer's video silently so the song starts the moment the host presses Next Singer.
-  // YouTube cannot show a percentage, so the honest signal is: "the video is cued and ready".
+  // ---- preload (alpha.89): really BUFFER the NEXT singer's video so the song starts with no stop.
+  // A "cued" video downloads nothing, so the video is STARTED muted, left to buffer, and held paused at 0:00.
+  // Progress is YouTube's own getVideoLoadedFraction(), reported as a percent of the first BUFFER_NEED_SECONDS.
   const handlePreload = useCallback(async (pre) => {
-    const cur = preloadRef.current;
-    if (!pre || !pre.singer_id) {
-      if (cur.player) { try { cur.player.destroy(); } catch { /* gone */ } }
+    const stop = () => {
+      const c = preloadRef.current;
+      if (c.timer) clearInterval(c.timer);
+      if (c.player && !c.adopted) { try { c.player.destroy(); } catch { /* gone */ } }
+      if (c.holder && !c.adopted) { try { c.holder.innerHTML = ""; } catch { /* gone */ } }
       preloadRef.current = { singerId: null, player: null };
-      return;
-    }
+    };
+    const cur = preloadRef.current;
+    if (!pre || !pre.singer_id) { stop(); return; }
     if (cur.singerId === pre.singer_id) return;              // already loading or loaded this one
-    if (cur.player) { try { cur.player.destroy(); } catch { /* gone */ } }
-    preloadRef.current = { singerId: pre.singer_id, player: null };
+    stop();
+    preloadRef.current = { singerId: pre.singer_id, player: null, videoId: null, adopted: false, timer: null, holder: null, ready: false };
     const videoId = videoIdOf(pre.embed_url);
     if (!videoId) return;
+    const report = (body) => axios.post(`${API}/karaoke/session/preload-report`, { singer_id: pre.singer_id, ...body }).catch(() => {});
     try {
       const YT = await loadYouTubeApi();
       if (preloadRef.current.singerId !== pre.singer_id) return;            // the host moved on while YouTube loaded
-      const holder = document.createElement("div");
-      holder.id = "karaoke-yt-preload";
-      holder.style.cssText = "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px";
-      document.body.appendChild(holder);
+      const holder = bufferHostRef.current;
+      if (!holder) { report({ error: "no_holder" }); return; }
+      // full size and in the page (opacity 0): Chromium will not buffer a video it considers hidden
+      holder.innerHTML = "<div id='karaoke-yt-preload'></div>";
+      let started = false;
       const player = new YT.Player("karaoke-yt-preload", {
-        videoId, width: "1", height: "1",
-        playerVars: { autoplay: 0, controls: 0, mute: 1 },
+        videoId, width: "100%", height: "100%",
+        playerVars: { autoplay: 0, controls: 0, mute: 1, rel: 0, playsinline: 1, disablekb: 1, fs: 0 },
         events: {
-          onReady: (ev) => { try { ev.target.mute(); ev.target.cueVideoById(videoId); } catch { /* ignore */ } },
+          onReady: (ev) => { try { ev.target.mute(); ev.target.playVideo(); } catch { /* ignore */ } },
           onStateChange: (ev) => {
-            // 5 = CUED: the video is loaded and waiting
-            if (ev.data === 5 && preloadRef.current.singerId === pre.singer_id) {
-              axios.post(`${API}/karaoke/session/preload-report`, { singer_id: pre.singer_id, ready: true }).catch(() => {});
-            }
+            if (preloadRef.current.singerId !== pre.singer_id) return;
+            // 1 = playing: it has begun to download. Hold it at the start so nothing is "sung" yet.
+            if (ev.data === 1 && !started) { started = true; try { const pl = preloadRef.current.player; pl.pauseVideo(); pl.seekTo(0, true); } catch (e) { console.warn("[karaoke audience] could not hold the buffering player:", e); } }
           },
+          onError: () => report({ error: "youtube_error" }),
         },
       });
-      preloadRef.current.player = player;
-    } catch { /* no YouTube: the host is told the song never became ready */ }
+      const c = preloadRef.current;
+      c.player = player; c.holder = holder; c.videoId = videoId;
+      c.timer = setInterval(() => {
+        const cc = preloadRef.current;
+        if (cc.singerId !== pre.singer_id || !cc.player || !cc.player.getVideoLoadedFraction) return;
+        let frac = 0, dur = 0;
+        try { frac = cc.player.getVideoLoadedFraction(); dur = cc.player.getDuration(); } catch { return; }
+        if (!dur) return;
+        const b = bufferStatus(frac, dur);
+        if (b.ready && !cc.ready) { cc.ready = true; report({ percent: 100, buffered_seconds: b.bufferedSeconds, ready: true }); }
+        else if (!cc.ready) report({ percent: b.percent, buffered_seconds: b.bufferedSeconds });
+      }, 800);
+    } catch { /* no YouTube: the host is shown the song never became ready */ report({ error: "no_youtube" }); }
   }, []);
 
   // ---- instant messages from the host window
@@ -303,6 +349,9 @@ export default function KaraokeAudienceView() {
       {/* 1. VIDEO */}
       <div className="absolute" style={{ ...OVERLAY.video, zIndex: 2, backgroundColor: "#000", overflow: "hidden", opacity: isFading ? 0 : 1, transition: "opacity 3s ease-out" }} data-testid="karaoke-audience-video">
         <div ref={playerHostRef} className="absolute inset-0" style={{ display: showVideo ? "block" : "none" }} />
+        {/* alpha.89: the NEXT song buffers here, invisible but full size, so when it starts it is simply revealed
+            (the player is never moved or rebuilt, which would throw the buffer away). */}
+        <div ref={bufferHostRef} className="absolute inset-0" style={{ opacity: 0, pointerEvents: "none", zIndex: 0 }} data-testid="karaoke-buffer-host" />
         {!showVideo && singer && (
           <div className="w-full h-full flex flex-col items-center justify-center text-center px-8" data-testid="karaoke-audience-singer">
             <div className="w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-4" style={{ backgroundColor: "rgba(34,197,94,0.15)", border: `3px solid ${accent}` }}>

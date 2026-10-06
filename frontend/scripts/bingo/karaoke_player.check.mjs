@@ -20,6 +20,8 @@ const React = (await import('react')).default;
 const { render, fireEvent, cleanup, act } = await import('@testing-library/react');
 const { MemoryRouter, Routes, Route } = await import('react-router-dom');
 const axios = (await import('axios')).default;
+let reachedEnd = false;
+process.on('exit', () => { if (!reachedEnd) { console.log('FAILED: the check stopped early and never reached its summary'); process.exitCode = 1; } });
 const fails = []; const ok = (c, m) => { if (!c) fails.push(m); };
 const q = (id) => document.querySelector(`[data-testid="${id}"]`);
 const wait = (ms = 200) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
@@ -80,6 +82,27 @@ const app = () => render(React.createElement(MemoryRouter, { initialEntries: ['/
     React.createElement(Route, { path: '/karaoke', element: React.createElement('div', { 'data-testid': 'lobby' }, 'LOBBY') }))));
 const click = (id) => act(async () => { fireEvent.click(q(id)); await new Promise(r => setTimeout(r, 150)); });
 const lastPb = () => S.pb;
+
+// alpha.89: a dataTransfer that behaves like Chromium/WebView2 (the old fake returned anything for any key):
+//  - getData only returns what setData wrote, for exactly that type
+//  - the drop is only delivered when dragover accepted it (preventDefault)
+//  - effectAllowed / dropEffect must be compatible, or the drop never fires
+const realDT = () => ({ _d: {}, effectAllowed: 'uninitialized', dropEffect: 'none',
+  setData(k, v) { this._d[String(k).toLowerCase()] = String(v); }, getData(k) { return this._d[String(k).toLowerCase()] || ''; },
+  get types() { return Object.keys(this._d); } });
+const compatible = (allowed, drop) => allowed === 'uninitialized' || allowed === 'all' || (allowed === 'copyMove' && (drop === 'copy' || drop === 'move')) || allowed.toLowerCase() === drop.toLowerCase();
+// does a drag from `from` onto `to` really end in a drop, the way a browser decides it?
+const realDrag = async (from, to) => {
+  const dt = realDT();
+  fireEvent.dragStart(from, { dataTransfer: dt });
+  const over = new dom.window.Event('dragover', { bubbles: true, cancelable: true }); over.dataTransfer = dt;
+  await act(async () => { to.dispatchEvent(over); });
+  const accepted = over.defaultPrevented && compatible(dt.effectAllowed, dt.dropEffect);
+  if (!accepted) return { dropped: false, dt };
+  await act(async () => { fireEvent.drop(to, { dataTransfer: dt }); await new Promise(r => setTimeout(r, 200)); });
+  return { dropped: true, dt };
+};
+
 // the audience screen, played by the test: it listens on the same channel and can report
 const audience = new BroadcastChannel('karaoke-state'); const heard = []; audience.onmessage = (e) => heard.push(e.data);
 
@@ -128,8 +151,27 @@ await click('karaoke-overlay-toggle'); await click('karaoke-qr-toggle-btn');
 ok(S.posts.some(p => p.u === '/session/overlay' && p.body.overlay_enabled === false), 'overlay toggle is saved');
 ok(S.posts.some(p => p.u === '/session/overlay' && p.body.qr_enabled === false), 'QR toggle is saved');
 await click('karaoke-audience-btn');
-ok(opened.length === 1 && /\/karaoke\/audience$/.test(opened[0]), 'Audience View opens the TV window');
+ok(opened.length === 1 && /\/karaoke\/audience$/.test(opened[0]), 'in a browser, Audience View opens the TV window as a pop-up');
 cleanup();
+
+// ---------- 2b. alpha.89: in the DESKTOP app the Audience View is a real native window (a pop-up never opens there)
+globalThis.__fakeTauri = true; globalThis.__nativeOpens = []; globalThis.__nativeFocus = []; globalThis.__nativeClosed = []; globalThis.__nativeFails = null; opened.length = 0;
+fresh(); app(); await wait(400);
+await click('karaoke-audience-btn'); await wait(200);
+ok(globalThis.__nativeOpens.length === 1, 'desktop: clicking Audience View opens ONE native window: ' + JSON.stringify(globalThis.__nativeOpens));
+const no = globalThis.__nativeOpens[0] || {};
+ok(no.label === 'karaoke-audience' && no.path === '/karaoke/audience', 'desktop: it is the karaoke-audience window pointing at /karaoke/audience');
+ok(opened.length === 0, 'desktop: no pop-up is attempted (it would never open in the desktop app)');
+await click('karaoke-audience-btn'); await wait(200);
+ok(globalThis.__nativeOpens.length === 1 && globalThis.__nativeFocus.length === 1, 'desktop: clicking again just brings the same window forward, it does not open another');
+cleanup();
+// when the window cannot be made the host is TOLD, not left with a dead button
+globalThis.__nativeOpens = []; globalThis.__nativeFails = 'window create failed'; globalThis.__toasts = [];
+fresh(); app(); await wait(400);
+await click('karaoke-audience-btn'); await wait(200);
+ok((globalThis.__toasts || []).some(t => /could not open/i.test(String(t[0])) && /window create failed/.test(String(t[0]))), 'desktop: a failure shows the host a plain message with the reason: ' + JSON.stringify(globalThis.__toasts));
+cleanup();
+globalThis.__fakeTauri = false; globalThis.__nativeFails = null;
 
 // ---------- 3. drive unplugged
 fresh(); S.fillerOk = false; app(); await wait(500);
@@ -149,20 +191,31 @@ ok(/Pick a song for Ann/.test(q('karaoke-next-singer-btn').textContent) && q('ka
 // search
 await act(async () => { fireEvent.change(q('karaoke-song-search'), { target: { value: 'africa' } }); await new Promise(r => setTimeout(r, 700)); });
 ok(!!q('karaoke-result-vid1') && /Africa - Karaoke/.test(q('karaoke-result-vid1').textContent) && /4:05/.test(q('karaoke-result-vid1').textContent), 'search shows results with their length (4:05)');
+// alpha.89: a visible "Give to..." button works with a plain click (no drag, no right-click)
+ok(!!q('karaoke-give-vid1'), 'each song has a visible "Give to..." button');
+await act(async () => { fireEvent.click(q('karaoke-give-vid1')); });
+ok(!!q('karaoke-context-menu') && /Give this song to/.test(q('karaoke-context-menu').textContent), 'a normal click on "Give to..." opens the singer list');
+await act(async () => { fireEvent.click(q('karaoke-assign-' + S.queue[1].id)); await new Promise(r => setTimeout(r, 200)); });
+ok(S.queue[1].song_title === 'Africa - Karaoke' && /vid1/.test(S.queue[1].embed_url), 'picking a singer from "Give to..." gives them the song');
+S.queue[1].song_title = ''; S.queue[1].embed_url = '';
 // right click -> give to Ann
 await act(async () => { fireEvent.contextMenu(q('karaoke-result-vid1'), { clientX: 10, clientY: 10 }); });
 ok(!!q('karaoke-context-menu') && /Give this song to/.test(q('karaoke-context-menu').textContent), 'right-clicking a song opens the give-to menu');
 await act(async () => { fireEvent.click(q('karaoke-assign-' + S.queue[0].id)); await new Promise(r => setTimeout(r, 200)); });
 ok(S.queue[0].song_title === 'Africa - Karaoke' && /vid1/.test(S.queue[0].embed_url), 'the song is given to that singer');
-// drag a song onto Bob
-const dt = { data: {}, setData(k, v) { this.data[k] = v; }, getData(k) { return this.data[k] || ''; } };
-fireEvent.dragStart(q('karaoke-result-vid1'), { dataTransfer: dt });
-await act(async () => { fireEvent.drop(q('karaoke-queue-' + S.queue[1].id), { dataTransfer: dt }); await new Promise(r => setTimeout(r, 200)); });
+// drag a song onto Bob, exactly the way a browser decides (alpha.89: strict dataTransfer)
+const d1 = await realDrag(q('karaoke-result-vid1'), q('karaoke-queue-' + S.queue[1].id));
+ok(d1.dropped, 'a song dragged over a singer is ACCEPTED as a drop (dragover allowed it, effects compatible): effectAllowed=' + d1.dt.effectAllowed + ' dropEffect=' + d1.dt.dropEffect);
+ok(d1.dt.types.includes('text/plain'), 'the drag carries the standard text/plain type (custom-only types are not delivered by WebView2): ' + d1.dt.types.join(','));
 ok(S.queue[1].song_title === 'Africa - Karaoke', 'dragging a song onto a singer gives it to them');
+// something dragged in from outside (a file name, a web link) is not a song and must do nothing
+const before2 = JSON.stringify(S.queue.map(e => e.song_title));
+const alien = realDT(); alien.setData('text/plain', 'C:\\Users\\me\\notes.txt');
+await act(async () => { fireEvent.drop(q('karaoke-queue-' + S.queue[0].id), { dataTransfer: alien }); await new Promise(r => setTimeout(r, 150)); });
+ok(JSON.stringify(S.queue.map(e => e.song_title)) === before2, 'a stray text drop does not change any singer');
 // reorder by dragging Bob above Ann
-const dt2 = { data: {}, setData(k, v) { this.data[k] = v; }, getData(k) { return this.data[k] || ''; } };
-fireEvent.dragStart(q('karaoke-queue-' + S.queue[1].id), { dataTransfer: dt2 });
-await act(async () => { fireEvent.drop(q('karaoke-queue-' + S.queue[0].id), { dataTransfer: dt2 }); await new Promise(r => setTimeout(r, 200)); });
+const d2 = await realDrag(q('karaoke-queue-' + S.queue[1].id), q('karaoke-queue-' + S.queue[0].id));
+ok(d2.dropped, 'a singer dragged over another singer is accepted as a drop');
 await wait(300);
 ok(S.queue[0].singer_name === 'Bob', 'dragging a singer up reorders the queue: ' + S.queue.map(e => e.singer_name).join(','));
 // search error
@@ -283,6 +336,69 @@ audience.close();
   cleanup();
   globalThis.__reqInfo = null;
 }
+
+// ---------- 7. alpha.89: the RIGHT side is the Audience Preview, then the Request QR, then the requests, then In Queue
+fresh(); S.queue = [entry('Ann', 'Africa', 'https://www.youtube.com/embed/AAA111?autoplay=1'), entry('Bob')];
+S.requests = [{ id: 'r1', singer_name: 'Zed', song_title: 'Africa', song_artist: 'Toto', status: 'pending' }];
+globalThis.__reqInfo = { url: 'https://api.bighat.live/k/ABC', phone_reachable: true, online: true };
+app(); await wait(400);
+for (const tab of ['karaoke-tab-filler', 'karaoke-tab-karaoke']) {
+  await click(tab); await wait(400);
+  const panel = q('karaoke-right-panel');
+  ok(!!panel, tab + ': the right panel is there');
+  if (!panel) continue;
+  const order = ['karaoke-preview', 'karaoke-qr-card', 'karaoke-requests', 'karaoke-queue-count'].map(id => panel.innerHTML.indexOf('data-testid="' + id + '"'));
+  ok(order.every(i => i > -1), tab + ': panel has the preview, the request QR, the song requests and the queue count: ' + order.join(','));
+  ok(order.every((v, i) => i === 0 || v > order[i - 1]), tab + ': and in that order, top to bottom: ' + order.join(','));
+}
+ok(!!q('karaoke-host-qr') && !!q('karaoke-host-qr').querySelector('svg'), 'the QR is a real code the phones can scan');
+ok(/Zed/.test(q('karaoke-requests').textContent) && q('karaoke-requests-count').textContent.startsWith('1'), 'a pending phone request shows in Song Requests');
+ok(q('karaoke-queue-count').textContent.trim() === '2', 'In Queue counts the singers who are waiting');
+ok(!!q('karaoke-preview-idle'), 'with nobody singing the preview says it is waiting');
+ok(!!q('karaoke-preview-open-audience'), 'and, with the TV screen closed, the preview offers to open it');
+await act(async () => { fireEvent.click(q('karaoke-accept-r1')); await new Promise(r => setTimeout(r, 200)); });
+ok(S.posts.some(p => /accept/.test(p.u)), 'Accept sends the request to the queue');
+cleanup();
+fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await click('karaoke-qr-toggle-btn'); await wait(300);
+ok(!q('karaoke-qr-card') && !!q('karaoke-preview'), 'turning the QR off hides the QR card and keeps the preview');
+cleanup();
+globalThis.__reqInfo = { url: '', phone_reachable: false, online: false };
+fresh(); app(); await wait(400);
+ok(/internet connection/i.test((q('karaoke-qr-offline') || {}).textContent || '') && !q('karaoke-host-qr'), 'with no link the QR card says why instead of showing a broken code');
+cleanup();
+globalThis.__reqInfo = null;
+
+// ---------- 8. alpha.89: the next singer's song loads in the background, with a progress bar and a "ready" notice
+fresh(); S.queue = [entry('Ann', 'Africa', 'https://www.youtube.com/embed/AAA111?autoplay=1'), entry('Bob')]; globalThis.__toasts = [];
+app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(1200);
+ok(!!q('karaoke-buffer'), 'the next singer shows a loading bar');
+ok(/Open the Audience View/.test((q('karaoke-buffer-label') || {}).textContent || ''), 'with the TV screen closed it says so (nothing can load without it): ' + (q('karaoke-buffer-label') || {}).textContent);
+await click('karaoke-audience-btn'); await wait(1200);
+ok(/Loading the next song/.test((q('karaoke-buffer-label') || {}).textContent || '') && (q('karaoke-buffer-pct') || {}).textContent === '0%', 'with the screen open it says it is loading, at 0%: ' + (q('karaoke-buffer-label') || {}).textContent + ' ' + (q('karaoke-buffer-pct') || {}).textContent);
+if (S.preload) S.preload.percent = 37; await wait(1200);
+ok((q('karaoke-buffer-pct') || {}).textContent === '37%' && q('karaoke-buffer-bar')?.getAttribute('aria-valuenow') === '37' && q('karaoke-buffer-fill')?.style.width === '37%', 'the bar follows what the audience screen really buffered (37%)');
+ok(q('karaoke-next-singer-btn').disabled, 'Next Singer is still locked at 37%');
+if (S.preload) S.preload.percent = 80; await wait(1200);
+ok((q('karaoke-buffer-pct') || {}).textContent === '80%' && q('karaoke-next-singer-btn').disabled, 'and still locked at 80%');
+ok(!(globalThis.__toasts || []).some(t => /loaded and ready/i.test(String(t[0]))), 'no "ready" notice before it is ready');
+if (S.preload) { S.preload.percent = 100; S.preload.ready = true; } await wait(1500);
+ok(/Loaded and ready/.test((q('karaoke-buffer-label') || {}).textContent || '') && (q('karaoke-buffer-pct') || {}).textContent === '100%', 'when it has loaded enough the bar says Loaded and ready');
+ok((globalThis.__toasts || []).filter(t => /Ann's song is loaded and ready/.test(String(t[0])) && t[t.length - 1] === 'success').length === 1, 'the host is notified, once: ' + JSON.stringify(globalThis.__toasts));
+await wait(2200);
+ok((globalThis.__toasts || []).filter(t => /loaded and ready/.test(String(t[0]))).length === 1, 'and not again every second');
+ok(!q('karaoke-next-singer-btn').disabled && /Next Singer: Ann/.test(q('karaoke-next-singer-btn').textContent), 'Next Singer opens');
+cleanup();
+fresh(); S.queue = [entry('Ann', 'Africa', 'https://www.youtube.com/embed/AAA111?autoplay=1')]; globalThis.__toasts = [];
+app(); await wait(400); await click('karaoke-tab-karaoke'); await click('karaoke-audience-btn'); await wait(1200);
+if (S.preload) S.preload.error = 'youtube_error'; await wait(1200);
+ok(/could not load/.test((q('karaoke-buffer-label') || {}).textContent || ''), 'a song that fails to load says so: ' + (q('karaoke-buffer-label') || {}).textContent);
+ok(!!q('karaoke-start-anyway-btn'), 'and the host can still start it anyway');
+cleanup();
+fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(800);
+ok(!q('karaoke-buffer'), 'a singer with no song picked yet has no loading bar');
+cleanup();
+
+reachedEnd = true;
 if (fails.length) { console.log('FAILED:\n - ' + fails.join('\n - ')); process.exit(1); }
 console.log('karaoke player: checks ok');
 process.exit(0);

@@ -2,13 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
+import { isTauri, openNativeAudience } from "../../lib/audienceWindow";
+import KaraokeRightPanel from "./KaraokeRightPanel";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Mic, Music, Play, Pause, SkipForward, Shuffle, Repeat, Volume2, QrCode, Layers, Monitor, Home,
   Plus, Trash2, GripVertical, Check, X, ListMusic, UserPlus, Settings, AlertCircle, RefreshCw,
 } from "lucide-react";
 import {
-  AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState,
+  AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState, bufferView, justBecameReady,
   readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume,
 } from "./karaokeFlow";
 
@@ -18,6 +20,20 @@ const accentDim = "rgba(34,197,94,0.15)";
 const accentBorder = "rgba(34,197,94,0.25)";
 const panel = { backgroundColor: "#0a1940", border: `1px solid ${accentBorder}` };
 const field = { backgroundColor: "#141b50", color: "#fff", border: `1px solid ${accentBorder}` };
+
+
+// alpha.89: what travels with a drag. The desktop window (WebView2) only reliably delivers the STANDARD
+// "text/plain" type, so the payload is written there (and under the old key); a small prefix tells a song from a singer.
+const DRAG_SONG = "bighat-song:";
+const DRAG_SINGER = "bighat-singer:";
+export const dragPayload = (kind, value) => (kind === "song" ? DRAG_SONG : DRAG_SINGER) + (typeof value === "string" ? value : JSON.stringify(value));
+export const readDrag = (dt) => {
+  let raw = "";
+  try { raw = dt.getData("text/plain") || ""; } catch { /* some engines throw */ }
+  if (raw.startsWith(DRAG_SONG)) { try { return { kind: "song", song: JSON.parse(raw.slice(DRAG_SONG.length)) }; } catch { return null; } }
+  if (raw.startsWith(DRAG_SINGER)) { const i = parseInt(raw.slice(DRAG_SINGER.length), 10); return Number.isNaN(i) ? null : { kind: "singer", index: i }; }
+  return null;      // anything else (a file, a link, text from another page) is not ours
+};
 
 /**
  * Karaoke host Player (alpha.70). Two tabs, like the prototype:
@@ -66,6 +82,7 @@ export default function KaraokePlayer() {
   const [showQr, setShowQr] = useState(true);
   const [requestUrl, setRequestUrl] = useState("");
   const [qrOnline, setQrOnline] = useState(true);
+  const [audienceOpen, setAudienceOpen] = useState(false);   // alpha.89: is the TV screen open? (the buffer needs it)
 
   const audioRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -274,29 +291,40 @@ export default function KaraokePlayer() {
   const waiting = queue.filter((e) => e.status === "waiting");
   const next = nextSingerState(queue, preloadPct);
 
-  // preload: the audience screen is the only thing that loads video. We tell it which song is next, and it tells us
-  // when that video is really loaded. No pretend progress bar.
+  // preload (alpha.89): the audience screen is the only thing that can load video. We tell it which song is next
+  // and it reports how much is REALLY buffered (percent of the first 45 seconds). The host sees that as a bar on
+  // the queued singer, and is told once when the song has loaded enough.
   const nextId = next.singer && next.singer.id;
   const nextUrl = next.singer && next.singer.embed_url;
+  const [preload, setPreload] = useState(null);
+  const readyToldFor = useRef(null);
   useEffect(() => {
     if (!session) return undefined;
-    setPreloadPct(0);
+    setPreloadPct(0); setPreload(null);
     axios.post(`${API}/karaoke/session/preload`, nextId && nextUrl ? { singer_id: nextId, embed_url: nextUrl } : {}).catch(() => {});
     if (!nextId || !nextUrl) return undefined;
-    let tries = 0;
-    const t = setInterval(async () => {
-      tries += 1;
+    let stopped = false;
+    const poll = async () => {
       try {
         const r = await axios.get(`${API}/karaoke/session/playback`);
         const pre = r.data.preload;
-        if (pre && pre.singer_id === nextId && pre.ready) { setPreloadPct(100); clearInterval(t); return; }
-        // show some movement while we wait, but never "ready" until the audience says so
-        setPreloadPct((p) => Math.min(90, p + 10));
+        if (stopped) return;
+        if (pre && pre.singer_id === nextId) { setPreload({ ...pre }); setPreloadPct(pre.ready ? 100 : Math.min(99, pre.percent || 0)); }
       } catch { /* try again */ }
-      if (tries > 120) clearInterval(t);
-    }, 1000);
-    return () => clearInterval(t);
+    };
+    poll();
+    const t = setInterval(poll, 700);
+    return () => { stopped = true; clearInterval(t); };
   }, [session, nextId, nextUrl]);
+
+  const buffer = bufferView({ next: next.singer, preload, audienceOpen });
+  useEffect(() => {      // tell the host ONCE per singer when the song has loaded enough
+    if (justBecameReady(readyToldFor.current, buffer, nextId)) {
+      readyToldFor.current = nextId;
+      toast.success(`${next.singer.singer_name}'s song is loaded and ready`, { description: next.singer.song_title });
+    }
+    if (!nextId) readyToldFor.current = null;
+  }, [buffer.state, nextId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- start the next singer
   const startNextSinger = async (force = false) => {
@@ -387,9 +415,34 @@ export default function KaraokePlayer() {
     channelRef.current && channelRef.current.postMessage({ type: "karaoke-state", pb: { song_playing: songPlaying, song_ending: songEnding, current_singer: currentSinger, mode, rev: revRef.current }, overlayEnabled, qrEnabled: v });
   };
   const switchMode = async (m) => { setMode(m); await axios.post(`${API}/karaoke/session/mode`, { mode: m }).catch(() => {}); };
-  const openAudience = () => {
+  // alpha.89: same as the Bingo player. In the desktop app the audience screen is a REAL window
+  // ("karaoke-audience"); a pop-up never opens there, which is why the button used to do nothing.
+  const openAudience = async () => {
     if (audienceWinRef.current && !audienceWinRef.current.closed) { audienceWinRef.current.focus(); return; }
-    audienceWinRef.current = window.open(`${window.location.origin}/karaoke/audience`, "karaoke-audience", "width=1280,height=720");
+    if (isTauri()) {
+      try {
+        const { win } = await openNativeAudience({
+          label: "karaoke-audience",
+          path: "/karaoke/audience",
+          title: "BIG Hat - Karaoke Audience",
+          onClosed: () => { audienceWinRef.current = null; setAudienceOpen(false); },
+        });
+        audienceWinRef.current = {
+          closed: false,
+          focus: () => { try { win.setFocus(); } catch (_e) { /* best-effort */ } },
+          close: () => { try { win.close(); } catch (_e) { /* already gone */ } },
+        };
+        setAudienceOpen(true);
+      } catch (err) {
+        console.error("[karaoke audience] native window failed:", err);
+        toast.error(`The audience screen could not open: ${err && err.message ? err.message : err}`);
+      }
+      return;
+    }
+    const w = window.open(`${window.location.origin}/karaoke/audience`, "karaoke-audience", "width=1280,height=720");
+    if (!w) { toast.error("The audience screen was blocked. Allow pop-ups for this page and try again."); return; }
+    audienceWinRef.current = w;
+    setAudienceOpen(true);
   };
   const endNight = async () => {
     if (!window.confirm("End Karaoke for tonight?")) return;
@@ -444,7 +497,8 @@ export default function KaraokePlayer() {
         </div>
       </header>
 
-      <main className="flex-1 p-4 overflow-hidden">
+      <div className="flex-1 flex gap-4 p-4 overflow-hidden" data-testid="karaoke-body">
+      <main className="flex-1 min-w-0 overflow-hidden">
         {/* ============ FILLER TAB ============ */}
         {mode === "filler" && (
           <div className="max-w-3xl mx-auto" data-testid="karaoke-filler-tab">
@@ -509,7 +563,7 @@ export default function KaraokePlayer() {
         {mode === "karaoke" && (
           <div className="flex gap-4 h-full" data-testid="karaoke-karaoke-tab">
             {/* left: now singing + queue */}
-            <div className="w-[420px] shrink-0 flex flex-col gap-3">
+            <div className="w-[340px] xl:w-[420px] shrink-0 flex flex-col gap-3">
               {currentSinger ? (
                 <div className="rounded-xl p-4" style={{ ...panel, borderColor: accent }} data-testid="karaoke-now-singing">
                   <p className="text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: accent }}>Now Singing</p>
@@ -546,36 +600,41 @@ export default function KaraokePlayer() {
                   {next.reason === "no_song" && `Pick a song for ${next.singer.singer_name}`}
                   {next.reason === "no_one_waiting" && "No one waiting"}
                 </button>
-                {next.reason === "loading" && (
+                {buffer.state !== "none" && (
+                  <div className="mt-2" data-testid="karaoke-buffer">
+                    <div className="flex items-center justify-between text-[11px] mb-1" style={{ color: buffer.state === "ready" ? accent : "#8892b0" }}>
+                      <span data-testid="karaoke-buffer-label">
+                        {buffer.state === "ready" && "Loaded and ready"}
+                        {buffer.state === "loading" && "Loading the next song..."}
+                        {buffer.state === "no_screen" && "Open the Audience View so the next song can load"}
+                        {buffer.state === "error" && "The next song could not load"}
+                      </span>
+                      <span data-testid="karaoke-buffer-pct">{buffer.percent}%</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.1)" }} role="progressbar"
+                         aria-valuenow={buffer.percent} aria-valuemin={0} aria-valuemax={100} data-testid="karaoke-buffer-bar">
+                      <div className="h-full rounded-full" style={{ width: `${buffer.percent}%`, backgroundColor: buffer.state === "ready" ? accent : buffer.state === "loading" ? "#fbdd68" : "#555", transition: "width 0.4s" }} data-testid="karaoke-buffer-fill" />
+                    </div>
+                  </div>
+                )}
+                {(next.reason === "loading") && (
                   <button onClick={() => startNextSinger(true)} className="w-full mt-2 text-xs text-zinc-400 underline" data-testid="karaoke-start-anyway-btn">Start anyway</button>
                 )}
               </div>
 
-              {pendingRequests.length > 0 && (
-                <div className="rounded-xl p-3" style={{ ...panel, borderColor: "#fbdd68" }} data-testid="karaoke-requests">
-                  <p className="text-[10px] uppercase tracking-wider font-bold mb-2" style={{ color: "#fbdd68" }}>Song requests ({pendingRequests.length})</p>
-                  {pendingRequests.map((r) => (
-                    <div key={r.id} className="flex items-center gap-2 py-1" data-testid={`karaoke-request-${r.id}`}>
-                      <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{r.singer_name}</p><p className="text-[10px] truncate" style={{ color: "#8892b0" }}>{r.song_title}{r.song_artist ? ` - ${r.song_artist}` : ""}</p></div>
-                      <button onClick={() => acceptRequest(r.id)} className="p-1.5 rounded" style={{ backgroundColor: accentDim, color: accent }} title="Accept" data-testid={`karaoke-accept-${r.id}`}><Check size={14} /></button>
-                      <button onClick={() => rejectRequest(r.id)} className="p-1.5 rounded" style={{ backgroundColor: "rgba(239,68,68,0.15)", color: "#ef4444" }} title="Reject" data-testid={`karaoke-reject-${r.id}`}><X size={14} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               <div className="overflow-y-auto space-y-1 rounded-xl p-2 flex-1" style={{ maxHeight: "calc(100vh - 460px)", backgroundColor: "rgba(0,14,42,0.3)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-queue">
                 {waiting.map((entry, i) => (
                   <div key={entry.id} draggable data-testid={`karaoke-queue-${entry.id}`}
-                    onDragStart={(e) => { e.dataTransfer.setData("queue-idx", String(i)); setDragIdx(i); }}
-                    onDragOver={(e) => { e.preventDefault(); setDropIdx(i); }}
+                    onDragStart={(e) => { e.dataTransfer.effectAllowed = "copyMove"; e.dataTransfer.setData("text/plain", dragPayload("singer", i)); setDragIdx(i); }}
+                    onDragEnd={() => { setDragIdx(null); setDropIdx(null); }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDropIdx(i); }}
                     onDragLeave={() => setDropIdx(null)}
                     onDrop={(e) => {
                       e.preventDefault(); setDragIdx(null); setDropIdx(null);
-                      const songData = e.dataTransfer.getData("song-data");
-                      if (songData) { try { assignSong(entry.id, JSON.parse(songData)); } catch { /* bad drop */ } return; }
-                      const from = parseInt(e.dataTransfer.getData("queue-idx"), 10);
-                      if (!Number.isNaN(from)) reorder(from, i);
+                      const d = readDrag(e.dataTransfer);
+                      if (!d) return;
+                      if (d.kind === "song") { assignSong(entry.id, d.song); return; }
+                      reorder(d.index, i);
                     }}
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
                     className="flex items-center justify-between px-3 py-2 rounded-lg cursor-grab"
@@ -599,11 +658,14 @@ export default function KaraokePlayer() {
               <div className="overflow-y-auto rounded-xl flex-1" style={{ backgroundColor: "rgba(0,14,42,0.5)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-results">
                 {searching && <p className="text-sm text-center py-6" style={{ color: "#8892b0" }}>Searching...</p>}
                 {!searching && results.length > 0 && results.map((song) => (
-                  <div key={song.id} draggable onDragStart={(e) => e.dataTransfer.setData("song-data", JSON.stringify(song))}
+                  <div key={song.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "copyMove"; e.dataTransfer.setData("text/plain", dragPayload("song", song)); }}
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, song }); }}
                     className="flex items-center gap-3 px-4 py-2 hover:bg-white/5 cursor-grab" data-testid={`karaoke-result-${song.id}`}>
                     {song.thumbnail && <img src={song.thumbnail} alt="" className="w-16 h-10 rounded object-cover shrink-0" />}
                     <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{song.title}</p><p className="text-[10px]" style={{ color: "#8892b0" }}>{song.artist}{song.duration_seconds ? ` \u2022 ${clock(song.duration_seconds)}` : ""}</p></div>
+                    <button onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: Math.max(8, r.left - 200), y: r.bottom + 4, song }); }}
+                      className="px-2 py-1 rounded text-[11px] font-bold shrink-0" style={{ backgroundColor: accentDim, color: accent, border: `1px solid ${accentBorder}` }}
+                      title="Give this song to a singer" data-testid={`karaoke-give-${song.id}`}>Give to...</button>
                     <GripVertical size={14} style={{ color: "#555" }} />
                   </div>
                 ))}
@@ -617,16 +679,16 @@ export default function KaraokePlayer() {
         )}
       </main>
 
-      {/* QR panel for the host */}
-      {showQr && requestUrl && mode === "karaoke" && (
-        <div className="fixed bottom-4 right-4 rounded-xl p-3 bg-white" data-testid="karaoke-host-qr"><QRCodeSVG value={requestUrl} size={96} /></div>
-      )}
-      {showQr && !requestUrl && (
-        <div className="fixed bottom-4 right-4 rounded-xl px-3 py-2 text-xs font-semibold" data-testid="karaoke-qr-offline"
-             style={{ backgroundColor: "rgba(251,221,104,0.15)", color: "#fbdd68", border: "1px solid rgba(251,221,104,0.4)", maxWidth: 220 }}>
-          Phone requests are not available right now. Check the internet connection. You can still add songs by hand.
-        </div>
-      )}
+      <KaraokeRightPanel
+        mode={mode} currentSinger={currentSinger} songPlaying={songPlaying} isFillerPlaying={isFillerPlaying}
+        currentTrackName={currentTrack ? String(currentTrack.name || currentTrack.id || "").replace(/\.[a-z0-9]+$/i, "") : ""}
+        audienceOpen={audienceOpen} onOpenAudience={openAudience}
+        showQr={showQr} requestUrl={requestUrl}
+        pendingRequests={pendingRequests} onAccept={acceptRequest} onReject={rejectRequest}
+        queueCount={waiting.length}
+      />
+      </div>
+
 
       {/* right-click menu */}
       {contextMenu && (
