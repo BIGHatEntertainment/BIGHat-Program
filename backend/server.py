@@ -1730,7 +1730,7 @@ async def create_venue_pricing(pricing: VenuePricingCreate):
         doc = obj.model_dump()
         doc['created_at'] = doc['created_at'].isoformat()
         doc['updated_at'] = doc['updated_at'].isoformat()
-        await db.venue_pricing.insert_one(doc)
+        await db.venue_pricing.insert_one(dict(doc))
         return doc
 
 @api_router.get("/venue_pricing")
@@ -2084,7 +2084,7 @@ async def trigger_friday_report(admin: dict = Depends(require_admin)):
         try:
             from error_tracker import log_error
             await log_error("schedule_reports", "friday_report_failed", str(e))
-        except: pass
+        except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/reports/send-monday")
@@ -2099,7 +2099,7 @@ async def trigger_monday_report(admin: dict = Depends(require_admin)):
         try:
             from error_tracker import log_error
             await log_error("schedule_reports", "monday_report_failed", str(e))
-        except: pass
+        except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 

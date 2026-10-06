@@ -381,7 +381,7 @@ async def sync_sharepoint_data():
                                 upsert=True
                             )
                             synced.append(f["name"])
-                        except:
+                        except Exception:
                             pass
         return {"synced": synced, "count": len(synced)}
     except HTTPException:
@@ -482,8 +482,8 @@ async def upload_export(file: UploadFile = File(...)):
     file_path = EXPORTS_DIR / file_id
     
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    from local_disk import write_local_bytes
+    write_local_bytes(file_path, content)
     
     logger.info(f"Export uploaded: {file_id} ({len(content)} bytes)")
     
@@ -532,8 +532,8 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
     
     input_id = f"{uuid.uuid4().hex[:12]}.png"
     input_path = EXPORTS_DIR / input_id
-    with open(input_path, "wb") as f:
-        f.write(content)
+    from local_disk import write_local_bytes
+    write_local_bytes(input_path, content)
     
     logger.info(f"[Scoreboard Video] Input: {input_id} ({len(content)} bytes)")
     
@@ -588,7 +588,7 @@ async def image_to_video(file: UploadFile = File(...), duration: int = 15):
             size = mp4_path.stat().st_size
             logger.info(f"[Scoreboard Video] Created {mp4_id}: {size} bytes, {duration}s @ 20fps, {out_w}x{out_h}")
             try: input_path.unlink()
-            except: pass
+            except Exception: pass
             return {
                 "file_id": mp4_id,
                 "url": f"/api/scoreboard/exports/{mp4_id}",

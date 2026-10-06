@@ -158,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         "--hidden-import", "email_validator",
         "--hidden-import", "bcrypt",
         "--hidden-import", "httpx",
+        "--hidden-import", "local_disk",
         "--collect-submodules", "native",
         "--collect-submodules", "routes",
         "--collect-submodules", "cloud",

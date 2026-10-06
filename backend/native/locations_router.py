@@ -632,7 +632,8 @@ async def upload_branding_image(
     ext = mimetypes.guess_extension(mime) or Path(file.filename or "").suffix or ".bin"
     image_id = str(uuid.uuid4())
     dst = _branding_dir(loc["slug"]) / f"{image_id}{ext}"
-    dst.write_bytes(raw)
+    from local_disk import write_local_bytes
+    write_local_bytes(dst, raw)
 
     record = {
         "id": image_id,
@@ -786,7 +787,8 @@ async def upload_overlay_image(
     ext = mimetypes.guess_extension(mime) or Path(file.filename or "").suffix or ".bin"
     image_id = str(uuid.uuid4())
     dst = _overlays_dir(loc["slug"]) / f"{image_id}{ext}"
-    dst.write_bytes(raw)
+    from local_disk import write_local_bytes
+    write_local_bytes(dst, raw)
 
     record = {
         "id": image_id,

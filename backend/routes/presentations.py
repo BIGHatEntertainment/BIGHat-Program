@@ -293,6 +293,7 @@ async def get_presentation(presentation_id: str):
         return Presentation(**presentation).model_dump()
     except Exception:
         # If validation fails, return raw data
+        presentation.pop('_id', None)
         return presentation
 
 

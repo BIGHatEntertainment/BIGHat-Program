@@ -27,7 +27,6 @@ def _native_docs_root():
     """Resolve `<Documents>/BIG Hat Entertainment/` without depending
     on `native.files_router` (which may fail to import in the frozen
     PyInstaller build, silently killing our disk scans)."""
-    from pathlib import Path
     import os
     override = os.environ.get("BIGHAT_FILES_DIR")
     if override:
@@ -424,7 +423,7 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False, h
                         emp_first = emp['name'].split()[0]
                         if emp_first not in name_variants:
                             name_variants.append(emp_first)
-            except:
+            except Exception:
                 pass
             # Also match userName (short lowercase)
             if userName and userName not in name_variants:
@@ -468,7 +467,7 @@ async def list_trivia_presentations(userName: str = "", viewAll: bool = False, h
                     if isinstance(auto_hide, str):
                         try:
                             auto_hide = dt.fromisoformat(auto_hide.replace('Z', '+00:00').replace('+00:00', ''))
-                        except:
+                        except Exception:
                             auto_hide = None
                     if auto_hide and auto_hide < now:
                         continue  # Skip auto-hidden presentations
@@ -709,7 +708,6 @@ async def debug_state() -> Dict:
     Returns the exact paths + file counts the backend sees so the
     merchant can confirm why a wizard-built presentation is / isn't
     surfacing in the Presenter."""
-    from pathlib import Path
     import os
     result: Dict = {
         "cwd": str(Path.cwd()),
@@ -911,7 +909,7 @@ async def hide_trivia_presentation(presentation_id: str) -> Dict:
 @router.post("/complete/{presentation_id}")
 async def mark_presentation_complete(presentation_id: str) -> Dict:
     """Mark a presentation as completed (Save & Exit). Will auto-hide after 3 days."""
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     try:
         now = datetime.utcnow()
         auto_hide_at = now + timedelta(days=3)

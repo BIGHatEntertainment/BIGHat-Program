@@ -921,18 +921,8 @@ async def upload_host_image(
             pass
 
     dest = folder / f"{KIND_TO_NAME[kind]}{ext}"
-    size = 0
-    with dest.open("wb") as out:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_FILE_BYTES:
-                out.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="file_too_large_max_50MB")
-            out.write(chunk)
+    from local_disk import stream_to_disk
+    size = await stream_to_disk(dest, file.read, max_bytes=MAX_FILE_BYTES)
     return {
         "ok": True,
         "host_id": host_id,
@@ -1131,18 +1121,8 @@ async def files_upload(
     # skip the auto-detect.
     base = _base_root()
     staged = base / f".staging-{name}"
-    size = 0
-    with staged.open("wb") as out:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_FILE_BYTES:
-                out.close()
-                staged.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="file_too_large_max_50MB")
-            out.write(chunk)
+    from local_disk import stream_to_disk
+    size = await stream_to_disk(staged, file.read, max_bytes=MAX_FILE_BYTES)
 
     try:
         if folder:

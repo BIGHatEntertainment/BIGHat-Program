@@ -464,8 +464,8 @@ async def upload_cover(file: UploadFile = File(...)):
     ext = Path(file.filename).suffix or ".png"
     file_path = UPLOAD_DIR / f"{file_id}{ext}"
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    from local_disk import write_local_bytes
+    write_local_bytes(file_path, content)
     return {"file_id": file_id, "filename": file.filename, "path": str(file_path)}
 
 # ── Serve uploaded images ──
@@ -1237,7 +1237,6 @@ async def download_title_image_endpoint(request: Request):
 @router.get("/reg-title-image-preview/{item_id:path}")
 async def preview_reg_title_image(item_id: str):
     """Serve a REG title card preview. Local file in native mode, Graph in cloud mode."""
-    from fastapi.responses import Response
     if _is_local_mode():
         src = (_local_assets_root() / item_id).resolve()
         if not src.exists() or not src.is_file():
@@ -1417,7 +1416,7 @@ async def upload_to_sharepoint(round_id: str, request: Request):
             payload = pyjwt.decode(token, os.environ.get("JWT_SECRET", ""), algorithms=["HS256"])
             role = payload.get("role", "host")
             is_admin = role in ["admin", "master_admin"]
-    except:
+    except Exception:
         pass
     
     # Check approval status
@@ -1455,7 +1454,7 @@ async def approve_round(round_id: str, request: Request):
             raise HTTPException(status_code=401, detail="Not authenticated")
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
     
     doc = await db.rounds.find_one({"id": round_id}, {"_id": 0})
@@ -1492,13 +1491,13 @@ async def reject_round(round_id: str, request: Request):
                 raise HTTPException(status_code=403, detail="Admin access required")
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
     
     body = {}
     try:
         body = await request.json()
-    except:
+    except Exception:
         pass
     
     notes = body.get("notes", "")

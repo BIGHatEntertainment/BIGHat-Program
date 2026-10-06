@@ -1,0 +1,36 @@
+{
+  "summary": "Read-only verification of master test key BHE-28CA-DVU9-NT39-F6KD against PRODUCTION https://api.bighat.live completed. All 4 verifications pass: (1) GET /api/license/status returns owns_standalone=true, owns_music_bingo=true, owns_karaoke=true, max_seats=5, cloud_library_status='active'; (2) Full activate -> validate -> deactivate lifecycle on hwid TA-VERIFY-HWID-37 returns ok=true with all three owns_* true at each step and seat released (active_seats=0 confirmed post-run); (3) Desktop is_well_formed_license accepts the master key and rejects malformed strings; (4) Unknown key BHE-0000-0000-0000-0000 returns 404. Code review of /app/backend/native/router.py (cloud_activate/cloud_validate ~lines 340-360) confirms owns_music_bingo / owns_karaoke / owns_standalone from the cloud response are persisted into the subscription dict and used by subscription.ALL_FEATURES mapping to gate 'music_bingo_enabled', 'karaoke_enabled', 'bingo_story_enabled', 'karaoke_story_enabled'. Frontend consumes `owns_standalone` directly in AppCards.js and SetupWizard.jsx; add-on gating happens server-side through subscription feature flags (music_bingo_enabled, karaoke_enabled) so the add-on flags do reach the UI via the subscription payload. NO mutations beyond the balanced activate/deactivate pair on TA-VERIFY-HWID-37. NO source code was modified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/license/status/{key}", "issue": "Public status payload omits an explicit `revoked` boolean and expiry timestamp (e.g., cloud_library_expires_at). It only exposes cloud_library_status ('active'|...). This is adequate for gating but reduces observability; expiry (~2036-08-14) was not independently verifiable via the public status endpoint."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_master_key_verification.py",
+    "/app/test_reports/pytest/master_key_verification.xml"
+  ],
+  "action_items": [
+    "(Optional) Expose `revoked` boolean and `cloud_library_expires_at` ISO timestamp in GET /api/license/status/{key} public payload so clients (and desktop app) can display expiry and revoked state without needing /activate.",
+    "No action required for master key — fully functional: owns_standalone=true, owns_music_bingo=true, owns_karaoke=true, 5 seats, cloud library active, revoked=false, seat released."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/native/router.py (cloud_activate/cloud_validate near lines 340-360) correctly maps cloud response owns_music_bingo/owns_karaoke/owns_standalone into subscription dict and derived feature flags (music_bingo_enabled, karaoke_enabled, bingo_story_enabled, karaoke_story_enabled). Good.",
+    "/app/backend/native/license.py set_license_key stores only the key string + master_admin_email and seat allocation; it does NOT itself persist owns_* flags. Those flags are persisted via native/router.py's cloud sync into the subscription dict. The split (license vs subscription) is intentional but could be documented explicitly to avoid future confusion.",
+    "is_well_formed_license uses a format-only regex (^BHE(-[A-Z0-9]{4}){4}$). It accepts BHE-0000-0000-0000-0000 as 'well-formed' — correct behaviour: structural check only; semantic validity is server-side."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_master_key_verification.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "skipped"},
+  "test_credentials": "Master test key BHE-28CA-DVU9-NT39-F6KD (owns all products). No admin creds used.",
+  "seed_data_creation": "None. Activate/deactivate were balanced on hwid TA-VERIFY-HWID-37 — final active_seats=0 confirmed via GET /api/license/status.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Master key verification suite lives at /app/backend/tests/test_master_key_verification.py. It talks to PRODUCTION https://api.bighat.live. The activate/validate/deactivate test uses hwid TA-VERIFY-HWID-37 with a MANDATORY teardown fixture that always runs deactivate so no seat is leaked. Public /api/license/status/{key} payload shape confirmed: {key_masked, owns_standalone, owns_music_bingo, owns_karaoke, cloud_library_status, active_seats, max_seats} — no `revoked` or expiry fields exposed."
+}

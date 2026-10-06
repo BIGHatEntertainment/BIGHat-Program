@@ -1094,9 +1094,9 @@ def _run_video_assembly(job_id: str, request_data: dict):
         # Render location frame
         loc_frame_path = os.path.join(temp_dir, "location.png")
         try: font48 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
-        except: font48 = ImageFont.load_default()
+        except Exception: font48 = ImageFont.load_default()
         try: font42 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
-        except: font42 = ImageFont.load_default()
+        except Exception: font42 = ImageFont.load_default()
         
         if loc_img:
             loc_img.convert('RGB').resize((W, H), Image.LANCZOS).save(loc_frame_path, 'PNG')
@@ -1131,7 +1131,7 @@ def _run_video_assembly(job_id: str, request_data: dict):
         for i, r in enumerate(rounds):
             y = start_y + i * (box_h + gap)
             try: rgb = tuple(int(r.get('color', '#FF6B6B').lstrip('#')[j:j+2], 16) for j in (0, 2, 4))
-            except: rgb = (255, 107, 107)
+            except Exception: rgb = (255, 107, 107)
             draw.rounded_rectangle([(box_x, y), (box_x + box_w, y + box_h)], radius=12, fill=rgb)
             name = r.get('name', f'Round {i+1}')
             bbox = font42.getbbox(name)
@@ -1358,8 +1358,8 @@ async def store_temp_video(request: StoreVideoRequest):
         os.makedirs(temp_dir, exist_ok=True)
         
         file_path = os.path.join(temp_dir, f"{file_id}.mp4")
-        with open(file_path, 'wb') as f:
-            f.write(video_bytes)
+        from local_disk import write_local_bytes
+        write_local_bytes(file_path, video_bytes)
         
         _temp_video_store[file_id] = {
             "path": file_path,

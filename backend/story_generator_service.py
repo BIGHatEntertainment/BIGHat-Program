@@ -1466,9 +1466,8 @@ class StoryGeneratorService:
             
             # Create concat file for FFmpeg
             concat_file = self.generated_dir / f"concat_{uuid.uuid4().hex[:8]}.txt"
-            with open(concat_file, 'w') as f:
-                for seg in segment_files:
-                    f.write(f"file '{seg}'\n")
+            from local_disk import write_local_text
+            write_local_text(concat_file, "".join(f"file '{seg}'\n" for seg in segment_files))
             temp_files.append(concat_file)
             
             # Concatenate segments without re-encoding (super fast)

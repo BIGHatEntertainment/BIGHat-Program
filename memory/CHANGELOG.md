@@ -3806,3 +3806,10 @@ with both `MUI_FINISHPAGE_RUN ""` + `MUI_FINISHPAGE_RUN_FUNCTION LaunchApp`
 * v31.0.4: VBS-orchestrated launch but opened default browser. User saw a regular browser tab with their normal Chrome profile (multi-tab strip visible). Rejected by user — must use chromeless --app= mode instead. Also Finish-page auto-launch was broken (MUI_FINISHPAGE_RUN_FUNCTION didn't fire).
 
 All of these are obsolete. v31.0.5 is the current canonical build.
+
+## 2026-06 (fork session) — Lint cleanup, no release
+- Fixed all 28 blocking lint errors from previous session: F821 undefined `datetime` (trivia_viewer.py:916), F811 duplicate `Path`/`Response` imports, 13x E722 bare excepts, 2x ObjectId serialization bugs (server.py venue_pricing insert, presentations.py raw doc fallback).
+- Backend verified clean (ruff pass) and running.
+- No release cut. User reports they are on alpha.77 — "Montezuma" (architect agent) is building releases directly in the GitHub repo now. User is self-testing with Master Key BHE-28CA-DVU9-NT39-F6KD and will report back.
+- Added `/app/backend/local_disk.py` (write_local_bytes / write_local_text / stream_to_disk) and routed all 9 upload/export disk writes through it (scoreboard, roundmaker, story_generator, native files_router, native locations_router). Behavior unchanged — local disk remains source of truth; max-size 413 enforcement preserved in stream_to_disk. Added `--hidden-import local_disk` to build_sidecar.py for the frozen PyInstaller build.
+- Verified: ruff E722/F811/F821 clean across backend, upload-cover endpoint functional test passed, alpha55 title-card test suite 12/12 passed.
