@@ -345,7 +345,7 @@ async def list_locations(request: Request) -> List[Dict[str, Any]]:
 
     await _hydrate_from_disk()  # fail-loud self-heal
 
-    query: Dict[str, Any] = {}
+    query: Dict[str, Any] = {"retired": {"$ne": True}}      # alpha.80: a deleted venue's location is hidden, not destroyed
     if not _is_master(user):
         query["assigned_user_ids"] = _user_id(user)
 
@@ -365,7 +365,8 @@ async def list_locations(request: Request) -> List[Dict[str, Any]]:
 # on EVERY write and read back first by _hydrate_from_disk. The DB is a cache.
 # ---------------------------------------------------------------------------
 _PERSIST_KEYS = ("id", "name", "slug", "branding_images", "overlay_images",
-                 "assigned_user_ids", "created_at", "updated_at", "created_by")
+                 "assigned_user_ids", "created_at", "updated_at", "created_by",
+                 "venue_id", "retired")      # alpha.80: the link to the Schedule venue + "venue was deleted"
 
 
 def _location_json_path(slug: str) -> Path:
@@ -488,6 +489,8 @@ async def _hydrate_from_disk() -> Dict[str, Any]:
                 "created_at": saved.get("created_at") or now,
                 "updated_at": saved.get("updated_at") or now,
                 "created_by": saved.get("created_by") or "restored",
+                "venue_id": saved.get("venue_id"),          # alpha.80: keep the link to the Schedule venue
+                "retired": bool(saved.get("retired")),      # alpha.80: and "its venue was deleted"
             }
         else:
             doc = {
@@ -676,6 +679,14 @@ async def create_location(payload: LocationCreate, request: Request) -> Dict[str
     _branding_dir(slug)
     _overlays_dir(slug)
     _write_location_json(doc)
+    # alpha.80: the Schedule's venue list is the source of truth, so every location has a venue.  If someone adds a
+    # place here, give it a venue (they can add the address in the Schedule) instead of leaving it out of the Schedule.
+    try:
+        from native import venue_sync
+        await venue_sync.reconcile(_db)
+        doc = await _db.locations.find_one({"id": doc["id"]}, {"_id": 0}) or doc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("locations_router: venue link failed for %s: %s", doc.get("name"), exc)
     return doc
 
 
@@ -699,9 +710,23 @@ async def update_location(
             updates["name"] = new_name
     if not updates:
         return _strip_admin_only(loc, user)
+    # alpha.80: the Schedule's venue is the master record, so a rename here renames the venue too (or the two would drift)
+    if "name" in updates:
+        from native import venue_sync
+        for v in await _db.venues.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(2000):
+            if v.get("id") != loc.get("venue_id") and venue_sync.name_key(v.get("name", "")) == venue_sync.name_key(updates["name"]):
+                raise HTTPException(status_code=409, detail=f"A venue named \"{v.get('name')}\" already exists")
+        if loc.get("venue_id"):
+            await _db.venues.update_one({"id": loc["venue_id"]}, {"$set": {"name": updates["name"]}})
+        try:                                              # its Story pictures are matched by name, so they follow
+            from native import story_images
+            story_images.rename_place(loc.get("name", ""), updates["name"])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("locations_router: could not rename Story pictures: %s", exc)
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await _db.locations.update_one({"id": location_id}, {"$set": updates})
     new_loc = await _get_location_or_404(location_id)
+    _write_location_json(new_loc)                       # keep the on-disk copy in step with the new name
     return _strip_admin_only(new_loc, user)
 
 
@@ -711,6 +736,10 @@ async def delete_location(location_id: str, request: Request):
     Files/Locations/<slug>/ tree and any leftover legacy assets tree)."""
     await _require_master(request)
     loc = await _get_location_or_404(location_id)
+    # alpha.80: a place that has a Schedule venue is managed from the Schedule.  Deleting only the location here would
+    # just bring it back at the next start (the venue re-creates it), so say so instead.
+    if loc.get("venue_id") and await _db.venues.find_one({"id": loc["venue_id"]}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=409, detail="This place is a venue in your Schedule. Delete it there (Schedule > Admin > Venues) and its pictures are kept in case you add it back.")
     await _db.locations.delete_one({"id": location_id})
     try:
         from native import locations_backup

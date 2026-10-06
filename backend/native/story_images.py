@@ -153,17 +153,34 @@ def list_files(kind: str) -> List[Dict]:
     return out
 
 
-def locations(kind: str) -> List[Dict]:
-    """The dropdown list for a story builder: one entry per location that has a location image."""
-    return [{"id": f["filename"], "name": f["name"], "filename": f["filename"], "has_background": False}
-            for f in list_files(kind) if f["variant"] == "location"] if _kind(kind) != "Trivia" else _trivia_locations()
+def locations(kind: str, venue_names=None) -> List[Dict]:
+    """The dropdown list for a story builder.
 
-
-def _trivia_locations() -> List[Dict]:
-    files = list_files("Trivia")
-    bgs = {match_key(f["name"]) for f in files if f["variant"] == "background"}
-    return [{"id": f["filename"], "name": f["name"], "filename": f["filename"], "has_background": match_key(f["name"]) in bgs}
-            for f in files if f["variant"] == "location"]
+    alpha.80: the Schedule's VENUES are the list of places.  With `venue_names`, every venue is listed and marked
+    has_image True/False (a new venue shows up at once, marked "needs image").  Any picture whose name matches no
+    venue is still listed, so an image uploaded earlier is never hidden.  Without `venue_names` (no database yet)
+    it is just the pictures, as before.
+    """
+    kind = _kind(kind)
+    files = [f for f in list_files(kind) if f["variant"] == "location"]
+    bgs = {match_key(f["name"]) for f in list_files("Trivia") if f["variant"] == "background"} if kind == "Trivia" else set()
+    by_key = {match_key(f["name"]): f for f in files}
+    out: List[Dict] = []
+    seen = set()
+    for name in (venue_names or []):
+        key = match_key(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        f = by_key.get(key)
+        out.append({"id": f["filename"] if f else "", "name": name, "filename": f["filename"] if f else "",
+                    "has_image": bool(f), "has_background": key in bgs})
+    for f in files:                                           # pictures with no matching venue stay visible
+        if match_key(f["name"]) not in seen:
+            seen.add(match_key(f["name"]))
+            out.append({"id": f["filename"], "name": f["name"], "filename": f["filename"], "has_image": True,
+                        "has_background": match_key(f["name"]) in bgs})
+    return sorted(out, key=lambda x: x["name"].lower())
 
 
 def find(kind: str, name: str, variant: str = "location") -> Optional[Path]:
@@ -214,3 +231,34 @@ def hosts() -> List[Dict]:
     """Dropdown list of host pictures for the story builders."""
     return [{"id": f["filename"], "name": f["name"], "filename": f["filename"], "is_gif": f["filename"].lower().endswith(".gif")}
             for f in list_files("Hosts")]
+
+
+def rename_place(old_name: str, new_name: str) -> int:
+    """A venue was renamed in the Schedule: give its Story pictures the new name so they stay attached to it.
+    Returns how many files were renamed.  Never raises; never overwrites a picture that already has the new name."""
+    n = 0
+    old_key, new_clean = match_key(old_name), clean_name(new_name)
+    if not old_key or not new_clean or match_key(new_name) == old_key and clean_name(old_name) == new_clean:
+        return 0
+    try:
+        for kind in ("Trivia", "Bingo", "Karaoke"):
+            for f in list_files(kind):
+                if match_key(f["name"]) != old_key:
+                    continue
+                suffix = _BG_SUFFIX if f["variant"] == "background" else ""
+                ext = Path(f["filename"]).suffix
+                target = f"{new_clean}{suffix}{ext}"
+                if target == f["filename"]:
+                    continue
+                # the new name already has a picture (any extension): keep that one, leave the old picture alone
+                if any(match_key(g["name"]) == match_key(new_name) and g["variant"] == f["variant"] for g in list_files(kind)):
+                    continue
+                for base in (root() / kind, backup_root() / kind):
+                    src = base / f["filename"]
+                    dst = base / target
+                    if src.is_file() and not dst.exists():
+                        os.replace(src, dst)
+                        n += 1
+    except OSError:
+        pass
+    return n

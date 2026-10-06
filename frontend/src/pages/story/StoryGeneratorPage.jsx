@@ -617,7 +617,7 @@ function EventStoryBuilder({ eventType, onBack }) {
 
   // Fetch preview when both selections are made
   useEffect(() => {
-    if (selectedLocation && selectedHost) {
+    if (selectedLocation && selectedLocation.has_image !== false && selectedHost) {
       fetchPreview();
     } else {
       setPreviewImages(null);
@@ -625,7 +625,7 @@ function EventStoryBuilder({ eventType, onBack }) {
   }, [selectedLocation, selectedHost]);
 
   const fetchPreview = async () => {
-    if (!selectedLocation || !selectedHost) return;
+    if (!selectedLocation || selectedLocation.has_image === false || !selectedHost) return;
     setLoadingPreview(true);
     try {
       const res = await axios.post(`${API}/story-generator/event-preview`, {
@@ -647,7 +647,7 @@ function EventStoryBuilder({ eventType, onBack }) {
   };
 
   const handleGenerate = async () => {
-    if (!selectedLocation || !selectedHost) return;
+    if (!selectedLocation || selectedLocation.has_image === false || !selectedHost) return;
     setGenerating(true);
     setGenProgress(5);
     setGeneratedVideo(null);
@@ -767,9 +767,10 @@ function EventStoryBuilder({ eventType, onBack }) {
                   <MapPin size={12} /> Location
                 </label>
                 <select
-                  value={selectedLocation?.id || ''}
+                  value={selectedLocation?.name || ''}
                   onChange={(e) => {
-                    const loc = locations.find(l => l.id === e.target.value);
+                    // alpha.80: the list is the Schedule's venues; a venue with no picture yet has an empty id, so pick by name
+                    const loc = locations.find(l => l.name === e.target.value);
                     setSelectedLocation(loc || null);
                   }}
                   className="w-full px-4 py-3 rounded-lg text-sm font-medium focus:outline-none"
@@ -778,10 +779,16 @@ function EventStoryBuilder({ eventType, onBack }) {
                 >
                   <option value="">Select a location...</option>
                   {locations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    <option key={loc.name} value={loc.name}>{loc.has_image === false ? `${loc.name}  (needs a picture)` : loc.name}</option>
                   ))}
                 </select>
-                <p className="mt-2 text-[10px]" style={{ color: '#8892b0' }}>{locations.length} locations available</p>
+                {selectedLocation && selectedLocation.has_image === false ? (
+                  <p className="mt-2 text-[11px]" style={{ color: '#fbdd68' }} data-testid="event-location-needs-image">
+                    {selectedLocation.name} has no {eventLabel} picture yet. Click "Story Images" at the top and add one.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[10px]" style={{ color: '#8892b0' }}>{locations.length} locations (from your Schedule venues)</p>
+                )}
               </div>
 
               {/* Host Dropdown */}
@@ -866,7 +873,9 @@ function EventStoryBuilder({ eventType, onBack }) {
                       {eventType === 'bingo' ? <Music size={28} style={{ color: accentColor }} /> : <Mic size={28} style={{ color: accentColor }} />}
                     </div>
                     <p className="text-xs text-center" style={{ color: '#8892b0' }}>
-                      {selectedLocation && selectedHost
+                      {selectedLocation && selectedLocation.has_image === false
+                        ? `Add a ${eventLabel} picture for ${selectedLocation.name} (Story Images) to see the preview`
+                        : selectedLocation && selectedHost
                         ? 'Loading preview...'
                         : 'Select a location and host to see preview'}
                     </p>
@@ -908,7 +917,7 @@ function EventStoryBuilder({ eventType, onBack }) {
                   <div>
                     <button
                       onClick={handleGenerate}
-                      disabled={generating || !selectedLocation || !selectedHost}
+                      disabled={generating || !selectedLocation || selectedLocation.has_image === false || !selectedHost}
                       className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold transition-all hover:shadow-lg disabled:opacity-50"
                       style={{ backgroundColor: accentColor, color: '#fff', boxShadow: `0 0 30px ${accentColor}40` }}
                       data-testid="event-generate-btn"

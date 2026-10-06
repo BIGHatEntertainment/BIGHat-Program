@@ -4041,3 +4041,13 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - FOUND, NOT FIXED: Schedule VENUES and Trivia Setup LOCATIONS are two separate lists that nothing links; a host with locations only in Trivia Setup sees an empty venue list. Needs a decision (see PRD).
 - FOUND, NOT FIXED: the daily backup works (zip of config + database + .env, 14 days, Documents/BIG Hat Entertainment/Backups) but there is NO restore feature.
 - Tests: tests/test_alpha79_schedule.py (5); frontend scripts/bingo/schedule.check.mjs (22 checks on the real EventManager + MonthlyCalendarDialog; verified to fail when the fixes are reverted); scripts/e2e_schedule.sh and e2e_backup_schedule.sh (real app).
+
+## alpha.80 (local, not pushed): the Schedule's VENUES are the single list of places for the whole app
+- DECISION (user, 2026-10-05): venues added in the Schedule must appear everywhere (Trivia/Bingo/Karaoke Setup, Story generator, ...).
+- native/venue_sync.py: venue = master record; its LOCATION (images, overlays, admins, Files/Locations/<slug>/) is created from it. add venue -> location created/linked; rename venue -> location renamed (slug/folder unchanged) + Story pictures renamed (story_images.rename_place); delete venue -> location RETIRED (hidden everywhere, pictures kept; add it back by name and they return); startup reconcile() gives every old location a venue (address blank) and every venue a location (safe to run repeatedly, no duplicates).
+- server.py: venue create/update refuse a second venue with the same name (loose match, 409); venue delete refused while it still has events (409); Venue has location_id; lifespan runs venue_sync.reconcile before the employee sync.
+- native/locations_router.py: lists hide retired places; create from Trivia Setup also makes the venue; rename there renames the venue; delete there is refused (409) while it is a venue (the Schedule is where places are removed); venue_id/retired are persisted in location.json and restored on hydrate.
+- Story: event-assets lists EVERY venue with has_image (new venue shows "needs a picture"); picture upload/preview/generate blocked for a venue with no picture; Story Images manager uses a venue dropdown (A-Z) and lists venues still needing a picture.
+- Bingo has no place picker (nothing to change). The Trivia story finds pictures by presentation location name -> venue name via loose matching.
+- Tests: tests/test_alpha80_venue_sync.py (17); scripts/e2e_venues.sh, e2e_venue_migration.sh, e2e_story_venues.sh (real app); frontend scripts/bingo/story_venues.check.mjs. Backend total 157 (use BOTH patterns: tests/test_alpha7*.py tests/test_alpha8*.py).
+- KNOWN: a venue created from an old location has a blank address until the host fills it in (Schedule > Admin > Venues).

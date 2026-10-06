@@ -21,6 +21,7 @@ export default function StoryImagesManager({ onClose }) {
   const [name, setName] = useState('');
   const [variant, setVariant] = useState('location');
   const [busy, setBusy] = useState(false);
+  const [venues, setVenues] = useState([]);   // alpha.80: the Schedule's venues are the list of places
 
   const load = useCallback(async () => {
     try {
@@ -33,6 +34,16 @@ export default function StoryImagesManager({ onClose }) {
   }, [tab]);
 
   useEffect(() => { setVariant('location'); setName(''); load(); }, [tab, load]);
+
+  useEffect(() => {
+    axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/venues`)
+      .then(r => setVenues((r.data || []).map(v => v.name).filter(Boolean).sort((a, b) => a.localeCompare(b))))
+      .catch(() => setVenues([]));
+  }, []);
+
+  // which venues still have no picture on this tab
+  const have = new Set(files.filter(f => f.variant === 'location').map(f => f.name.toLowerCase().replace(/[^a-z0-9]+/g, '')));
+  const missing = tab.kind === 'hosts' ? [] : venues.filter(v => !have.has(v.toLowerCase().replace(/[^a-z0-9]+/g, '')));
 
   const upload = async (e) => {
     const file = e.target.files?.[0];
@@ -90,8 +101,16 @@ export default function StoryImagesManager({ onClose }) {
           <div className="flex flex-wrap items-end gap-3 mb-4">
             <div className="flex-1 min-w-[180px]">
               <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: '#8892b0' }}>{tab.kind === 'hosts' ? 'Host name' : 'Location name'}</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={tab.kind === 'hosts' ? 'e.g. Alex' : 'e.g. Monkey Pants'}
-                className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: '#141b50', color: '#fff', border: '1px solid rgba(255,255,255,0.15)' }} data-testid="story-images-name" />
+              {tab.kind === 'hosts' || venues.length === 0 ? (
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder={tab.kind === 'hosts' ? 'e.g. Alex' : 'e.g. Monkey Pants'}
+                  className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: '#141b50', color: '#fff', border: '1px solid rgba(255,255,255,0.15)' }} data-testid="story-images-name" />
+              ) : (
+                <select value={name} onChange={(e) => setName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: '#141b50', color: '#fff', border: '1px solid rgba(255,255,255,0.15)' }} data-testid="story-images-venue">
+                  <option value="">Choose a venue...</option>
+                  {venues.map(v => <option key={v} value={v}>{v}{missing.includes(v) ? '  (needs a picture)' : ''}</option>)}
+                </select>
+              )}
             </div>
             {tab.variants && (
               <select value={variant} onChange={(e) => setVariant(e.target.value)} className="px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: '#141b50', color: '#fff', border: '1px solid rgba(255,255,255,0.15)' }} data-testid="story-images-variant">
@@ -105,6 +124,16 @@ export default function StoryImagesManager({ onClose }) {
             </label>
           </div>
 
+          {tab.kind !== 'hosts' && venues.length === 0 && (
+            <p className="text-xs mb-3" style={{ color: '#fbdd68' }} data-testid="story-images-no-venues">
+              No venues yet. Add your venues in the Schedule (Admin &gt; Venues) and they will appear here.
+            </p>
+          )}
+          {missing.length > 0 && (
+            <p className="text-xs mb-3" style={{ color: '#8892b0' }} data-testid="story-images-missing">
+              Still need a {tab.label} picture: {missing.join(', ')}
+            </p>
+          )}
           {files.length === 0 ? (
             <div className="text-center py-10 text-sm rounded-xl" style={{ color: '#8892b0', border: '1px dashed rgba(255,255,255,0.15)' }} data-testid="story-images-empty">
               No {tab.label} images yet. Type a name, then choose an image.

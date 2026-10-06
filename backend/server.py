@@ -190,6 +190,7 @@ class Venue(BaseModel):
     state: str = "AZ"
     notes: Optional[str] = None
     venue_pays_host_directly: bool = False
+    location_id: Optional[str] = None     # alpha.80: the matching Trivia/Bingo/Karaoke/Story location (images, overlays)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class VenueCreate(BaseModel):
@@ -616,6 +617,14 @@ async def lifespan(app: FastAPI):
             credential_ledger.sync_from_config(cfg.get("users", []))
     except Exception as e:                                    # noqa: BLE001
         logger.warning("[alpha.73] ledger boot step failed: %s", e)
+
+    # alpha.80: the Schedule's venues are the single list of places; link venues <-> locations
+    # (creates the venue for a location that was set up before this release, and the location for a venue)
+    try:
+        from native import venue_sync
+        await venue_sync.reconcile(db)
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning(f"[alpha.80] venue/location reconcile skipped: {e}")
 
     # Sync hub users from schedule employees (employees are source of truth)
     # alpha.72: the standalone app keeps its users in system_config.json, so add missing users there
@@ -1530,7 +1539,14 @@ async def create_venue(venue: VenueCreate):
     obj = Venue(**venue.model_dump())
     doc = obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
+    # alpha.80: one venue per name (a second "Monkey Pants" would split its events and images across two places)
+    from native import venue_sync
+    for v in await db.venues.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(2000):
+        if venue_sync.name_key(v.get("name", "")) == venue_sync.name_key(obj.name):
+            raise HTTPException(status_code=409, detail=f"A venue named \"{v.get('name')}\" already exists")
     await db.venues.insert_one(doc)
+    # the venue is the master record: its location (images, overlays, admins) is created from it
+    await venue_sync.ensure_location(db, doc)
     return obj
 
 @api_router.get("/venues")
@@ -1546,17 +1562,35 @@ async def update_venue(venue_id: str, venue: VenueCreate):
     existing = await db.venues.find_one({"id": venue_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Venue not found")
+    from native import venue_sync
+    for v in await db.venues.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(2000):
+        if v.get("id") != venue_id and venue_sync.name_key(v.get("name", "")) == venue_sync.name_key(venue.name):
+            raise HTTPException(status_code=409, detail=f"A venue named \"{v.get('name')}\" already exists")
     await db.venues.update_one({"id": venue_id}, {"$set": venue.model_dump()})
     updated = await db.venues.find_one({"id": venue_id}, {"_id": 0})
+    await venue_sync.rename(db, updated)                         # the location follows the new name; images stay put
+    if existing.get("name") != updated.get("name"):              # and so do its Story pictures (they are matched by name)
+        try:
+            from native import story_images
+            story_images.rename_place(existing.get("name", ""), updated.get("name", ""))
+        except Exception as e:                                   # noqa: BLE001
+            logger.warning(f"could not rename Story pictures for {existing.get('name')}: {e}")
     if isinstance(updated.get('created_at'), str):
         updated['created_at'] = datetime.fromisoformat(updated['created_at'])
     return updated
 
 @api_router.delete("/venues/{venue_id}")
 async def delete_venue(venue_id: str):
-    result = await db.venues.delete_one({"id": venue_id})
-    if result.deleted_count == 0:
+    existing = await db.venues.find_one({"id": venue_id}, {"_id": 0})
+    if not existing:
         raise HTTPException(status_code=404, detail="Venue not found")
+    # alpha.80: do not strand events on a venue that no longer exists
+    in_use = await db.events.count_documents({"venue_id": venue_id})
+    if in_use:
+        raise HTTPException(status_code=409, detail=f"This venue still has {in_use} event(s) on the schedule. Delete or move those events first.")
+    await db.venues.delete_one({"id": venue_id})
+    from native import venue_sync
+    await venue_sync.retire(db, existing)                        # hidden everywhere, images kept
     return {"success": True, "message": "Venue deleted"}
 
 # =============================================

@@ -1434,6 +1434,17 @@ async def download_temp_video(file_id: str):
 
 # ========== EVENT STORY GENERATOR (Bingo & Karaoke) ==========
 
+async def _venue_names() -> list:
+    """The Schedule's venues: the single list of places for the whole app (alpha.80)."""
+    try:
+        if db is None:
+            return []
+        return [v.get("name", "") for v in await db.venues.find({}, {"_id": 0, "name": 1}).to_list(2000) if v.get("name")]
+    except Exception as e:                                     # noqa: BLE001
+        logger.warning(f"[story] could not read venues: {e}")
+        return []
+
+
 @router.get("/event-assets/{event_type}")
 async def get_event_assets(event_type: str) -> Dict:
     """
@@ -1445,7 +1456,7 @@ async def get_event_assets(event_type: str) -> Dict:
     from native import story_images
     try:
         return {"success": True, "event_type": event_type,
-                "locations": story_images.locations(event_type), "hosts": story_images.hosts()}
+                "locations": story_images.locations(event_type, await _venue_names()), "hosts": story_images.hosts()}
     except Exception as e:                                     # noqa: BLE001
         logger.error(f"[EventAssets] Error listing {event_type} assets: {e}")
         raise HTTPException(status_code=500, detail=str(e))
