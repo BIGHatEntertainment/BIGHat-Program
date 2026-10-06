@@ -23,7 +23,8 @@ def write_local_text(path, text: str) -> int:
     return len(text)
 
 
-async def stream_to_disk(path, read, max_bytes: int | None = None) -> int:
+async def stream_to_disk(path, read, max_bytes: int | None = None,
+                         too_big_detail: str = "file_too_large_max_50MB") -> int:
     """Stream chunks from an async `read(n)` callable to a local file."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,6 @@ async def stream_to_disk(path, read, max_bytes: int | None = None) -> int:
             if max_bytes is not None and size > max_bytes:
                 out.close()
                 p.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="file_too_large_max_50MB")
+                raise HTTPException(status_code=413, detail=too_big_detail)
             out.write(chunk)
     return size

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NativeProvider, useNative } from './context/NativeContext';
 import { installDebugCapture } from './lib/debugLogger';   // v32.0.0-alpha.42
@@ -124,6 +124,14 @@ function NativeGate({ children }) {
   return children;
 }
 
+function RelayRedirect({ kind }) {
+  const { relayId } = useParams();
+  React.useEffect(() => {
+    window.location.replace(`${process.env.REACT_APP_BACKEND_URL || ''}/api/relay/${kind}/${relayId}`);
+  }, [kind, relayId]);
+  return <LoadingScreen label="Opening link..." />;
+}
+
 function AppRoutes() {
   const location = useLocation();
   // Check URL fragment for session_id from Google OAuth callback
@@ -161,6 +169,8 @@ function AppRoutes() {
         <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />
         <Route path="/scoreboard/live" element={<ProtectedRoute><ScoreboardLiveRender /></ProtectedRoute>} />
         <Route path="/story-generator" element={<ProtectedRoute><StoryGeneratorPage /></ProtectedRoute>} />
+        <Route path="/d/:relayId" element={<RelayRedirect kind="d" />} />
+        <Route path="/k/:relayId" element={<RelayRedirect kind="k" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </NativeGate>
