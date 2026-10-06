@@ -22,7 +22,7 @@ echo "[$LABEL] users after (load #2):  $(users)"
 echo "[$LABEL] Sam can log in:         $(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$J" -d '{"email":"sam.host@example.com","password":"SamsPass99"}' $B/auth/login)"
 echo "[$LABEL] duplicate email ->      $(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$J" -d '{"name":"Sam Two","email":"sam.host@example.com","is_admin":false}' $B/employees)"
 echo "[$LABEL] bad email ->            $(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$J" -d '{"name":"Nope","email":"not-an-email","is_admin":false}' $B/employees)"
-EID=$(curl -s $B/employees | python3 -c "import sys,json;print(json.load(sys.stdin)[0]['id'])")
+EID=$(curl -s $B/employees | python3 -c "import sys,json;print([e['id'] for e in json.load(sys.stdin) if e['email']=='sam.host@example.com'][0])")
 curl -s -X PUT -H "$J" -d '{"name":"Sam Q Host","email":"sam.host@example.com","phone":"555-0202","is_admin":true}' $B/employees/$EID >/dev/null
 echo "[$LABEL] after making Sam admin: $(curl -s -H "$A" $B/users | python3 -c "import sys,json;d=json.load(sys.stdin);d=d if isinstance(d,list) else d.get('users',[]);print([(u['email'],u['role']) for u in d if 'sam' in u['email']])")"
 echo "[$LABEL] Sam still logs in (old pw kept): $(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$J" -d '{"email":"sam.host@example.com","password":"SamsPass99"}' $B/auth/login)"

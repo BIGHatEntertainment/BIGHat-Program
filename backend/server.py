@@ -618,6 +618,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:                                    # noqa: BLE001
         logger.warning("[alpha.73] ledger boot step failed: %s", e)
 
+    # alpha.81: the master admin is also a Schedule employee (created at setup / first start after update)
+    try:
+        from native import employee_sync as _es
+        if await _es.ensure_master_employee(db):
+            logger.info("[alpha.81] master admin added to the Schedule employee list")
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("[alpha.81] master employee step failed: %s", e)
+
     # alpha.80: the Schedule's venues are the single list of places; link venues <-> locations
     # (creates the venue for a location that was set up before this release, and the location for a venue)
     try:
@@ -1422,7 +1430,9 @@ async def reset_employee_password(employee_id: str, reset: PasswordReset):
     from native import employee_sync
     if len((reset.new_password or "").strip()) < 6:
         raise HTTPException(status_code=400, detail="The password must be at least 6 characters.")
-    await employee_sync.set_user_password(employee.get("email"), reset.new_password)      # the login, not just the record
+    changed = await employee_sync.set_user_password(employee.get("email"), reset.new_password)      # the login, not just the record
+    if not changed and employee_sync.is_master(employee_sync.find_user(employee.get("email"))):
+        raise HTTPException(status_code=403, detail="The master admin's password can only be changed by the master admin from their own profile.")
     return {"success": True, "message": "Password reset successfully"}
 
 # =============================================
@@ -1448,6 +1458,10 @@ async def create_schedule_employee(employee: ScheduleEmployeeCreate):
         raise HTTPException(status_code=400, detail="Please enter the employee's name.")
     if "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if employee_sync.is_master(employee_sync.find_user(email)):
+        # the owner already has a login with their own password; never make a second one
+        await employee_sync.ensure_master_employee(db)
+        raise HTTPException(status_code=409, detail="That is the master admin. They are already in the employee list and sign in with the password they chose at setup.")
     if await db.employees.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}):
         raise HTTPException(status_code=409, detail="An employee with that email already exists.")
     data = employee.model_dump()

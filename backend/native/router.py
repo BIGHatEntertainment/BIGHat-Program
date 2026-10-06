@@ -254,6 +254,15 @@ async def initialize_setup(payload: SetupInitRequest):
     except Exception as e:  # pragma: no cover — never fail setup over disk
         logger.warning("[setup] could not persist host.json: %s", e)
 
+    # alpha.81: the master admin also hosts events, so they are created in the Schedule's employee list
+    # right away. Their login (and the password they just chose) stays untouched. Never fails setup.
+    try:
+        import server as _server  # lazy: server imports this module
+        from . import employee_sync as _es
+        await _es.ensure_master_employee(_server.db)
+    except Exception as e:  # pragma: no cover
+        logger.warning("[setup] could not add master admin to the Schedule: %s", e)
+
     # 3. Mirror cloud response (subscription flags, seats) OR flag pending.
     #
     # SECURITY INVARIANT — the cloud is authoritative on entitlement.

@@ -9,6 +9,7 @@ The master admin is never created, changed in role, or deleted from here.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -62,7 +63,7 @@ async def upsert_user_for_employee(name: str, email: str, is_admin: bool, phone:
         existing["phone"] = phone
         existing["role"] = role_for(is_admin)
         existing["is_admin"] = bool(is_admin)
-        if password:                              # only when a NEW password was typed
+        if password and not is_master(existing):  # only when a NEW password was typed (never the master's)
             existing["password_hash"] = _hash(password)
         existing["updated_at"] = datetime.now(timezone.utc).isoformat()
         admin_router._save_config()
@@ -87,6 +88,25 @@ async def upsert_user_for_employee(name: str, email: str, is_admin: bool, phone:
     admin_router._save_config()
     await admin_router._mirror_to_db(user)
     return user
+
+
+async def ensure_master_employee(db) -> bool:
+    """The master admin is also a Schedule employee (they host events too).
+    Creates the employee row if missing. Never touches the master's login or password."""
+    cfg_users = config_manager.config.get("users", []) or []
+    master = next((u for u in cfg_users if is_master(u)), None)
+    if not master or not master.get("email"):
+        return False
+    email = norm_email(master["email"])
+    if await db.employees.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}):
+        return False
+    name = (master.get("display_name") or f"{master.get('first_name', '')} {master.get('last_name', '')}").strip() or email
+    await db.employees.insert_one({
+        "id": str(uuid.uuid4()), "name": name, "email": email, "phone": master.get("phone"),
+        "is_admin": True, "password": "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return True
 
 
 async def remove_user_for_employee(email: str) -> bool:
