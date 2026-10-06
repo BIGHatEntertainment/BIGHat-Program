@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from .config import config_manager
@@ -395,6 +395,65 @@ async def cloud_activate(payload: CloudActivateRequest):
     }
 
 
+async def _replay_extra_keys(hwid: str) -> None:
+    """Re-check add-on keys so they stay unlocked. Offline/failed checks keep the
+    last known state (never switch an add-on off because of a network error)."""
+    from . import product_keys
+    for e in product_keys.list_extra_keys():
+        r = await cloud_client.validate(license_key=e.get("key", ""), hwid=hwid)
+        if r.get("ok") and r.get("error") is None:
+            product_keys.remember_extra_key(e.get("key", ""), r)
+            product_keys.merge_into_flags(r)
+        elif r.get("error") in ("timeout", "network_error", "server_error", None):
+            # Can't reach the server: keep what this key unlocked last time.
+            product_keys.merge_into_flags({f"owns_{a}": True for a in e.get("unlocks", [])})
+        # a definite rejection (revoked/unknown key) is NOT re-applied
+
+
+async def _master_guard(request: Request):
+    from .admin_router import _require_master_admin
+    return await _require_master_admin(request)
+
+
+class ProductKeyRequest(BaseModel):
+    product_key: str
+
+
+@router.get("/license/product-keys")
+async def product_keys_status(_=Depends(_master_guard)):
+    from . import product_keys
+    return product_keys.public_status()
+
+
+@router.post("/license/product-key")
+async def add_product_key(payload: ProductKeyRequest, _=Depends(_master_guard)):
+    """Owner enters a key they received (e.g. a new add-on)."""
+    from . import product_keys
+    key = (payload.product_key or "").strip().upper()
+    if not is_well_formed_license(key):
+        raise HTTPException(status_code=400, detail={"error": "invalid_license_format",
+            "message": "That doesn't look like a product key. Check it and try again."})
+    hwid = generate_hwid()
+    main = product_keys.main_key()
+    resp = await cloud_client.activate(license_key=key, hwid=hwid, machine_name=None, email=None)
+    if not resp.get("ok"):
+        transport = resp.get("error") in ("timeout", "network_error", "server_error")
+        raise HTTPException(status_code=503 if transport else 400, detail={
+            "error": resp.get("error", "cloud_unreachable"),
+            "message": resp.get("message") or (
+                "Could not reach the license server. Connect to the internet and try again."
+                if transport else "That key was not accepted."),
+        })
+    if not main or key == main:
+        _apply_cloud_response_to_local_state(resp, license_key=key, email=None)
+        product_keys.reapply_saved_extras()
+        register_seat(label="This computer")
+    else:
+        product_keys.remember_extra_key(key, resp)
+        product_keys.merge_into_flags(resp)
+    return {"status": "ok", **product_keys.public_status()}
+
+
 @router.post("/license/cloud/validate")
 async def cloud_validate():
     """Periodic re-check (UI cron'd at startup + every 7 days). Refreshes
@@ -412,6 +471,7 @@ async def cloud_validate():
     resp = await cloud_client.validate(license_key=key, hwid=hwid)
     if resp.get("ok") and resp.get("error") is None:
         _apply_cloud_response_to_local_state(resp, license_key=key, email=None)
+        await _replay_extra_keys(hwid)
         return {
             "status":       "ok",
             "license":      get_license_status(),

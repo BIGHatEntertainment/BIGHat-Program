@@ -3,10 +3,11 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import Header from '../components/Header';
+import ProductKeyTab from '../components/admin/ProductKeyTab';
 import {
   Users, Plus, Trash2, Edit, Shield, ShieldCheck,
   Calendar, X, Save, ChevronRight, AlertTriangle,
-  Archive, Download, Loader2,
+  Archive, Download, Loader2, KeyRound,
 } from 'lucide-react';
 
 export default function AdminPage() {
@@ -49,6 +50,7 @@ export default function AdminPage() {
   const tabs = [
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'events', label: 'Event Management', icon: Calendar },
+    ...(user?.role === 'master_admin' ? [{ id: 'product_key', label: 'Product Key', icon: KeyRound }] : []),
   ];
 
   return (
@@ -107,6 +109,9 @@ export default function AdminPage() {
             setError={setError}
             setSuccess={setSuccess}
           />
+        )}
+        {activeTab === 'product_key' && user?.role === 'master_admin' && (
+          <ProductKeyTab setError={setError} setSuccess={setSuccess} />
         )}
         {activeTab === 'events' && (
           <EventManagement

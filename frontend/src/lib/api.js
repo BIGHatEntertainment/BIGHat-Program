@@ -18,6 +18,12 @@ const api = {
   register: (data) =>
     axios.post(`${API}/api/auth/register`, data, { withCredentials: true, headers: authHeaders() }),
 
+  // Product keys (master admin)
+  getProductKeys: () =>
+    axios.get(`${API}/api/native/license/product-keys`, { withCredentials: true, headers: authHeaders() }),
+  addProductKey: (productKey) =>
+    axios.post(`${API}/api/native/license/product-key`, { product_key: productKey }, { withCredentials: true, headers: authHeaders() }),
+
   // Users
   getUsers: () =>
     axios.get(`${API}/api/users`, { withCredentials: true, headers: authHeaders() }),
