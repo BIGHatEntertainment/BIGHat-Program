@@ -192,6 +192,8 @@ async def set_preload(request: Request):
     """Host tells the audience which song to load in the background (the next singer), or clears it."""
     data = await request.json()
     pre = {"singer_id": data.get("singer_id"), "embed_url": data.get("embed_url", ""), "ready": False, "percent": 0} if data.get("singer_id") else None
+    if pre and data.get("retry"):
+        pre["retry"] = data.get("retry")                  # alpha.93: the host pressed "Retry loading": the audience screen starts this one afresh
     await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"preload": pre}})
     return {"success": True}
 
@@ -224,8 +226,13 @@ async def preload_report(request: Request):
             upd["preload.percent"] = 100
     if data.get("error"):
         upd["preload.error"] = str(data.get("error"))[:80]
+    ops = {}
     if upd:
-        await db.karaoke_sessions.update_one({"is_active": True}, {"$set": upd})
+        ops["$set"] = upd
+    if not data.get("error") and ("percent" in data or data.get("ready")):
+        ops["$unset"] = {"preload.error": ""}          # alpha.93: progress after a failed try means the retry worked, so clear the error
+    if ops:
+        await db.karaoke_sessions.update_one({"is_active": True}, ops)
     return {"success": True}
 
 

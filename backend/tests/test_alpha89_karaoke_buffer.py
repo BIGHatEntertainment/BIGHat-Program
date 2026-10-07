@@ -86,3 +86,31 @@ def test_an_error_is_recorded_and_clears_on_a_new_song(client):
     assert pre(client)["error"] == "youtube_error"
     client.post("/api/karaoke/session/preload", json={"singer_id": "s1", "embed_url": "u"})
     assert "error" not in pre(client)
+
+
+# ---------------------------------------------------------------- alpha.93: a failed load is never permanent
+def test_retry_stamp_from_the_host_is_stored_so_the_audience_starts_afresh(client):
+    client.post("/api/karaoke/session/preload", json={"singer_id": "s1", "embed_url": "u"})
+    assert "retry" not in pre(client)
+    client.post("/api/karaoke/session/preload", json={"singer_id": "s1", "embed_url": "u", "retry": 12345})
+    p = pre(client)
+    assert p["singer_id"] == "s1" and p["retry"] == 12345 and p["percent"] == 0 and p["ready"] is False
+
+
+def test_an_error_is_cleared_once_the_retry_makes_progress(client):
+    client.post("/api/karaoke/session/preload", json={"singer_id": "s1", "embed_url": "u"})
+    client.post("/api/karaoke/session/preload-report", json={"singer_id": "s1", "error": "no_holder"})
+    assert pre(client)["error"] == "no_holder"
+    client.post("/api/karaoke/session/preload-report", json={"singer_id": "s1", "percent": 30, "buffered_seconds": 12})
+    p = pre(client)
+    assert "error" not in p and p["percent"] == 30
+
+
+def test_an_error_stays_until_there_is_progress(client):
+    client.post("/api/karaoke/session/preload", json={"singer_id": "s1", "embed_url": "u"})
+    client.post("/api/karaoke/session/preload-report", json={"singer_id": "s1", "error": "youtube_error"})
+    client.post("/api/karaoke/session/preload-report", json={"singer_id": "s1", "error": "youtube_error"})
+    assert pre(client)["error"] == "youtube_error"
+    client.post("/api/karaoke/session/preload-report", json={"singer_id": "s1", "percent": 100, "ready": True})
+    p = pre(client)
+    assert p["ready"] is True and "error" not in p

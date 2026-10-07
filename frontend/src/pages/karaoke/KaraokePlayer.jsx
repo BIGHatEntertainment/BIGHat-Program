@@ -623,7 +623,11 @@ export default function KaraokePlayer() {
                   </div>
                 )}
                 {(next.reason === "loading") && (
-                  <button onClick={() => startNextSinger(true)} className="w-full mt-2 text-xs text-zinc-400 underline" data-testid="karaoke-start-anyway-btn">Start anyway</button>
+                  <div className="flex items-center justify-center gap-4 mt-2">
+                    <button onClick={() => { setPreloadPct(0); setPreload(null); axios.post(`${API}/karaoke/session/preload`, { singer_id: nextId, embed_url: nextUrl, retry: Date.now() }).catch(() => {}); }}
+                      className="text-xs text-zinc-300 underline" data-testid="karaoke-retry-load-btn">Retry loading</button>
+                    <button onClick={() => startNextSinger(true)} className="text-xs text-zinc-400 underline" data-testid="karaoke-start-anyway-btn">Start anyway</button>
+                  </div>
                 )}
               </div>
 

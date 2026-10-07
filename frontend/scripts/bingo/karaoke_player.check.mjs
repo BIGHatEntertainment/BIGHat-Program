@@ -56,7 +56,7 @@ axios.get = async (u, cfg) => {
 axios.post = async (u, body) => {
   S.posts.push({ u: u.replace('http://x/api/karaoke', ''), body });
   if (u.endsWith('/session/playback')) { S.rev += 1; const same = S.pb.current_singer && body.current_singer && S.pb.current_singer.id === body.current_singer.id; S.pb = { ...body, rev: S.rev, audience_started: same ? S.pb.audience_started : false, audience_time: same ? S.pb.audience_time : 0, audience_duration: same ? S.pb.audience_duration : 0, video_ended: same ? S.pb.video_ended : false }; return { data: { success: true, rev: S.rev } }; }
-  if (u.endsWith('/session/preload')) { S.preload = body.singer_id ? { singer_id: body.singer_id, embed_url: body.embed_url, ready: false } : null; return { data: { success: true } }; }
+  if (u.endsWith('/session/preload')) { (S.preloadPosts ||= []).push(body); S.preload = body.singer_id ? { singer_id: body.singer_id, embed_url: body.embed_url, ready: false } : null; return { data: { success: true } }; }
   if (u.endsWith('/queue/add')) {
     if (body.assign_to) { const e = S.queue.find(x => x.id === body.assign_to); Object.assign(e, { song_title: body.song_title, song_artist: body.song_artist, embed_url: body.embed_url, duration_seconds: body.duration_seconds }); return { data: { success: true } }; }
     const e = entry(body.singer_name, body.song_title, body.embed_url); S.queue.push(e); return { data: { success: true, entry: e } };
@@ -272,6 +272,9 @@ heard.length = 0; audioLog.length = 0;
 await click('karaoke-next-singer-btn'); await wait(300);
 ok(/Ann/.test(q('karaoke-current-name').textContent), 'Ann is now singing');
 ok(S.pb.song_playing === true && S.pb.current_singer.singer_name === 'Ann' && S.pb.mode === 'karaoke', 'the audience is told: Ann, playing, karaoke mode');
+// alpha.93: WHILE Ann sings, the next singer (Bob) is handed to the audience screen to load
+await wait(1500);
+ok(S.preload && S.preload.singer_id === S.queue.find(e => e.singer_name === 'Bob').id && /BBB222/.test(S.preload.embed_url), 'while Ann is singing, Bob (next up) is handed to the audience to preload');
 ok(heard.some(m => m.type === 'karaoke-state' && m.pb.current_singer && m.pb.current_singer.singer_name === 'Ann' && typeof m.pb.rev === 'number' && m.pb.rev === S.rev), 'the instant message carries the SAME revision number the server holds');
 await wait(3400);
 ok(audioLog.includes('pause'), 'filler music fades out and stops when the song starts');
@@ -414,6 +417,11 @@ app(); await wait(400); await click('karaoke-tab-karaoke'); await click('karaoke
 if (S.preload) S.preload.error = 'youtube_error'; await wait(1200);
 ok(/could not load/.test((q('karaoke-buffer-label') || {}).textContent || ''), 'a song that fails to load says so: ' + (q('karaoke-buffer-label') || {}).textContent);
 ok(!!q('karaoke-start-anyway-btn'), 'and the host can still start it anyway');
+// alpha.93: "Retry loading" asks the audience screen to start this song afresh
+S.preloadPosts = [];
+ok(!!q('karaoke-retry-load-btn'), 'a "Retry loading" button is offered while the song is loading');
+await click('karaoke-retry-load-btn'); await wait(300);
+ok(S.preloadPosts.length >= 1 && S.preloadPosts[S.preloadPosts.length - 1].retry && S.preloadPosts[S.preloadPosts.length - 1].singer_id === S.queue[0].id, 'pressing it re-sends the same singer with a retry stamp');
 cleanup();
 fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(800);
 ok(!q('karaoke-buffer'), 'a singer with no song picked yet has no loading bar');

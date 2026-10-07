@@ -44,6 +44,9 @@ export function loadYouTubeApi() {
  *  - The video fades out over 3 s when a song is ending, then the screen goes back to the music view.
  *  - Layout: the master overlay image with the video, scrolling "up next" bar, venue logo and request QR placed in its windows.
  */
+const RETRY_AFTER_MS = 4000;     // alpha.93: a failed preload is tried again after this long
+const MAX_TRIES = 6;
+
 export default function KaraokeAudienceView() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -222,9 +225,16 @@ export default function KaraokeAudienceView() {
     };
     const cur = preloadRef.current;
     if (!pre || !pre.singer_id) { stop(); return; }
-    if (cur.singerId === pre.singer_id) return;              // already loading or loaded this one
+    const hostRetry = !!pre.retry && pre.retry !== cur.retryStamp;      // the host pressed "Retry loading": start this one afresh
+    if (cur.singerId === pre.singer_id && !hostRetry) {
+      // alpha.93: already loading or loaded this one, UNLESS it failed: then try again after a short pause (never gives up for good)
+      const failed = cur.failedAt && Date.now() - cur.failedAt > RETRY_AFTER_MS && (cur.tries || 0) < MAX_TRIES;
+      if (!failed) return;
+    }
+    const tries = cur.singerId === pre.singer_id && !hostRetry ? (cur.tries || 0) + 1 : 1;
     stop();
-    preloadRef.current = { singerId: pre.singer_id, player: null, videoId: null, adopted: false, timer: null, holder: null, ready: false };
+    preloadRef.current = { singerId: pre.singer_id, player: null, videoId: null, adopted: false, timer: null, holder: null, ready: false, tries, failedAt: 0, retryStamp: pre.retry || null };
+    const fail = (why) => { const c = preloadRef.current; if (c.singerId === pre.singer_id) c.failedAt = Date.now(); report({ error: why }); };
     const videoId = videoIdOf(pre.embed_url);
     if (!videoId) return;
     const report = (body) => axios.post(`${API}/karaoke/session/preload-report`, { singer_id: pre.singer_id, ...body }).catch(() => {});
@@ -232,7 +242,7 @@ export default function KaraokeAudienceView() {
       const YT = await loadYouTubeApi();
       if (preloadRef.current.singerId !== pre.singer_id) return;            // the host moved on while YouTube loaded
       const holder = bufferHostRef.current;
-      if (!holder) { report({ error: "no_holder" }); return; }
+      if (!holder) { fail("no_holder"); return; }
       // full size and in the page (opacity 0): Chromium will not buffer a video it considers hidden
       holder.innerHTML = "<div id='karaoke-yt-preload'></div>";
       let started = false;
@@ -246,7 +256,7 @@ export default function KaraokeAudienceView() {
             // 1 = playing: it has begun to download. Hold it at the start so nothing is "sung" yet.
             if (ev.data === 1 && !started) { started = true; try { const pl = preloadRef.current.player; pl.pauseVideo(); pl.seekTo(0, true); } catch (e) { console.warn("[karaoke audience] could not hold the buffering player:", e); } }
           },
-          onError: () => report({ error: "youtube_error" }),
+          onError: () => fail("youtube_error"),
         },
       });
       const c = preloadRef.current;
@@ -261,7 +271,7 @@ export default function KaraokeAudienceView() {
         if (b.ready && !cc.ready) { cc.ready = true; report({ percent: 100, buffered_seconds: b.bufferedSeconds, ready: true }); }
         else if (!cc.ready) report({ percent: b.percent, buffered_seconds: b.bufferedSeconds });
       }, 800);
-    } catch { /* no YouTube: the host is shown the song never became ready */ report({ error: "no_youtube" }); }
+    } catch { /* no YouTube yet: say so, and try again shortly */ fail("no_youtube"); }
   }, []);
 
   // ---- instant messages from the host window
@@ -326,24 +336,21 @@ export default function KaraokeAudienceView() {
     );
   }
 
-  if (!isFullscreen) {
-    return (
-      <div ref={rootRef} className="fixed inset-0 bg-black z-[9999] flex items-center justify-center cursor-pointer" onClick={enterFullscreen} data-testid="karaoke-audience-fullscreen-gate">
-        <div className="text-center">
-          <div className="w-32 h-32 mx-auto mb-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(34,197,94,0.2)", border: `2px solid ${accent}50` }}>
-            <Maximize size={56} style={{ color: accent }} />
-          </div>
-          <h2 className="text-5xl font-bold text-white mb-4">Click to Enter Fullscreen</h2>
-          <p className="text-xl" style={{ color: "#8892b0" }}>Optimized for TV display</p>
-          <p className="text-sm mt-6" style={{ color: "#555" }}>Press ESC at any time to exit</p>
-        </div>
-      </div>
-    );
-  }
-
   const showVideo = wantPlaying && singer && singer.videoId && !ytProblem;
   return (
     <div ref={rootRef} className="fixed inset-0 bg-black" style={{ overflow: "hidden" }} data-testid="karaoke-audience">
+      {!isFullscreen && (
+        <div className="fixed inset-0 bg-black z-[9999] flex items-center justify-center cursor-pointer" onClick={enterFullscreen} data-testid="karaoke-audience-fullscreen-gate">
+          <div className="text-center">
+            <div className="w-32 h-32 mx-auto mb-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(34,197,94,0.2)", border: `2px solid ${accent}50` }}>
+              <Maximize size={56} style={{ color: accent }} />
+            </div>
+            <h2 className="text-5xl font-bold text-white mb-4">Click to Enter Fullscreen</h2>
+            <p className="text-xl" style={{ color: "#8892b0" }}>Optimized for TV display</p>
+            <p className="text-sm mt-6" style={{ color: "#555" }}>Press ESC at any time to exit</p>
+          </div>
+        </div>
+      )}
       {overlayEnabled && <img src={`${API}/karaoke/overlay/master`} alt="" className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: "none", objectFit: "fill" }} data-testid="karaoke-audience-overlay" />}
 
       {/* 1. VIDEO */}
