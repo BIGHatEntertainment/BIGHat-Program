@@ -626,6 +626,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:                                    # noqa: BLE001
         logger.warning("[alpha.81] master employee step failed: %s", e)
 
+    # alpha.92: bring back any Schedule tab that came up empty (copy kept in AppData\\backups\\schedule), then keep copying
+    try:
+        from native import schedule_safety
+        await schedule_safety.restore_if_empty(db)
+        await schedule_safety.snapshot(db)
+        app.state.schedule_copy_task = asyncio.create_task(schedule_safety.keep_copying(db))
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("[alpha.92] schedule safety copy skipped: %s", e)
+
     # alpha.80: the Schedule's venues are the single list of places; link venues <-> locations
     # (creates the venue for a location that was set up before this release, and the location for a venue)
     try:
@@ -739,6 +748,18 @@ async def lifespan(app: FastAPI):
         logger.warning("[alpha.40] rounds migration failed: %s", e)
 
     yield
+
+    # alpha.92: one last Schedule copy as the app closes
+    try:
+        t = getattr(app.state, "schedule_copy_task", None)
+        if t:
+            t.cancel()
+            try:
+                await t
+            except BaseException:                             # noqa: BLE001
+                pass
+    except Exception:                                         # noqa: BLE001
+        pass
 
     _cloud_shutdown_fn = globals().get("_cloud_lifespan_shutdown")
     if callable(_cloud_shutdown_fn):
