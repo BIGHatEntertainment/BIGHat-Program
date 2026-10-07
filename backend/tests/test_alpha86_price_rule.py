@@ -50,9 +50,9 @@ async def test_each_game_uses_only_its_own_price(vs):
     v, db = vs
     await add(db, "1", "Trivia Only", t=100); await add(db, "2", "Bingo Only", b=90); await add(db, "3", "Karaoke Only", k=75); await add(db, "4", "All Three", 1, 1, 1); await add(db, "5", "Nothing")
     async def n(g): return [x["name"] for x in await v.venues_for_game(db, g)]
-    assert await n("trivia") == ["All Three", "Trivia Only"]
-    assert await n("bingo") == ["All Three", "Bingo Only"]
-    assert await n("karaoke") == ["All Three", "Karaoke Only"]
+    assert await n("trivia") == ["All Three", "Nothing", "Trivia Only"]      # alpha.92: "Nothing" has no prices at all, so it shows everywhere
+    assert await n("bingo") == ["All Three", "Bingo Only", "Nothing"]
+    assert await n("karaoke") == ["All Three", "Karaoke Only", "Nothing"]
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,9 @@ async def test_zero_and_missing_prices_hide_a_venue_but_a_cent_shows_it(vs):
     await add(db, "1", "Zero", 0, 0, 0); await add(db, "2", "A Cent", 0.01, 0, 0)
     await db.venues.insert_one({"id": "3", "name": "No Pricing Row At All", "location_id": None})              # never priced
     await db.venue_pricing.insert_one({"venue_id": "3", "trivia_price": None, "music_bingo_price": "", "karaoke_price": 0})      # blank values count as $0, not a crash
-    assert [x["name"] for x in await v.venues_for_game(db, "trivia")] == ["A Cent"]
+    # alpha.92: a venue with no prices entered at all (all $0, blank, or no row) is listed everywhere until a game is priced
+    assert [x["name"] for x in await v.venues_for_game(db, "trivia")] == ["A Cent", "No Pricing Row At All", "Zero"]
+    assert [x["name"] for x in await v.venues_for_game(db, "bingo")] == ["No Pricing Row At All", "Zero"]   # "A Cent" is priced for trivia only
     assert await v.venues_for_game(db, "nonsense") == []
 
 

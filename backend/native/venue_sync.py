@@ -133,6 +133,10 @@ async def reconcile(db) -> Dict[str, int]:
     try:
         venues = await db.venues.find({}, {"_id": 0}).to_list(2000)
         out["venues"] = len(venues)
+        try:
+            await db.venues.update_many({"notes": {"$regex": "^Added from your Trivia Setup"}}, {"$set": {"notes": ""}})
+        except Exception:                                         # noqa: BLE001  (cosmetic clean-up only)
+            pass
         for v in venues:
             before = await db.locations.count_documents({})
             had = bool(v.get("location_id"))
@@ -142,18 +146,8 @@ async def reconcile(db) -> Dict[str, int]:
                     out["locations_created"] += 1
                 elif not had:
                     out["linked"] += 1
-        # locations that have no venue (set up in Trivia Setup before this release): give them one
-        taken = {name_key(v.get("name", "")) for v in await db.venues.find({}, {"_id": 0}).to_list(2000)}
-        for loc in await db.locations.find({}, {"_id": 0}).to_list(2000):
-            if loc.get("retired") or name_key(loc.get("name", "")) in taken:
-                continue
-            venue = {"id": str(uuid.uuid4()), "name": loc["name"], "address": "", "city": "", "state": "",
-                     "notes": "Added from your Trivia Setup locations. Add the address when you can.",
-                     "venue_pays_host_directly": False, "created_at": _now(), "location_id": loc["id"]}
-            await db.venues.insert_one(dict(venue))
-            await db.locations.update_one({"id": loc["id"]}, {"$set": {"venue_id": venue["id"]}})
-            taken.add(name_key(loc["name"]))
-            out["venues_created"] += 1
+        # alpha.92: the Schedule is the ONLY place venues are created. A location (picture folder) with no
+        # Schedule venue is simply not listed; it is never turned into a venue.
         if any(out[k] for k in ("locations_created", "venues_created", "linked")):
             logger.info("[venue-sync] reconcile: %s", out)
     except Exception as e:                                        # noqa: BLE001
@@ -191,7 +185,13 @@ async def venues_for_game(db, game: str) -> List[Dict[str, Any]]:
         return []
     prices = await venue_prices(db)
     venues = await db.venues.find({}, {"_id": 0}).to_list(5000)
-    on = [v for v in venues if prices.get(v.get("id"), {}).get(field, 0.0) > 0]
+    # alpha.92: a venue with no prices entered yet is listed everywhere; once any game is priced, only priced games list it
+    def _listed(v):
+        pr = prices.get(v.get("id"))
+        if not pr or not any(x > 0 for x in pr.values()):
+            return True                      # no prices entered at all yet: show it everywhere
+        return pr.get(field, 0.0) > 0        # some game is priced: show it only for games that are priced
+    on = [v for v in venues if _listed(v)]
     on.sort(key=lambda v: (v.get("name") or "").lower())
     return on
 

@@ -102,17 +102,15 @@ def test_adding_the_venue_back_revives_the_same_location_with_its_images():
     assert len(db.locations.rows) == 1 and loc["retired"] is False and loc["branding_images"] == [{"id": "i"}] and loc["venue_id"] == v2["id"]
 
 
-def test_reconcile_creates_venues_for_old_locations_and_locations_for_old_venues():
+def test_reconcile_never_creates_a_schedule_venue_from_a_location():
+    """alpha.92 (user): venues are entered in the Schedule ONLY. A location with no venue is just not listed."""
     db = Db()
-    db.locations.rows += [{"id": "L1", "name": "Old Town Pub", "slug": "old-town-pub"}, {"id": "L2", "name": "Gone", "slug": "gone", "retired": True}]
+    db.locations.rows += [{"id": "L1", "name": "Old Town Pub", "slug": "old-town-pub"}]
     venue(db, "Brand New Bar")
     out = run(vs.reconcile(db))
-    names = sorted(v["name"] for v in db.venues.rows)
-    assert names == ["Brand New Bar", "Old Town Pub"]                                  # the retired one is NOT turned into a venue
-    assert {l["name"] for l in db.locations.rows} == {"Old Town Pub", "Gone", "Brand New Bar"}
-    assert out["venues_created"] == 1 and out["locations_created"] == 1
-    pub = next(v for v in db.venues.rows if v["name"] == "Old Town Pub")
-    assert pub["location_id"] == "L1" and pub["address"] == "" and "Trivia Setup" in pub["notes"]
+    assert [v["name"] for v in db.venues.rows] == ["Brand New Bar"]                    # no venue made from "Old Town Pub"
+    assert {l["name"] for l in db.locations.rows} == {"Old Town Pub", "Brand New Bar"}  # the venue still gets its folder
+    assert out["venues_created"] == 0 and out["locations_created"] == 1
 
 
 def test_reconcile_is_safe_to_run_again_and_again():

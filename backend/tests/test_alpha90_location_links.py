@@ -46,7 +46,8 @@ def test_unpriced_and_other_game_prices_never_show():
     db = DB([{"id": "v1", "name": "A", "location_id": "L1"}, {"id": "v2", "name": "B", "location_id": "L2"}],
             [{"venue_id": "v1", "trivia_price": 50, "music_bingo_price": 0, "karaoke_price": 0}],
             [{"id": "L1", "name": "A", "venue_id": "v1"}, {"id": "L2", "name": "B", "venue_id": "v2"}])
-    assert ids(db, "trivia") == {"L1"} and ids(db, "bingo") == set() and ids(db, "karaoke") == set()
+    # alpha.92: v1 is priced for trivia only; v2 has no prices at all so it shows for every game
+    assert ids(db, "trivia") == {"L1", "L2"} and ids(db, "bingo") == {"L2"} and ids(db, "karaoke") == {"L2"}
 
 
 def test_a_retired_place_is_never_offered():
