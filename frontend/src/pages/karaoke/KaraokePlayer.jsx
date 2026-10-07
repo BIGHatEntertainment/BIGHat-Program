@@ -1,3 +1,4 @@
+import { usePointerDrag } from "./pointerDrag";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -69,8 +70,12 @@ export default function KaraokePlayer() {
   const [searching, setSearching] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [contextMenu, setContextMenu] = useState(null);
-  const [dragIdx, setDragIdx] = useState(null);
-  const [dropIdx, setDropIdx] = useState(null);
+  // alpha.92: drag a song onto a singer (or a singer up/down the list) with the pointer itself
+  const { drag, startDrag } = usePointerDrag((payload, overId) => {
+    if (payload.kind === "song") { assignSong(overId, payload.song); return; }
+    const to = queue.filter((e) => e.status === "waiting" || !e.status).findIndex((e) => String(e.id) === String(overId));
+    if (to >= 0) reorder(payload.index, to);
+  });
   const [currentSinger, setCurrentSinger] = useState(null);
   const [songPlaying, setSongPlaying] = useState(false);
   const [songEnding, setSongEnding] = useState(false);
@@ -622,23 +627,13 @@ export default function KaraokePlayer() {
                 )}
               </div>
 
-              <div className="overflow-y-auto space-y-1 rounded-xl p-2 flex-1" style={{ maxHeight: "calc(100vh - 460px)", backgroundColor: "rgba(0,14,42,0.3)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-queue">
+              <div className="overflow-y-auto space-y-1 rounded-xl p-2 flex-1" style={{ maxHeight: "calc(100vh - 460px)", backgroundColor: "rgba(0,14,42,0.3)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-queue" data-drop-list>
                 {waiting.map((entry, i) => (
-                  <div key={entry.id} draggable data-testid={`karaoke-queue-${entry.id}`}
-                    onDragStart={(e) => { e.dataTransfer.effectAllowed = "copyMove"; e.dataTransfer.setData("text/plain", dragPayload("singer", i)); setDragIdx(i); }}
-                    onDragEnd={() => { setDragIdx(null); setDropIdx(null); }}
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDropIdx(i); }}
-                    onDragLeave={() => setDropIdx(null)}
-                    onDrop={(e) => {
-                      e.preventDefault(); setDragIdx(null); setDropIdx(null);
-                      const d = readDrag(e.dataTransfer);
-                      if (!d) return;
-                      if (d.kind === "song") { assignSong(entry.id, d.song); return; }
-                      reorder(d.index, i);
-                    }}
+                  <div key={entry.id} data-testid={`karaoke-queue-${entry.id}`} data-drop-singer={entry.id} data-drop-index={i}
+                    onPointerDown={(e) => startDrag(e, { kind: "singer", index: i }, entry.singer_name)}
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg cursor-grab"
-                    style={{ backgroundColor: dropIdx === i ? "rgba(34,197,94,0.15)" : dragIdx === i ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)", border: `1px solid ${dropIdx === i ? accent : "rgba(255,255,255,0.06)"}` }}>
+                    className="flex items-center justify-between px-3 py-2 rounded-lg cursor-grab select-none"
+                    style={{ touchAction: "none", backgroundColor: drag && String(drag.overId) === String(entry.id) ? "rgba(34,197,94,0.28)" : "rgba(255,255,255,0.03)", border: `1px solid ${drag && String(drag.overId) === String(entry.id) ? accent : "rgba(255,255,255,0.06)"}` }}>
                     <div className="flex items-center gap-2 min-w-0">
                       <GripVertical size={14} style={{ color: "#555" }} />
                       <span className="text-xs font-bold w-5 text-center" style={{ color: accent }}>{i + 1}</span>
@@ -653,19 +648,16 @@ export default function KaraokePlayer() {
 
             {/* right: song catalog */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              <h3 className="text-sm font-bold uppercase tracking-wider mb-2 flex items-center gap-2" style={{ color: accent }}><ListMusic size={14} /> Song Catalog</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wider mb-2 flex items-center gap-2" style={{ color: accent }}><ListMusic size={14} /> Song Catalog <span className="text-[10px] font-normal normal-case tracking-normal" style={{ color: "#8892b0" }}>drag a song onto a singer</span></h3>
               <input value={songSearch} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search karaoke songs..." className="px-4 py-2 rounded-lg text-sm mb-3" style={field} data-testid="karaoke-song-search" />
               <div className="overflow-y-auto rounded-xl flex-1" style={{ backgroundColor: "rgba(0,14,42,0.5)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-results">
                 {searching && <p className="text-sm text-center py-6" style={{ color: "#8892b0" }}>Searching...</p>}
                 {!searching && results.length > 0 && results.map((song) => (
-                  <div key={song.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "copyMove"; e.dataTransfer.setData("text/plain", dragPayload("song", song)); }}
+                  <div key={song.id} onPointerDown={(e) => startDrag(e, { kind: "song", song }, song.title)}
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, song }); }}
-                    className="flex items-center gap-3 px-4 py-2 hover:bg-white/5 cursor-grab" data-testid={`karaoke-result-${song.id}`}>
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-white/5 cursor-grab select-none" style={{ touchAction: "none" }} data-testid={`karaoke-result-${song.id}`}>
                     {song.thumbnail && <img src={song.thumbnail} alt="" className="w-16 h-10 rounded object-cover shrink-0" />}
                     <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{song.title}</p><p className="text-[10px]" style={{ color: "#8892b0" }}>{song.artist}{song.duration_seconds ? ` \u2022 ${clock(song.duration_seconds)}` : ""}</p></div>
-                    <button onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: Math.max(8, r.left - 200), y: r.bottom + 4, song }); }}
-                      className="px-2 py-1 rounded text-[11px] font-bold shrink-0" style={{ backgroundColor: accentDim, color: accent, border: `1px solid ${accentBorder}` }}
-                      title="Give this song to a singer" data-testid={`karaoke-give-${song.id}`}>Give to...</button>
                     <GripVertical size={14} style={{ color: "#555" }} />
                   </div>
                 ))}
@@ -691,6 +683,12 @@ export default function KaraokePlayer() {
 
 
       {/* right-click menu */}
+      {drag && (
+        <div className="fixed z-[60] pointer-events-none px-3 py-1.5 rounded-lg text-xs font-bold shadow-xl"
+          style={{ left: drag.x + 14, top: drag.y + 10, maxWidth: 260, backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-drag-chip">
+          <span className="block truncate">{drag.overId != null ? "Drop to give: " : ""}{drag.label}</span>
+        </div>
+      )}
       {contextMenu && (
         <div className="fixed z-50 rounded-lg py-1 shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y, backgroundColor: "#0a1940", border: `1px solid ${accentBorder}`, minWidth: 220 }} data-testid="karaoke-context-menu">
           {contextMenu.song && (

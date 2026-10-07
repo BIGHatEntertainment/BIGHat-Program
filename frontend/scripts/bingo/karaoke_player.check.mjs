@@ -191,31 +191,52 @@ ok(/Pick a song for Ann/.test(q('karaoke-next-singer-btn').textContent) && q('ka
 // search
 await act(async () => { fireEvent.change(q('karaoke-song-search'), { target: { value: 'africa' } }); await new Promise(r => setTimeout(r, 700)); });
 ok(!!q('karaoke-result-vid1') && /Africa - Karaoke/.test(q('karaoke-result-vid1').textContent) && /4:05/.test(q('karaoke-result-vid1').textContent), 'search shows results with their length (4:05)');
-// alpha.89: a visible "Give to..." button works with a plain click (no drag, no right-click)
-ok(!!q('karaoke-give-vid1'), 'each song has a visible "Give to..." button');
-await act(async () => { fireEvent.click(q('karaoke-give-vid1')); });
-ok(!!q('karaoke-context-menu') && /Give this song to/.test(q('karaoke-context-menu').textContent), 'a normal click on "Give to..." opens the singer list');
-await act(async () => { fireEvent.click(q('karaoke-assign-' + S.queue[1].id)); await new Promise(r => setTimeout(r, 200)); });
-ok(S.queue[1].song_title === 'Africa - Karaoke' && /vid1/.test(S.queue[1].embed_url), 'picking a singer from "Give to..." gives them the song');
-S.queue[1].song_title = ''; S.queue[1].embed_url = '';
+// alpha.92: the "Give to..." button is gone: songs are given by dragging onto a singer (or right-click)
+ok(!q('karaoke-give-vid1') && !/Give to\.\.\./.test(q('karaoke-results').textContent), 'there is no "Give to..." button on the songs any more');
 // right click -> give to Ann
 await act(async () => { fireEvent.contextMenu(q('karaoke-result-vid1'), { clientX: 10, clientY: 10 }); });
 ok(!!q('karaoke-context-menu') && /Give this song to/.test(q('karaoke-context-menu').textContent), 'right-clicking a song opens the give-to menu');
 await act(async () => { fireEvent.click(q('karaoke-assign-' + S.queue[0].id)); await new Promise(r => setTimeout(r, 200)); });
 ok(S.queue[0].song_title === 'Africa - Karaoke' && /vid1/.test(S.queue[0].embed_url), 'the song is given to that singer');
-// drag a song onto Bob, exactly the way a browser decides (alpha.89: strict dataTransfer)
-const d1 = await realDrag(q('karaoke-result-vid1'), q('karaoke-queue-' + S.queue[1].id));
-ok(d1.dropped, 'a song dragged over a singer is ACCEPTED as a drop (dragover allowed it, effects compatible): effectAllowed=' + d1.dt.effectAllowed + ' dropEffect=' + d1.dt.dropEffect);
-ok(d1.dt.types.includes('text/plain'), 'the drag carries the standard text/plain type (custom-only types are not delivered by WebView2): ' + d1.dt.types.join(','));
-ok(S.queue[1].song_title === 'Africa - Karaoke', 'dragging a song onto a singer gives it to them');
-// something dragged in from outside (a file name, a web link) is not a song and must do nothing
-const before2 = JSON.stringify(S.queue.map(e => e.song_title));
-const alien = realDT(); alien.setData('text/plain', 'C:\\Users\\me\\notes.txt');
-await act(async () => { fireEvent.drop(q('karaoke-queue-' + S.queue[0].id), { dataTransfer: alien }); await new Promise(r => setTimeout(r, 150)); });
-ok(JSON.stringify(S.queue.map(e => e.song_title)) === before2, 'a stray text drop does not change any singer');
-// reorder by dragging Bob above Ann
-const d2 = await realDrag(q('karaoke-queue-' + S.queue[1].id), q('karaoke-queue-' + S.queue[0].id));
-ok(d2.dropped, 'a singer dragged over another singer is accepted as a drop');
+// alpha.92: POINTER drag (does not use the browser's own drag events). jsdom has no layout, so rows get boxes by position.
+const rowsBox = () => { const list = q('karaoke-queue'); [...list.children].forEach((r, i) => { r.__box = { top: 100 + i * 50, bottom: 140 + i * 50 }; }); };
+dom.window.document.elementFromPoint = (x, y) => {
+  const rows = [...dom.window.document.querySelectorAll('[data-drop-singer]')];
+  return rows.find(r => r.__box && y >= r.__box.top && y <= r.__box.bottom) || dom.window.document.body;
+};
+const pdrag = async (from, to, points) => {          // press on `from`, move through y values, release
+  const ev = (type, x, y) => new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+  const pev = (type, x, y) => { const e = ev(type, x, y); Object.defineProperty(e, 'pointerId', { value: 1 }); return e; };
+  await act(async () => { from.dispatchEvent(pev('pointerdown', 50, 50)); });
+  for (const y of points) await act(async () => { dom.window.dispatchEvent(pev('pointermove', 60, y)); await new Promise(r => setTimeout(r, 20)); });
+  await act(async () => { dom.window.dispatchEvent(pev('pointerup', 60, points[points.length - 1])); await new Promise(r => setTimeout(r, 250)); });
+};
+rowsBox();
+// a tiny movement is a click, not a drag
+const tiny = JSON.stringify(S.queue.map(e => e.song_title));
+const orderBefore = S.queue.map(e => e.singer_name).join(',');
+await act(async () => { q('karaoke-queue-' + S.queue[1].id).dispatchEvent(Object.assign(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 50, clientY: 160 }), { pointerId: 1 })); });
+await act(async () => { dom.window.dispatchEvent(Object.assign(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 52, clientY: 162 }), { pointerId: 1 })); });
+ok(!q('karaoke-drag-chip'), 'a movement of a few pixels does not start a drag (no chip)');
+await act(async () => { dom.window.dispatchEvent(Object.assign(new dom.window.MouseEvent('pointerup', { bubbles: true, clientX: 52, clientY: 162 }), { pointerId: 1 })); await new Promise(r => setTimeout(r, 250)); });
+ok(S.queue.map(e => e.singer_name).join(',') === orderBefore && JSON.stringify(S.queue.map(e => e.song_title)) === tiny, 'a tiny movement is treated as a click, nothing changes');
+// drag the song onto Bob (second row: y 150..190)
+await act(async () => { q('karaoke-result-vid1').dispatchEvent(Object.assign(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 50, clientY: 50 }), { pointerId: 1 })); });
+await act(async () => { dom.window.dispatchEvent(Object.assign(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 90 }), { pointerId: 1 })); });
+ok(!!q('karaoke-drag-chip') && /Africa/.test(q('karaoke-drag-chip').textContent), 'while dragging, a chip with the song name follows the pointer');
+await act(async () => { dom.window.dispatchEvent(Object.assign(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 170 }), { pointerId: 1 })); });
+await wait(80);
+ok(/Drop to give/.test(q('karaoke-drag-chip').textContent) && /rgba\(34,\s*197,\s*94,\s*0\.28\)/.test(q('karaoke-queue-' + S.queue[1].id).getAttribute('style') || ''), 'the singer under the pointer lights up and the chip says "Drop to give"');
+await act(async () => { dom.window.dispatchEvent(Object.assign(new dom.window.MouseEvent('pointerup', { bubbles: true, clientX: 80, clientY: 170 }), { pointerId: 1 })); await new Promise(r => setTimeout(r, 250)); });
+ok(S.queue[1].song_title === 'Africa - Karaoke' && /vid1/.test(S.queue[1].embed_url), 'dragging a song onto a singer gives it to them');
+ok(!q('karaoke-drag-chip'), 'the chip goes away after the drop');
+// let go over empty space: nothing changes
+S.queue.forEach((e) => { e.song_title = ''; e.embed_url = ''; });          // everyone empty, so a wrong hand-out shows
+const none = JSON.stringify(S.queue.map(e => e.song_title));
+await pdrag(q('karaoke-result-vid1'), null, [90, 150, 400, 410]);          // passes OVER a singer, then ends in empty space
+ok(JSON.stringify(S.queue.map(e => e.song_title)) === none, 'letting go away from every singer gives the song to nobody');
+// reorder: drag Bob (row 2) above Ann (row 1)
+await pdrag(q('karaoke-queue-' + S.queue[1].id), null, [160, 130, 118]);
 await wait(300);
 ok(S.queue[0].singer_name === 'Bob', 'dragging a singer up reorders the queue: ' + S.queue.map(e => e.singer_name).join(','));
 // search error
