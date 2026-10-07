@@ -146,7 +146,7 @@ jobs:
             See CHANGELOG.md for the full notes.
           # Always create as draft. The verify-release-assets gate job that
           # runs after the matrix is the ONLY place in the entire pipeline
-          # that flips a release public — and only after confirming all 3
+          # that flips a release public — and only after confirming all 2
           # OS installers are attached. This closes the race window where
           # a customer could briefly see a half-baked release between
           # tauri-action upload and the verification gate.
