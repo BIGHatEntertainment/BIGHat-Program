@@ -29,6 +29,7 @@ const fresh = () => {
 };
 fresh();
 axios.get = async (u) => {
+  if (/\/karaoke\/venue-logo-status\//.test(u)) return { data: { has_logo: decodeURIComponent(u.split('/venue-logo-status/')[1]) === 'Pub One' } };
   if (u.endsWith('/karaoke/setup')) return { data: server.setup };
   if (u.endsWith('/karaoke/filler/folders')) return { data: server.filler };
   if (u.endsWith('/native/locations')) return { data: [{ id: 'l1', name: 'Pub One' }, { id: 'l2', name: 'Bar Two' }] };
@@ -70,12 +71,26 @@ ok([...fsel.options].map(o => o.textContent).join('|') === 'All folders (21 trac
 // launch without a location is blocked
 await act(async () => { fireEvent.click(q('karaoke-launch')); }); await wait();
 ok(!server.posts.some(p => p.u.endsWith('/session/create')), 'cannot launch without a location');
+// alpha.95: the venue's logo goes on the TV overlay, so the lobby tells the host if it is missing
+ok(!q('karaoke-logo-status'), 'no logo message until a location is chosen');
+await act(async () => { fireEvent.change(q('karaoke-location'), { target: { value: 'Bar Two' } }); await new Promise(r => setTimeout(r, 250)); });
+ok(!!q('karaoke-logo-status') && /no logo yet/i.test(q('karaoke-logo-status').textContent) && !!q('karaoke-logo-setup-btn'), 'a venue WITHOUT a logo shows a warning and a button to load one');
+if (q('karaoke-logo-setup-btn')) await act(async () => { fireEvent.click(q('karaoke-logo-setup-btn')); await new Promise(r => setTimeout(r, 200)); });
+ok(!q('karaoke-lobby') && !!document.querySelector('[data-testid="karaoke-setup"], [data-testid="karaoke-setup-page"], [data-testid^="karaoke-overlay"], [data-testid^="karaoke-logo-upload"]'), 'the button goes to the Karaoke Setup screen');
+cleanup(); fresh(); app('/karaoke'); await wait(400);
+await act(async () => { fireEvent.change(q('karaoke-location'), { target: { value: 'Pub One' } }); await new Promise(r => setTimeout(r, 250)); });
+ok(!!q('karaoke-logo-status') && /logo is loaded/i.test(q('karaoke-logo-status').textContent) && !q('karaoke-logo-setup-btn'), 'a venue WITH a logo says it is loaded, no warning');
+// a missing logo never stops the night: Bar Two can still launch
+await act(async () => { fireEvent.change(q('karaoke-location'), { target: { value: 'Bar Two' } }); await new Promise(r => setTimeout(r, 250)); });
+await act(async () => { fireEvent.click(q('karaoke-launch')); await new Promise(r => setTimeout(r, 300)); });
+ok(server.posts.some(p => p.u.endsWith('/session/create') && p.body.location === 'Bar Two'), 'a venue without a logo can still start the show');
+cleanup(); fresh(); app('/karaoke'); await wait(400);
 // pick and launch
 await act(async () => { fireEvent.change(q('karaoke-location'), { target: { value: 'Pub One' } }); fireEvent.change(q('karaoke-filler'), { target: { value: 'ABBA' } }); });
-await act(async () => { fireEvent.click(q('karaoke-qr-toggle')); });
+ok(!q('karaoke-qr-toggle') && /always shown/i.test(q('karaoke-qr-note').textContent), 'there is no QR switch in the lobby: it says the QR is always shown');
 await act(async () => { fireEvent.click(q('karaoke-launch')); await new Promise(r => setTimeout(r, 300)); });
 const created = server.posts.find(p => p.u.endsWith('/session/create'));
-ok(created && created.body.location === 'Pub One' && created.body.filler_folder === 'ABBA' && created.body.qr_enabled === false && created.body.host === 'Pat Q', 'launch sends location, host, chosen filler folder and QR setting: ' + JSON.stringify(created && created.body));
+ok(created && created.body.location === 'Pub One' && created.body.filler_folder === 'ABBA' && created.body.qr_enabled === undefined && created.body.host === 'Pat Q', 'launch sends location, host and chosen filler folder (no QR setting any more): ' + JSON.stringify(created && created.body));
 ok(!!q('player-page'), 'launch goes to the player');
 cleanup();
 

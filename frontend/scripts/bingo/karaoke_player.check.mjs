@@ -147,9 +147,9 @@ ok(Math.abs((globalThis.__gain && globalThis.__gain.gain.value) - 1.5) < 1e-9 &&
 await act(async () => { fireEvent.change(q('karaoke-filler-folder'), { target: { value: 'Queen' } }); await new Promise(r => setTimeout(r, 250)); });
 ok(document.querySelectorAll('[data-testid^="karaoke-track-"]').length === 1, 'choosing a folder shows only its tracks');
 // overlay + QR + audience window
-await click('karaoke-overlay-toggle'); await click('karaoke-qr-toggle-btn');
-ok(S.posts.some(p => p.u === '/session/overlay' && p.body.overlay_enabled === false), 'overlay toggle is saved');
-ok(S.posts.some(p => p.u === '/session/overlay' && p.body.qr_enabled === false), 'QR toggle is saved');
+// alpha.95: the overlay and the QR are ALWAYS on, so there are no buttons for them
+ok(!q('karaoke-overlay-toggle') && !q('karaoke-qr-toggle-btn'), 'no Overlay button and no QR button in the header');
+ok(!S.posts.some(p => p.u === '/session/overlay'), 'nothing tries to switch the overlay or QR off');
 await click('karaoke-audience-btn');
 ok(opened.length === 1 && /\/karaoke\/audience$/.test(opened[0]), 'in a browser, Audience View opens the TV window as a pop-up');
 cleanup();
@@ -345,10 +345,10 @@ audience.close();
   ok(!!q('karaoke-qr-offline') && /internet connection/i.test(q('karaoke-qr-offline')?.textContent || ''), 'QR: host sees a plain note instead of a blank corner');
   ok(/by hand/i.test(q('karaoke-qr-offline')?.textContent || ''), 'QR: the note says songs can still be added by hand');
   cleanup();
-  // c) QR switched off by the host -> neither the QR nor the note
+  // c) alpha.95: even an old session saved with the QR "off" still shows it (it is always on)
   fresh(); S.session.qr_enabled = false; globalThis.__reqInfo = { url: 'https://api.bighat.live/k/ABCDEFGHIJKLMNOP', phone_reachable: true, online: true };
   app(); await wait(500); await goKaraoke();
-  ok(!q('karaoke-host-qr') && !q('karaoke-qr-offline'), 'QR: host turned the QR off -> nothing shown, no note');
+  ok(!!q('karaoke-host-qr'), 'QR: an old session saved with the QR off still shows it');
   cleanup();
   // d) link becomes ready later (internet came back) -> QR appears by itself, no reload
   fresh(); globalThis.__reqInfo = { url: 'http://192.168.1.5:8001/karaoke/request', phone_reachable: false };
@@ -383,8 +383,8 @@ ok(!!q('karaoke-preview-open-audience'), 'and, with the TV screen closed, the pr
 await act(async () => { fireEvent.click(q('karaoke-accept-r1')); await new Promise(r => setTimeout(r, 200)); });
 ok(S.posts.some(p => /accept/.test(p.u)), 'Accept sends the request to the queue');
 cleanup();
-fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await click('karaoke-qr-toggle-btn'); await wait(300);
-ok(!q('karaoke-qr-card') && !!q('karaoke-preview'), 'turning the QR off hides the QR card and keeps the preview');
+fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(300);
+ok(!!q('karaoke-qr-card') && !!q('karaoke-preview'), 'the QR card and the preview are both on the host screen');
 cleanup();
 globalThis.__reqInfo = { url: '', phone_reachable: false, online: false };
 fresh(); app(); await wait(400);

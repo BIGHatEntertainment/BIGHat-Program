@@ -53,8 +53,6 @@ export default function KaraokeAudienceView() {
   const [location, setLocation] = useState("");
   const [logoOk, setLogoOk] = useState(true);
   const [chyronText, setChyronText] = useState("");
-  const [qrEnabled, setQrEnabled] = useState(true);
-  const [overlayEnabled, setOverlayEnabled] = useState(true);
   const [singer, setSinger] = useState(null);       // { id, name, song, artist, videoId }
   const [wantPlaying, setWantPlaying] = useState(false);
   const [isFading, setIsFading] = useState(false);
@@ -176,7 +174,7 @@ export default function KaraokeAudienceView() {
   }, [destroyPlayer, onYtState]);
 
   // ---- apply what the host says. A new song starts the video. The SAME song is never restarted or seeked.
-  const apply = useCallback((pb, extras = {}) => {
+  const apply = useCallback((pb) => {
     if (!pb) return;
     // The host sends every change twice: instantly over the channel, and to the server. The slow server copy
     // can arrive AFTER a newer channel message. Each carries a revision number; never go backwards.
@@ -192,8 +190,6 @@ export default function KaraokeAudienceView() {
     setIsFading(!!pb.song_ending);
     if (s) setSinger({ id: s.id, name: s.singer_name, song: s.song_title, artist: s.song_artist, videoId });
     else if (!playing) setSinger(null);
-    if (typeof extras.qr === "boolean") setQrEnabled(extras.qr);
-    if (typeof extras.overlay === "boolean") setOverlayEnabled(extras.overlay);
 
     const song = songRef.current;
     if (playing && s && videoId) {
@@ -281,7 +277,7 @@ export default function KaraokeAudienceView() {
     ch.onmessage = (ev) => {
       const m = ev.data || {};
       if (m.ended) { setEnded(true); return; }
-      if (m.type === "karaoke-state" && m.pb) apply(m.pb, { qr: m.qrEnabled, overlay: m.overlayEnabled });
+      if (m.type === "karaoke-state" && m.pb) apply(m.pb);
     };
     return () => ch.close();
   }, [apply]);
@@ -298,7 +294,7 @@ export default function KaraokeAudienceView() {
           ]);
           if (pbRes.data.playback === null) { setEnded(true); break; }
           if (pbRes.data.playback) {
-            apply(pbRes.data.playback, { qr: !!pbRes.data.qr_enabled, overlay: pbRes.data.overlay_enabled !== false });
+            apply(pbRes.data.playback);
             if (pbRes.data.location) setLocation((cur) => (cur === pbRes.data.location ? cur : pbRes.data.location));
             handlePreload(pbRes.data.preload);
           }
@@ -351,7 +347,7 @@ export default function KaraokeAudienceView() {
           </div>
         </div>
       )}
-      {overlayEnabled && <img src={`${API}/karaoke/overlay/master`} alt="" className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: "none", objectFit: "fill" }} data-testid="karaoke-audience-overlay" />}
+      <img src={`${API}/karaoke/overlay/master`} alt="" className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: "none", objectFit: "fill" }} data-testid="karaoke-audience-overlay" />
 
       {/* 1. VIDEO */}
       <div className="absolute" style={{ ...OVERLAY.video, zIndex: 2, backgroundColor: "#000", overflow: "hidden", opacity: isFading ? 0 : 1, transition: "opacity 3s ease-out" }} data-testid="karaoke-audience-video">
@@ -397,11 +393,13 @@ export default function KaraokeAudienceView() {
       </div>
 
       {/* 4. REQUEST QR */}
-      {qrEnabled && requestUrl && (
-        <div className="absolute overflow-hidden flex items-center justify-center" style={{ ...OVERLAY.qr, zIndex: 2, backgroundColor: "#fff", borderRadius: "12px", padding: "1%" }} data-testid="karaoke-audience-qr">
+      <div className="absolute overflow-hidden flex items-center justify-center" style={{ ...OVERLAY.qr, zIndex: 2, backgroundColor: "#fff", borderRadius: "12px", padding: "1%" }} data-testid="karaoke-audience-qr">
+        {requestUrl ? (
           <QRCodeSVG value={requestUrl} size={200} style={{ width: "100%", height: "100%" }} />
-        </div>
-      )}
+        ) : (
+          <p className="text-center font-bold" style={{ color: "#334155", fontSize: "1.1vw" }} data-testid="karaoke-audience-qr-wait">Request QR<br />getting ready...</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -159,3 +159,16 @@ def test_nothing_outside_the_filler_folder_can_be_read(client):
         assert c.get("/api/karaoke/filler/play/" + bad).status_code == 404, bad
     assert c.get("/api/karaoke/filler/tracks", params={"folder": ".."}).status_code == 404
     assert c.get("/api/karaoke/filler/tracks", params={"folder": "ABBA/.."}).status_code == 404
+
+
+# ---------------------------------------------------------------- alpha.95: the lobby asks "does this venue have a logo?"
+def test_venue_logo_status_says_no_until_one_is_loaded_then_yes_even_for_a_loose_name(client):
+    c, _ = client
+    assert c.get("/api/karaoke/venue-logo-status/The Rusty Nail").json()["has_logo"] is False
+    c.post("/api/karaoke/venue-logo/The Rusty Nail", files={"file": ("l.png", png(150, 150, (1, 2, 3)), "image/png")})
+    assert c.get("/api/karaoke/venue-logo-status/The Rusty Nail").json()["has_logo"] is True
+    for loose in ["the rusty nail", "The Rusty Nail!"]:                                          # found loosely, exactly like the TV overlay does
+        assert c.get("/api/karaoke/venue-logo-status/" + loose).json()["has_logo"] is True, loose
+    assert c.get("/api/karaoke/venue-logo-status/Some Other Bar").json()["has_logo"] is False
+    c.delete("/api/karaoke/venue-logo/The Rusty Nail")
+    assert c.get("/api/karaoke/venue-logo-status/The Rusty Nail").json()["has_logo"] is False

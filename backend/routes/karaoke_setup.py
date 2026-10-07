@@ -77,6 +77,12 @@ def _state():
     }
 
 
+@router.get("/venue-logo-status/{location:path}")
+async def venue_logo_status(location: str):
+    """alpha.95: does this venue have a logo loaded? (the lobby warns the host before the night starts)"""
+    return {"location": location, "has_logo": kl.logo_path(location) is not None}
+
+
 @router.get("/setup")
 async def get_setup():
     return _state()

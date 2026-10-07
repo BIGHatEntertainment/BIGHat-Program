@@ -36,7 +36,7 @@ export default function KaraokeLobby() {
   const [filler, setFiller] = useState(null);       // { ok, error, folders, tracks, loose_tracks }
   const [fillerFolder, setFillerFolder] = useState("");  // "" = all folders
   const [refreshing, setRefreshing] = useState(false);
-  const [qrEnabled, setQrEnabled] = useState(true);
+  const [logoState, setLogoState] = useState("unknown");      // alpha.95: "yes" | "no" | "unknown" (nothing chosen yet)
   const [keySet, setKeySet] = useState(true);
   const [launching, setLaunching] = useState(false);
 
@@ -63,6 +63,16 @@ export default function KaraokeLobby() {
     }).catch(() => setTypedLocation(true));
   }, [loadFiller]);
 
+  useEffect(() => {      // alpha.95: does the chosen venue have a logo for the TV overlay?
+    const name = (location || "").trim();
+    if (!name) { setLogoState("unknown"); return undefined; }
+    let stop = false;
+    axios.get(`${API}/karaoke/venue-logo-status/${encodeURIComponent(name)}`)
+      .then((r) => { if (!stop) setLogoState(r.data && r.data.has_logo ? "yes" : "no"); })
+      .catch(() => { if (!stop) setLogoState("unknown"); });
+    return () => { stop = true; };
+  }, [location]);
+
   useEffect(() => {
     if (user?.name && !host) setHost(user.name);
   }, [user, host]);
@@ -76,7 +86,7 @@ export default function KaraokeLobby() {
     try {
       const res = await axios.post(`${API}/karaoke/session/create`, {
         location: location.trim(), host, host_email: user?.email || "",
-        filler_folder: fillerFolder, qr_enabled: qrEnabled,
+        filler_folder: fillerFolder,
       });
       if (res.data.success) navigate("/karaoke/player");
     } catch (err) {
@@ -129,6 +139,19 @@ export default function KaraokeLobby() {
               )}
             </div>
 
+            {logoState !== "unknown" && (
+              <div className="rounded-xl p-4 flex items-start gap-3" data-testid="karaoke-logo-status"
+                   style={{ backgroundColor: logoState === "yes" ? "rgba(34,197,94,0.08)" : "rgba(251,221,104,0.10)", border: `1.5px solid ${logoState === "yes" ? "rgba(34,197,94,0.35)" : "rgba(251,221,104,0.45)"}` }}>
+                <AlertCircle size={16} style={{ color: logoState === "yes" ? accent : "#fbdd68", marginTop: 2 }} />
+                <div className="flex-1 text-sm" style={{ color: logoState === "yes" ? accent : "#fbdd68" }}>
+                  {logoState === "yes" ? "This venue's logo is loaded and will show on the TV overlay." : "This venue has no logo yet. The TV overlay will show an empty logo box. Please load one in Karaoke Setup before the show."}
+                  {logoState === "no" && (
+                    <button onClick={() => navigate("/karaoke/setup")} className="block mt-2 underline font-bold" data-testid="karaoke-logo-setup-btn">Load a logo in Karaoke Setup</button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="rounded-xl p-5" style={card}>
               <label className="text-xs uppercase tracking-wider font-bold flex items-center gap-2 mb-3" style={{ color: accent }}><User size={13} /> Host</label>
               <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="Host name" className="w-full px-3 py-2 rounded-lg text-sm" style={field} data-testid="karaoke-host" />
@@ -136,12 +159,7 @@ export default function KaraokeLobby() {
 
             <div className="rounded-xl p-5" style={card}>
               <label className="text-xs uppercase tracking-wider font-bold flex items-center gap-2 mb-3" style={{ color: accent }}><QrCode size={13} /> Song request QR</label>
-              <button onClick={() => setQrEnabled((v) => !v)} className="flex items-center gap-3 text-sm text-white" data-testid="karaoke-qr-toggle">
-                <span className="w-10 h-6 rounded-full relative transition-colors" style={{ backgroundColor: qrEnabled ? accent : "#334155" }}>
-                  <span className="absolute top-1 w-4 h-4 rounded-full bg-white transition-all" style={{ left: qrEnabled ? 22 : 4 }} />
-                </span>
-                {qrEnabled ? "Show the request QR on the TV" : "QR hidden"}
-              </button>
+              <p className="text-sm text-white" data-testid="karaoke-qr-note">The request QR is always shown on the TV.</p>
             </div>
           </div>
 

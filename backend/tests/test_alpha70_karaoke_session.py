@@ -233,3 +233,30 @@ def test_pause_and_play_do_not_lose_the_audience_clock_or_duration(client):
     c.post("/api/karaoke/session/playback", json={"song_playing": True, "current_singer": {"id": "other", "singer_name": "Z"}, "mode": "karaoke"})
     pb = c.get("/api/karaoke/session/playback").json()["playback"]
     assert pb["audience_duration"] == 0 and pb["audience_time"] == 0 and pb["audience_started"] is False
+
+
+# ---------------------------------------------------------------- alpha.95: the overlay and the request QR are ALWAYS on
+def test_the_qr_is_always_on_even_if_a_screen_asks_for_it_off(client):
+    c, _ = client
+    s = start(c, qr_enabled=False)                                   # an old screen asking for "QR off" is ignored
+    assert s["qr_enabled"] is True
+    assert c.get("/api/karaoke/session/active").json()["session"]["qr_enabled"] is True
+
+
+def test_the_overlay_cannot_be_switched_off(client):
+    c, _ = client
+    start(c)
+    r = c.post("/api/karaoke/session/overlay", json={"overlay_enabled": False, "qr_enabled": False}).json()
+    assert r["overlay_enabled"] is True and r["qr_enabled"] is True
+    pb = c.get("/api/karaoke/session/playback").json()
+    assert pb["overlay_enabled"] is True and pb["qr_enabled"] is True
+
+
+def test_an_old_session_saved_with_the_qr_off_still_reports_it_on(client):
+    c, k = client
+    start(c)
+    import asyncio
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        k.db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"qr_enabled": False, "overlay_enabled": False}}))
+    pb = c.get("/api/karaoke/session/playback").json()
+    assert pb["overlay_enabled"] is True and pb["qr_enabled"] is True

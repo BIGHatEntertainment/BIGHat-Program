@@ -60,7 +60,8 @@ ok(!!q('karaoke-audience') && !q('karaoke-audience-fullscreen-gate'), 'after ful
 ok(/karaoke\/overlay\/master/.test(q('karaoke-audience-overlay').src), 'uses the master overlay from Karaoke Setup');
 ok(/venue-logo\/Pub%20One/.test((q('karaoke-audience-logo').querySelector('img') || {}).src || ''), 'venue logo comes from Karaoke Setup, by location');
 ok(q('karaoke-audience-logo').querySelector('img').style.objectFit === 'contain', 'logo fits inside its window (not cropped)');
-ok(!!q('karaoke-audience-qr'), 'request QR shows when enabled');
+ok(!!q('karaoke-audience-qr'), 'request QR box shows');
+{ const ov = document.querySelector('img[src*="/karaoke/overlay/master"]'); ok(!!ov && ov.style.display !== 'none' && ov.style.visibility !== 'hidden' && ov.style.opacity !== '0', 'the overlay image is on the audience screen and visible'); }
 ok(/Music Playing/.test(q('karaoke-audience-video').textContent), 'no singer yet: music-playing view');
 await wait(500);
 ok(/UP NEXT.*Bob.*Creep/.test(q('karaoke-audience-chyron').textContent) && /Cy/.test(q('karaoke-audience-chyron').textContent), 'up-next bar lists the waiting singers: ' + q('karaoke-audience-chyron').textContent);
@@ -117,10 +118,11 @@ render(React.createElement(Aud)); await fullscreen(); await wait(3200);
 ok(yt.players.length === 1 && yt.players[0].opts.videoId === 'BBB222', 'a refreshed audience window picks the current song back up from the server');
 // 11. QR address from the backend
 ok(q('karaoke-audience-qr') && !!q('karaoke-audience-qr').querySelector('svg'), 'QR is drawn');
-// 11b. alpha.82: a PC-only address (phones cannot open it) must NOT be drawn, and no empty QR box either
+// 11b. alpha.95: the QR box is ALWAYS on the big screen. A PC-only address (phones cannot open it) is NOT drawn as a code,
+//      the box says it is getting ready instead (a code that goes nowhere would be worse)
 cleanup(); reset(); globalThis.__reqInfo = { url: 'http://192.168.1.50:8001/karaoke/request', phone_reachable: false };
 render(React.createElement(Aud)); await fullscreen(); await wait(600);
-ok(!q('karaoke-audience-qr'), 'no QR on the big screen for a PC-only address (and no empty white box)');
+ok(!!q('karaoke-audience-qr') && !q('karaoke-audience-qr').querySelector('svg') && !!q('karaoke-audience-qr-wait'), 'QR box is always there; for a PC-only address it says "getting ready" and draws no useless code');
 // 11c. ... and it appears by itself once the cloud link is ready (within ~10 s)
 globalThis.__reqInfo = { url: 'https://api.bighat.live/k/LATEREADYLINK1234', phone_reachable: true, online: true };
 await act(async () => { await new Promise(r => setTimeout(r, 10600)); });

@@ -17,7 +17,7 @@ const accentBorder = "rgba(34,197,94,0.25)";
 export default function KaraokeRightPanel({
   mode, currentSinger, songPlaying, isFillerPlaying, currentTrackName,
   audienceOpen, onOpenAudience,
-  showQr, requestUrl,
+  requestUrl,
   pendingRequests, onAccept, onReject,
   queueCount,
 }) {
@@ -56,26 +56,24 @@ export default function KaraokeRightPanel({
       </div>
 
       {/* 2. request QR */}
-      {showQr && (
-        <div className="rounded-xl p-3 text-center" data-testid="karaoke-qr-card"
-             style={{ backgroundColor: "rgba(34,197,94,0.05)", border: `1.5px solid ${accentBorder}` }}>
-          <p className="text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center justify-center gap-1" style={{ color: accent }}>
-            <QrCode size={11} /> Song Request QR
-          </p>
-          {requestUrl ? (
-            <>
-              <div className="bg-white rounded-lg p-2 inline-block" data-testid="karaoke-host-qr"><QRCodeSVG value={requestUrl} size={132} /></div>
-              <p className="text-[10px] mt-2" style={{ color: "#8892b0" }}>Scan to browse and request songs</p>
-            </>
-          ) : (
-            <div className="text-xs rounded-lg px-3 py-2 flex items-start gap-2 text-left" data-testid="karaoke-qr-offline"
-                 style={{ backgroundColor: "rgba(251,221,104,0.12)", color: "#fbdd68", border: "1px solid rgba(251,221,104,0.4)" }}>
-              <AlertCircle size={14} className="shrink-0 mt-0.5" />
-              Phone requests are not available right now. Check the internet connection. You can still add songs by hand.
-            </div>
-          )}
-        </div>
-      )}
+      <div className="rounded-xl p-3 text-center" data-testid="karaoke-qr-card"
+           style={{ backgroundColor: "rgba(34,197,94,0.05)", border: `1.5px solid ${accentBorder}` }}>
+        <p className="text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center justify-center gap-1" style={{ color: accent }}>
+          <QrCode size={11} /> Song Request QR
+        </p>
+        {requestUrl ? (
+          <>
+            <div className="bg-white rounded-lg p-2 inline-block" data-testid="karaoke-host-qr"><QRCodeSVG value={requestUrl} size={132} /></div>
+            <p className="text-[10px] mt-2" style={{ color: "#8892b0" }}>Scan to browse and request songs</p>
+          </>
+        ) : (
+          <div className="text-xs rounded-lg px-3 py-2 flex items-start gap-2 text-left" data-testid="karaoke-qr-offline"
+               style={{ backgroundColor: "rgba(251,221,104,0.12)", color: "#fbdd68", border: "1px solid rgba(251,221,104,0.4)" }}>
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            Phone requests are not available right now. Check the internet connection. You can still add songs by hand.
+          </div>
+        )}
+      </div>
 
       {/* 3. song requests */}
       <div className="flex-1 min-h-[6rem] flex flex-col" data-testid="karaoke-requests">

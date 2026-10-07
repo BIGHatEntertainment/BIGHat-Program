@@ -83,8 +83,6 @@ export default function KaraokePlayer() {
   const [audience, setAudience] = useState({ started: false, time: 0, duration: 0, ending: false, ended: false });
 
   // ---- shared
-  const [overlayEnabled, setOverlayEnabled] = useState(true);
-  const [showQr, setShowQr] = useState(true);
   const [requestUrl, setRequestUrl] = useState("");
   const [qrOnline, setQrOnline] = useState(true);
   const [audienceOpen, setAudienceOpen] = useState(false);   // alpha.89: is the TV screen open? (the buffer needs it)
@@ -106,8 +104,6 @@ export default function KaraokePlayer() {
     axios.get(`${API}/karaoke/session/active`).then((r) => {
       if (!r.data.session) { navigate("/karaoke"); return; }
       setSession(r.data.session);
-      setOverlayEnabled(r.data.session.overlay_enabled !== false);
-      setShowQr(r.data.session.qr_enabled !== false);
       setFolderName(r.data.session.filler_folder || "");
       setLoadingSession(false);
     }).catch(() => navigate("/karaoke"));
@@ -167,7 +163,7 @@ export default function KaraokePlayer() {
       if (r.data && typeof r.data.rev === "number") rev = r.data.rev;
     } catch { /* the channel copy below still reaches the screen */ }
     revRef.current = rev;
-    if (channelRef.current) channelRef.current.postMessage({ type: "karaoke-state", pb: { ...pb, rev }, qrEnabled: patch.qr ?? undefined, overlayEnabled: patch.overlay ?? undefined });
+    if (channelRef.current) channelRef.current.postMessage({ type: "karaoke-state", pb: { ...pb, rev } });
   }, []);
 
   // ======================================================================== filler player
@@ -409,16 +405,6 @@ export default function KaraokePlayer() {
   }, [session, currentSinger, finishSong, sendState]);
 
   // ======================================================================== header actions
-  const toggleOverlay = async () => {
-    const v = !overlayEnabled; setOverlayEnabled(v);
-    await axios.post(`${API}/karaoke/session/overlay`, { overlay_enabled: v, qr_enabled: showQr });
-    channelRef.current && channelRef.current.postMessage({ type: "karaoke-state", pb: { song_playing: songPlaying, song_ending: songEnding, current_singer: currentSinger, mode, rev: revRef.current }, overlayEnabled: v, qrEnabled: showQr });
-  };
-  const toggleQr = async () => {
-    const v = !showQr; setShowQr(v);
-    await axios.post(`${API}/karaoke/session/overlay`, { overlay_enabled: overlayEnabled, qr_enabled: v });
-    channelRef.current && channelRef.current.postMessage({ type: "karaoke-state", pb: { song_playing: songPlaying, song_ending: songEnding, current_singer: currentSinger, mode, rev: revRef.current }, overlayEnabled, qrEnabled: v });
-  };
   const switchMode = async (m) => { setMode(m); await axios.post(`${API}/karaoke/session/mode`, { mode: m }).catch(() => {}); };
   // alpha.89: same as the Bingo player. In the desktop app the audience screen is a REAL window
   // ("karaoke-audience"); a pop-up never opens there, which is why the button used to do nothing.
@@ -495,8 +481,6 @@ export default function KaraokePlayer() {
               <input type="range" min="0" max="1" step="0.01" value={masterVolume} onChange={(e) => setMasterVolume(parseFloat(e.target.value))} className="w-28" style={{ accentColor: accent }} data-testid="karaoke-master-volume" />
               <span className="text-[10px] font-bold w-10" style={{ color: masterVolume > 0.67 ? "#fbdd68" : accent }}>{Math.round(masterVolume * AMP_FACTOR * 100)}%</span>
             </div>
-            <button onClick={toggleOverlay} className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold" style={{ backgroundColor: overlayEnabled ? accentDim : "transparent", border: `1px solid ${accentBorder}`, color: overlayEnabled ? accent : "#8892b0" }} data-testid="karaoke-overlay-toggle"><Layers size={14} /> Overlay</button>
-            <button onClick={toggleQr} className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold" style={{ backgroundColor: showQr ? accentDim : "transparent", border: `1px solid ${accentBorder}`, color: showQr ? accent : "#8892b0" }} data-testid="karaoke-qr-toggle-btn"><QrCode size={14} /> QR</button>
             <button onClick={openAudience} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold" style={{ backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-audience-btn"><Monitor size={14} /> Audience View</button>
           </div>
         </div>
@@ -679,7 +663,7 @@ export default function KaraokePlayer() {
         mode={mode} currentSinger={currentSinger} songPlaying={songPlaying} isFillerPlaying={isFillerPlaying}
         currentTrackName={currentTrack ? String(currentTrack.name || currentTrack.id || "").replace(/\.[a-z0-9]+$/i, "") : ""}
         audienceOpen={audienceOpen} onOpenAudience={openAudience}
-        showQr={showQr} requestUrl={requestUrl}
+        requestUrl={requestUrl}
         pendingRequests={pendingRequests} onAccept={acceptRequest} onReject={rejectRequest}
         queueCount={waiting.length}
       />

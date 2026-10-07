@@ -75,7 +75,7 @@ async def create_session(request: Request):
         "is_active": True,
         "mode": "filler",
         "overlay_enabled": True,
-        "qr_enabled": bool(data.get("qr_enabled", True)),
+        "qr_enabled": True,                      # alpha.95: the request QR is always on the audience screen
         "playback": {"song_playing": False, "song_ending": False, "current_singer": None, "mode": "filler"},
         "created_at": _now(),
     }
@@ -116,12 +116,10 @@ async def set_mode(request: Request):
 
 @router.post("/session/overlay")
 async def toggle_overlay(request: Request):
-    data = await request.json()
-    await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {
-        "overlay_enabled": data.get("overlay_enabled", False),
-        "qr_enabled": data.get("qr_enabled", False),
-    }})
-    return {"success": True}
+    """alpha.95: kept only so an older screen does not get an error. The overlay and the request QR are ALWAYS on:
+    whatever is sent here is ignored and both stay on."""
+    await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"overlay_enabled": True, "qr_enabled": True}})
+    return {"success": True, "overlay_enabled": True, "qr_enabled": True}
 
 
 # ===================== Playback (host -> audience) and the audience clock (audience -> host) =====================
@@ -158,8 +156,8 @@ async def get_playback():
     return {
         "playback": s.get("playback") or {"song_playing": False, "current_singer": None, "mode": "filler"},
         "location": s.get("location", ""),
-        "qr_enabled": s.get("qr_enabled", False),
-        "overlay_enabled": s.get("overlay_enabled", True),
+        "qr_enabled": True,                       # alpha.95: always on
+        "overlay_enabled": True,
         "preload": s.get("preload"),
     }
 
