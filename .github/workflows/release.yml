@@ -157,7 +157,7 @@ jobs:
   # -------------------------------------------------------------------------
   # Gate job: runs AFTER the matrix and refuses to let an incomplete release
   # be visible to customers. If any of (Windows .exe, macOS Apple Silicon
-  # .dmg, macOS Intel .dmg) is missing from the release at this tag, the job
+  # .dmg) is missing from the release at this tag, the job
   # fails LOUDLY — customers never see the half-baked release because
   # tauri-action's draft toggle is honored on miss (or the release is
   # explicitly demoted back to draft by this job on partial uploads).
@@ -183,7 +183,7 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V"     >> "$GITHUB_OUTPUT"
 
-      - name: Verify all 3 OS installers uploaded
+      - name: Verify all 2 OS installers uploaded
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
@@ -219,7 +219,7 @@ jobs:
             echo "Release demoted to draft. Inspect the failed matrix legs above, fix the root cause, re-run failed jobs (or cut a new tag), and only re-publish once all 3 binaries are present."
             exit 1
           fi
-          echo "All 3 OS binaries present. Release $TAG is publishable."
+          echo "All 2 OS binaries present. Release $TAG is publishable."
 
           # Force the release to be PUBLIC (not draft, not prerelease). This
           # is the only place a release transitions from build-in-progress to
