@@ -193,8 +193,8 @@ jobs:
           set -euo pipefail
           echo "Looking up release for tag $TAG..."
           REL=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
-          REL_ID=$(echo "$REL" | python -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
+          REL_ID=$(echo "$REL" | python -c "import sys,json; t='${TAG}'; r=[x for x in json.load(sys.stdin) if x.get('tag_name')==t]; print(json.dumps(r[0] if r else {}))")
           if [ -z "$REL_ID" ]; then
             echo "::error::No release found at $TAG. The matrix legs may have all failed before tauri-action could create the release."
             exit 1
