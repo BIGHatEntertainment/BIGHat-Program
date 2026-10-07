@@ -103,6 +103,31 @@ ok(seq[2][1].congrats, 'name typed -> shown on the winner video');
 ok(!seq[3][1].winnerVideo, 'continue -> winner video goes away');
 await send({ type: 'video-state', roundEnded: true });
 ok(!document.body.textContent.includes('Song Seven') || true, 'round-ended message accepted');
+
+// ---------- alpha.91: the screen never starts one song's video under another song's name ----------
+{
+  const A = 'http://x/api/bingo/media/1990s/';
+  const s14 = { number: 14, title: 'Song Fourteen', artist: 'B' }, s15 = { number: 15, title: 'Song Fifteen', artist: 'C' };
+  const played2 = () => document.querySelector('video:not([loop])')?.getAttribute('src');
+  await send({ type: 'video-state', roundEnded: true });
+  await send({ type: 'video-state', videoUrl: A + '14', isPlaying: true, currentSong: s14, showSongInfo: true, calledSongs: [s14] });
+  ok(played2() === A + '14', 'AGREEING info and video: song 14 starts: ' + played2());
+  // the next song's NAME arrives while the previous song's video is still attached: it must not start
+  await send({ type: 'video-state', videoUrl: A + '14', isPlaying: true, currentSong: s15, showSongInfo: true, calledSongs: [s14, s15] });
+  ok(played2() === A + '14', 'the screen did not switch videos on a name alone: ' + played2());
+  // a video for 99 under the name of song 15 is refused, and the screen keeps what it had
+  await send({ type: 'video-state', videoUrl: A + '99', isPlaying: true, currentSong: s15, showSongInfo: true, calledSongs: [s14, s15] });
+  ok(played2() !== A + '99', 'a video for another number under the name of song 15 is NOT started: ' + played2());
+  // the matching pair arrives: now it plays song 15
+  await send({ type: 'video-state', videoUrl: A + '15', isPlaying: true, currentSong: s15, showSongInfo: true, calledSongs: [s14, s15] });
+  ok(played2() === A + '15', 'when the matching pair arrives, song 15 plays: ' + played2());
+  // plain messages (no song info) never get blocked
+  await send({ type: 'video-state', videoUrl: A + '15', isPlaying: true, command: 'pause' });
+  ok(played2() === A + '15', 'a play/pause message with no song info still works');
+  // a different round's address for the same number is a different file, and plays when the host says so
+  await send({ type: 'video-state', videoUrl: 'http://x/api/bingo/media/Emo/15', isPlaying: true, currentSong: s15, showSongInfo: true, calledSongs: [s15] });
+  ok(played2() === 'http://x/api/bingo/media/Emo/15', "another round's song 15 plays when it is the one named: " + played2());
+}
 console.error = oe;
 console.log('react errors:', errors.length ? errors.slice(0,3) : 'none');
 console.log(fails.length ? 'FAILED:\n - ' + fails.join('\n - ') : 'audience: checks ok');

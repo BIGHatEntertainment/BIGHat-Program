@@ -48,6 +48,8 @@ const API = `${BACKEND_URL}/api`;
 
 // alpha.67: a video entry is either a stream link (string, from Bingo Setup's folder)
 // or a File the host picked by hand. Both become something <video> can play.
+import { takePreloaded, isRightVideo, checkNextSong } from "./songGuard";
+
 const toPlayableUrl = (entry) => (typeof entry === "string" ? entry : URL.createObjectURL(entry));
 
 export default function HostDashboard() {
@@ -76,7 +78,8 @@ export default function HostDashboard() {
   const [videoUrl, setVideoUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [songCooldown, setSongCooldown] = useState(false);
-  const preloadedUrlsRef = useRef({}); // { songNumber: { url, ready: bool } }
+  const preloadedUrlsRef = useRef({});
+  const loadedThemeRef = useRef("");        // alpha.91: the round the song list / video links currently belong to // { songNumber: { url, ready: bool } }
   const audienceStartedRef = useRef(false);        // true once the audience window reports it is playing
   const pendingPreviewRef = useRef(null);          // starts the host preview (called when the audience starts)
   const pendingStartRef = useRef(null);            // { url, song } waiting for the <video> to exist
@@ -154,6 +157,8 @@ export default function HostDashboard() {
           const playable = all.filter(s => s.has_video !== false);
           const links = {};
           playable.forEach(s => { links[s.number] = `${API}/bingo/media/${encodeURIComponent(decade)}/${s.number}`; });
+          loadedThemeRef.current = decade;
+          preloadedUrlsRef.current = {};   // alpha.91: nothing preloaded for another round may ever be reused
           setVideoFiles(links);
           setSongList(playable);
           setSongListSource("local-folder");
@@ -188,6 +193,23 @@ export default function HostDashboard() {
   };
 
   // Pre-select and pre-buffer the next song from the available pool
+  // alpha.91: preload ONE song's video, tagged with the round and number it was made for
+  const preloadOne = useCallback((num) => {
+    const theme = loadedThemeRef.current;
+    const file = videoFiles[num];
+    if (!file) return;
+    const url = toPlayableUrl(file);
+    if (!isRightVideo(url, theme, num, { theme, number: num })) return;
+    const entry = { url, ready: false, theme, number: num };
+    preloadedUrlsRef.current[num] = entry;
+    const tempVid = document.createElement("video");
+    tempVid.preload = "auto";
+    tempVid.src = url;
+    tempVid.addEventListener("canplaythrough", () => {
+      if (preloadedUrlsRef.current[num] === entry) preloadedUrlsRef.current[num] = { ...entry, ready: true };
+    }, { once: true });
+  }, [videoFiles]);
+
   const pickNextSong = useCallback((available) => {
     if (!available || available.length === 0) {
       setNextSong(null);
@@ -200,16 +222,20 @@ export default function HostDashboard() {
       // Pre-buffer the next 2 songs as blob URLs
       for (let i = 0; i < Math.min(2, available.length); i++) {
         const num = available[i];
-        if (preloadedUrlsRef.current[num]) continue; // already preloaded
+        const theme = loadedThemeRef.current;
+        if (takePreloaded(preloadedUrlsRef.current, theme, num)) continue; // already preloaded FOR THIS round and number
         const file = videoFiles[num];
         if (file) {
           const url = toPlayableUrl(file);
-          preloadedUrlsRef.current[num] = { url, ready: false };
+          // alpha.91: a video must be the right one for this round and number, or it is not preloaded (checked quietly)
+          if (!isRightVideo(url, theme, num, { theme, number: num })) continue;
+          const entry = { url, ready: false, theme, number: num };
+          preloadedUrlsRef.current[num] = entry;
           const tempVid = document.createElement("video");
           tempVid.preload = "auto";
           tempVid.src = url;
           tempVid.addEventListener("canplaythrough", () => {
-            preloadedUrlsRef.current[num] = { url, ready: true };
+            if (preloadedUrlsRef.current[num] === entry) preloadedUrlsRef.current[num] = { ...entry, ready: true };
           }, { once: true });
         }
       }
@@ -217,6 +243,24 @@ export default function HostDashboard() {
       setNextSong(null);
     }
   }, [songList, videoFiles]);
+
+  // alpha.91 QUIET CHECK: the song shown as "up next" must be this round's song with this number, and the video preloaded
+  // for it must be this round's file for the same number. Anything off is flagged and fixed here, with nothing shown.
+  useEffect(() => {
+    if (!nextSong) return;
+    const run = () => {
+      const r = checkNextSong({ nextSong, songList, videoFiles, cache: preloadedUrlsRef.current, theme: loadedThemeRef.current, pool: availableSongNumbers });
+      if (r.ok) return;
+      for (const f of r.fixes) {
+        if (f.do === "drop") delete preloadedUrlsRef.current[f.number];
+        else if (f.do === "preload") preloadOne(f.number);
+        else if (f.do === "replace-next" && f.song && (f.song.number !== nextSong.number || f.song.title !== nextSong.title)) setNextSong(f.song);
+      }
+    };
+    run();
+    const t = setTimeout(run, 1500);   // once more shortly after: the preload may have been made a moment later
+    return () => clearTimeout(t);
+  }, [nextSong, songList, videoFiles, availableSongNumbers, preloadOne]);
 
   // Auto-pick the first "up next" once song list + available numbers are ready
   useEffect(() => {
@@ -524,8 +568,14 @@ export default function HostDashboard() {
     setSongCooldown(true);
     setTimeout(() => setSongCooldown(false), 5000);
 
-    const nextNumber = availableSongNumbers[0];
-    const newAvailable = availableSongNumbers.slice(1);
+    // alpha.91 (quiet check): the song the host is LOOKING AT as "up next" is the song that plays. If the pool's first
+    // number ever differs from the proposed song (a new round's shuffle landed in between), play the one on screen.
+    let nextNumber = availableSongNumbers[0];
+    if (nextSong && nextSong.number !== nextNumber && availableSongNumbers.includes(nextSong.number)
+        && songList.some(s => s.number === nextSong.number)) {
+      nextNumber = nextSong.number;
+    }
+    const newAvailable = availableSongNumbers.filter(n => n !== nextNumber);
     setAvailableSongNumbers(newAvailable);
 
     const song = songList.find(s => s.number === nextNumber);
@@ -538,12 +588,17 @@ export default function HostDashboard() {
       if (videoFile) {
         // Use preloaded URL if available, otherwise create new
         let url;
-        var preloaded = preloadedUrlsRef.current[nextNumber];
+        // alpha.91 (quiet check): only a preloaded video made for THIS round and THIS number is used; anything else is dropped
+        var preloaded = takePreloaded(preloadedUrlsRef.current, loadedThemeRef.current, nextNumber);
         if (preloaded?.url) {
           url = preloaded.url;
           delete preloadedUrlsRef.current[nextNumber]; // consumed
         } else {
           if (videoUrl) URL.revokeObjectURL(videoUrl);
+          url = toPlayableUrl(videoFile);
+        }
+        // last look before it plays: the address must stand for this round and number; if not, rebuild it from the round's own list
+        if (!isRightVideo(url, loadedThemeRef.current, nextNumber, { theme: loadedThemeRef.current, number: nextNumber })) {
           url = toPlayableUrl(videoFile);
         }
         // The <video> element may not exist yet (the first song). Setting these two
@@ -915,9 +970,16 @@ export default function HostDashboard() {
   // Broadcast video state whenever it changes — includes song data so audience doesn't depend on polling
   const broadcastVideoState = useCallback((overrides = {}) => {
     if (!channelRef.current) return;
+    // alpha.91 (quiet check): the song info and the video in one message must be the SAME song, from the current round.
+    // If they are not (the info of a new song arrived before its video), the old video is held back, so the audience
+    // is never told one song's name with another song's video.
+    const sendUrl = overrides.videoUrl !== undefined ? overrides.videoUrl : videoUrl;
+    const sendSong = overrides.currentSong !== undefined ? overrides.currentSong : currentSong;
+    const theme = loadedThemeRef.current;
+    const heldBack = !!(sendUrl && sendSong && sendSong.number != null && theme && !isRightVideo(sendUrl, theme, sendSong.number, { theme, number: sendSong.number }));
     channelRef.current.postMessage({
       type: "video-state",
-      videoUrl: overrides.videoUrl !== undefined ? overrides.videoUrl : videoUrl,
+      videoUrl: heldBack ? undefined : sendUrl,
       isPlaying: overrides.isPlaying !== undefined ? overrides.isPlaying : isPlaying,
       currentTime: videoRef.current?.currentTime || 0,
       volume: overrides.volume !== undefined ? overrides.volume : volume,

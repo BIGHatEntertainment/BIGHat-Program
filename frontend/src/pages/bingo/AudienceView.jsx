@@ -1,3 +1,4 @@
+import { parseMediaUrl } from "./songGuard";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { pickBingoTheme, THEME_CONFETTI } from "../../lib/bingoTheme";
 import { motion, AnimatePresence } from "framer-motion";
@@ -152,6 +153,12 @@ export default function AudienceView() {
 
       if (songInfoFlag !== undefined) setShowSongInfo(songInfoFlag);
       if (currentSong !== undefined) setBroadcastSong(currentSong);
+
+      // alpha.91 (quiet check): start a video only if it is the right one for the song named in the same message.
+      // If it is not, wait for the matching message (the host sends it moments later); nothing is shown to anyone.
+      const named = currentSong !== undefined ? currentSong : null;
+      const parsed = videoUrl ? parseMediaUrl(videoUrl) : null;
+      if (videoUrl && parsed && named && named.number != null && parsed.number !== Number(named.number)) return;
 
       if (videoUrl && videoUrl !== mirrorVideoUrlRef.current) {
         mirrorVideoUrlRef.current = videoUrl;

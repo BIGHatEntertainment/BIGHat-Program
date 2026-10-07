@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-const stub = (re, file) => ({ name: 'stub-'+file, setup(b){ b.onResolve({filter: re}, () => ({ path: './stubs/'+file })); } });
+const stub = (re, file) => ({ name: 'stub-'+file, setup(b){ b.onResolve({filter: re}, () => ({ path: '/root/workspace/BIGHat-Program/frontend/scripts/bingo/stubs/'+file })); } });
 await build({
   entryPoints: ['/root/workspace/BIGHat-Program/frontend/src/pages/bingo/HostDashboard.jsx'],
   bundle: true, format: 'esm', platform: 'node', outfile: './host.bundle.mjs', logLevel: 'error',

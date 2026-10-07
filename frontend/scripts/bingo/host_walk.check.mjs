@@ -24,7 +24,13 @@ axios.get = async (url) => {
   calls.push('GET ' + url.replace('http://x/api',''));
   if (url.includes('/bingo/game/state')) return { data: { game } };
   if (url.includes('/bingo/available-themes')) return { data: { success: true, configured: true, themes: [{id:'1990s',name:'1990s',videos:39},{id:'Emo',name:'Emo',videos:12}] } };
-  if (url.includes('/bingo/songlist/')) return { data: { success: true, source: 'local-folder', songs: SONGS, decade: '1990s' } };
+  if (url.includes('/bingo/songlist/')) {
+    const theme = decodeURIComponent(url.split('/bingo/songlist/')[1].split('?')[0]);
+    // alpha.91: every round numbers its songs 1..40 again, but the titles are the round's own
+    const songs = theme === '1990s' ? SONGS : SONGS.map(x => ({ ...x, title: theme + ' song ' + x.number }));
+    if (globalThis.__slowThemes && globalThis.__slowThemes.has(theme)) await new Promise(r => setTimeout(r, globalThis.__slowThemes.get(theme)));
+    return { data: { success: true, source: 'local-folder', songs, decade: theme } };
+  }
   return { data: {} };
 };
 axios.post = async (url, body) => {
@@ -183,6 +189,70 @@ ok(endBtnIdle && endBtnIdle.disabled, 'ROUND OVER: End Round is off while the ne
 await act(async () => { {const b=document.querySelector('[data-testid="start-game-btn"]'); if(b) fireEvent.click(b);} await new Promise(r => setTimeout(r, 300)); });
 await act(async () => { await new Promise(r => setTimeout(r, 2600)); });   // one 2 s poll brings in is_active
 
+
+// alpha.91: watch every preload the host makes, so the quiet check can be proved from the outside
+globalThis.__preloads = [];
+{
+  const realCreate = document.createElement.bind(document);
+  document.createElement = (tag, ...a) => {
+    const el = realCreate(tag, ...a);
+    if (String(tag).toLowerCase() === 'video') {
+      const d = Object.getOwnPropertyDescriptor(window.HTMLMediaElement.prototype, 'src');
+      Object.defineProperty(el, 'src', { configurable: true, get() { return d.get.call(el); }, set(v) { if (el.preload === 'auto') globalThis.__preloads.push(String(v)); d.set.call(el, v); } });
+    }
+    return el;
+  };
+}
+// ================= alpha.91: a NEW ROUND that reuses the same song numbers must play the right videos =================
+// (field report: the host screen named one song and a different video played in the later rounds)
+{
+  const wrong = [];
+  const sentNow = () => globalThis.__sent.length;
+  // a new round, now in a theme whose songs are numbered 1..40 again; the song list takes a moment to arrive
+  const endNow = [...document.querySelectorAll('button')].find(b => /End Round/.test(b.textContent));
+  ok(!!document.body.textContent, 'ROUND REUSE: host still on screen before the extra rounds');
+  for (const [theme, delay] of [['Emo', 0], ['1990s', 700], ['Emo', 150], ['1990s', 0]]) {
+    // end whatever is running, then start the next round with this theme
+    {
+      const eb = [...document.querySelectorAll('button')].find(b => /End Round/.test(b.textContent) && !b.disabled);
+      if (eb) await act(async () => { fireEvent.click(eb); await new Promise(r => setTimeout(r, 500)); });
+      globalThis.__slowThemes = new Map([[theme, delay]]); globalThis.__roundStartedAt = globalThis.__preloads.length;
+      const tb = document.querySelector('[data-testid="next-theme-' + theme + '"]'); if (tb) await act(async () => { fireEvent.click(tb); });
+      const nb = document.querySelector('[data-testid="start-next-round-btn"]');
+      if (nb) await act(async () => { fireEvent.click(nb); await new Promise(r => setTimeout(r, delay + 900)); });
+      const sb = document.querySelector('[data-testid="start-game-btn"]'); if (sb) await act(async () => { fireEvent.click(sb); await new Promise(r => setTimeout(r, 300)); });
+      await act(async () => { await new Promise(r => setTimeout(r, 2700)); });
+    }
+    // call five songs; for each one the title the host sees must be this round's, and the video must be this round's SAME number
+    for (let k = 0; k < 5; k++) {
+      await act(async () => { await new Promise(r => setTimeout(r, 5200)); });         // the 5 s cooldown between calls
+      const b = document.querySelector('[data-testid="next-song-btn"]'); if (!b || b.disabled) { wrong.push(theme + ' call ' + (k + 1) + ': Next Song not ready'); continue; }
+      const c1 = calls.length, s1 = sentNow();
+      await act(async () => { fireEvent.click(b); await new Promise(r => setTimeout(r, 400)); });
+      const posted = calls.slice(c1).find(c => c.startsWith('POST /bingo/game/call-song'));
+      if (!posted) { wrong.push(theme + ' call ' + (k + 1) + ': no song was called'); continue; }
+      const num = Number((posted.match(/"number":(\d+)/) || [])[1]);
+      const vid = document.querySelector('video'); const src = vid ? (vid.getAttribute('src') || '') : '';
+      const sentUrls = globalThis.__sent.slice(s1).map(m => m && m.videoUrl).filter(Boolean);
+      const want = new RegExp('/bingo/media/' + theme + '/' + num + '$');
+      if (!want.test(src)) wrong.push(theme + ' #' + num + ': host video was ' + src);
+      if (sentUrls.length && !sentUrls.every(u => want.test(u))) wrong.push(theme + ' #' + num + ': audience was told ' + JSON.stringify(sentUrls.slice(0, 2)));
+      // every message that carries BOTH a song and a video must carry the same number
+      const pairs = globalThis.__sent.slice(s1).filter(m => m && m.type === 'video-state' && m.videoUrl && m.currentSong && m.currentSong.number != null);
+      const bad = pairs.filter(m => !new RegExp('/bingo/media/[^/]+/' + m.currentSong.number + '$').test(m.videoUrl));
+      if (bad.length) wrong.push(theme + ' #' + num + ': ' + bad.length + ' message(s) named song ' + bad[0].currentSong.number + ' with the video ' + bad[0].videoUrl);
+      // the host's quiet check: everything preloaded since this round began belongs to this round
+      const since = globalThis.__preloads.filter(u => /\/bingo\/media\//.test(u));
+      const foreign = since.filter(u => !new RegExp('/bingo/media/' + theme + '/\\d+$').test(u) && globalThis.__roundStartedAt && globalThis.__preloads.lastIndexOf(u) >= globalThis.__roundStartedAt);
+      if (foreign.length) wrong.push(theme + ' #' + num + ': preloaded ' + foreign.length + ' video(s) from another round, e.g. ' + foreign[0]);
+      const shownTitle = (document.body.textContent.match(new RegExp((theme === '1990s' ? 'Song ' : theme + ' song ') + num + '(?!\\d)')) || [])[0];
+      if (!shownTitle) wrong.push(theme + ' #' + num + ': the title on screen is not this round\'s song ' + num);
+    }
+  }
+  ok(globalThis.__preloads.length > 10, 'the watcher really saw the host preloading songs (' + globalThis.__preloads.length + ')');
+  ok(wrong.length === 0, 'ROUND REUSE: every song played matches its round and number: ' + JSON.stringify(wrong.slice(0, 4)));
+}
+
 // second end-of-round: finalize with a confirmation
 await enough();
 const endBtn2 = [...document.querySelectorAll('button')].find(b => /End Round/.test(b.textContent));
@@ -198,6 +268,7 @@ await act(async () => { fireEvent.click(document.querySelector('[data-testid="en
 await act(async () => { fireEvent.click(document.querySelector('[data-testid="end-night-confirm-btn"]')); await new Promise(r => setTimeout(r, 600)); });
 ok(calls.slice(before4).some(c => c.startsWith('POST /bingo/game/finalize')), 'END NIGHT: finalize sent to the server');
 ok(document.body.textContent.includes('OTHER'), 'END NIGHT: goes back to the Bingo lobby');
+
 console.error = origErr;
 console.log('react errors:', errors.length ? errors.slice(0, 3) : 'none');
 console.log('unhandled rejections:', unhandled.length ? unhandled : 'none');
