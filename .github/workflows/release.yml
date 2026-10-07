@@ -40,10 +40,6 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
             bundles: dmg,app
-          - label: macOS (Intel)
-            os: macos-13
-            target: x86_64-apple-darwin
-            bundles: dmg,app
 
     runs-on: ${{ matrix.os }}
 
@@ -146,7 +142,6 @@ jobs:
 
             - Windows: `BIGHatEntertainment-Setup-${{ steps.ver.outputs.version }}.exe`
             - macOS (Apple Silicon): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_aarch64.dmg`
-            - macOS (Intel): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_x64.dmg`
 
             See CHANGELOG.md for the full notes.
           # Always create as draft. The verify-release-assets gate job that
@@ -213,7 +208,6 @@ jobs:
           # one .exe for windows + one .dmg per mac arch is present.
           echo "$ASSETS" | grep -Eqi 'BIG.*Hat.*Entertainment.*Setup.*\.exe$|BIG.*Hat.*Entertainment.*\.exe$' || MISSING+=("windows-setup.exe")
           echo "$ASSETS" | grep -Eqi 'aarch64.*\.dmg$|arm64.*\.dmg$'                                              || MISSING+=("macos-apple-silicon.dmg")
-          echo "$ASSETS" | grep -Eqi 'x64.*\.dmg$|x86_64.*\.dmg$|intel.*\.dmg$'                                   || MISSING+=("macos-intel.dmg")
 
           if [ ${#MISSING[@]} -ne 0 ]; then
             echo "::error::Release $TAG is INCOMPLETE — missing: ${MISSING[*]}. Demoting back to draft so customers cannot see a half-baked release."
