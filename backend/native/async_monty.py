@@ -18,6 +18,23 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
+
+# alpha.90: ONE database call at a time.
+# MontyDB's SQLite connection refuses to be used from a thread other than the one that created it, and it is not
+# safe for two calls at once. Every call here runs on a worker thread, so two requests overlapping used to fail
+# ("SQLite objects created in a thread can only be used in that same thread", "no such table", "database is locked"):
+# in a 60-call test 0 succeeded. The lock runs the calls strictly one after another (each is a short, self-contained
+# operation), and it is taken INSIDE the worker thread, so the app never freezes while a call waits for its turn.
+_DB_LOCK = threading.RLock()
+
+
+def _db_thread(fn, *args, **kwargs):
+    def _locked():
+        with _DB_LOCK:
+            return fn(*args, **kwargs)
+    return asyncio.to_thread(_locked)
+
 from typing import Any, Iterable, List, Mapping, Optional, Sequence
 
 
@@ -72,7 +89,7 @@ class AsyncMontyCursor:
                     return []
                 raise
 
-        return await asyncio.to_thread(_materialize)
+        return await _db_thread(_materialize)
 
     # Async iteration: `async for doc in cursor`
     def __aiter__(self):
@@ -89,7 +106,7 @@ class AsyncMontyCursor:
         # Important: StopIteration cannot cross an asyncio boundary (PEP 479).
         # Use a sentinel inside the worker thread and convert to StopAsyncIteration here.
         sentinel = object()
-        val = await asyncio.to_thread(lambda: next(self._iter, sentinel))
+        val = await _db_thread(lambda: next(self._iter, sentinel))
         if val is sentinel:
             raise StopAsyncIteration
         return val
@@ -110,7 +127,7 @@ class AsyncMontyCollection:
     # ----- Reads -----
     async def find_one(self, *args, **kwargs):
         try:
-            return await asyncio.to_thread(self._col.find_one, *args, **kwargs)
+            return await _db_thread(self._col.find_one, *args, **kwargs)
         except Exception as exc:
             if _is_missing_table_error(exc):
                 return None
@@ -132,7 +149,7 @@ class AsyncMontyCollection:
     async def count_documents(self, filter: Optional[Mapping] = None, **kwargs) -> int:
         f = filter if filter is not None else {}
         try:
-            return await asyncio.to_thread(self._col.count_documents, f, **kwargs)
+            return await _db_thread(self._col.count_documents, f, **kwargs)
         except Exception as exc:
             if _is_missing_table_error(exc):
                 return 0
@@ -140,7 +157,7 @@ class AsyncMontyCollection:
 
     async def estimated_document_count(self, **kwargs) -> int:
         try:
-            return await asyncio.to_thread(self._col.estimated_document_count, **kwargs)
+            return await _db_thread(self._col.estimated_document_count, **kwargs)
         except AttributeError:
             return await self.count_documents({})
         except Exception as exc:
@@ -150,7 +167,7 @@ class AsyncMontyCollection:
 
     async def distinct(self, key: str, filter: Optional[Mapping] = None, **kwargs) -> List[Any]:
         try:
-            return await asyncio.to_thread(
+            return await _db_thread(
                 self._col.distinct, key, filter or {}, **kwargs
             )
         except Exception as exc:
@@ -167,7 +184,7 @@ class AsyncMontyCollection:
         def _run() -> List[dict]:
             return list(self._col.aggregate(list(pipeline), **kwargs))
 
-        result = await asyncio.to_thread(_run)
+        result = await _db_thread(_run)
 
         # Provide a tiny shim so callers can do `.to_list(None)` if they expect
         # a cursor. Most call sites in the app already iterate or assign list.
@@ -195,15 +212,15 @@ class AsyncMontyCollection:
 
     # ----- Writes -----
     async def insert_one(self, document: Mapping, **kwargs):
-        return await asyncio.to_thread(self._col.insert_one, dict(document), **kwargs)
+        return await _db_thread(self._col.insert_one, dict(document), **kwargs)
 
     async def insert_many(self, documents: Iterable[Mapping], **kwargs):
         docs = [dict(d) for d in documents]
-        return await asyncio.to_thread(self._col.insert_many, docs, **kwargs)
+        return await _db_thread(self._col.insert_many, docs, **kwargs)
 
     async def update_one(self, filter, update, upsert: bool = False, **kwargs):
         try:
-            return await asyncio.to_thread(
+            return await _db_thread(
                 self._col.update_one, filter, update, upsert=upsert, **kwargs
             )
         except Exception as exc:
@@ -214,9 +231,9 @@ class AsyncMontyCollection:
                 if upsert:
                     try:
                         # Touch the collection by triggering an insert/delete cycle
-                        await asyncio.to_thread(self._col.insert_one, {"_bootstrap": True})
-                        await asyncio.to_thread(self._col.delete_one, {"_bootstrap": True})
-                        return await asyncio.to_thread(
+                        await _db_thread(self._col.insert_one, {"_bootstrap": True})
+                        await _db_thread(self._col.delete_one, {"_bootstrap": True})
+                        return await _db_thread(
                             self._col.update_one, filter, update, upsert=True, **kwargs
                         )
                     except Exception:
@@ -239,7 +256,7 @@ class AsyncMontyCollection:
 
     async def update_many(self, filter, update, upsert: bool = False, **kwargs):
         try:
-            return await asyncio.to_thread(
+            return await _db_thread(
                 self._col.update_many, filter, update, upsert=upsert, **kwargs
             )
         except Exception as exc:
@@ -253,21 +270,21 @@ class AsyncMontyCollection:
             raise
 
     async def replace_one(self, filter, replacement, upsert: bool = False, **kwargs):
-        return await asyncio.to_thread(
+        return await _db_thread(
             self._col.replace_one, filter, replacement, upsert=upsert, **kwargs
         )
 
     async def find_one_and_update(self, filter, update, **kwargs):
         try:
-            return await asyncio.to_thread(
+            return await _db_thread(
                 self._col.find_one_and_update, filter, update, **kwargs
             )
         except Exception as exc:
             if _is_missing_table_error(exc):
                 if kwargs.get("upsert"):
-                    await asyncio.to_thread(self._col.insert_one, {"_bootstrap": True})
-                    await asyncio.to_thread(self._col.delete_one, {"_bootstrap": True})
-                    return await asyncio.to_thread(
+                    await _db_thread(self._col.insert_one, {"_bootstrap": True})
+                    await _db_thread(self._col.delete_one, {"_bootstrap": True})
+                    return await _db_thread(
                         self._col.find_one_and_update, filter, update, **kwargs
                     )
                 return None
@@ -275,7 +292,7 @@ class AsyncMontyCollection:
 
     async def find_one_and_replace(self, filter, replacement, **kwargs):
         try:
-            return await asyncio.to_thread(
+            return await _db_thread(
                 self._col.find_one_and_replace, filter, replacement, **kwargs
             )
         except Exception as exc:
@@ -285,7 +302,7 @@ class AsyncMontyCollection:
 
     async def find_one_and_delete(self, filter, **kwargs):
         try:
-            return await asyncio.to_thread(
+            return await _db_thread(
                 self._col.find_one_and_delete, filter, **kwargs
             )
         except Exception as exc:
@@ -295,7 +312,7 @@ class AsyncMontyCollection:
 
     async def delete_one(self, filter, **kwargs):
         try:
-            return await asyncio.to_thread(self._col.delete_one, filter, **kwargs)
+            return await _db_thread(self._col.delete_one, filter, **kwargs)
         except Exception as exc:
             if _is_missing_table_error(exc):
                 class _NoOp:
@@ -306,7 +323,7 @@ class AsyncMontyCollection:
 
     async def delete_many(self, filter, **kwargs):
         try:
-            return await asyncio.to_thread(self._col.delete_many, filter, **kwargs)
+            return await _db_thread(self._col.delete_many, filter, **kwargs)
         except Exception as exc:
             if _is_missing_table_error(exc):
                 class _NoOp:
@@ -316,17 +333,17 @@ class AsyncMontyCollection:
             raise
 
     async def bulk_write(self, requests, **kwargs):
-        return await asyncio.to_thread(self._col.bulk_write, list(requests), **kwargs)
+        return await _db_thread(self._col.bulk_write, list(requests), **kwargs)
 
     # ----- Indexes -----
     async def create_index(self, keys, **kwargs):
-        return await asyncio.to_thread(self._col.create_index, keys, **kwargs)
+        return await _db_thread(self._col.create_index, keys, **kwargs)
 
     async def drop_index(self, index_or_name, **kwargs):
-        return await asyncio.to_thread(self._col.drop_index, index_or_name, **kwargs)
+        return await _db_thread(self._col.drop_index, index_or_name, **kwargs)
 
     async def list_indexes(self):
-        return await asyncio.to_thread(lambda: list(self._col.list_indexes()))
+        return await _db_thread(lambda: list(self._col.list_indexes()))
 
 
 class AsyncMontyDatabase:
@@ -344,10 +361,10 @@ class AsyncMontyDatabase:
         return AsyncMontyCollection(self._db[item], item)
 
     async def list_collection_names(self) -> List[str]:
-        return await asyncio.to_thread(self._db.list_collection_names)
+        return await _db_thread(self._db.list_collection_names)
 
     async def command(self, *args, **kwargs):
-        return await asyncio.to_thread(self._db.command, *args, **kwargs)
+        return await _db_thread(self._db.command, *args, **kwargs)
 
     @property
     def client(self):

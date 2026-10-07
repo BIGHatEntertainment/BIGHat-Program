@@ -52,10 +52,12 @@ export default function TriviaSetup({ currentUser, allUsers = [], setError, setS
   const refresh = async () => {
     setLoading(true);
     try {
-      // The Schedule decides: only places whose TRIVIA price is above $0 are listed. We also ask for every place so we can tell
-      // the master how many are waiting for a price (otherwise a brand-new place would seem to vanish).
-      const [r, all] = await Promise.all([api.listLocations('trivia'), api.listLocations().catch(() => ({ data: [] }))]);
-      setNoPrice(Math.max(0, (all.data || []).length - (r.data || []).length));
+      // ONE request. The Schedule decides: each place says which games it is on for (price above $0), and this screen lists
+      // the trivia ones. The rest are counted so a brand-new place never seems to vanish (it is waiting for a price).
+      const res = await api.listLocations();
+      const everything = Array.isArray(res.data) ? res.data : [];
+      const r = { data: everything.filter((l) => Array.isArray(l.games) && l.games.includes('trivia')) };
+      setNoPrice(Math.max(0, everything.length - r.data.length));
       setLocations(r.data);
       // If the currently-selected one disappeared (delete from another tab),
       // drop the selection so we don't 404 in the editor.

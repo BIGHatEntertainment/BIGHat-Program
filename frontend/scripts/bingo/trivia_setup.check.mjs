@@ -73,14 +73,14 @@ cleanup();
 
 
 // alpha.86: Trivia Setup lists only places priced for trivia, and tells the master how many are waiting for a price
-const P = (id, name) => ({ id, slug: id, name, branding_images: [], overlay_images: [], assigned_user_ids: [] });
-globalThis.__locGames = []; globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub'), P('b', 'No Price Bar'), P('c', 'Also No Price')];
+const P = (id, name, games = ['trivia']) => ({ id, slug: id, name, branding_images: [], overlay_images: [], assigned_user_ids: [], games });
+globalThis.__locGames = []; globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub'), P('b', 'No Price Bar', []), P('c', 'Also No Price', [])];
 as('master_admin'); app('/trivia/setup'); await wait(500);
-ok(globalThis.__locGames.includes('trivia'), 'Trivia Setup asks only for places on for TRIVIA (got: ' + JSON.stringify(globalThis.__locGames) + ')');
+ok(globalThis.__locGames.length === 1, 'Trivia Setup makes ONE request for places (two at once used to fail): ' + JSON.stringify(globalThis.__locGames));
 ok(!!q('location-card-a') && !q('location-card-b') && !q('location-card-c'), 'only the trivia-priced place is listed');
 ok(/2 places are not listed/.test(q('trivia-noprice-note')?.textContent || '') && /Schedule/.test(q('trivia-noprice-note')?.textContent || ''), 'the master is told 2 places are waiting for a price, and where to set it (got: ' + (q('trivia-noprice-note')?.textContent || 'no note') + ')');
 cleanup();
-globalThis.__locGames = []; globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub'), P('b', 'No Price Bar')];
+globalThis.__locGames = []; globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__allLocations = [P('a', 'Priced Pub'), P('b', 'No Price Bar', [])];
 as('master_admin'); app('/trivia/setup'); await wait(500);
 ok(/1 place is not listed because it has no trivia price/.test(q('trivia-noprice-note')?.textContent || ''), 'one waiting place uses the singular wording (got: ' + (q('trivia-noprice-note')?.textContent || 'no note') + ')');
 cleanup();
@@ -88,7 +88,7 @@ globalThis.__locationsByGame = { trivia: [P('a', 'Priced Pub')] }; globalThis.__
 as('master_admin'); app('/trivia/setup'); await wait(500);
 ok(!q('trivia-noprice-note') && !!q('location-card-a'), 'when every place is priced there is no note');
 cleanup();
-globalThis.__locationsByGame = { trivia: [] }; globalThis.__allLocations = [P('b', 'No Price Bar')];
+globalThis.__locationsByGame = { trivia: [] }; globalThis.__allLocations = [P('b', 'No Price Bar', [])];
 as('master_admin'); app('/trivia/setup'); await wait(500);
 ok(/1 place is not listed/.test(q('trivia-noprice-note')?.textContent || ''), 'with nothing priced yet the master still sees why the list is empty');
 cleanup();
@@ -98,7 +98,7 @@ globalThis.__locationsByGame = null; globalThis.__allLocations = null; globalThi
 // 6. alpha.88: each location has ONE sponsor slide image (upload / replace / remove)
 globalThis.__sponsorCalls = [];
 globalThis.__allLocations = null; globalThis.__locationsByGame = null;
-globalThis.__locations = [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [] }];
+globalThis.__locations = [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [], games: ['trivia'] }];
 as('master_admin'); app('/trivia/setup'); await wait(400);
 await act(async () => { fireEvent.click(q('location-card-pub-one')); }); await wait(300);
 ok(!!q('location-sponsor-section'), 'the location editor has a Sponsor slide section');
@@ -112,7 +112,7 @@ ok(JSON.stringify(globalThis.__sponsorCalls) === JSON.stringify([['upload', 'l1'
 cleanup();
 
 globalThis.__sponsorCalls = [];
-globalThis.__locations = [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [],
+globalThis.__locations = [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [], games: ['trivia'],
   sponsor_image: { id: 'sp-1', filename: 'old.png', size: 2048, mime: 'image/png', ext: '.png' } }];
 as('master_admin'); app('/trivia/setup'); await wait(400);
 await act(async () => { fireEvent.click(q('location-card-pub-one')); }); await wait(300);

@@ -574,8 +574,48 @@ async def serve_cover_image(file_id: str):
 
 # ── Round CRUD ──
 
+def _same_round_key(round_type, name):
+    return ((round_type or "").upper(), _slugify(name or ""))
+
+
+async def _find_existing_round(round_type, name):
+    """alpha.90: the round that already has this type + name, from the database or from disk (disk wins:
+    it is the source of truth and survives a database wipe). None if there is no such round."""
+    key = _same_round_key(round_type, name)
+    for d in _read_all_disk_rounds():
+        if _same_round_key(d.get("round_type") or d.get("_round_type_dir"), d.get("name")) == key and d.get("id"):
+            return {k: v for k, v in d.items() if not k.startswith("_")}
+    try:
+        for r in await db.rounds.find({"round_type": round_type}, {"_id": 0}).to_list(500):
+            if _same_round_key(r.get("round_type"), r.get("name")) == key:
+                return r
+    except Exception:
+        pass
+    return None
+
+
 @router.post("/rounds", response_model=RoundResponse)
 async def create_round(data: RoundCreate):
+    # alpha.90: saving a round whose type + name already exist UPDATES that round. It used to make a second
+    # round with a new id, which the disk writer saved as "<name>-<id>.bighat" (a stamped duplicate).
+    existing = await _find_existing_round(data.round_type, data.name)
+    if existing and existing.get("id"):
+        round_id = existing["id"]
+        now = existing.get("created_at") or datetime.now(timezone.utc).isoformat()
+        doc = {
+            "id": round_id, "round_type": data.round_type, "name": data.name,
+            "questions": [q.model_dump() for q in data.questions],
+            "tiebreaker": data.tiebreaker.model_dump() if data.tiebreaker else None,
+            "cover_image_id": data.cover_image_id or existing.get("cover_image_id"),
+            "status": existing.get("status") or "draft", "created_at": now,
+            "pptx_path": existing.get("pptx_path"),
+        }
+        if existing.get("cover_image_data_url") and not data.cover_image_id:
+            doc["cover_image_data_url"] = existing["cover_image_data_url"]
+        await db.rounds.replace_one({"id": round_id}, doc, upsert=True)
+        doc.pop("_id", None)
+        _write_round_bighat(doc)
+        return RoundResponse(**{k: v for k, v in doc.items() if k != "cover_image_data_url"})
     round_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     doc = {
@@ -1598,3 +1638,50 @@ async def root():
 
 # Include router
 
+
+
+def tidy_duplicate_rounds() -> dict:
+    """alpha.90 boot cleanup: "only one file per round".
+    A stamped file ("<name>-<8 hex>.bighat") that is an exact COPY of the plain "<name>.bighat" (same type, name,
+    questions, tiebreaker) is MOVED to <TYPE>/_duplicates_removed/ (never deleted, so it can be put back).
+    A stamped file that differs in any way stays exactly where it is and is reported. Never raises."""
+    stats = {"moved": 0, "kept_different": 0, "errors": 0, "moved_names": [], "kept_names": []}
+    try:
+        from native.files_router import _docs_root
+        from routes.trivia import _STAMP_RE, _is_stamped_duplicate
+        root = _docs_root() / "Files" / "Trivia"
+        for rt in _ROUND_TYPES:
+            d = root / rt
+            if not d.is_dir():
+                continue
+            for entry in sorted(d.glob("*.bighat")):
+                m = _STAMP_RE.match(entry.stem)
+                if not m:
+                    continue
+                plain = d / f"{m.group(1)}.bighat"
+                if not plain.is_file():
+                    continue
+                try:
+                    if _is_stamped_duplicate(entry, plain):
+                        keep = d / "_duplicates_removed"
+                        keep.mkdir(exist_ok=True)
+                        dest = keep / entry.name
+                        n = 1
+                        while dest.exists():
+                            dest = keep / f"{entry.stem}.{n}.bighat"
+                            n += 1
+                        entry.replace(dest)
+                        stats["moved"] += 1
+                        stats["moved_names"].append(entry.name)
+                    else:
+                        stats["kept_different"] += 1
+                        stats["kept_names"].append(entry.name)
+                except OSError as e:
+                    stats["errors"] += 1
+                    logger.warning("[roundmaker] could not tidy %s: %s", entry.name, e)
+    except Exception as e:                                    # never break boot
+        logger.warning("[roundmaker] tidy_duplicate_rounds failed: %s", e)
+        stats["errors"] += 1
+    if stats["moved"] or stats["kept_different"]:
+        logger.info("[roundmaker] duplicate round files: moved %s, left %s that differ", stats["moved_names"], stats["kept_names"])
+    return stats

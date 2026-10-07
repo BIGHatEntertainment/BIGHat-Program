@@ -28,6 +28,7 @@ Storage
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 import re
@@ -63,6 +64,8 @@ def _files_locations_root() -> Path:
     except Exception as e:
         logger.warning("locations_router: falling back to assets root: %s", e)
         return _asset_root() / "02_Locations"
+
+_RECONCILE_LOCK = asyncio.Lock()      # alpha.90: one disk/Schedule reconcile at a time
 
 router = APIRouter(prefix="/native/locations", tags=["native-locations"])
 
@@ -350,35 +353,44 @@ async def list_locations(request: Request, game: Optional[str] = None) -> List[D
     if _db is None:
         raise HTTPException(500, detail="database_not_initialised")
 
-    await _hydrate_from_disk()  # fail-loud self-heal
-    # alpha.86: the Schedule's venues are the source of truth. A place that just appeared (a folder restored from OneDrive,
-    # a pulled Setup Package) gets its venue NOW, not at the next restart.
-    try:
-        from . import venue_sync
-        await venue_sync.ensure_all_linked(_db)
-    except Exception as e:                                   # noqa: BLE001
-        logger.warning("[locations] could not link places to Schedule venues: %s", e)
+    # alpha.90: the list must NEVER fail because a helper had a bad day, and two screens opening together must not race
+    # each other while they reconcile the disk and the Schedule, so that part runs one at a time.
+    async with _RECONCILE_LOCK:
+        try:
+            await _hydrate_from_disk()  # fail-loud self-heal
+        except Exception as e:                               # noqa: BLE001
+            logger.error("[locations] disk reconcile failed (listing what the database has): %s", e, exc_info=True)
+        # alpha.86/90: the Schedule's venues are the source of truth. A place that just appeared (a folder restored from
+        # OneDrive, a pulled Setup Package) gets its venue NOW, not at the next restart.
+        try:
+            from . import venue_sync
+            await venue_sync.ensure_all_linked(_db)
+        except Exception as e:                               # noqa: BLE001
+            logger.warning("[locations] could not link places to Schedule venues: %s", e)
 
     query: Dict[str, Any] = {"retired": {"$ne": True}}      # alpha.80: a deleted venue's location is hidden, not destroyed
     if not _is_master(user):
         query["assigned_user_ids"] = _user_id(user)
 
     docs = await _db.locations.find(query, {"_id": 0}).sort("name", 1).to_list(500)
-    # alpha.86: tell every screen which games each place is ON for (price above $0 in the Schedule), and,
-    # when a screen asks for one game, show only the places that are on for it.
+    # alpha.86/90: which games each place is ON for (price above $0 in the Schedule). A screen that asks for ONE game
+    # gets only the places on for it. If the prices cannot be read, a screen that asked for a game gets NO places
+    # (and a plain message), never every place: showing places that are not on for the game is the worse mistake.
+    if game is not None and game not in ("trivia", "bingo", "karaoke"):
+        raise HTTPException(400, detail="game must be trivia, bingo or karaoke")
+    on = None
     try:
         from . import venue_sync
         on = {g: await venue_sync.location_ids_for_game(_db, g) for g in venue_sync.GAME_PRICE_FIELD}
     except Exception as e:                                   # noqa: BLE001
-        logger.warning("[locations] could not read venue prices: %s", e)
-        on = {}
-    if on:
+        logger.error("[locations] could not read venue prices: %s", e, exc_info=True)
+    if on is not None:
         for d in docs:
             d["games"] = [g for g in ("trivia", "bingo", "karaoke") if d.get("id") in on.get(g, set())]
         if game:
-            if game not in on:
-                raise HTTPException(400, detail="game must be trivia, bingo or karaoke")
             docs = [d for d in docs if game in d["games"]]
+    elif game:
+        raise HTTPException(503, detail="prices_unavailable")
     logger.info(
         "[locations] list_locations: user=%s master=%s game=%s -> %d rows",
         _user_id(user), _is_master(user), game, len(docs),

@@ -62,7 +62,8 @@ def _build_native_client() -> AsyncMontyClient:
     )
     base_dir.mkdir(parents=True, exist_ok=True)
     repo_dir = base_dir / "bighat_db"
-    set_storage(repository=str(repo_dir), storage="sqlite")
+    # alpha.90: the connection is used from worker threads, one call at a time (see async_monty._DB_LOCK)
+    set_storage(repository=str(repo_dir), storage="sqlite", check_same_thread=False)
     sync_client = MontyClient(str(repo_dir))
     return AsyncMontyClient(sync_client)
 

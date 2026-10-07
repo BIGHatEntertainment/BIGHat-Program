@@ -1022,6 +1022,18 @@ def _big_answer_lines(raw: str) -> List[str]:
     return [raw]
 
 
+def big_round_answers(questions) -> str:
+    """alpha.90: ALL of a BIG round's answers as one text (one per line), whichever way the round was saved.
+      - the round generator saves ONE QUESTION PER ANSWER:  [{question, answer: "Allspice"}, {question, answer: "Cinnamon"}, ...]
+      - older files / the prototype save one answer text:    [{question, answer: "Allspice\\nCinnamon"}]  (or comma separated)
+    The slides used to read only questions[0], so a round entered answer by answer showed just the first one."""
+    lines: List[str] = []
+    for q in (questions or []):
+        for ln in _big_answer_lines((q or {}).get("answer") or ""):
+            lines.append(ln)
+    return "\n".join(lines)
+
+
 def big_answer_layout(lines):
     """alpha.66: numbered BIG answers (sized for the audience view's +10% answer font), top to bottom in reveal order, inside the
     centre 9:16 column. Font shrinks (and long answers wrap) so every answer
@@ -1127,7 +1139,7 @@ def render_round_section(
         title_bg = BG_DARK
     else:
         title_elements = [
-            _text(rname or f"Round {rorder}", x=160, y=380, w=1600, h=260,
+            _text(("Mystery Round" if is_mys else (rname or f"Round {rorder}")), x=160, y=380, w=1600, h=260,
                   size=170, weight="800"),
             _text(f"Round {rorder}" if rorder else rtype, x=160, y=680, w=1600, h=100,
                   size=60, color="#F4C430"),
@@ -1157,7 +1169,7 @@ def render_round_section(
         # and the merchant's Feb-6 clarification ("WHAT THE FUCK is 'The Clue'?").
         q = questions[0] if questions else {}
         clue_text = q.get("question", "")
-        instr, pts = big_points_texts(q.get("answer") or "")
+        instr, pts = big_points_texts(big_round_answers(questions))
         clue_elements = [
             _text(instr, x=160, y=150, w=1600, h=80,
                   size=44, weight="500", align="center", color="#F4C430"),
@@ -1242,7 +1254,7 @@ def render_round_section(
 
     if not is_big:
         review_elements = [
-            _text(f"{rname} — Review", x=160, y=90, w=1600, h=90,
+            _text(("Mystery Round — Review" if is_mys else f"{rname} — Review"), x=160, y=90, w=1600, h=90,
                   size=56, color="#F4C430", weight="700"),
         ]
         n = min(len(questions), 9 if is_mys else 10)
@@ -1295,7 +1307,7 @@ def render_round_section(
     # For BIG: review slide comes AFTER the gif (index 3)
     if is_big and questions:
         q = questions[0]
-        instr, pts = big_points_texts(q.get("answer") or "")
+        instr, pts = big_points_texts(big_round_answers(questions))
         review_elements = [
             _text(instr, x=160, y=150, w=1600, h=80,
                   size=44, weight="500", align="center", color="#F4C430"),
@@ -1322,7 +1334,7 @@ def render_round_section(
     if is_big and questions:
         # BIG: one answer, or a list of answers if the clue has multiple.
         q = questions[0]
-        raw = q.get("answer") or ""
+        raw = big_round_answers(questions)
         lines = _big_answer_lines(raw)
         if not lines:
             lines = [raw] if raw else ["(no answer)"]
@@ -1686,6 +1698,15 @@ def clean_theme(round_name: str) -> str:
     return n[:34]
 
 
+PILL_FONT = 28
+
+
+def pill_font_size(label: str, avail: int) -> int:
+    """28 px for every pill. A label that would not fit steps down in whole pixels, never below 22 (the alpha.64 floor)."""
+    fit = int(avail / (0.40 * max(len(label or ""), 1)))
+    return max(22, min(PILL_FONT, fit))
+
+
 def format_pill_label(rtype: str, round_name: str, show_themes: bool) -> str:
     base, pts, _ = _FORMAT_LABELS.get((rtype or "").upper(), (rtype or "Round", 1, "grey"))
     r = (rtype or "").upper()
@@ -1803,9 +1824,10 @@ def render_format_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
         if pill:
             elements.append(_image(pill, x=_PILL_X, y=y, w=_PILL_W, h=_PILL_H))
         label = format_pill_label(rtype, name, st.get("show_themes", True))
-        # Condensed serif averages ~0.40 em per character; fit the label inside the pill.
+        # alpha.90: every pill is 28 px, as the merchant asked. Only a label too long for the pill
+        # (a very long theme) steps down, so text never runs off the pill. Condensed serif is ~0.40 em per character.
         avail = _PILL_W - 60
-        size = max(22, min(40, int(avail / (0.40 * max(len(label), 1)))))
+        size = pill_font_size(label, avail)
         elements.append(_text(label, x=_PILL_X + 30, y=y, w=_PILL_W - 60, h=_PILL_H,
                               size=size, weight="500",
                               color="#ffffff", family=_FORMAT_SERIF))

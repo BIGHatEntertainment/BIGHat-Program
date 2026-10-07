@@ -3,7 +3,7 @@ export const state = (globalThis.__triviaEnv = globalThis.__triviaEnv || { user:
 export function useAuth() { return { user: state.user, logout() {} }; }
 const resp = (data) => Promise.resolve({ data });
 const api = {
-  listLocations: (game) => { state.calls.push('listLocations'); (globalThis.__locGames = globalThis.__locGames || []).push(game || ''); if (game && globalThis.__locationsByGame) return resp(globalThis.__locationsByGame[game] || []); if (!game && globalThis.__allLocations) return resp(globalThis.__allLocations); return resp(globalThis.__locations || [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [] }]); },
+  listLocations: (game) => { state.calls.push('listLocations'); (globalThis.__locGames = globalThis.__locGames || []).push(game || ''); if (game && globalThis.__locationsByGame) return resp(globalThis.__locationsByGame[game] || []); if (!game && globalThis.__allLocations) return resp(globalThis.__allLocations); return resp(globalThis.__locations || [{ id: 'l1', slug: 'pub-one', name: 'Pub One', branding_images: [], overlay_images: [], admin_user_ids: [], games: ['trivia'] }]); },
   uploadLocationSponsor: (id, file) => { (globalThis.__sponsorCalls = globalThis.__sponsorCalls || []).push(['upload', id, file && file.name]); return resp({ id: 'sp-new', filename: file && file.name }); },
   deleteLocationSponsor: (id) => { (globalThis.__sponsorCalls = globalThis.__sponsorCalls || []).push(['delete', id]); return resp({}); },
   locationSponsorRawUrl: (id, imageId) => 'http://x/api/native/locations/' + id + '/sponsor/raw?v=' + (imageId || ''),

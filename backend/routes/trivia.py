@@ -55,6 +55,32 @@ def _native_round_dir(round_type: str) -> Optional[Path]:
         return None
 
 
+import json
+import re as _re_stamp
+_STAMP_RE = _re_stamp.compile(r"^(.+)-([0-9a-f]{8})$")      # alpha.90: "animals-1-19a86b85" -> ("animals-1", "19a86b85")
+
+
+def _round_fingerprint(path):
+    """(type, slug-ish name, questions) of a .bighat, or None if it cannot be read as a round."""
+    try:
+        d = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(d, dict):
+            return None
+        return (str(d.get("round_type") or "").upper(), str(d.get("name") or "").strip().lower(),
+                json.dumps(d.get("questions") or [], sort_keys=True), json.dumps(d.get("tiebreaker") or None, sort_keys=True))
+    except (OSError, ValueError):
+        return None
+
+
+def _is_stamped_duplicate(stamped, plain):
+    """alpha.90: True only when the stamped file is a COPY of the plain one (same round, same questions).
+    A different round that merely has a stamp-like name is never hidden."""
+    if not plain.is_file():
+        return False
+    a, b = _round_fingerprint(stamped), _round_fingerprint(plain)
+    return a is not None and a == b
+
+
 def _list_local_round_files(round_type: str) -> List[Dict[str, str]]:
     """Return the wizard-shaped list of rounds for a given type.
 
@@ -81,6 +107,10 @@ def _list_local_round_files(round_type: str) -> List[Dict[str, str]]:
                 if entry.suffix.lower() != ".bighat":
                     continue
                 name = entry.stem  # e.g. "mc-01-a"
+                # alpha.90: a stamped copy ("<name>-<8 hex>") of a round whose plain file exists is a duplicate: not offered
+                m = _STAMP_RE.match(name)
+                if m and _is_stamped_duplicate(entry, native_dir / f"{m.group(1)}.bighat"):
+                    continue
                 # `path` MUST be non-empty (Radix SelectItem constraint).
                 # We use the absolute path so the presenter can read it
                 # directly without another round-trip.

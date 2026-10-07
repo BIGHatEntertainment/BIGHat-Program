@@ -197,13 +197,25 @@ async def venues_for_game(db, game: str) -> List[Dict[str, Any]]:
 
 
 async def location_ids_for_game(db, game: str) -> set:
-    """The ids of the LOCATIONS (picture folders) that belong to venues available for this game."""
+    """The ids of the LOCATIONS (picture folders) that belong to venues available for this game.
+    alpha.90: a venue's place is found three ways, so a priced venue can never lose its place:
+      1. the location its own location_id points to, IF that location still exists
+      2. any location whose venue_id points back at the venue
+      3. the location with the same name"""
     ids = set()
+    locs = await db.locations.find({}, {"_id": 0, "id": 1, "name": 1, "venue_id": 1, "retired": 1}).to_list(5000)
+    live = {l["id"]: l for l in locs if l.get("id") and not l.get("retired")}
     for v in await venues_for_game(db, game):
-        if v.get("location_id"):
-            ids.add(v["location_id"])
-        else:
+        found = set()
+        lid = v.get("location_id")
+        if lid and lid in live:
+            found.add(lid)
+        for l in live.values():
+            if l.get("venue_id") == v.get("id"):
+                found.add(l["id"])
+        if not found:
             loc = await _find_location_by_name(db, v.get("name", ""))
-            if loc:
-                ids.add(loc["id"])
+            if loc and loc.get("id") in live:
+                found.add(loc["id"])
+        ids |= found
     return ids
