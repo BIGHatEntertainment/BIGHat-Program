@@ -5,7 +5,7 @@
 
 /** The address of the plain player. Same form as the prototype: autoplay, no controls, JS control switched on for pause/resume. */
 export const embedSrc = (videoId) =>
-  `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&controls=0&rel=0&modestbranding=1&playsinline=1&disablekb=1&fs=0&enablejsapi=1`;
+  `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&controls=0&rel=0&modestbranding=1&enablejsapi=1`;
 
 /** alpha.99: YouTube's embedded player (error 153 "video unavailable") needs the page to send a proper referrer. A browser does this
  *  by default; a desktop webview may not, so every YouTube iframe asks for it explicitly. This is YouTube's own documented fix. */

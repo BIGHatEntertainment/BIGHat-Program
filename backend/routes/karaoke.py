@@ -553,7 +553,7 @@ async def youtube_search(q: str = "", max_results: int = 10):
                             continue                                  # blocked, private or restricted: never offered to the host
                         res["duration_seconds"] = _seconds(v.get("contentDetails", {}).get("duration", ""))
                         kept.append(res)
-                    results = kept
+                    results = kept if kept else results      # alpha.100: never return an empty list only because of our extra check (the prototype would show them)
     except HTTPException:
         raise
     except Exception as e:

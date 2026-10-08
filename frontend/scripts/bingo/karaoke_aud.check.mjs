@@ -111,6 +111,7 @@ await wait(2300);
 const afterPlay = reports.filter(r => typeof r.time === 'number').map(r => r.time);
 ok(afterPlay.length && afterPlay[0] >= beforePause - 0.5 && afterPlay[0] < beforePause + 3.5, 'carries on from where it paused (about ' + Math.round(beforePause) + 's), not from 0: ' + JSON.stringify(afterPlay.map(t => Math.round(t))));
 ok(iframes().filter(f => f.getAttribute('data-testid') === 'karaoke-audience-iframe').length === 1, 'still one song iframe');
+ok(playing() && /^https:\/\/www\.youtube\.com\/embed\/(AAA111|BBB222)\?autoplay=1&controls=0&rel=0&modestbranding=1&enablejsapi=1$/.test(playing().getAttribute('src')), 'alpha.100: the TV iframe address is exactly the prototype address');
 
 // 5. a song with NO known length never ends by itself (the host End Song button does)
 reports.length = 0;

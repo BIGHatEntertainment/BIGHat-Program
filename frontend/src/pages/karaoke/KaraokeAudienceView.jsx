@@ -160,7 +160,7 @@ export default function KaraokeAudienceView() {
     // never warm the SAME video that is playing right now (two copies of one video is what can make YouTube refuse one)
     if (!videoId || videoId === songRef.current.videoId) { setWarmSrc(""); return; }
     // muted + not autoplaying: it only gets the page and the first part of the video ready
-    setWarmSrc(`https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=0&mute=1&controls=0&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`);
+    setWarmSrc(`https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=0&mute=1&preload=auto`);
   }, []);
 
   // ---- instant messages from the host window

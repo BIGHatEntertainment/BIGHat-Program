@@ -469,6 +469,7 @@ ok(!q('karaoke-buffer') && !q('karaoke-next-singer-btn').disabled, 'a stale "cou
 await click('karaoke-next-singer-btn'); await wait(400);
 ok(/Ann/.test((q('karaoke-current-name') || {}).textContent || ''), 'one press starts the singer');
 ok(S.pb.song_playing === true && S.pb.current_singer && /AAA111/.test(S.pb.current_singer.embed_url), 'and the TV is told to play that song');
+{ const pv = q('karaoke-preview-video'); ok(!!pv && /embed\/AAA111\?autoplay=0&mute=1/.test(pv.getAttribute('src')), 'alpha.100: the host preview is a muted video of the song, like the prototype'); }
 cleanup();
 fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(800);
 ok(q('karaoke-next-singer-btn').disabled && /Pick a song for Ann/.test(q('karaoke-next-singer-btn').textContent), 'a singer with NO song still says "Pick a song" and cannot start');
