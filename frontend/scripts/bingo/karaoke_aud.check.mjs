@@ -133,8 +133,47 @@ pre = { singer_id: 's2', embed_url: bob.embed_url, ready: false, percent: 0 };
 await send(ch, { song_playing: true, current_singer: { ...ann, duration_seconds: 200 }, mode: 'karaoke' }); await wait(3000);
 ok(!!warm() && /BBB222/.test(warm().src) && /mute=1/.test(warm().src) && /autoplay=0/.test(warm().src), 'the next song is warmed muted, not autoplaying: ' + ((warm() || {}).src || '(none)'));
 ok(playing() && /AAA111/.test(playing().src), 'while the current song plays on');
+ok(warm() && warm().getAttribute('referrerpolicy') === 'strict-origin-when-cross-origin', 'the warm-up iframe asks for the referrer too');
 pre = { singer_id: 's1', embed_url: ann.embed_url, ready: false, percent: 0 }; await wait(3000);
 ok(!warm(), 'a "next" that is the SAME video as the one playing is never warmed (no second copy)');
+
+// 8b. alpha.99: every YouTube iframe asks for a proper referrer (YouTube shows "video unavailable" / error 153 without one;
+//     a page or webview that sends none is overridden by this attribute: measured in Chrome)
+ok(playing() && playing().getAttribute('referrerpolicy') === 'strict-origin-when-cross-origin', 'the song iframe asks for the referrer YouTube needs: ' + (playing() && playing().getAttribute('referrerpolicy')));
+
+// 8c. alpha.99 (YOUR REPORT: "no next singer or song until I clicked play"): the TV's OWN request for the queue fails or is empty,
+//     yet the up-next bar still shows the singers, because the host sends the waiting list with every state message
+cleanup(); reset(); queue = [];                                              // the TV's own request brings back an empty queue
+render(React.createElement(Aud)); await fullscreen(); await wait(800);
+ok(!/UP NEXT/.test((q('karaoke-audience-chyron') || { textContent: '' }).textContent), 'with an empty queue and nothing from the host the bar is empty (setup of this check)');
+const ch2 = new BroadcastChannel('karaoke-state');
+const hostSays = (list) => act(async () => { ch2.postMessage({ type: 'karaoke-state', pb: { song_playing: false, song_ending: false, current_singer: null, mode: 'filler', rev: 5 }, waiting: list }); await new Promise(r => setTimeout(r, 250)); });
+await hostSays([{ singer_name: 'Test 2', song_title: 'Billy Joel - Piano Man' }, { singer_name: 'Test', song_title: 'Bonnie Tyler' }, { singer_name: 'Test 4', song_title: '' }]);
+const bar = (q('karaoke-audience-chyron') || { textContent: '' }).textContent;
+ok(/UP NEXT/.test(bar) && /Test 2 \u2014 Billy Joel - Piano Man/.test(bar) && /Test \u2014 Bonnie Tyler/.test(bar) && /Test 4/.test(bar), 'the bar shows EVERY waiting singer and song, taken from the host: ' + bar.slice(0, 120));
+await hostSays([]);
+ok(!/UP NEXT/.test((q('karaoke-audience-chyron') || { textContent: '' }).textContent), 'and it empties when nobody is waiting');
+// when the TV's own request works, ITS answer wins and the host's list is not used on top
+cleanup(); reset(); queue = [{ singer_name: 'Own Singer', song_title: 'Own Song', status: 'waiting' }];
+render(React.createElement(Aud)); await fullscreen(); await wait(800);
+await hostSays([{ singer_name: 'Host Singer', song_title: 'Host Song' }]);
+ok(/Own Singer/.test(q('karaoke-audience-chyron').textContent) && !/Host Singer/.test(q('karaoke-audience-chyron').textContent), 'when the TV\'s own request works its answer is used: ' + q('karaoke-audience-chyron').textContent.slice(0, 80));
+cleanup(); reset(); render(React.createElement(Aud)); await fullscreen(); await wait(500);
+
+// 9. alpha.99: press D on the TV window to see what it really sees (so a blank screen is never a mystery)
+ok(!q('karaoke-audience-diag'), 'the diagnostic strip is hidden normally');
+await act(async () => { dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'd', bubbles: true })); }); await wait(300);
+ok(!!q('karaoke-audience-diag'), 'pressing D shows it');
+const dg = q('karaoke-audience-diag').textContent;
+ok(/reached server: true/.test(dg) && /queue entries: \d+/.test(dg) && /polls: [1-9]/.test(dg), 'it says the TV reached the server and how many queue entries it got: ' + dg.slice(0, 160));
+ok(/song iframe: /.test(dg) && /warm iframe: /.test(dg) && /clock: /.test(dg) && /page: /.test(dg), 'and shows the page address, the song iframe, the warm iframe and the clock');
+await act(async () => { dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'D', bubbles: true })); }); await wait(200);
+ok(!q('karaoke-audience-diag'), 'pressing D again hides it');
+// and when the TV cannot reach the server it says so
+const realGet = axios.get; axios.get = async () => { throw new Error('connection refused'); }; await wait(3200);
+await act(async () => { dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'd', bubbles: true })); }); await wait(200);
+ok(/reached server: false/.test(q('karaoke-audience-diag').textContent) && /ERROR: playback: connection refused \| queue: connection refused/.test(q('karaoke-audience-diag').textContent), 'if the TV cannot reach the server the strip says so: ' + q('karaoke-audience-diag').textContent.slice(0, 120));
+axios.get = realGet;
 
 if (fails.length) { console.log('FAILED:\n - ' + fails.join('\n - ')); process.exit(1); }
 console.log('karaoke audience: checks ok');

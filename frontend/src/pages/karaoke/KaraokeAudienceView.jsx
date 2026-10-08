@@ -3,7 +3,7 @@ import { Mic, Music, Maximize } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import axios from "axios";
 import { bufferStatus, explainVideoError } from "./karaokeFlow";
-import { embedSrc, sendCommand, makeSongClock } from "./iframePlayback";
+import { embedSrc, sendCommand, makeSongClock, IFRAME_REFERRER } from "./iframePlayback";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -29,6 +29,7 @@ export const videoIdOf = (embedUrl) => {
  *  - The video fades out over 3 s when a song is ending, then the screen goes back to the music view.
  *  - Layout: the master overlay image with the video, scrolling "up next" bar, venue logo and request QR placed in its windows.
  */
+const waitingText = (list) => list.length ? "UP NEXT:  " + list.map((e) => `${e.singer_name}${e.song_title ? " \u2014 " + e.song_title : ""}`).join("   \u2022   ") : "";
 const RETRY_AFTER_MS = 4000;     // alpha.93: a failed preload is tried again after this long
 const MAX_TRIES = 6;
 
@@ -149,7 +150,11 @@ export default function KaraokeAudienceView() {
 
   // ---- preload (alpha.98): like the prototype, the NEXT singer's video is warmed with a plain, hidden YouTube iframe
   // (no second JavaScript player, no muted playback, no buffering percentage). The song itself plays in its own iframe when its turn comes.
+  const hostWaitingRef = useRef([]);               // alpha.99: the waiting list the HOST sent
+  const ownQueueRef = useRef(false);               // alpha.99: did the TV's own request bring a queue?
   const [warmSrc, setWarmSrc] = useState("");
+  const [diag, setDiag] = useState({ polls: 0, ok: false, queue: -1, playback: "?", preload: "-", error: "" });   // alpha.99: what this TV window really sees
+  const [showDiag, setShowDiag] = useState(() => /[?&]debug=1/.test(window.location.search));
   const handlePreload = useCallback((pre) => {
     const videoId = pre && pre.singer_id ? videoIdOf(pre.embed_url) : "";
     // never warm the SAME video that is playing right now (two copies of one video is what can make YouTube refuse one)
@@ -165,7 +170,13 @@ export default function KaraokeAudienceView() {
     ch.onmessage = (ev) => {
       const m = ev.data || {};
       if (m.ended) { setEnded(true); return; }
-      if (m.type === "karaoke-state" && m.pb) apply(m.pb);
+      if (m.type === "karaoke-state" && m.pb) {
+        apply(m.pb);
+        if (Array.isArray(m.waiting)) {
+          hostWaitingRef.current = m.waiting;
+          if (!ownQueueRef.current) setChyronText(waitingText(m.waiting));        // the TV's own request has not brought anything: use the host's list
+        }
+      }
     };
     return () => ch.close();
   }, [apply]);
@@ -176,10 +187,14 @@ export default function KaraokeAudienceView() {
     const poll = async () => {
       while (active) {
         try {
+          let why = "";                                           // alpha.99: remember WHY a request failed (the page still carries on with an empty answer)
           const [pbRes, qRes] = await Promise.all([
-            axios.get(`${API}/karaoke/session/playback`).catch(() => ({ data: {} })),
-            axios.get(`${API}/karaoke/queue`).catch(() => ({ data: { queue: [] } })),
+            axios.get(`${API}/karaoke/session/playback`).catch((e) => { why = "playback: " + ((e && e.message) || e); return { data: {} }; }),
+            axios.get(`${API}/karaoke/queue`).catch((e) => { why = (why ? why + " | " : "") + "queue: " + ((e && e.message) || e); return { data: { queue: [] } }; }),
           ]);
+          setDiag((d) => ({ polls: d.polls + 1, ok: !why && (!!pbRes.data.playback || pbRes.data.playback === null), queue: (qRes.data.queue || []).length, error: why,
+            playback: pbRes.data.playback ? (pbRes.data.playback.song_playing ? "playing" : "not playing") : String(pbRes.data.playback),
+            preload: pbRes.data.preload && pbRes.data.preload.singer_id ? "next=" + pbRes.data.preload.singer_id : "none" }));
           if (pbRes.data.playback === null) { setEnded(true); break; }
           if (pbRes.data.playback) {
             apply(pbRes.data.playback);
@@ -187,14 +202,22 @@ export default function KaraokeAudienceView() {
             handlePreload(pbRes.data.preload);
           }
           const q = (qRes.data.queue || []).filter((e) => e.status === "waiting").slice(0, 3);
-          setChyronText(q.length ? "UP NEXT:  " + q.map((e) => `${e.singer_name}${e.song_title ? " \u2014 " + e.song_title : ""}`).join("   \u2022   ") : "");
-        } catch { /* try again next round */ }
+          ownQueueRef.current = q.length > 0;
+          setChyronText(q.length ? waitingText(q) : (hostWaitingRef.current.length ? waitingText(hostWaitingRef.current) : ""));
+        } catch (e) { setDiag((d) => ({ ...d, ok: false, error: String((e && e.message) || e) })); /* try again next round */ }
         await new Promise((r) => setTimeout(r, 2500));
       }
     };
     poll();
     return () => { active = false; };
   }, [apply, handlePreload]);
+
+  // alpha.99: press D on the TV window to show or hide the diagnostic strip (what this window really sees)
+  useEffect(() => {
+    const onKey = (e) => { if ((e.key === "d" || e.key === "D") && !e.ctrlKey && !e.metaKey && !e.altKey) setShowDiag((v) => !v); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // what address should the phone QR point to?
   // alpha.82: only a link a PHONE can open (cloud relay) is shown; keep asking until it is ready.
@@ -242,12 +265,20 @@ export default function KaraokeAudienceView() {
         <div ref={playerHostRef} className="absolute inset-0" style={{ display: showVideo ? "block" : "none" }}>
           {frameSrc && (
             <iframe ref={frameRef} key={frameSrc} src={frameSrc} title="Karaoke song" className="w-full h-full" style={{ border: 0 }}
-              allow="autoplay; encrypted-media; fullscreen" allowFullScreen data-testid="karaoke-audience-iframe" />
+              referrerPolicy={IFRAME_REFERRER} allow="autoplay; encrypted-media; fullscreen" allowFullScreen data-testid="karaoke-audience-iframe" />
           )}
         </div>
+        {showDiag && (
+          <div className="absolute left-0 right-0 bottom-0 p-2 text-[12px] font-mono" style={{ zIndex: 9000, backgroundColor: "rgba(0,0,0,0.85)", color: "#9fe870", lineHeight: 1.5 }} data-testid="karaoke-audience-diag">
+            <div>page: {window.location.origin} | server: {String(process.env.REACT_APP_BACKEND_URL || "(same address)")}</div>
+            <div>polls: {diag.polls} | reached server: {String(diag.ok)} | queue entries: {diag.queue} | playback: {diag.playback} | next song handed over: {diag.preload}{diag.error ? " | ERROR: " + diag.error : ""}</div>
+            <div>song iframe: {frameSrc ? frameSrc.replace("https://www.youtube.com/embed/", "").split("?")[0] : "(none)"} | warm iframe: {warmSrc ? warmSrc.replace("https://www.youtube.com/embed/", "").split("?")[0] : "(none)"} | clock: {clockRef.current.isRunning() ? (clockRef.current.isPaused() ? "paused" : "running") : "stopped"}</div>
+            <div>Press D to hide this</div>
+          </div>
+        )}
         {/* alpha.98: the NEXT song is warmed here with a plain hidden iframe (like the prototype). It is never shown and never plays. */}
         <div ref={bufferHostRef} className="absolute" style={{ width: 2, height: 2, overflow: "hidden", opacity: 0, pointerEvents: "none", zIndex: 0 }} data-testid="karaoke-buffer-host">
-          {warmSrc && <iframe key={warmSrc} src={warmSrc} title="Next song" width="2" height="2" style={{ border: 0 }} allow="encrypted-media" data-testid="karaoke-warm-iframe" />}
+          {warmSrc && <iframe key={warmSrc} src={warmSrc} title="Next song" width="2" height="2" style={{ border: 0 }} referrerPolicy={IFRAME_REFERRER} allow="encrypted-media" data-testid="karaoke-warm-iframe" />}
         </div>
         {!showVideo && singer && (
           <div className="w-full h-full flex flex-col items-center justify-center text-center px-8" data-testid="karaoke-audience-singer">

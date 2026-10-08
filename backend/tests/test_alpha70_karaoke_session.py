@@ -332,3 +332,92 @@ def test_the_next_song_is_still_handed_to_the_tv_to_warm(client):
     c.post("/api/karaoke/session/preload", json={"singer_id": "s2", "embed_url": "https://www.youtube.com/embed/BBB222?autoplay=1"})
     pre = c.get("/api/karaoke/session/playback").json().get("preload") or c.get("/api/karaoke/session/active").json()["session"].get("preload")
     assert pre and pre["singer_id"] == "s2" and "BBB222" in pre["embed_url"]
+
+
+# ---------------------------------------------------------------- alpha.99: never offer, or silently start, a video YouTube will not embed
+def _item(vid, embeddable=True, privacy="public", upload="processed", rating=None, blocked=None, allowed=None, dur="PT3M"):
+    cd = {"duration": dur}
+    if rating: cd["contentRating"] = {"ytRating": rating}
+    if blocked is not None or allowed is not None:
+        cd["regionRestriction"] = {k: v for k, v in (("blocked", blocked), ("allowed", allowed)) if v is not None}
+    return {"id": vid, "contentDetails": cd, "status": {"embeddable": embeddable, "privacyStatus": privacy, "uploadStatus": upload}}
+
+
+def test_the_rules_for_a_video_that_can_play_in_an_embed():
+    from routes import karaoke as k
+    assert k.playable_in_embed(_item("a")) and k.why_not_playable(_item("a")) == ""
+    assert k.playable_in_embed(_item("a", privacy="unlisted"))
+    cases = {
+        "owner blocked embedding": (_item("a", embeddable=False), "does not allow"),
+        "private": (_item("a", privacy="private"), "private"),
+        "still processing": (_item("a", upload="uploaded"), "not available yet"),
+        "age restricted": (_item("a", rating="ytAgeRestricted"), "age-restricted"),
+        "blocked in the US": (_item("a", blocked=["US", "DE"]), "blocked in the United States"),
+        "only allowed elsewhere": (_item("a", allowed=["DE", "FR"]), "blocked in the United States"),
+    }
+    for name, (item, words) in cases.items():
+        assert not k.playable_in_embed(item), name
+        assert words in k.why_not_playable(item), name
+    assert k.playable_in_embed(_item("a", blocked=["DE"])) and k.playable_in_embed(_item("a", allowed=["US", "CA"]))
+
+
+class _Resp:
+    def __init__(self, code, data): self.status_code, self._d = code, data
+    def json(self): return self._d
+
+
+def _fake_httpx(monkeypatch, items=None, search_ids=(), code=200, boom=False):
+    import httpx
+    class C:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None, **k):
+            if boom: raise httpx.ConnectError("no internet")
+            if url.endswith("/search"):
+                return _Resp(200, {"items": [{"id": {"videoId": i}, "snippet": {"title": "Song - Karaoke", "channelTitle": "KARAOKE CH", "thumbnails": {}}} for i in search_ids]})
+            return _Resp(code, {"items": items if items is not None else []})
+    monkeypatch.setattr(httpx, "AsyncClient", C)
+
+
+def test_search_drops_videos_youtube_says_cannot_be_embedded(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    _fake_httpx(monkeypatch, search_ids=["good1", "blocked1", "gone1", "age1"],
+                items=[_item("good1"), _item("blocked1", embeddable=False), _item("age1", rating="ytAgeRestricted")])   # gone1 is unknown to YouTube
+    r = c.get("/api/karaoke/youtube/search", params={"q": "toto africa"}).json()
+    assert [x["id"] for x in r["results"]] == ["good1"], r
+    assert r["results"][0]["duration_seconds"] == 180
+
+
+def test_old_cached_searches_from_before_the_check_are_not_reused(client, monkeypatch):
+    import asyncio
+    c, k = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(k.db.youtube_search_cache.insert_one(
+        {"query": "toto africa karaoke", "results": [{"id": "blocked-old"}], "cached_at": "2999-01-01T00:00:00+00:00"}))
+    _fake_httpx(monkeypatch, search_ids=["good1"], items=[_item("good1")])
+    r = c.get("/api/karaoke/youtube/search", params={"q": "toto africa"}).json()
+    assert [x["id"] for x in r["results"]] == ["good1"] and not r.get("cached")
+
+
+def test_check_one_video_says_playable_or_why_not(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    _fake_httpx(monkeypatch, items=[_item("v1")])
+    assert c.get("/api/karaoke/youtube/check/v1").json() == {"known": True, "playable": True, "reason": ""}
+    _fake_httpx(monkeypatch, items=[_item("v2", embeddable=False)])
+    r = c.get("/api/karaoke/youtube/check/v2").json()
+    assert r["known"] is True and r["playable"] is False and "does not allow" in r["reason"]
+    _fake_httpx(monkeypatch, items=[])                                                   # YouTube has never heard of it
+    r = c.get("/api/karaoke/youtube/check/v3").json()
+    assert r["playable"] is False and "removed" in r["reason"]
+
+
+def test_a_failed_check_never_blocks_the_show(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    for kwargs in ({"boom": True}, {"code": 403}, {"code": 500}):
+        _fake_httpx(monkeypatch, items=[], **kwargs)
+        assert c.get("/api/karaoke/youtube/check/v1").json() == {"known": False, "playable": True, "reason": ""}, kwargs
+    assert c.get("/api/karaoke/youtube/check/").status_code in (404, 405, 307)

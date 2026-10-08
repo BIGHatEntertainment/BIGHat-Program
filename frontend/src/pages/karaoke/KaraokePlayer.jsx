@@ -1,3 +1,4 @@
+import { IFRAME_REFERRER } from "./iframePlayback";
 import { usePointerDrag } from "./pointerDrag";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -90,6 +91,7 @@ export default function KaraokePlayer() {
   const audioCtxRef = useRef(null);
   const gainRef = useRef(null);
   const channelRef = useRef(null);
+  const queueRef = useRef([]);
   const audienceWinRef = useRef(null);
   const revRef = useRef(0);
   const fadeTimerRef = useRef(null);
@@ -162,7 +164,9 @@ export default function KaraokePlayer() {
       if (r.data && typeof r.data.rev === "number") rev = r.data.rev;
     } catch { /* the channel copy below still reaches the screen */ }
     revRef.current = rev;
-    if (channelRef.current) channelRef.current.postMessage({ type: "karaoke-state", pb: { ...pb, rev } });
+    // alpha.99: the host also sends who is waiting, so the TV's "UP NEXT" bar never depends on the TV's own request succeeding
+    const waiting = (queueRef.current || []).filter((e) => (e.status || "waiting") === "waiting").map((e) => ({ singer_name: e.singer_name, song_title: e.song_title || "" }));
+    if (channelRef.current) channelRef.current.postMessage({ type: "karaoke-state", pb: { ...pb, rev }, waiting });
   }, []);
 
   // ======================================================================== filler player
@@ -260,7 +264,22 @@ export default function KaraokePlayer() {
     await axios.post(`${API}/karaoke/queue/add`, { singer_name: name });
     setNewSinger(""); loadQueue();
   };
+  // alpha.99: before a song is given to anyone, ask YouTube if it can play in an embedded player. Only a clear "no" stops it;
+  // if YouTube or the internet cannot be reached the song goes ahead as normal (the show is never blocked by the check).
+  const songIsPlayable = async (song) => {
+    const m = /embed\/([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])/.exec(song.embed_url || "");   // a real YouTube id is exactly 11 characters
+    if (!m || song.source === "local") return true;
+    try {
+      const r = await axios.get(`${API}/karaoke/youtube/check/${m[1]}`);
+      if (r.data && r.data.known && r.data.playable === false) {
+        toast.error(`"${song.title}" cannot be used: ${r.data.reason} Pick another version of the song.`);
+        return false;
+      }
+    } catch { /* cannot ask: carry on */ }
+    return true;
+  };
   const assignSong = async (entryId, song) => {
+    if (!(await songIsPlayable(song))) { setContextMenu(null); return; }
     await axios.post(`${API}/karaoke/queue/add`, {
       assign_to: entryId, song_title: song.title, song_artist: song.artist, embed_url: song.embed_url,
       source: song.source, duration_seconds: song.duration_seconds,
@@ -270,6 +289,7 @@ export default function KaraokePlayer() {
   const addSingerWithSong = async (song) => {
     const name = window.prompt("Singer name?");
     if (!name || !name.trim()) return;
+    if (!(await songIsPlayable(song))) { setContextMenu(null); return; }
     await axios.post(`${API}/karaoke/queue/add`, {
       singer_name: name.trim(), song_title: song.title, song_artist: song.artist, embed_url: song.embed_url,
       source: song.source, duration_seconds: song.duration_seconds,
@@ -296,7 +316,19 @@ export default function KaraokePlayer() {
   // the queued singer, and is told once when the song has loaded enough.
   const nextId = next.singer && next.singer.id;
   const nextUrl = next.singer && next.singer.embed_url;
-  // alpha.98: the host only tells the audience screen which song is next; the audience warms it in a plain hidden iframe.
+  // alpha.99: keep a copy of the queue for the state message, and tell the TV whenever the waiting list changes
+  const waitingKey = queue.filter((e) => (e.status || "waiting") === "waiting").map((e) => e.singer_name + "|" + (e.song_title || "")).join("~");
+  useEffect(() => {
+    queueRef.current = queue;
+    if (session && channelRef.current) sendState({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingKey]);
+
+  // alpha.99: like the prototype, the HOST also warms the next singer's song in a 1px hidden muted iframe (autoplay off, preload on).
+  const nextVideoId = ((/embed\/([A-Za-z0-9_-]{6,})/.exec(nextUrl || "")) || [])[1] || "";
+  const playingVideoId = ((/embed\/([A-Za-z0-9_-]{6,})/.exec((currentSinger && currentSinger.embed_url) || "")) || [])[1] || "";
+  const warmId = nextVideoId && nextVideoId !== playingVideoId ? nextVideoId : "";
+  // alpha.98: the host also tells the audience screen which song is next; the audience warms it in a plain hidden iframe.
   useEffect(() => {
     if (!session) return;
     axios.post(`${API}/karaoke/session/preload`, nextId && nextUrl ? { singer_id: nextId, embed_url: nextUrl } : {}).catch(() => {});
@@ -630,6 +662,12 @@ export default function KaraokePlayer() {
 
 
       {/* right-click menu */}
+      {warmId && (
+        <iframe key={warmId} title="Next song (warming)" width="1" height="1" tabIndex={-1} aria-hidden="true"
+          src={`https://www.youtube.com/embed/${warmId}?autoplay=0&mute=1&preload=auto&controls=0&rel=0&modestbranding=1`}
+          style={{ position: "fixed", left: -10, top: -10, width: 1, height: 1, opacity: 0, border: 0, pointerEvents: "none" }}
+          referrerPolicy={IFRAME_REFERRER} allow="encrypted-media" data-testid="karaoke-host-warm-iframe" />
+      )}
       {drag && (
         <div className="fixed z-[60] pointer-events-none px-3 py-1.5 rounded-lg text-xs font-bold shadow-xl"
           style={{ left: drag.x + 14, top: drag.y + 10, maxWidth: 260, backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-drag-chip">

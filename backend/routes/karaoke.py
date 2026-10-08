@@ -439,6 +439,68 @@ def _seconds(iso: str) -> int:
     return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0) if m else 0
 
 
+def why_not_playable(v: Dict[str, Any]) -> str:
+    """alpha.99: the plain-English reason a video cannot be embedded ("" = it can). Same rules as playable_in_embed."""
+    st = v.get("status", {}) or {}
+    cd = v.get("contentDetails", {}) or {}
+    if st.get("embeddable") is False:
+        return "The owner of this video does not allow it to be played outside YouTube."
+    if st.get("privacyStatus") not in (None, "public", "unlisted"):
+        return "This video is private."
+    if st.get("uploadStatus") not in (None, "processed"):
+        return "This video is not available yet."
+    if (cd.get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
+        return "This video is age-restricted, so it cannot play in an embedded player."
+    rr = cd.get("regionRestriction") or {}
+    if "US" in (rr.get("blocked") or []) or (rr.get("allowed") is not None and "US" not in rr.get("allowed", [])):
+        return "This video is blocked in the United States."
+    return ""
+
+
+def playable_in_embed(v: Dict[str, Any]) -> bool:
+    """alpha.99: can this video (a YouTube 'videos' item with contentDetails + status) play in an embedded player?
+    Rejects: owner turned embedding off, not public, not yet processed, age-restricted, or blocked in the US."""
+    st = v.get("status", {}) or {}
+    cd = v.get("contentDetails", {}) or {}
+    if st.get("embeddable") is False:
+        return False
+    if st.get("privacyStatus") not in (None, "public", "unlisted"):
+        return False
+    if st.get("uploadStatus") not in (None, "processed"):
+        return False
+    if (cd.get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
+        return False                                                  # age-gated videos cannot play inside an embed
+    rr = cd.get("regionRestriction") or {}
+    if "US" in (rr.get("blocked") or []):
+        return False
+    if rr.get("allowed") is not None and "US" not in rr.get("allowed", []):
+        return False
+    return True
+
+
+@router.get("/youtube/check/{video_id}")
+async def youtube_check(video_id: str):
+    """alpha.99: ask YouTube whether ONE video can play in an embedded player. Never blocks the show: if YouTube or the
+    internet cannot be reached the answer is {"known": false, "playable": true} (assume it plays)."""
+    import httpx
+    key = kl.youtube_key()
+    vid = re.sub(r"[^A-Za-z0-9_-]", "", video_id or "")[:20]
+    if not key or not vid:
+        return {"known": False, "playable": True, "reason": ""}
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get("https://www.googleapis.com/youtube/v3/videos", params={"part": "contentDetails,status", "id": vid, "key": key})
+        if r.status_code != 200:
+            return {"known": False, "playable": True, "reason": ""}
+        items = r.json().get("items", [])
+    except Exception:                                                       # noqa: BLE001
+        return {"known": False, "playable": True, "reason": ""}
+    if not items:
+        return {"known": True, "playable": False, "reason": "This video was removed or is not available."}
+    why = why_not_playable(items[0])
+    return {"known": True, "playable": not why, "reason": why}
+
+
 @router.get("/youtube/search")
 async def youtube_search(q: str = "", max_results: int = 10):
     import httpx
@@ -448,7 +510,7 @@ async def youtube_search(q: str = "", max_results: int = 10):
     if not q or len(q.strip()) < 2:
         return {"results": []}
     query = f"{q.strip()} karaoke"
-    cache_key = query.lower()
+    cache_key = "v2|" + query.lower()                     # alpha.99: results cached before the embeddable check are not reused
     try:
         cached = await db.youtube_search_cache.find_one({"query": cache_key})
         if cached and (datetime.now(timezone.utc) - datetime.fromisoformat(cached["cached_at"])).total_seconds() < 86400:
@@ -477,12 +539,21 @@ async def youtube_search(q: str = "", max_results: int = 10):
                                 "source": "youtube", "duration_seconds": 0,
                                 "embed_url": f"https://www.youtube.com/embed/{vid}?autoplay=1&controls=0&rel=0&modestbranding=1"})
             if ids:
-                d = await c.get("https://www.googleapis.com/youtube/v3/videos", params={"part": "contentDetails", "id": ",".join(ids), "key": key})
+                # alpha.99: ask for "status" too. The search filter videoEmbeddable=true is only approximate; "status.embeddable"
+                # and "privacyStatus" are YouTube's real answer. A video it says cannot be embedded would show "Video unavailable" on the TV.
+                d = await c.get("https://www.googleapis.com/youtube/v3/videos", params={"part": "contentDetails,status", "id": ",".join(ids), "key": key})
                 if d.status_code == 200:
-                    for v in d.json().get("items", []):
-                        for res in results:
-                            if res["id"] == v["id"]:
-                                res["duration_seconds"] = _seconds(v.get("contentDetails", {}).get("duration", ""))
+                    details = {v["id"]: v for v in d.json().get("items", [])}
+                    kept = []
+                    for res in results:
+                        v = details.get(res["id"])
+                        if v is None:
+                            continue                                  # YouTube no longer knows this video: it was removed
+                        if not playable_in_embed(v):
+                            continue                                  # blocked, private or restricted: never offered to the host
+                        res["duration_seconds"] = _seconds(v.get("contentDetails", {}).get("duration", ""))
+                        kept.append(res)
+                    results = kept
     except HTTPException:
         raise
     except Exception as e:

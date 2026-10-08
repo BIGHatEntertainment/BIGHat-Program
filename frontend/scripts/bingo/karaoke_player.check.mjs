@@ -47,9 +47,11 @@ axios.get = async (u, cfg) => {
   if (u.endsWith('/karaoke/queue')) return { data: { queue: S.queue.filter(e => e.status !== 'done') } };
   if (u.endsWith('/requests/pending')) return { data: { requests: S.requests.filter(r => r.status === 'pending') } };
   if (u.endsWith('/session/playback')) return { data: { playback: S.pb, preload: S.preload } };
+  const chk = /\/youtube\/check\/([A-Za-z0-9_-]+)$/.exec(u);
+  if (chk) { (S.checks ||= []).push(chk[1]); if (S.checkDown) { const e = new Error('offline'); throw e; } return { data: S.checkAnswers && S.checkAnswers[chk[1]] || { known: true, playable: true, reason: '' } }; }
   if (u.endsWith('/youtube/search')) {
     if (S.searchFails) { const e = new Error('x'); e.response = { data: { detail: 'No YouTube key saved. Add it in Karaoke Setup.' } }; throw e; }
-    return { data: { results: [{ id: 'vid1', title: 'Africa - Karaoke', artist: 'KaraFun', source: 'youtube', duration_seconds: 245, embed_url: 'https://www.youtube.com/embed/vid1?autoplay=1', thumbnail: '' }] } };
+    return { data: { results: [{ id: 'vid1', title: 'Africa - Karaoke', artist: 'KaraFun', source: 'youtube', duration_seconds: 245, embed_url: 'https://www.youtube.com/embed/vid1AAAAAAA?autoplay=1', thumbnail: '' }] } };
   }
   return { data: {} };
 };
@@ -275,6 +277,7 @@ ok(S.pb.song_playing === true && S.pb.current_singer.singer_name === 'Ann' && S.
 await wait(1500);
 ok(S.preload && S.preload.singer_id === S.queue.find(e => e.singer_name === 'Bob').id && /BBB222/.test(S.preload.embed_url), 'while Ann is singing, Bob (next up) is handed to the audience to preload');
 ok(heard.some(m => m.type === 'karaoke-state' && m.pb.current_singer && m.pb.current_singer.singer_name === 'Ann' && typeof m.pb.rev === 'number' && m.pb.rev === S.rev), 'the instant message carries the SAME revision number the server holds');
+ok('alpha.99: host sends the waiting singers to the TV in its state message', heard.some(m => m.type === 'karaoke-state' && Array.isArray(m.waiting) && m.waiting.some(w => w.singer_name === 'Bob')));
 await wait(3400);
 ok(audioLog.includes('pause'), 'filler music fades out and stops when the song starts');
 // the host shows the AUDIENCE time, not its own count
@@ -411,6 +414,49 @@ fresh(); app(); await wait(400);
 ok(/internet connection/i.test((q('karaoke-qr-offline') || {}).textContent || '') && !q('karaoke-host-qr'), 'with no link the QR card says why instead of showing a broken code');
 cleanup();
 globalThis.__reqInfo = null;
+
+// ---------- 7c. alpha.99: a song YouTube will not embed is stopped when it is GIVEN to a singer, with the reason, instead of failing on the TV
+const assignViaMenu = async (id) => {
+  await act(async () => { fireEvent.contextMenu(q('karaoke-result-vid1'), { clientX: 10, clientY: 10 }); });
+  await act(async () => { fireEvent.click(q('karaoke-assign-' + id)); await new Promise(r => setTimeout(r, 300)); });
+};
+const searchAfrica = async () => { await act(async () => { fireEvent.change(q('karaoke-song-search'), { target: { value: 'africa' } }); await new Promise(r => setTimeout(r, 700)); }); };
+fresh(); S.queue = [entry('Ann')]; S.checks = []; S.checkAnswers = { vid1AAAAAAA: { known: true, playable: false, reason: 'The owner of this video does not allow it to be played outside YouTube.' } };
+app(); await wait(400); await click('karaoke-tab-karaoke'); await searchAfrica();
+const toasts = []; const sonner = (await import('sonner')).toast; const origErr = sonner.error; sonner.error = (m) => { toasts.push(String(m)); };
+await assignViaMenu(S.queue[0].id);
+ok(S.checks.includes('vid1AAAAAAA'), 'when a song is given to a singer, YouTube is asked about that video');
+ok(S.queue[0].song_title === '' || !S.queue[0].song_title, 'a song YouTube says cannot play is NOT given to the singer');
+ok(toasts.some(t => /does not allow it to be played outside YouTube/.test(t) && /Africa - Karaoke/.test(t)), 'the host is told which song and why: ' + (toasts[0] || '(no message)'));
+cleanup();
+// a playable song goes through and asks only once
+fresh(); S.queue = [entry('Ann')]; S.checks = []; S.checkAnswers = {};
+app(); await wait(400); await click('karaoke-tab-karaoke'); await searchAfrica(); await assignViaMenu(S.queue[0].id);
+ok(S.queue[0].song_title === 'Africa - Karaoke' && S.checks.filter(c => c === 'vid1AAAAAAA').length === 1, 'a playable song is given to the singer (checked once)');
+cleanup();
+// the check cannot reach YouTube: the show is never blocked
+fresh(); S.queue = [entry('Ann')]; S.checks = []; S.checkDown = true;
+app(); await wait(400); await click('karaoke-tab-karaoke'); await searchAfrica(); await assignViaMenu(S.queue[0].id);
+ok(S.queue[0].song_title === 'Africa - Karaoke', 'if the check cannot be made the song is still given (the show is never blocked)');
+S.checkDown = false; sonner.error = origErr; cleanup();
+
+// ---------- 7d. alpha.99: like the prototype, the HOST warms the next singer's song in a hidden muted iframe (never the playing one)
+fresh(); S.queue = [entry('Ann', 'Africa', 'https://www.youtube.com/embed/AAA111?autoplay=1'), entry('Bob', 'Creep', 'https://www.youtube.com/embed/BBB222?autoplay=1')];
+app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(600);
+const hw = () => document.querySelector('[data-testid="karaoke-host-warm-iframe"]');
+ok(!!hw() && /embed\/AAA111\?autoplay=0&mute=1&preload=auto/.test(hw().src), 'the host warms the first waiting singer\'s song, muted and not playing: ' + ((hw() || {}).src || '(none)'));
+ok(hw() && hw().getAttribute('referrerpolicy') === 'strict-origin-when-cross-origin', 'the host warm-up iframe also asks for the referrer');
+await click('karaoke-next-singer-btn'); await wait(900);
+ok(!!hw() && /BBB222/.test(hw().src) && !/AAA111/.test(hw().src), 'once Ann is singing, the host warms Bob (the next one), never Ann\'s own song: ' + ((hw() || {}).src || '(none)'));
+cleanup();
+fresh(); S.queue = [entry('Ann')]; app(); await wait(400); await click('karaoke-tab-karaoke'); await wait(500);
+ok(!hw(), 'a singer with no song is not warmed');
+cleanup();
+// the SAME karaoke video chosen for two singers: while the first is singing it is NOT loaded a second time
+fresh(); S.queue = [entry('Ann', 'Africa', 'https://www.youtube.com/embed/SAMEvid1234?autoplay=1'), entry('Bob', 'Africa', 'https://www.youtube.com/embed/SAMEvid1234?autoplay=1')];
+app(); await wait(400); await click('karaoke-tab-karaoke'); await click('karaoke-next-singer-btn'); await wait(900);
+ok(/Ann/.test((q('karaoke-current-name') || {}).textContent || '') && !hw(), 'the same video for the next singer is not loaded a second time while it is playing');
+cleanup();
 
 // ---------- 8. alpha.98: the next singer is handed to the TV to warm, and NOTHING on the host can sit at "loading 0%"
 fresh(); S.queue = [entry('Ann', 'Africa', 'https://www.youtube.com/embed/AAA111?autoplay=1'), entry('Bob')]; S.preloadPosts = [];
