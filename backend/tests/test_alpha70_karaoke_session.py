@@ -299,3 +299,36 @@ def test_a_stale_error_for_an_old_song_is_ignored_and_an_empty_error_clears_it(c
     c.post("/api/karaoke/session/audience-report", json={"singer_id": cur["id"], "error": "5"})
     c.post("/api/karaoke/session/audience-report", json={"singer_id": cur["id"], "error": ""})
     assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == ""
+
+
+# ---------------------------------------------------------------- alpha.98: the TV plays the song in a plain iframe and times it from the song's length
+def test_the_song_length_and_video_reach_the_tv_exactly_as_the_host_sent_them(client):
+    c, _ = client
+    start(c)
+    a = add(c, "Ann", "A")
+    c.post("/api/karaoke/queue/add", json={"assign_to": a["id"], "song_title": "Africa", "song_artist": "Toto",
+                                           "embed_url": "https://www.youtube.com/embed/AAA111?autoplay=1", "source": "youtube", "duration_seconds": 295})
+    cur = c.post("/api/karaoke/queue/next").json()["current"]
+    assert cur["duration_seconds"] == 295 and "AAA111" in cur["embed_url"]
+    c.post("/api/karaoke/session/playback", json={"song_playing": True, "current_singer": cur, "mode": "karaoke"})
+    seen = c.get("/api/karaoke/session/playback").json()["playback"]               # this is what the TV window reads
+    assert seen["song_playing"] is True and seen["current_singer"]["duration_seconds"] == 295
+    assert "AAA111" in seen["current_singer"]["embed_url"] and seen["current_singer"]["song_title"] == "Africa"
+
+
+def test_a_singer_added_from_the_phone_page_has_no_length_so_the_host_ends_the_song(client):
+    c, _ = client
+    start(c)
+    a = add(c, "Bob", "B")
+    c.post("/api/karaoke/queue/add", json={"assign_to": a["id"], "song_title": "Creep", "embed_url": "https://www.youtube.com/embed/BBB222", "source": "youtube"})
+    cur = c.post("/api/karaoke/queue/next").json()["current"]
+    assert not cur.get("duration_seconds")                                           # 0: the TV never ends it by itself
+    assert "BBB222" in cur["embed_url"]
+
+
+def test_the_next_song_is_still_handed_to_the_tv_to_warm(client):
+    c, _ = client
+    start(c)
+    c.post("/api/karaoke/session/preload", json={"singer_id": "s2", "embed_url": "https://www.youtube.com/embed/BBB222?autoplay=1"})
+    pre = c.get("/api/karaoke/session/playback").json().get("preload") or c.get("/api/karaoke/session/active").json()["session"].get("preload")
+    assert pre and pre["singer_id"] == "s2" and "BBB222" in pre["embed_url"]

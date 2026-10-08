@@ -3,6 +3,7 @@ import { Mic, Music, Maximize } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import axios from "axios";
 import { bufferStatus, explainVideoError } from "./karaokeFlow";
+import { embedSrc, sendCommand, makeSongClock } from "./iframePlayback";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -20,26 +21,10 @@ export const videoIdOf = (embedUrl) => {
   return m ? m[1] : null;
 };
 
-// YouTube's IFrame API, loaded once. It is what tells us the REAL play time and when a video ENDS.
-let ytPromise = null;
-export function loadYouTubeApi() {
-  if (ytPromise) return ytPromise;
-  ytPromise = new Promise((resolve, reject) => {
-    if (window.YT && window.YT.Player) return resolve(window.YT);
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(window.YT); };
-    const s = document.createElement("script");
-    s.src = "https://www.youtube.com/iframe_api";
-    s.onerror = () => { ytPromise = null; reject(new Error("youtube_unreachable")); };
-    document.head.appendChild(s);
-  });
-  return ytPromise;
-}
-
 /**
  * Karaoke audience screen (alpha.70). THIS SCREEN IS THE CLOCK.
- *  - It plays the song itself (YouTube IFrame API) and reports started / time / ended to the server.
- *    The host follows these reports. The host never guesses where the song is.
+ *  - alpha.98: it plays the song in a PLAIN YouTube iframe (exactly like the prototype). A clock started from the song's
+ *    known length reports started / time / ended to the server. The host follows these reports.
  *  - A routine refresh never seeks or pauses the video. Only the host's play / pause / end commands do.
  *  - The video fades out over 3 s when a song is ending, then the screen goes back to the music view.
  *  - Layout: the master overlay image with the video, scrolling "up next" bar, venue logo and request QR placed in its windows.
@@ -56,6 +41,9 @@ export default function KaraokeAudienceView() {
   const [singer, setSinger] = useState(null);       // { id, name, song, artist, videoId }
   const [wantPlaying, setWantPlaying] = useState(false);
   const [isFading, setIsFading] = useState(false);
+  const clockRef = useRef(makeSongClock());          // alpha.98: the song clock (a plain iframe cannot report time)
+  const frameRef = useRef(null);                    // alpha.98: the plain YouTube iframe
+  const [frameSrc, setFrameSrc] = useState("");
   const [ytProblem, setYtProblem] = useState(false);
   const [ytReason, setYtReason] = useState("");          // alpha.96: YouTube's error code, shown as words
   const [requestUrl, setRequestUrl] = useState(`${window.location.origin}/karaoke/request`);
@@ -99,81 +87,25 @@ export default function KaraokeAudienceView() {
     playerRef.current = null;
   }, []);
 
-  const onYtState = useCallback((e) => {
-    const YT = window.YT;
-    const p = playerRef.current;
-    if (!YT || !p) return;
-    const song = songRef.current;
-    if (e.data === YT.PlayerState.PLAYING) {
-      if (!song.startedReported) {
-        song.startedReported = true;
-        let duration = 0;
-        try { duration = p.getDuration() || 0; } catch { /* not ready */ }
-        report({ started: true, duration });
-      }
-      if (!timerRef.current) {
-        timerRef.current = setInterval(() => {
-          try { report({ time: p.getCurrentTime() || 0 }); } catch { /* player gone */ }
-        }, 1000);
-      }
-    } else if (e.data === YT.PlayerState.ENDED) {
-      stopTimer();
-      if (!song.endedReported) { song.endedReported = true; report({ ended: true }); }
-    } else if (e.data === YT.PlayerState.PAUSED) {
-      stopTimer();
-    }
-  }, [report]);
-
-  // ---- start the video for a new song
-  const startSong = useCallback(async (videoId, singerId) => {
-    // alpha.89: if this exact song was already buffered in the background, REVEAL that player instead of building a new one.
-    const buf = preloadRef.current;
-    if (buf && buf.singerId === singerId && buf.videoId === videoId && buf.player && buf.ready && !buf.adopted && playerHostRef.current && bufferHostRef.current) {
-      try {
-        destroyPlayer();
-        songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
-        setYtProblem(false); setYtReason("");
-        buf.adopted = true;
-        if (buf.timer) { clearInterval(buf.timer); buf.timer = null; }
-        const player = buf.player;
-        playerRef.current = player;
-        // the buffered player was made inside bufferHostRef; show it by raising that holder over the video box
-        bufferHostRef.current.style.opacity = "1";
-        bufferHostRef.current.style.zIndex = "1";
-        // events set at creation time cannot be swapped, so listen to the state through the player itself
-        player.addEventListener("onStateChange", onYtState);
-        player.addEventListener("onError", (ev) => { setYtProblem(true); setYtReason(String((ev && ev.data) || "5")); report({ error: String((ev && ev.data) || "5") }); });
-        player.unMute();
-        player.seekTo(0, true);
-        if (wantPlayingRef.current) player.playVideo();
-        preloadRef.current = { singerId: null, player: null };       // consumed: the next preload starts fresh
-        return;
-      } catch (err) {
-        console.warn("[karaoke audience] could not reuse the buffered song, loading it normally:", err);
-        try { bufferHostRef.current.style.opacity = "0"; bufferHostRef.current.style.zIndex = "0"; } catch { /* gone */ }
-      }
-    }
+  // ---- start the video for a new song (alpha.98: a PLAIN YouTube iframe, exactly like the prototype)
+  // The iframe plays the song. A small clock, started from the song's known length, reports started / time / ended to the host.
+  const startSong = useCallback(async (videoId, singerId, lengthSeconds) => {
     destroyPlayer();
+    stopTimer();
     songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
     setYtProblem(false); setYtReason("");
-    try {
-      const YT = await loadYouTubeApi();
-      if (songRef.current.videoId !== videoId || !playerHostRef.current) return;   // song changed while loading
-      playerHostRef.current.innerHTML = "<div id='karaoke-yt'></div>";
-      playerRef.current = new YT.Player("karaoke-yt", {
-        videoId, width: "100%", height: "100%",
-        playerVars: { autoplay: 1, controls: 0, rel: 0, modestbranding: 1, playsinline: 1, disablekb: 1, fs: 0 },
-        events: {
-          onReady: (ev) => { if (wantPlayingRef.current) { try { ev.target.playVideo(); } catch { /* ignore */ } } else { try { ev.target.pauseVideo(); } catch { /* ignore */ } } },
-          onStateChange: onYtState,
-          onError: (ev) => { setYtProblem(true); setYtReason(String((ev && ev.data) || "5")); report({ error: String((ev && ev.data) || "5") }); },
-        },
-      });
-    } catch {
-      setYtProblem(true); setYtReason("no_youtube");
-      report({ error: "no_youtube" });
-    }
-  }, [destroyPlayer, onYtState, report]);
+    setFrameSrc(embedSrc(videoId));
+    const clock = clockRef.current;
+    clock.start(lengthSeconds || 0);
+    if (!wantPlayingRef.current) clock.pause();
+    const song = songRef.current;
+    if (!song.startedReported) { song.startedReported = true; report({ started: true, duration: lengthSeconds || 0 }); }
+    timerRef.current = setInterval(() => {
+      const t = clock.tick();
+      if (!clock.isPaused()) report({ time: t.time });
+      if (t.ended && !song.endedReported) { song.endedReported = true; stopTimer(); report({ ended: true }); }
+    }, 1000);
+  }, [destroyPlayer, report]);
 
   // ---- apply what the host says. A new song starts the video. The SAME song is never restarted or seeked.
   const apply = useCallback((pb) => {
@@ -194,82 +126,36 @@ export default function KaraokeAudienceView() {
     else if (!playing) setSinger(null);
 
     const song = songRef.current;
+    const clock = clockRef.current;
     if (playing && s && videoId) {
-      if (song.id !== s.id || song.videoId !== videoId) startSong(videoId, s.id);
-      else if (playerRef.current && playerRef.current.getPlayerState) {
-        // deliberate host command on the SAME song: play it if it was paused (no seeking)
-        try { if (playerRef.current.getPlayerState() === window.YT.PlayerState.PAUSED) playerRef.current.playVideo(); } catch { /* ignore */ }
+      if (song.id !== s.id || song.videoId !== videoId) startSong(videoId, s.id, Number(s.duration_seconds) || 0);
+      else if (clock.isPaused()) {
+        // the host pressed Play again on the SAME song: carry on from where it was (no seeking)
+        clock.resume();
+        sendCommand(frameRef.current, "playVideo");
       }
-    } else if (!playing && playerRef.current && song.id === (s && s.id)) {
-      // host paused the song
-      try { playerRef.current.pauseVideo(); } catch { /* ignore */ }
+    } else if (!playing && song.id && song.id === (s && s.id)) {
+      // the host paused the song
+      clock.pause();
+      sendCommand(frameRef.current, "pauseVideo");
     }
     if (!s || (!playing && !s)) {
       destroyPlayer();
+      clock.stop();
+      setFrameSrc("");
       songRef.current = { id: null, videoId: null, startedReported: false, endedReported: false };
     }
   }, [startSong, destroyPlayer]);
 
-  // ---- preload (alpha.89): really BUFFER the NEXT singer's video so the song starts with no stop.
-  // A "cued" video downloads nothing, so the video is STARTED muted, left to buffer, and held paused at 0:00.
-  // Progress is YouTube's own getVideoLoadedFraction(), reported as a percent of the first BUFFER_NEED_SECONDS.
-  const handlePreload = useCallback(async (pre) => {
-    const stop = () => {
-      const c = preloadRef.current;
-      if (c.timer) clearInterval(c.timer);
-      if (c.player && !c.adopted) { try { c.player.destroy(); } catch { /* gone */ } }
-      if (c.holder && !c.adopted) { try { c.holder.innerHTML = ""; } catch { /* gone */ } }
-      preloadRef.current = { singerId: null, player: null };
-    };
-    const cur = preloadRef.current;
-    if (!pre || !pre.singer_id) { stop(); return; }
-    const hostRetry = !!pre.retry && pre.retry !== cur.retryStamp;      // the host pressed "Retry loading": start this one afresh
-    if (cur.singerId === pre.singer_id && !hostRetry) {
-      // alpha.93: already loading or loaded this one, UNLESS it failed: then try again after a short pause (never gives up for good)
-      const failed = cur.failedAt && Date.now() - cur.failedAt > RETRY_AFTER_MS && (cur.tries || 0) < MAX_TRIES;
-      if (!failed) return;
-    }
-    const tries = cur.singerId === pre.singer_id && !hostRetry ? (cur.tries || 0) + 1 : 1;
-    stop();
-    preloadRef.current = { singerId: pre.singer_id, player: null, videoId: null, adopted: false, timer: null, holder: null, ready: false, tries, failedAt: 0, retryStamp: pre.retry || null };
-    const fail = (why) => { const c = preloadRef.current; if (c.singerId === pre.singer_id) c.failedAt = Date.now(); report({ error: why }); };
-    const videoId = videoIdOf(pre.embed_url);
-    if (!videoId) return;
-    const report = (body) => axios.post(`${API}/karaoke/session/preload-report`, { singer_id: pre.singer_id, ...body }).catch(() => {});
-    try {
-      const YT = await loadYouTubeApi();
-      if (preloadRef.current.singerId !== pre.singer_id) return;            // the host moved on while YouTube loaded
-      const holder = bufferHostRef.current;
-      if (!holder) { fail("no_holder"); return; }
-      // full size and in the page (opacity 0): Chromium will not buffer a video it considers hidden
-      holder.innerHTML = "<div id='karaoke-yt-preload'></div>";
-      let started = false;
-      const player = new YT.Player("karaoke-yt-preload", {
-        videoId, width: "100%", height: "100%",
-        playerVars: { autoplay: 0, controls: 0, mute: 1, rel: 0, playsinline: 1, disablekb: 1, fs: 0 },
-        events: {
-          onReady: (ev) => { try { ev.target.mute(); ev.target.playVideo(); } catch { /* ignore */ } },
-          onStateChange: (ev) => {
-            if (preloadRef.current.singerId !== pre.singer_id) return;
-            // 1 = playing: it has begun to download. Hold it at the start so nothing is "sung" yet.
-            if (ev.data === 1 && !started) { started = true; try { const pl = preloadRef.current.player; pl.pauseVideo(); pl.seekTo(0, true); } catch (e) { console.warn("[karaoke audience] could not hold the buffering player:", e); } }
-          },
-          onError: () => fail("youtube_error"),
-        },
-      });
-      const c = preloadRef.current;
-      c.player = player; c.holder = holder; c.videoId = videoId;
-      c.timer = setInterval(() => {
-        const cc = preloadRef.current;
-        if (cc.singerId !== pre.singer_id || !cc.player || !cc.player.getVideoLoadedFraction) return;
-        let frac = 0, dur = 0;
-        try { frac = cc.player.getVideoLoadedFraction(); dur = cc.player.getDuration(); } catch { return; }
-        if (!dur) return;
-        const b = bufferStatus(frac, dur);
-        if (b.ready && !cc.ready) { cc.ready = true; report({ percent: 100, buffered_seconds: b.bufferedSeconds, ready: true }); }
-        else if (!cc.ready) report({ percent: b.percent, buffered_seconds: b.bufferedSeconds });
-      }, 800);
-    } catch { /* no YouTube yet: say so, and try again shortly */ fail("no_youtube"); }
+  // ---- preload (alpha.98): like the prototype, the NEXT singer's video is warmed with a plain, hidden YouTube iframe
+  // (no second JavaScript player, no muted playback, no buffering percentage). The song itself plays in its own iframe when its turn comes.
+  const [warmSrc, setWarmSrc] = useState("");
+  const handlePreload = useCallback((pre) => {
+    const videoId = pre && pre.singer_id ? videoIdOf(pre.embed_url) : "";
+    // never warm the SAME video that is playing right now (two copies of one video is what can make YouTube refuse one)
+    if (!videoId || videoId === songRef.current.videoId) { setWarmSrc(""); return; }
+    // muted + not autoplaying: it only gets the page and the first part of the video ready
+    setWarmSrc(`https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=0&mute=1&controls=0&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`);
   }, []);
 
   // ---- instant messages from the host window
@@ -353,10 +239,16 @@ export default function KaraokeAudienceView() {
 
       {/* 1. VIDEO */}
       <div className="absolute" style={{ ...OVERLAY.video, zIndex: 2, backgroundColor: "#000", overflow: "hidden", opacity: isFading ? 0 : 1, transition: "opacity 3s ease-out" }} data-testid="karaoke-audience-video">
-        <div ref={playerHostRef} className="absolute inset-0" style={{ display: showVideo ? "block" : "none" }} />
-        {/* alpha.89: the NEXT song buffers here, invisible but full size, so when it starts it is simply revealed
-            (the player is never moved or rebuilt, which would throw the buffer away). */}
-        <div ref={bufferHostRef} className="absolute inset-0" style={{ opacity: 0, pointerEvents: "none", zIndex: 0 }} data-testid="karaoke-buffer-host" />
+        <div ref={playerHostRef} className="absolute inset-0" style={{ display: showVideo ? "block" : "none" }}>
+          {frameSrc && (
+            <iframe ref={frameRef} key={frameSrc} src={frameSrc} title="Karaoke song" className="w-full h-full" style={{ border: 0 }}
+              allow="autoplay; encrypted-media; fullscreen" allowFullScreen data-testid="karaoke-audience-iframe" />
+          )}
+        </div>
+        {/* alpha.98: the NEXT song is warmed here with a plain hidden iframe (like the prototype). It is never shown and never plays. */}
+        <div ref={bufferHostRef} className="absolute" style={{ width: 2, height: 2, overflow: "hidden", opacity: 0, pointerEvents: "none", zIndex: 0 }} data-testid="karaoke-buffer-host">
+          {warmSrc && <iframe key={warmSrc} src={warmSrc} title="Next song" width="2" height="2" style={{ border: 0 }} allow="encrypted-media" data-testid="karaoke-warm-iframe" />}
+        </div>
         {!showVideo && singer && (
           <div className="w-full h-full flex flex-col items-center justify-center text-center px-8" data-testid="karaoke-audience-singer">
             <div className="w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-4" style={{ backgroundColor: "rgba(34,197,94,0.15)", border: `3px solid ${accent}` }}>

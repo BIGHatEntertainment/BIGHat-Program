@@ -11,7 +11,7 @@ import {
   Plus, Trash2, GripVertical, Check, X, ListMusic, UserPlus, Settings, AlertCircle, RefreshCw,
 } from "lucide-react";
 import {
-  AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState, bufferView, justBecameReady,
+  AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState,
   readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume, explainVideoError } from "./karaokeFlow";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -79,7 +79,6 @@ export default function KaraokePlayer() {
   const [currentSinger, setCurrentSinger] = useState(null);
   const [songPlaying, setSongPlaying] = useState(false);
   const [songEnding, setSongEnding] = useState(false);
-  const [preloadPct, setPreloadPct] = useState(0);
   const [audience, setAudience] = useState({ started: false, time: 0, duration: 0, ending: false, ended: false });
 
   // ---- shared
@@ -290,46 +289,22 @@ export default function KaraokePlayer() {
   const rejectRequest = async (id) => { await axios.post(`${API}/karaoke/requests/${id}/reject`); loadRequests(); };
 
   const waiting = queue.filter((e) => e.status === "waiting");
-  const next = nextSingerState(queue, preloadPct);
+  const next = nextSingerState(queue);
 
   // preload (alpha.89): the audience screen is the only thing that can load video. We tell it which song is next
   // and it reports how much is REALLY buffered (percent of the first 45 seconds). The host sees that as a bar on
   // the queued singer, and is told once when the song has loaded enough.
   const nextId = next.singer && next.singer.id;
   const nextUrl = next.singer && next.singer.embed_url;
-  const [preload, setPreload] = useState(null);
-  const readyToldFor = useRef(null);
+  // alpha.98: the host only tells the audience screen which song is next; the audience warms it in a plain hidden iframe.
   useEffect(() => {
-    if (!session) return undefined;
-    setPreloadPct(0); setPreload(null);
+    if (!session) return;
     axios.post(`${API}/karaoke/session/preload`, nextId && nextUrl ? { singer_id: nextId, embed_url: nextUrl } : {}).catch(() => {});
-    if (!nextId || !nextUrl) return undefined;
-    let stopped = false;
-    const poll = async () => {
-      try {
-        const r = await axios.get(`${API}/karaoke/session/playback`);
-        const pre = r.data.preload;
-        if (stopped) return;
-        if (pre && pre.singer_id === nextId) { setPreload({ ...pre }); setPreloadPct(pre.ready ? 100 : Math.min(99, pre.percent || 0)); }
-      } catch { /* try again */ }
-    };
-    poll();
-    const t = setInterval(poll, 700);
-    return () => { stopped = true; clearInterval(t); };
   }, [session, nextId, nextUrl]);
-
-  const buffer = bufferView({ next: next.singer, preload, audienceOpen });
-  useEffect(() => {      // tell the host ONCE per singer when the song has loaded enough
-    if (justBecameReady(readyToldFor.current, buffer, nextId)) {
-      readyToldFor.current = nextId;
-      toast.success(`${next.singer.singer_name}'s song is loaded and ready`, { description: next.singer.song_title });
-    }
-    if (!nextId) readyToldFor.current = null;
-  }, [buffer.state, nextId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- start the next singer
   const startNextSinger = async (force = false) => {
-    if (!force && !nextSingerState(queue, preloadPct).enabled) return;
+    if (!force && !nextSingerState(queue).enabled) return;
     try {
       const r = await axios.post(`${API}/karaoke/queue/next`);
       const cur = r.data.current;
@@ -593,34 +568,10 @@ export default function KaraokePlayer() {
                 <button onClick={() => startNextSinger(false)} disabled={!next.enabled} className="w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold disabled:opacity-40" style={{ backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-next-singer-btn">
                   <SkipForward size={16} />
                   {next.reason === "ready" && `Next Singer: ${next.singer.singer_name}`}
-                  {next.reason === "loading" && `Loading ${next.singer.singer_name}'s song... ${next.percent}%`}
                   {next.reason === "no_song" && `Pick a song for ${next.singer.singer_name}`}
                   {next.reason === "no_one_waiting" && "No one waiting"}
                 </button>
-                {buffer.state !== "none" && (
-                  <div className="mt-2" data-testid="karaoke-buffer">
-                    <div className="flex items-center justify-between text-[11px] mb-1" style={{ color: buffer.state === "ready" ? accent : "#8892b0" }}>
-                      <span data-testid="karaoke-buffer-label">
-                        {buffer.state === "ready" && "Loaded and ready"}
-                        {buffer.state === "loading" && "Loading the next song..."}
-                        {buffer.state === "no_screen" && "Open the Audience View so the next song can load"}
-                        {buffer.state === "error" && "The next song could not load"}
-                      </span>
-                      <span data-testid="karaoke-buffer-pct">{buffer.percent}%</span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.1)" }} role="progressbar"
-                         aria-valuenow={buffer.percent} aria-valuemin={0} aria-valuemax={100} data-testid="karaoke-buffer-bar">
-                      <div className="h-full rounded-full" style={{ width: `${buffer.percent}%`, backgroundColor: buffer.state === "ready" ? accent : buffer.state === "loading" ? "#fbdd68" : "#555", transition: "width 0.4s" }} data-testid="karaoke-buffer-fill" />
-                    </div>
-                  </div>
-                )}
-                {(next.reason === "loading") && (
-                  <div className="flex items-center justify-center gap-4 mt-2">
-                    <button onClick={() => { setPreloadPct(0); setPreload(null); axios.post(`${API}/karaoke/session/preload`, { singer_id: nextId, embed_url: nextUrl, retry: Date.now() }).catch(() => {}); }}
-                      className="text-xs text-zinc-300 underline" data-testid="karaoke-retry-load-btn">Retry loading</button>
-                    <button onClick={() => startNextSinger(true)} className="text-xs text-zinc-400 underline" data-testid="karaoke-start-anyway-btn">Start anyway</button>
-                  </div>
-                )}
+                {/* alpha.98: no loading bar / Start anyway / Retry: the next song is a plain iframe (like the prototype) and Next Singer is ready as soon as they have a song */}
               </div>
 
               <div className="overflow-y-auto space-y-1 rounded-xl p-2 flex-1" style={{ maxHeight: "calc(100vh - 460px)", backgroundColor: "rgba(0,14,42,0.3)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-queue" data-drop-list>

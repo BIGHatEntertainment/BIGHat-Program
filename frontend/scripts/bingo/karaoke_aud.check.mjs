@@ -1,4 +1,4 @@
-// alpha.70: Karaoke AUDIENCE screen - it is the clock. Runs against a fake YouTube player I control.
+// alpha.98: Karaoke AUDIENCE screen. Songs play in a PLAIN YouTube iframe (like the prototype); a clock reports started/time/ended.
 import { JSDOM } from 'jsdom';
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://localhost/karaoke/audience', pretendToBeVisual: true });
 for (const k of ['window','document','navigator','HTMLElement','Node','MutationObserver','getComputedStyle','requestAnimationFrame','cancelAnimationFrame','localStorage']) {
@@ -33,12 +33,12 @@ const origAppend = dom.window.document.head.appendChild.bind(dom.window.document
 dom.window.document.head.appendChild = (el) => { if (el.tagName === 'SCRIPT' && yt.loadFails) { setTimeout(() => el.onerror && el.onerror(), 0); return el; } return origAppend(el); };
 
 // ---- fake server
-let pb, reports, queue;
-const reset = () => { reports = []; queue = [{ id: 'q1', singer_name: 'Bob', song_title: 'Creep', status: 'waiting' }, { id: 'q2', singer_name: 'Cy', song_title: '', status: 'waiting' }];
+let pb, reports, queue, pre = null;
+const reset = () => { pre = null; reports = []; queue = [{ id: 'q1', singer_name: 'Bob', song_title: 'Creep', status: 'waiting' }, { id: 'q2', singer_name: 'Cy', song_title: '', status: 'waiting' }];
   pb = { song_playing: false, song_ending: false, current_singer: null, mode: 'filler' }; };
 reset();
 axios.get = async (u) => {
-  if (u.endsWith('/session/playback')) return { data: { playback: pb, location: 'Pub One', qr_enabled: true, overlay_enabled: true } };
+  if (u.endsWith('/session/playback')) return { data: { playback: pb, location: 'Pub One', qr_enabled: true, overlay_enabled: true, preload: pre } };
   if (u.endsWith('/karaoke/queue')) return { data: { queue } };
   if (u.endsWith('/request-info')) return { data: globalThis.__reqInfo || { url: 'https://api.bighat.live/k/AUDQRLINKAUDQRLINK', phone_reachable: true, online: true } };
   return { data: {} };
@@ -66,104 +66,75 @@ ok(/Music Playing/.test(q('karaoke-audience-video').textContent), 'no singer yet
 await wait(500);
 ok(/UP NEXT.*Bob.*Creep/.test(q('karaoke-audience-chyron').textContent) && /Cy/.test(q('karaoke-audience-chyron').textContent), 'up-next bar lists the waiting singers: ' + q('karaoke-audience-chyron').textContent);
 
+
 const ch = new BroadcastChannel('karaoke-state');
-// 2. host starts Ann's song -> audience creates ONE player for that video and plays it
-await send(ch, { song_playing: true, current_singer: ann, mode: 'karaoke' });
-await wait(200);
-ok(yt.players.length === 1 && yt.players[0].opts.videoId === 'AAA111', 'a new song creates one YouTube player for the right video');
-const P = yt.players[0];
-ok(P.opts.playerVars.controls === 0 && P.opts.playerVars.autoplay === 1, 'player has no controls and autoplays');
-ok(P.log.includes('play'), 'audience starts playing');
+const iframes = () => [...document.querySelectorAll('iframe')];
+const playing = () => iframes().find(f => f.getAttribute('data-testid') === 'karaoke-audience-iframe');
+const warm = () => iframes().find(f => f.getAttribute('data-testid') === 'karaoke-warm-iframe');
+const sent = [];                                                   // commands the audience sends INTO the YouTube iframe
+const hook = (f) => { if (f && f.contentWindow && !f.__hooked) { f.__hooked = true; f.contentWindow.postMessage = (m) => sent.push(JSON.parse(m).func); } };
+
+// 2. host starts Ann's song -> a plain iframe with the prototype's address, and NO YouTube script player at all
+const yt0 = yt.players.length;
+await send(ch, { song_playing: true, current_singer: { ...ann, duration_seconds: 5 }, mode: 'karaoke' });
 await wait(300);
-ok(reports.some(r => r.started === true && r.singer_id === 's1' && r.duration === 200), 'AUDIENCE REPORTS started (with the real duration) for that singer: ' + JSON.stringify(reports.slice(0, 2)));
-// 3. the audience clock ticks into reports every second
-P.time = 42.5; await wait(1200);
-ok(reports.some(r => r.time === 42.5), 'audience reports its real play time every second');
-// 4. routine sync from the host with a LATER time must NOT seek or restart
-const before = P.log.length;
-await send(ch, { song_playing: true, current_singer: ann, mode: 'karaoke' });
-await send(ch, { song_playing: true, current_singer: ann, mode: 'karaoke' });
-ok(yt.players.length === 1, 'the same song is never restarted');
-ok(!P.log.slice(before).includes('destroy') && !P.log.some(l => l.startsWith('seek')), 'the audience NEVER seeks to the host position');
-// 4b. a LATE copy from the server with an older revision must not stop or restart the song
-const savedPb = pb;
-pb = { song_playing: false, song_ending: false, current_singer: null, mode: 'filler', rev: 0 };
-await wait(2800);
-ok(!P.destroyed && yt.players.length === 1, 'a late, older server copy cannot kill the song that is playing');
-pb = savedPb;
-// 5. deliberate pause, then deliberate play
-await send(ch, { song_playing: false, current_singer: ann, mode: 'karaoke' });
-ok(P.log[P.log.length - 1] === 'pause', 'a deliberate host pause pauses the audience video');
-const stopped = reports.length; P.time = 50; await wait(1200);
-ok(!reports.slice(stopped).some(r => r.time === 50), 'no time reports while paused');
-await send(ch, { song_playing: true, current_singer: ann, mode: 'karaoke' });
-ok(P.log[P.log.length - 1] === 'play' && yt.players.length === 1, 'a deliberate play resumes the SAME video (no restart, no seek)');
-// 6. last 3 seconds: fade
-await send(ch, { song_playing: true, song_ending: true, current_singer: ann, mode: 'karaoke' });
-ok(q('karaoke-audience-video').style.opacity === '0' && /3s/.test(q('karaoke-audience-video').style.transition), 'song ending fades the video out over 3 s');
-// 7. YouTube says ENDED -> audience reports ended once
-P.fire(0); P.fire(0); await wait(150);
-ok(reports.filter(r => r.ended === true).length === 1 && reports.find(r => r.ended).singer_id === 's1', 'audience reports "ended" exactly once, for the right singer');
-// 8. back to filler: video removed, music view
-await send(ch, { song_playing: false, song_ending: false, current_singer: null, mode: 'filler' });
-ok(P.destroyed === true && /Music Playing/.test(q('karaoke-audience-video').textContent), 'after the song the player is destroyed and the music view returns');
-ok(q('karaoke-audience-video').style.opacity === '1', 'fade resets for the next song');
-// 9. next singer = a brand new player, fresh clock
-await send(ch, { song_playing: true, current_singer: bob, mode: 'karaoke' }); await wait(250);
-ok(yt.players.length === 2 && yt.players[1].opts.videoId === 'BBB222', 'next singer gets a fresh player');
-ok(reports.some(r => r.started === true && r.singer_id === 's2'), 'and reports started under the new singer');
-// 10. server refresh (window reloaded mid-song) rebuilds the song without a command
-cleanup(); ch.close(); yt.players.length = 0; reset(); rev += 1; pb = { song_playing: true, song_ending: false, current_singer: bob, mode: 'karaoke', rev };
-render(React.createElement(Aud)); await fullscreen(); await wait(3200);
-ok(yt.players.length === 1 && yt.players[0].opts.videoId === 'BBB222', 'a refreshed audience window picks the current song back up from the server');
-// 11. QR address from the backend
-ok(q('karaoke-audience-qr') && !!q('karaoke-audience-qr').querySelector('svg'), 'QR is drawn');
-// 11b. alpha.95: the QR box is ALWAYS on the big screen. A PC-only address (phones cannot open it) is NOT drawn as a code,
-//      the box says it is getting ready instead (a code that goes nowhere would be worse)
-cleanup(); reset(); globalThis.__reqInfo = { url: 'http://192.168.1.50:8001/karaoke/request', phone_reachable: false };
-render(React.createElement(Aud)); await fullscreen(); await wait(600);
-ok(!!q('karaoke-audience-qr') && !q('karaoke-audience-qr').querySelector('svg') && !!q('karaoke-audience-qr-wait'), 'QR box is always there; for a PC-only address it says "getting ready" and draws no useless code');
-// 11c. ... and it appears by itself once the cloud link is ready (within ~10 s)
-globalThis.__reqInfo = { url: 'https://api.bighat.live/k/LATEREADYLINK1234', phone_reachable: true, online: true };
-await act(async () => { await new Promise(r => setTimeout(r, 10600)); });
-ok(!!q('karaoke-audience-qr') && !!q('karaoke-audience-qr').querySelector('svg'), 'QR appears on the big screen by itself once the cloud link is ready');
-globalThis.__reqInfo = null;
-// 12. QR off / overlay off
-pb = { ...pb, song_playing: false, current_singer: null };
-cleanup();
+ok(!!playing(), 'a song starts in a plain iframe');
+ok(playing() && /^https:\/\/www\.youtube\.com\/embed\/AAA111\?autoplay=1&controls=0&rel=0&modestbranding=1/.test(playing().src), 'the address is the prototype form: ' + (playing() || {}).src);
+ok(playing() && /enablejsapi=1/.test(playing().src), 'JS control is on so pause/play can be sent');
+ok(yt.players.length === yt0, 'NO YouTube JavaScript player is created for the song (that is what failed with error 101)');
+ok(!q('karaoke-audience-yt-problem'), 'no "could not load" message');
+// 3. the host is told: started once, then time every second, then ended at the song length
+await wait(300);
+ok(reports.filter(r => r.started === true && r.singer_id === 's1').length === 1 && reports.find(r => r.started).duration === 5, 'AUDIENCE REPORTS started once, with the real length: ' + JSON.stringify(reports.slice(0, 2)));
+await wait(2300);
+const times = reports.filter(r => typeof r.time === 'number').map(r => r.time);
+ok(times.length >= 2 && times[times.length - 1] > times[0], 'time is reported every second and goes up: ' + JSON.stringify(times.map(t => Math.round(t * 10) / 10)));
+await wait(3200);
+ok(reports.filter(r => r.ended === true).length === 1, 'ENDED is reported exactly once, at the song length: ' + JSON.stringify(reports.filter(r => r.ended)));
+const reportsAfterEnd = reports.length; await wait(2200);
+ok(!reports.slice(reportsAfterEnd).some(r => typeof r.time === 'number'), 'and the time stops being reported after the end');
 
-// 13. YouTube can't load (no internet): fall back to singer + song, tell the host
-// (a fresh copy of the page, because the real page remembers a successful YouTube load for its whole life)
-const { default: AudFresh } = await import('/tmp/rtest/kaud.bundle.mjs?fresh=' + Date.now());
-reset(); yt.loadFails = true; delete window.YT; yt.players.length = 0;
-rev += 1; pb = { song_playing: true, song_ending: false, current_singer: ann, mode: 'karaoke', rev };
-render(React.createElement(AudFresh)); await fullscreen(); await wait(3200);
-ok(!!q('karaoke-audience-singer') && /Ann/.test(q('karaoke-audience-singer').textContent) && /Africa/.test(q('karaoke-audience-singer').textContent), 'no YouTube: audience shows the singer and song instead of a blank box');
-ok(!!q('karaoke-audience-yt-problem'), 'and says the video could not load');
-// alpha.96: ...and says WHY, and tells the host the same reason
-ok(/could not reach YouTube/i.test((q('karaoke-audience-yt-problem') || {}).textContent || ''), 'no internet: the TV says it could not reach YouTube: ' + ((q('karaoke-audience-yt-problem') || {}).textContent || ''));
-ok(reports.some(r => r.error === 'no_youtube'), 'and the host is told "no_youtube"');
-cleanup();
+// 4. pause stops the clock without losing the place; play carries on (no restart)
+reports.length = 0; sent.length = 0;
+await send(ch, { song_playing: true, current_singer: { ...bob, duration_seconds: 60 }, mode: 'karaoke' }); await wait(300);
+ok(playing() && /BBB222/.test(playing().src), 'a new song replaces the iframe with the new video');
+hook(playing());
+await wait(2300);
+const beforePause = Math.max(...reports.filter(r => typeof r.time === 'number').map(r => r.time));
+await send(ch, { song_playing: false, current_singer: { ...bob, duration_seconds: 60 }, mode: 'karaoke' }); await wait(300);
+ok(sent.includes('pauseVideo'), 'pausing sends pauseVideo into the iframe: ' + JSON.stringify(sent));
+reports.length = 0; await wait(2300);
+ok(!reports.some(r => typeof r.time === 'number'), 'while paused no time is reported');
+await send(ch, { song_playing: true, current_singer: { ...bob, duration_seconds: 60 }, mode: 'karaoke' }); await wait(300);
+ok(sent.includes('playVideo'), 'pressing play sends playVideo (the same iframe, not rebuilt)');
+await wait(2300);
+const afterPlay = reports.filter(r => typeof r.time === 'number').map(r => r.time);
+ok(afterPlay.length && afterPlay[0] >= beforePause - 0.5 && afterPlay[0] < beforePause + 3.5, 'carries on from where it paused (about ' + Math.round(beforePause) + 's), not from 0: ' + JSON.stringify(afterPlay.map(t => Math.round(t))));
+ok(iframes().filter(f => f.getAttribute('data-testid') === 'karaoke-audience-iframe').length === 1, 'still one song iframe');
 
-// 13b. alpha.96: YouTube is reachable but REFUSES this video (error 101 = the owner does not allow it outside YouTube)
-reset(); installYT(); yt.players.length = 0; reports.length = 0;
-rev += 1; pb = { song_playing: true, song_ending: false, current_singer: ann, mode: 'karaoke', rev };
-render(React.createElement(Aud)); await fullscreen(); await wait(3200);
-const real = yt.players.filter(p => p.id === 'karaoke-yt').pop();
-ok(!!real, 'the real player was created for the song');
-if (real) { await act(async () => { real.opts.events.onError({ data: 101 }); }); await wait(500); }
-ok(!!q('karaoke-audience-yt-problem') && /does not allow it to be played/i.test(q('karaoke-audience-yt-problem').textContent), 'YouTube refuses the video: the TV says the owner does not allow it: ' + ((q('karaoke-audience-yt-problem') || {}).textContent || '(nothing)'));
-ok(reports.some(r => r.error === '101'), 'and the host is told the real YouTube code (101)');
-ok(/host will pick another song/i.test((q('karaoke-audience-yt-problem') || {}).textContent || ''), 'and the audience is told the host will pick another song');
-cleanup();
+// 5. a song with NO known length never ends by itself (the host End Song button does)
+reports.length = 0;
+await send(ch, { song_playing: true, current_singer: { ...ann, id: 's9', duration_seconds: 0 }, mode: 'karaoke' }); await wait(3500);
+ok(!reports.some(r => r.ended), 'no known length: the audience never declares the song over by itself');
 
-// 14. session ended
-reset(); yt.loadFails = false; installYT(); yt.players.length = 0;
-render(React.createElement(Aud)); await fullscreen(); await wait(300);
-const ch2 = new BroadcastChannel('karaoke-state'); ch2.postMessage({ ended: true }); await wait(200);
-ok(!!q('karaoke-audience-ended') && /Thanks for singing/.test(q('karaoke-audience-ended').textContent), 'end of night shows the thank-you screen');
-ch2.close(); cleanup();
+// 6. the song is over: the iframe is removed and the music view comes back
+await send(ch, { song_playing: false, current_singer: null, mode: 'filler' }); await wait(400);
+ok(!playing(), 'when the song is over the iframe is removed');
+ok(/Music Playing/.test(q('karaoke-audience-video').textContent), 'and the music view returns');
+
+// 7. YOUR REPORT: the next singer and song show BEFORE anyone presses play, and are never hidden by the player
+ok(/UP NEXT.*Bob.*Creep/.test(q('karaoke-audience-chyron').textContent), 'the up-next bar shows the next singer and song before play: ' + q('karaoke-audience-chyron').textContent.slice(0, 80));
+await send(ch, { song_playing: false, current_singer: { ...ann, duration_seconds: 200 }, mode: 'karaoke' }, {}); await wait(400);
+ok(!!q('karaoke-audience-singer') && /Ann/.test(q('karaoke-audience-singer').textContent), 'a chosen singer is shown by name BEFORE the song is started: ' + ((q('karaoke-audience-singer') || {}).textContent || '(nothing)').slice(0, 60));
+ok(!playing(), 'and the video does not start until the host presses play');
+
+// 8. the next song is warmed in a hidden iframe, never the one that is playing
+pre = { singer_id: 's2', embed_url: bob.embed_url, ready: false, percent: 0 };
+await send(ch, { song_playing: true, current_singer: { ...ann, duration_seconds: 200 }, mode: 'karaoke' }); await wait(3000);
+ok(!!warm() && /BBB222/.test(warm().src) && /mute=1/.test(warm().src) && /autoplay=0/.test(warm().src), 'the next song is warmed muted, not autoplaying: ' + ((warm() || {}).src || '(none)'));
+ok(playing() && /AAA111/.test(playing().src), 'while the current song plays on');
+pre = { singer_id: 's1', embed_url: ann.embed_url, ready: false, percent: 0 }; await wait(3000);
+ok(!warm(), 'a "next" that is the SAME video as the one playing is never warmed (no second copy)');
 
 if (fails.length) { console.log('FAILED:\n - ' + fails.join('\n - ')); process.exit(1); }
 console.log('karaoke audience: checks ok');
-process.exit(0);
