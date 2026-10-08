@@ -125,10 +125,11 @@ async def save_scores(request: SaveScoresRequest):
         logger.error(f"Could not write scores to disk: {e}")
         raise HTTPException(status_code=500, detail=f"Could not save scores on this PC: {e}")
 
-    # Optional SharePoint copy (cloud builds only). Never fails the save.
+    # alpha.97: SharePoint is OFF in the standalone program. Scores live on this PC (Documents + AppData).
+    # It only runs if BIGHAT_SHAREPOINT_COPY=1 is set on purpose. It never fails the save either way.
     shared = False
     try:
-        token = await _get_sp_token()
+        token = await _get_sp_token() if os.environ.get("BIGHAT_SHAREPOINT_COPY") == "1" else None
         if token:
             subfolder_id, folder_name = await _find_or_create_subfolder(token, request.locationName)
             if subfolder_id:
@@ -155,7 +156,8 @@ async def save_scores(request: SaveScoresRequest):
         logger.warning(f"Scores saved to disk but the database note failed: {e}")
 
     logger.info(f"Scores saved: {saved['path']} ({len(request.teams)} teams, sharepoint={shared})")
-    return {"success": True, "path": saved["path"], "teams": len(request.teams),
+    return {"success": True, "path": saved["path"], "folder": saved["folder"], "filename": saved["filename"],
+            "root": str(scores_store.primary_root()), "teams": len(request.teams),
             "topTeam": request.teams[0].name if request.teams else None, "sharedToSharePoint": shared}
 
 

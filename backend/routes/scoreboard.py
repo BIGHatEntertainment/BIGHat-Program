@@ -53,16 +53,57 @@ def _is_local_mode() -> bool:
         return False
 
 
-def _local_scores_root() -> Path:
-    """`<assets>/01_Scores/` — folder of per-venue subfolders of `.json` score files."""
+def _local_scores_roots() -> list:
+    """alpha.97: every folder that can hold score files, best first.
+    1) Documents\\BIG Hat Entertainment\\Files\\Trivia\\Scores   (where Trivia 'Save & Exit' writes)
+    2) <AppData>\\backups\\scores                              (its safety copy)
+    3) <assets>\\01_Scores                                       (older installs / files dropped in by hand, if configured)"""
+    roots = []
+    try:
+        from native import scores_store
+        roots += [scores_store.primary_root(), scores_store.backup_root()]
+    except Exception as e:                                  # noqa: BLE001
+        logger.warning(f"[SCOREBOARD] scores_store unavailable: {e}")
     try:
         from native.config import config_manager
         assets = config_manager.config.get("paths", {}).get("assets")
         if assets:
-            return Path(assets) / "01_Scores"
-    except Exception:
+            roots.append(Path(assets) / "01_Scores")
+    except Exception:                                       # noqa: BLE001
         pass
-    return ROOT_DIR.parent / "native" / "data" / "assets" / "01_Scores"
+    # (the sample folder bundled inside the program is deliberately NOT read: a real install must never show "Demo Pub")
+    out, seen = [], set()
+    for r in roots:
+        k = str(r)
+        if k not in seen:
+            seen.add(k); out.append(r)
+    return out
+
+
+def _local_scores_root() -> Path:
+    """The main folder (where new scores are saved). Kept for the callers that only need one."""
+    return _local_scores_roots()[0]
+
+
+def _local_score_files() -> list:
+    """[(root, venue_folder_name, file_path)] for every .json score file in every root. The same file name
+    found in two roots is listed once (the first root wins), so the safety copy never shows twice."""
+    found, seen = [], set()
+    for root in _local_scores_roots():
+        if not (root.exists() and root.is_dir()):
+            continue
+        for venue_dir in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            if not venue_dir.is_dir():
+                continue
+            for f in sorted(venue_dir.iterdir(), key=lambda p: p.name.lower()):
+                if f.is_file() and f.name.lower().endswith(".json"):
+                    key = (venue_dir.name.lower(), f.name.lower())
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    found.append((root, venue_dir.name, f))
+    return found
+
 
 # Create the main app
 
@@ -175,14 +216,10 @@ async def scoreboard_status() -> Dict[str, Any]:
     local_root = _local_scores_root()
     local_venues = 0
     local_files = 0
-    if _is_local_mode() and local_root.exists():
-        for venue_dir in local_root.iterdir():
-            if venue_dir.is_dir():
-                local_venues += 1
-                local_files += sum(
-                    1 for f in venue_dir.iterdir()
-                    if f.is_file() and f.name.lower().endswith(".json")
-                )
+    if _is_local_mode():
+        _all = _local_score_files()
+        local_venues = len({v.lower() for _, v, _ in _all})
+        local_files = len(_all)
 
     try:
         tournaments = await db.tournaments.count_documents({})
@@ -243,25 +280,16 @@ async def get_sharepoint_files():
     Keeps the response shape identical so the frontend doesn't care.
     """
     if _is_local_mode():
-        root = _local_scores_root()
         files = []
-        if root.exists() and root.is_dir():
-            for venue_dir in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-                if not venue_dir.is_dir():
-                    continue
-                for f in sorted(venue_dir.iterdir(), key=lambda p: p.name.lower()):
-                    if f.is_file() and f.name.lower().endswith(".json"):
-                        stat = f.stat()
-                        rel = str(f.relative_to(root)).replace("\\", "/")
-                        files.append({
-                            "file_name": f.name,
-                            "venue": venue_dir.name,
-                            "file_id": rel,
-                            "last_modified": datetime.fromtimestamp(
-                                stat.st_mtime, tz=timezone.utc
-                            ).isoformat(),
-                            "size": stat.st_size,
-                        })
+        for root, venue, f in _local_score_files():
+            stat = f.stat()
+            files.append({
+                "file_name": f.name,
+                "venue": venue,
+                "file_id": str(f.relative_to(root)).replace("\\", "/"),
+                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "size": stat.st_size,
+            })
         return {"files": files, "count": len(files), "source": "local"}
 
     import httpx
@@ -309,37 +337,23 @@ async def sync_sharepoint_data():
     scoreboard reads `db.score_files` regardless of asset source.
     """
     if _is_local_mode():
-        root = _local_scores_root()
         synced = []
-        if root.exists() and root.is_dir():
-            for venue_dir in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-                if not venue_dir.is_dir():
-                    continue
-                venue = venue_dir.name
-                for f in sorted(venue_dir.iterdir(), key=lambda p: p.name.lower()):
-                    if not (f.is_file() and f.name.lower().endswith(".json")):
-                        continue
-                    try:
-                        with open(f, "r", encoding="utf-8") as fh:
-                            data = json.load(fh)
-                    except (json.JSONDecodeError, OSError) as e:
-                        logger.warning(f"Could not parse local score file {f}: {e}")
-                        continue
-                    doc = {
-                        "file_name": f.name,
-                        "venue": venue,
-                        "last_modified": datetime.fromtimestamp(
-                            f.stat().st_mtime, tz=timezone.utc
-                        ).isoformat(),
-                        "synced_at": datetime.now(timezone.utc).isoformat(),
-                        "data": data,
-                    }
-                    await db.score_files.update_one(
-                        {"file_name": f.name},
-                        {"$set": doc},
-                        upsert=True,
-                    )
-                    synced.append(f.name)
+        for root, venue, f in _local_score_files():
+            try:
+                with open(f, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not parse local score file {f}: {e}")
+                continue
+            doc = {
+                "file_name": f.name,
+                "venue": venue,
+                "last_modified": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "data": data,
+            }
+            await db.score_files.update_one({"file_name": f.name}, {"$set": doc}, upsert=True)
+            synced.append(f.name)
         return {"synced": synced, "count": len(synced), "source": "local"}
 
     import httpx
@@ -1023,14 +1037,17 @@ async def get_score_file_content(file_id: str):
     scores root (e.g. `Demo Pub/2026-05-01.json`). Cloud mode: Graph itemId.
     """
     if _is_local_mode():
-        src = (_local_scores_root() / file_id).resolve()
-        root = _local_scores_root().resolve()
-        # Path-traversal guard
-        try:
-            src.relative_to(root)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="invalid path")
-        if not src.exists() or not src.is_file():
+        src = None
+        for r in _local_scores_roots():
+            cand = (r / file_id).resolve()
+            try:
+                cand.relative_to(r.resolve())                    # path-traversal guard
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid path")
+            if cand.exists() and cand.is_file():
+                src = cand
+                break
+        if src is None:
             raise HTTPException(status_code=404, detail="Score file not found")
         try:
             with open(src, "r", encoding="utf-8") as fh:

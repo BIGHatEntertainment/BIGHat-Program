@@ -179,7 +179,7 @@ export default function GlobalSlidesPanel({ canEdit, setError, setSuccess }) {
   return (
     <div className="space-y-4" data-testid="global-slides-panel">
       <p className="text-xs" style={{ color: '#8892b0' }}>
-        Order in every presentation: host, rewards slot, location images, <b>company</b>, <b>rules</b>, <b>format</b>, then round 1. The <b>sponsor</b> slides play just before the last (BIG) round.
+        Order in every presentation: host, location images, <b>company</b>, <b>rules</b>, <b>format</b>, then round 1. The <b>sponsor</b> slides play just before the last (BIG) round.
         These are global; locations cannot change them.
       </p>
       <ImageGroup title="Company slides (About BIG Hat Entertainment)" hint="Upload 16:9 images (1920x1080 recommended). They play in the order shown."

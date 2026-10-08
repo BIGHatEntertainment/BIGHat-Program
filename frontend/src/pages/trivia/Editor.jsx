@@ -445,6 +445,13 @@ const Editor = () => {
         if (data.name) {
           localStorage.setItem('currentPresentationName', data.name);
         }
+        // alpha.97: remember the venue the presentation was built for, so "Save & Exit" files the scores under the right venue
+        const savedVenue = data.locationName || data.location_name || data.venue || data?.metadata?.locationName || '';
+        if (savedVenue) {
+          localStorage.setItem('currentPresentationLocation', String(savedVenue).replace(/^\d+_/, ''));
+        } else {
+          localStorage.removeItem('currentPresentationLocation');
+        }
         // Only trigger auto-init overlays if they weren't already applied during loading
         // This prevents double-application of overlays
         // Note: For trivia presentations, overlays are now applied inline during section loading

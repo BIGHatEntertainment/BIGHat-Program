@@ -48,6 +48,13 @@ def _uid(prefix: str = "elem") -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
 
+def _strip_tb_label(t: Any) -> str:
+    """alpha.97: 'Tie Breaker question: ...' / 'Answer: ...' -> the text after the label (the slide has its own heading)."""
+    import re as _re
+    t = str(t or "").replace("\u00a0", " ").strip()
+    return _re.sub(r"^\s*(tie[\s-]*breaker(\s+(question|answer))?|answer|question)\s*[:\-]\s*", "", t, flags=_re.I).strip()
+
+
 def _text(
     content: str, *, x: int, y: int, w: int, h: int,
     size: int = 60, weight: str = "700", color: str = "#ffffff",
@@ -986,26 +993,19 @@ def render_host_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def render_location_section(pres: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """LOCATION section (alpha.64):
+    """LOCATION section: EVERY image in the location's Trivia Setup "Branding images"
+    (Files/Locations/<slug>/branding/), in the order the merchant set.
 
-      1. the RESERVED REWARDS SLOT: always the first slide, directly after
-         the host slide. Text-free. The BIG Hat Rewards app tie-in renders
-         here later. Never remove it.
-      2. then EVERY image in the location's Trivia Setup "Branding images"
-         (Files/Locations/<slug>/branding/), in the order the merchant set.
-    """
+    alpha.97: the empty "reserved rewards slot" that used to be the first slide here is GONE. The standalone program
+    does not use it; a blank slide in the middle of a show only confused hosts. No images means no location slides."""
     assets = load_location_assets(pres)
-
-    out: List[Dict[str, Any]] = [_slide(0, [], background=BG_BLUE, metadata={
-        "roundType": "LOCATION", "slideIndexInRound": 0, "isRoundTitle": True,
-        "isRewardsSlot": True,
-    })]
-    for idx, asset in enumerate(assets, start=1):
+    out: List[Dict[str, Any]] = []
+    for idx, asset in enumerate(assets):
         # Full-bleed image slide: branding images are designed at 16:9.
         elements = [_image(asset["image_url"], x=0, y=0, w=STAGE_W, h=STAGE_H)]
         out.append(_slide(idx, elements, background=BG_DARK, metadata={
             "roundType": "LOCATION", "slideIndexInRound": idx,
-            "isRoundTitle": False,
+            "isRoundTitle": False,                      # must not inflate the round count
             "asset_kind": asset["kind"], "asset_filename": asset["filename"],
         }))
     return out
@@ -1352,14 +1352,16 @@ def render_round_section(
 
         # Tiebreaker (BIG-only): slides 5 + 6 = question / answer
         tb = round_data.get("tiebreaker") or {}
-        tb_q = tb.get("question", "")
-        tb_a = tb.get("answer", "")
+        # alpha.97: the Round Maker saves {question, answer}; the .bighat files save {prompt, answer}. Accept BOTH, and
+        # drop the "Tie Breaker question:" / "Answer:" labels some files carry (the slide has its own heading).
+        tb_q = _strip_tb_label(tb.get("question") or tb.get("prompt") or tb.get("text") or "")
+        tb_a = _strip_tb_label(tb.get("answer") or "")
         if tb_q or tb_a:
             slides.append(_slide(5, [
                 _text("Tiebreaker", x=160, y=140, w=1600, h=100, size=88,
                       color="#F4C430", weight="800"),
                 _text(tb_q, x=160, y=340, w=1600, h=500, size=60, weight="600"),
-            ], background=BG_GOLD, metadata=meta(
+            ], background=BG_BLUE, metadata=meta(
                 slideIndexInRound=5, isTiebreaker=True,
                 _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG tiebreaker Q at index 5)",
             )))
@@ -1367,7 +1369,7 @@ def render_round_section(
                 # No title — first text element IS the answer reveal
                 _text(tb_a, x=160, y=440, w=1600, h=200, size=90,
                       weight="800", color="#F4C430"),
-            ], background=BG_GOLD, metadata=meta(
+            ], background=BG_BLUE, metadata=meta(
                 slideIndexInRound=6, isTiebreaker=True, isAnswers=True,
                 _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG tiebreaker A at index 6)",
             )))

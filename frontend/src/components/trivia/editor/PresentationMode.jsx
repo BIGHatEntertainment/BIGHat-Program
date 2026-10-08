@@ -288,7 +288,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     return { location, date };
   }, [slides]);
 
-  // End Presentation: save scores to SharePoint and exit
+  // End Presentation: save scores ON THIS PC (Documents + AppData copy) and exit
   const handleEndPresentation = useCallback(async () => {
     const scoresData = getFinalScores();
     if (!scoresData || !scoresData.teams.length) {
@@ -301,6 +301,9 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     try {
       // Get location name — try multiple sources
       locationName = (() => {
+        // Source 0 (alpha.97): the venue the presentation was built for (saved with it)
+        const savedVenue = (localStorage.getItem('currentPresentationLocation') || '').trim();
+        if (savedVenue) return savedVenue;
         // Source 1: Presentation name pattern (e.g., "WP Gilbert - 2/5/2026" or "Monkey Pants - 2/9/2026")
         const presName = localStorage.getItem('currentPresentationName') || '';
         const nameMatch = presName.match(/^(.+?)\s*-\s*\d/);
@@ -318,7 +321,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       const presName = localStorage.getItem('currentPresentationName') || `Trivia ${new Date().toLocaleDateString()}`;
       const dateStr = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 
-      await axios.post(`${BACKEND_URL}/api/scores/save`, {
+      const saveRes = await axios.post(`${BACKEND_URL}/api/scores/save`, {
         locationName,
         presentationName: presName,
         presentationDate: dateStr,
@@ -328,22 +331,16 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
       });
 
       setScoresSaved(true);
-      toast({ title: 'Scores Saved!', description: `Saved to SharePoint: ${locationName}` });
+      toast({ title: 'Scores Saved!', description: `Saved on this PC: ${saveRes?.data?.folder || locationName}` });
 
       // Exit after brief delay
       setTimeout(() => onExit(), 2000);
     } catch (err) {
       console.error('Error saving scores:', err);
-      // Check if it's just a DB warning but SharePoint saved OK
-      const errMsg = err.response?.data?.detail || '';
-      if (errMsg.includes('truth value') || errMsg.includes('database')) {
-        // This is a non-critical DB warning — the file DID save to SharePoint
-        setScoresSaved(true);
-        toast({ title: 'Scores Saved!', description: `Saved to SharePoint: ${locationName}` });
-        setTimeout(() => onExit(), 2000);
-      } else {
-        toast({ title: 'Error', description: errMsg || 'Failed to save scores', variant: 'destructive' });
-      }
+      // alpha.97: a failed save is a failed save. The server writes the file BEFORE anything else and only answers an
+      // error when the file could not be written, so we never pretend it worked and never leave the show.
+      const errMsg = err.response?.data?.detail || err.message || '';
+      toast({ title: 'Scores NOT saved', description: errMsg || 'Could not save the scores on this PC. Nothing was lost; try again.', variant: 'destructive' });
     } finally {
       setIsSavingScores(false);
     }

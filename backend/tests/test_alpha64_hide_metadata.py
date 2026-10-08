@@ -67,59 +67,24 @@ def _branding(tp, names):
     return b
 
 
-def test_rewards_slot_is_kept_directly_after_host_and_is_text_free(show):
+def test_there_is_no_rewards_slot_any_more_and_host_still_comes_first(show):
+    """alpha.97: the empty reserved rewards slide was removed (the standalone program does not use it)."""
     pres, ns, _ = show
-    loc = ns.native_render_section(pres, "location")
-    assert len(loc) == 1                                   # slide is still there
-    assert loc[0]["elements"] == []                        # blank: no text, no ids
-    assert loc[0]["metadata"]["isRewardsSlot"] is True     # reserved for the Rewards app
-    secs = [s["name"] for s in []] or None
+    assert ns.native_render_section(pres, "location") == []          # no images, so no location slides at all
     src = (Path(__file__).resolve().parents[1] / "routes" / "slide_fetcher.py").read_text()
-    assert src.index('{"name": "host"') < src.index('{"name": "location"')   # host first, then the slot
+    assert src.index('{"name": "host"') < src.index('{"name": "location"')   # host first, then the location images
 
 
-def test_rewards_slot_first_then_every_branding_image(show):
+def test_every_branding_image_is_a_slide_and_nothing_else(show):
     pres, ns, tp = show
     _branding(tp, ["a.png", "b.png", "c.gif"])
     sl = ns.native_render_section(pres, "location")
-    assert len(sl) == 4                                            # rewards slot + 3 images
-    assert sl[0]["metadata"].get("isRewardsSlot") and sl[0]["elements"] == []
-    for s_ in sl[1:]:
+    assert len(sl) == 3                                            # exactly the 3 images, no blank slide in front
+    for s_ in sl:
         assert [e["type"] for e in s_["elements"]] == ["image"]
+        assert not s_["metadata"].get("isRewardsSlot")
         assert s_["metadata"].get("isRoundTitle") is False         # must not inflate the round count
-    assert [s_["metadata"]["slideIndexInRound"] for s_ in sl] == [0, 1, 2, 3]
-
-
-def test_branding_follows_the_order_set_in_trivia_setup(show):
-    pres, ns, tp = show
-    _branding(tp, ["u-111.png", "u-222.png", "u-333.png"])
-    ld = tp / "Files" / "Locations" / "monkey-pants-bar-grill"
-    meta = json.loads((ld / "location.json").read_text())
-    meta["branding_images"] = [
-        {"id": "u-333", "filename": "third-in-name-first-in-order.png", "order": 0},
-        {"id": "u-111", "filename": "logo.png", "order": 1},
-        {"id": "u-222", "filename": "menu.png", "order": 2},
-    ]
-    (ld / "location.json").write_text(json.dumps(meta))
-    sl = ns.native_render_section(pres, "location")
-    assert [s_["metadata"]["asset_filename"] for s_ in sl[1:]] == [
-        "third-in-name-first-in-order.png", "logo.png", "menu.png"]
-
-
-def test_hand_added_files_are_not_skipped(show):
-    pres, ns, tp = show
-    _branding(tp, ["u-111.png", "dropped-in-explorer.png"])
-    ld = tp / "Files" / "Locations" / "monkey-pants-bar-grill"
-    meta = json.loads((ld / "location.json").read_text())
-    meta["branding_images"] = [{"id": "u-111", "filename": "logo.png", "order": 0}]
-    (ld / "location.json").write_text(json.dumps(meta))
-    assert len(ns.native_render_section(pres, "location")) == 3    # rewards + saved + hand-added
-
-
-def test_no_branding_images_still_has_the_rewards_slot(show):
-    pres, ns, _ = show
-    sl = ns.native_render_section(pres, "location")
-    assert len(sl) == 1 and sl[0]["metadata"].get("isRewardsSlot")
+    assert [s_["metadata"]["slideIndexInRound"] for s_ in sl] == [0, 1, 2]
 
 
 def test_editor_round_count_ignores_host_and_location_slides():

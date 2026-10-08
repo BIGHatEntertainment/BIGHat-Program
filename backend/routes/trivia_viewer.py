@@ -234,16 +234,20 @@ def _slides_for_round(round_data: Dict, round_ref: Dict, start_order: int) -> Li
     # v32.0.0-alpha.41: tiebreaker slide (BIG rounds only). The prototype
     # always shows Tiebreaker after the BIG answers so hosts can decide
     # the winner in real time.
+    # alpha.97: the Round Maker saves {question, answer}, the .bighat files save {prompt, answer}: read BOTH
+    from native_slides import _strip_tb_label
     tb = round_data.get("tiebreaker") or {}
-    if is_big and (tb.get("question") or tb.get("answer")):
+    tb_q = _strip_tb_label(tb.get("question") or tb.get("prompt") or tb.get("text") or "")
+    tb_a = _strip_tb_label(tb.get("answer") or "")
+    if is_big and (tb_q or tb_a):
         slides.append({
             "order": order,
             "type": "tiebreaker",
             "roundType": rtype,
             "roundOrder": rorder,
             "title": "Tiebreaker",
-            "question": tb.get("question", ""),
-            "answer": tb.get("answer", ""),
+            "question": tb_q,
+            "answer": tb_a,
         })
         order += 1
 

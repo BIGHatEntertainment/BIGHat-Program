@@ -249,3 +249,53 @@ def test_gif_stop_slide_present_and_flagged(tmp_path, monkeypatch):
             f"{round_type} slide at position {expected_pos} must have isGifStop=True"
         )
         assert gif_slide["metadata"]["slideIndexInRound"] == expected_pos
+
+
+# ---------------------------------------------------------------- alpha.97: tie-breaker slides show their text, in the normal blue
+def _tb_slides(tmp_path, monkeypatch, tiebreaker):
+    monkeypatch.setenv("BIGHAT_FILES_DIR", str(tmp_path))
+    render = _fresh_native_slides()
+    return render(
+        {"round_type": "BIG", "questions": [{"number": 1, "question": "Name 5 states.", "answer": "Ohio\nTexas\nIowa\nMaine\nUtah"}],
+         "tiebreaker": tiebreaker, "name": "BIG-01-A"},
+        {"type": "BIG", "name": "BIG-01-A", "order": 5},
+    )
+
+
+def _texts(slide):
+    return " | ".join(str(e.get("content", "")) for e in slide["elements"] if e.get("type") == "text")
+
+
+def _bg(slide):
+    return str(slide.get("background"))
+
+
+@pytest.mark.parametrize("shape", [
+    {"question": "What is the capacity of the stadium?", "answer": "12,882"},                      # Round Maker shape
+    {"prompt": "What is the capacity of the stadium?", "answer": "12,882"},                         # .bighat file shape
+    {"prompt": "Tie Breaker question: What is the capacity of the stadium?", "answer": "Answer: 12,882"},   # with the labels
+])
+def test_tiebreaker_slides_show_the_question_and_answer_in_every_file_shape(tmp_path, monkeypatch, shape):
+    slides = _tb_slides(tmp_path, monkeypatch, shape)
+    assert len(slides) == 7
+    q_slide, a_slide = slides[5], slides[6]                          # the last two slides of a BIG round
+    assert "Tiebreaker" in _texts(q_slide) and "What is the capacity of the stadium?" in _texts(q_slide)
+    assert "12,882" in _texts(a_slide)
+    assert "Tie Breaker question:" not in _texts(q_slide) and "Answer:" not in _texts(a_slide)     # labels stripped
+
+
+def test_tiebreaker_slides_use_the_same_blue_as_the_other_slides(tmp_path, monkeypatch):
+    slides = _tb_slides(tmp_path, monkeypatch, {"prompt": "Q?", "answer": "A"})
+    tbs = [slides[5], slides[6]]
+    assert "Tiebreaker" in _texts(slides[5])
+    assert all(_bg(s) == _bg(slides[1]) for s in tbs)               # same blue as the question slide
+    import native_slides as ns
+    assert all(_bg(s) != str(ns.BG_GOLD) for s in tbs)
+
+
+def test_the_viewer_reads_both_shapes_too(tmp_path, monkeypatch):
+    from native_slides import _strip_tb_label
+    assert _strip_tb_label("Tie Breaker question: How many?") == "How many?"
+    assert _strip_tb_label("Answer: 12,882") == "12,882"
+    assert _strip_tb_label("What is the answer: to everything?") == "What is the answer: to everything?"     # only a LEADING label
+    assert _strip_tb_label(None) == "" and _strip_tb_label("   ") == ""

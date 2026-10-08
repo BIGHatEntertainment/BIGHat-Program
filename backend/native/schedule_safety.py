@@ -65,6 +65,12 @@ async def snapshot(db) -> Dict[str, int]:
             out[name] = len(rows)
         except Exception as e:                                           # noqa: BLE001
             logger.warning("[schedule-safety] could not copy %s: %s", name, e)
+    try:
+        w = await write_venue_files(db)
+        if w:
+            out["venue_files"] = w
+    except Exception as e:                                               # noqa: BLE001
+        logger.warning("[schedule-safety] venue files: %s", e)
     return out
 
 
@@ -85,7 +91,95 @@ async def restore_if_empty(db) -> Dict[str, int]:
             logger.warning("[schedule-safety] %s was EMPTY; restored %d rows from the copy", name, len(rows))
         except Exception as e:                                           # noqa: BLE001
             logger.warning("[schedule-safety] could not restore %s: %s", name, e)
+    try:
+        r = await restore_venue_files(db)
+        if r:
+            out["venue_files"] = r
+    except Exception as e:                                               # noqa: BLE001
+        logger.warning("[schedule-safety] venue files restore: %s", e)
     return out
+
+
+# ------------------------------------------------------------------ alpha.97: a file you can SEE, per venue
+# Documents\\BIG Hat Entertainment\\Files\\Locations\\<venue>\\venue-data.json  holds that venue's Schedule data:
+# its prices, its pay roles, its events and its blackout dates. Open it in any text editor to see what is saved.
+PER_VENUE = {"venue_pricing": "pricing", "venue_roles": "roles", "events": "events", "blackout_dates": "blackout_dates"}
+
+
+def _venue_file(slug: str) -> Path:
+    from native.data_map import docs_root
+    return docs_root() / "Locations" / slug / "venue-data.json"
+
+
+def _slug(name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+
+
+async def write_venue_files(db) -> int:
+    """Write one venue-data.json per venue (only when it changed). Returns how many files were written."""
+    n = 0
+    try:
+        venues = await db.venues.find({}, {"_id": 0}).to_list(5000)
+    except Exception:                                                    # noqa: BLE001
+        return 0
+    cols = {}
+    for coll in PER_VENUE:
+        try:
+            cols[coll] = await getattr(db, coll).find({}, {"_id": 0}).to_list(100000)
+        except Exception:                                                # noqa: BLE001
+            cols[coll] = []
+    for v in venues:
+        slug = _slug(v.get("name", ""))
+        if not slug or not v.get("id"):
+            continue
+        doc = {"venue": {k: v.get(k) for k in ("id", "name", "address", "city", "state", "zip_code", "phone") if k in v}}
+        for coll, key in PER_VENUE.items():
+            doc[key] = [r for r in cols[coll] if r.get("venue_id") == v["id"]]
+        if not any(doc[k] for k in PER_VENUE.values()):
+            continue                                                     # nothing entered yet: no empty file
+        text = json.dumps(doc, ensure_ascii=False, default=str, indent=2)
+        try:
+            f = _venue_file(slug)
+            if f.is_file() and f.read_text(encoding="utf-8") == text:
+                continue
+            f.parent.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_suffix(".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(f)
+            n += 1
+        except Exception as e:                                           # noqa: BLE001
+            logger.warning("[schedule-safety] could not write venue file for %s: %s", slug, e)
+    return n
+
+
+async def restore_venue_files(db) -> int:
+    """At startup: a venue that exists but has NO prices/roles/events in the database is refilled from its venue-data.json."""
+    n = 0
+    try:
+        venues = await db.venues.find({}, {"_id": 0}).to_list(5000)
+    except Exception:                                                    # noqa: BLE001
+        return 0
+    for v in venues:
+        try:
+            f = _venue_file(_slug(v.get("name", "")))
+            if not f.is_file():
+                continue
+            doc = json.loads(f.read_text(encoding="utf-8"))
+            for coll, key in PER_VENUE.items():
+                rows = doc.get(key) or []
+                if not rows:
+                    continue
+                col = getattr(db, coll)
+                if await col.count_documents({"venue_id": v["id"]}) > 0:
+                    continue                                             # something is there already: never overwrite it
+                for r in rows:
+                    r = dict(r); r["venue_id"] = v["id"]
+                    await col.insert_one(r)
+                n += len(rows)
+        except Exception as e:                                           # noqa: BLE001
+            logger.warning("[schedule-safety] could not restore venue file for %s: %s", v.get("name"), e)
+    return n
 
 
 async def keep_copying(db, every: int = 60) -> None:

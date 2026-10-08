@@ -18,6 +18,7 @@ import LeaderboardRender from '../../components/scoreboard/render/LeaderboardRen
 import BracketRender from '../../components/scoreboard/render/BracketRender';
 import { generateBracket, advanceRound } from '../../lib/bracketLogic';
 import api from '../../lib/scoreboardApi';
+import { loadLocalScores } from '../../lib/scoreFiles';
 import { saveBlob } from '../../lib/saveFile';
 import { openExternal } from '../../lib/openExternal';
 import { isTauri, openNativeAudience } from '../../lib/audienceWindow';
@@ -63,11 +64,11 @@ const Dashboard = () => {
   
   const stageRef = useRef(null);
 
-  // Get unique venues from score files - use SharePoint folder name as primary key
+  // Get unique venues from score files - use the score folder name as primary key
   const venues = React.useMemo(() => {
     const venueMap = {};
     scoreFiles.forEach(f => {
-      // Use the SharePoint folder name (f.venue) as the canonical venue identifier
+      // Use the score folder name (f.venue) as the canonical venue identifier
       // Strip numeric prefixes like "01_", "03_", "06_" to normalize
       let venue = f.venue || f.data?.location || 'Unknown';
       venue = venue.replace(/^\d+_/, ''); // strip leading "01_", "03_", etc.
@@ -103,40 +104,31 @@ const Dashboard = () => {
     setAccumulatedTeams(sorted);
   }, [selectedVenue, venues, teamRenames]);
 
-  // ===== SharePoint sync =====
-  const handleSync = async () => {
+  // ===== Score files on this PC =====
+  // alpha.97: the scores are saved on this PC (Documents + an AppData copy). Both buttons, and opening the page,
+  // look in those folders, copy what they find in, and show it. Nothing goes to SharePoint.
+  const refreshScoreFiles = async (quiet) => {
     setSyncing(true);
     try {
-      toast.info('Syncing with SharePoint...');
-      const syncRes = await api.syncSharePoint();
-      toast.success(`Synced ${syncRes.data.count} files`);
-      const scoresRes = await api.getScores();
-      setScoreFiles(scoresRes.data.files || []);
+      if (!quiet) toast.info('Looking in your score files...');
+      const { files, count } = await loadLocalScores();
+      setScoreFiles(files);
       setLastSync(new Date().toLocaleTimeString());
+      if (!quiet) toast.success(`Found ${count} score file${count === 1 ? '' : 's'}`);
     } catch (err) {
-      console.error('Sync error:', err);
-      toast.error('SharePoint sync failed: ' + (err.response?.data?.detail || err.message));
+      console.error('Score file load error:', err);
+      if (!quiet) toast.error('Could not read the score files: ' + (err.response?.data?.detail || err.message));
     } finally {
       setSyncing(false);
     }
   };
 
-  const handleFetchDirect = async () => {
-    setSyncing(true);
-    try {
-      toast.info('Fetching from SharePoint...');
-      const res = await api.getSharePointFiles();
-      const files = res.files || [];
-      setScoreFiles(files);
-      setLastSync(new Date().toLocaleTimeString());
-      toast.success(`Found ${files.length} score files`);
-    } catch (err) {
-      console.error('Fetch error:', err);
-      toast.error('Failed to fetch: ' + (err.response?.data?.detail || err.message));
-    } finally {
-      setSyncing(false);
-    }
-  };
+  const handleSync = () => refreshScoreFiles(false);
+
+  // load them as soon as the page opens, so a night saved a minute ago is already there
+  React.useEffect(() => { refreshScoreFiles(true); /* eslint-disable-next-line */ }, []);
+
+  const handleFetchDirect = () => refreshScoreFiles(false);
 
   // ===== Auto-populate tournament from selected file OR accumulated standings =====
   const DEFAULT_BRACKET_SIZE = 12;
@@ -517,7 +509,7 @@ const Dashboard = () => {
               {syncing && (
                 <div className="flex items-center gap-2 text-xs text-[#8892b0]">
                   <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span className="font-mono">Fetching from SharePoint...</span>
+                  <span className="font-mono">Looking in your score files...</span>
                 </div>
               )}
 

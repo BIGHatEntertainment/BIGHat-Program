@@ -48,6 +48,21 @@ export default function SlideStylePanel({ scope, locationId, canEdit = true, set
     return () => { alive = false; };
   }, [url]);
 
+  // alpha.97: a venue that "matches global" must show the global color AS IT IS NOW, not as it was when the panel first opened
+  useEffect(() => {
+    if (!isLoc) return undefined;
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const r = await axios.get(url, opts());
+        if (alive) setGlobalBg(r.data.global);          // only the global color: never flip the host's own checkboxes under them
+      } catch (e) { /* keep what is shown */ }
+    };
+    window.addEventListener('focus', refresh);
+    const t = setInterval(refresh, 4000);
+    return () => { alive = false; window.removeEventListener('focus', refresh); clearInterval(t); };
+  }, [url, isLoc]);
+
   const save = async (nextBg, nextUseGlobal) => {
     setSaving(true);
     try {
@@ -100,9 +115,15 @@ export default function SlideStylePanel({ scope, locationId, canEdit = true, set
           <label className="flex items-center gap-2 text-sm text-white">
             <input type="checkbox" disabled={locked} data-testid="bg-reset-toggle"
                    checked={bg.mode === 'default'}
-                   onChange={(e) => setBg(e.target.checked
-                     ? { mode: 'default', color: DEFAULT_COLOR, fill: 'gradient' }
-                     : { ...bg, mode: 'custom' })} />
+                   onChange={(e) => {
+                     // alpha.97: ticking "Use default" SAVES it right away (it used to change only the preview, so nothing was reverted)
+                     if (e.target.checked) {
+                       const d = { mode: 'default', color: DEFAULT_COLOR, fill: 'gradient' };
+                       setBg(d); save(d, useGlobal);
+                     } else {
+                       setBg({ ...bg, mode: 'custom' });
+                     }
+                   }} />
             Use default blue gradient
           </label>
           <div data-testid="bg-preview"
