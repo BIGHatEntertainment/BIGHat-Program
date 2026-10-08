@@ -3,7 +3,7 @@ import { Mic, Music, Maximize } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import axios from "axios";
 import { bufferStatus, explainVideoError } from "./karaokeFlow";
-import { embedSrc, sendCommand, makeSongClock, IFRAME_REFERRER } from "./iframePlayback";
+import { makeSongClock, IFRAME_REFERRER } from "./iframePlayback";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -32,6 +32,23 @@ export const videoIdOf = (embedUrl) => {
 const waitingText = (list) => list.length ? "UP NEXT:  " + list.map((e) => `${e.singer_name}${e.song_title ? " \u2014 " + e.song_title : ""}`).join("   \u2022   ") : "";
 const RETRY_AFTER_MS = 4000;     // alpha.93: a failed preload is tried again after this long
 const MAX_TRIES = 6;
+
+
+// alpha.101: YouTube's own player script, exactly as the alphas that played video used it. It gives the embed the page's origin.
+let ytPromise = null;
+function loadYouTubeApi() {
+  if (ytPromise) return ytPromise;
+  ytPromise = new Promise((resolve, reject) => {
+    if (window.YT && window.YT.Player) return resolve(window.YT);
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(window.YT); };
+    const sc = document.createElement("script");
+    sc.src = "https://www.youtube.com/iframe_api";
+    sc.onerror = () => { ytPromise = null; reject(new Error("youtube_unreachable")); };
+    document.head.appendChild(sc);
+  });
+  return ytPromise;
+}
 
 export default function KaraokeAudienceView() {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -95,7 +112,20 @@ export default function KaraokeAudienceView() {
     stopTimer();
     songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
     setYtProblem(false); setYtReason("");
-    setFrameSrc(embedSrc(videoId));
+    try {
+      const YT = await loadYouTubeApi();
+      if (songRef.current.videoId !== videoId || !playerHostRef.current) return;
+      playerHostRef.current.innerHTML = "<div id='karaoke-yt'></div>";
+      playerRef.current = new YT.Player("karaoke-yt", {
+        videoId, width: "100%", height: "100%",
+        playerVars: { autoplay: 1, controls: 0, rel: 0, modestbranding: 1, playsinline: 1, disablekb: 1, fs: 0 },
+        events: {
+          onReady: (ev) => { try { if (wantPlayingRef.current) ev.target.playVideo(); else ev.target.pauseVideo(); } catch { /* ignore */ } },
+          onError: (ev) => { setYtProblem(true); setYtReason(String((ev && ev.data) || "5")); report({ error: String((ev && ev.data) || "5") }); },
+        },
+      });
+      setFrameSrc("youtube-player:" + videoId);
+    } catch { setYtProblem(true); setYtReason("no_youtube"); report({ error: "no_youtube" }); }
     const clock = clockRef.current;
     clock.start(lengthSeconds || 0);
     if (!wantPlayingRef.current) clock.pause();
@@ -133,12 +163,12 @@ export default function KaraokeAudienceView() {
       else if (clock.isPaused()) {
         // the host pressed Play again on the SAME song: carry on from where it was (no seeking)
         clock.resume();
-        sendCommand(frameRef.current, "playVideo");
+        try { playerRef.current && playerRef.current.playVideo(); } catch { /* ignore */ }
       }
     } else if (!playing && song.id && song.id === (s && s.id)) {
       // the host paused the song
       clock.pause();
-      sendCommand(frameRef.current, "pauseVideo");
+      try { playerRef.current && playerRef.current.pauseVideo(); } catch { /* ignore */ }
     }
     if (!s || (!playing && !s)) {
       destroyPlayer();
@@ -263,10 +293,6 @@ export default function KaraokeAudienceView() {
       {/* 1. VIDEO */}
       <div className="absolute" style={{ ...OVERLAY.video, zIndex: 2, backgroundColor: "#000", overflow: "hidden", opacity: isFading ? 0 : 1, transition: "opacity 3s ease-out" }} data-testid="karaoke-audience-video">
         <div ref={playerHostRef} className="absolute inset-0" style={{ display: showVideo ? "block" : "none" }}>
-          {frameSrc && (
-            <iframe ref={frameRef} key={frameSrc} src={frameSrc} title="Karaoke song" className="w-full h-full" style={{ border: 0 }}
-              referrerPolicy={IFRAME_REFERRER} allow="autoplay; encrypted-media; fullscreen" allowFullScreen data-testid="karaoke-audience-iframe" />
-          )}
         </div>
         {showDiag && (
           <div className="absolute left-0 right-0 bottom-0 p-2 text-[12px] font-mono" style={{ zIndex: 9000, backgroundColor: "rgba(0,0,0,0.85)", color: "#9fe870", lineHeight: 1.5 }} data-testid="karaoke-audience-diag">
