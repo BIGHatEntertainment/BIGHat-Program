@@ -93,6 +93,18 @@ export const clock = (secs) => {
  *  - ended     -> the song is over: finish the singer and bring filler back
  * `playback` is what the server holds (session/playback).
  */
+/** alpha.96: what a YouTube player error means, in words a host can act on. `code` is YouTube's number, or one of our own words. */
+export function explainVideoError(code) {
+  const c = String(code || "");
+  if (!c) return "";
+  if (c === "101" || c === "150") return "The owner of this video does not allow it to be played outside YouTube.";
+  if (c === "100") return "This video was removed or is private.";
+  if (c === "2") return "This video link is not valid.";
+  if (c === "5") return "The video player had a problem with this video.";
+  if (c === "no_youtube") return "The TV screen could not reach YouTube. Check its internet connection.";
+  return "This video could not be played.";
+}
+
 export function readAudience(playback) {
   const pb = playback || {};
   const duration = pb.audience_duration || 0;
@@ -104,6 +116,7 @@ export function readAudience(playback) {
     duration,
     ending: untilFade === 0 && pb.audience_started && !pb.video_ended,
     ended: !!pb.video_ended,
+    error: pb.video_error || "",
   };
 }
 

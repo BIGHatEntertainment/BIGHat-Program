@@ -298,7 +298,8 @@ S.pb = { ...S.pb, video_ended: true }; await wait(1600);
 ok(!q('karaoke-now-singing') && S.queue.every(e => e.status !== 'current'), 'when the AUDIENCE reports the song ended, the singer is finished (nobody is current)');
 ok(S.queue.find(e => e.singer_name === 'Ann').status === 'waiting' && S.queue.find(e => e.singer_name === 'Ann').song_title === '', 'Ann goes back in line with no song');
 ok(S.pb.song_playing === false && S.pb.current_singer === null && S.pb.mode === 'filler', 'the audience is told to go back to the music view');
-ok(!!q('karaoke-filler-tab'), 'the host is back on the Filler tab');
+// alpha.96: the TV goes back to the music, but the HOST stays on the Karaoke tab to pick the next singer
+ok(!q('karaoke-filler-tab') && !!q('karaoke-no-singer'), 'after the song the host STAYS on the Karaoke tab (is not thrown over to Filler)');
 ok(audioLog.some(l => l.startsWith('play:')), 'filler music starts again after the song');
 // only ONE finish even though the audience keeps saying ended
 const finishes = S.posts.filter(p => p.u === '/queue/finish-current').length;
@@ -315,7 +316,28 @@ ok(/Ann/.test((q('karaoke-current-name') || {}).textContent || ''), 'start-anywa
 await click('karaoke-end-song-btn');
 ok(S.pb.song_ending === true && S.pb.current_singer && S.pb.current_singer.singer_name === 'Ann', 'End Song first tells the TV to fade (singer still on screen)');
 await wait(3300);
-ok(S.pb.current_singer === null && !q('karaoke-now-singing') && !!q('karaoke-filler-tab'), 'then, 3 seconds later, the song is over and the host is back on Filler');
+ok(S.pb.current_singer === null && !q('karaoke-now-singing') && !q('karaoke-filler-tab') && !!q('karaoke-no-singer'), 'then, 3 seconds later, the song is over and the host STAYS on the Karaoke tab');
+cleanup();
+
+// ---------- 7b. alpha.96: a song the TV could not play is explained, and the host can pick another in one tap
+fresh(); S.queue = [entry('Ann', 'Africa - Karaoke', 'https://www.youtube.com/embed/AAA111?autoplay=1'), entry('Bob', 'Hello', 'https://www.youtube.com/embed/BBB222?autoplay=1')]; app(); await wait(400);
+await click('karaoke-tab-karaoke'); await wait(300);
+await click('karaoke-start-anyway-btn'); await wait(500);
+ok(/Ann/.test((q('karaoke-current-name') || {}).textContent || ''), 'Ann is singing (setup for the failed-song test)');
+ok(!q('karaoke-song-error'), 'no failure notice while the song plays fine');
+S.pb = { ...S.pb, video_error: '101' }; await wait(1500);
+ok(!!q('karaoke-song-error') && /could not play/i.test(q('karaoke-song-error').textContent), 'the TV could not play it: the host sees a notice');
+ok(/does not allow it to be played/i.test((q('karaoke-song-error-why') || {}).textContent || ''), 'and it says WHY in plain words (the owner does not allow it): ' + ((q('karaoke-song-error-why') || {}).textContent || '(no notice)'));
+ok(!!q('karaoke-song-error-pick-another'), 'there is a "Pick another song" button');
+await click('karaoke-song-error-pick-another'); await wait(900);
+ok(!q('karaoke-now-singing') && S.queue.find(e => e.singer_name === 'Ann').status === 'waiting' && S.queue.find(e => e.singer_name === 'Ann').song_title === '', 'one tap: Ann goes back in line with no song, nobody is stuck');
+ok(!q('karaoke-filler-tab'), 'and the host stays on the Karaoke tab');
+S.pb = { ...S.pb, video_error: '' };
+cleanup();
+fresh(); S.queue = [entry('Ann', 'Africa - Karaoke', 'https://www.youtube.com/embed/AAA111?autoplay=1')]; app(); await wait(400);
+await click('karaoke-tab-karaoke'); await click('karaoke-start-anyway-btn'); await wait(400);
+S.pb = { ...S.pb, video_error: 'no_youtube' }; await wait(1500);
+ok(/could not reach YouTube/i.test((q('karaoke-song-error-why') || {}).textContent || ''), 'if the TV cannot reach YouTube at all, it says that (not the video\'s fault)');
 cleanup();
 
 // ---------- 8. end the night

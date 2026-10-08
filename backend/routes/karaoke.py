@@ -142,6 +142,7 @@ async def set_playback(request: Request):
         "audience_time": old.get("audience_time", 0) if old_id == new_id else 0,
         "audience_duration": old.get("audience_duration", 0) if old_id == new_id else 0,
         "video_ended": old.get("video_ended", False) if old_id == new_id else False,
+        "video_error": old.get("video_error", "") if old_id == new_id else "",       # alpha.96: why the TV could not play this song
         "rev": int(old.get("rev", 0)) + 1,
     }
     await db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"playback": pb}})
@@ -180,6 +181,8 @@ async def audience_report(request: Request):
         upd["playback.audience_duration"] = float(data["duration"] or 0)
     if data.get("ended"):
         upd["playback.video_ended"] = True
+    if "error" in data:                                      # alpha.96: the TV tells the host WHY a song would not play ("" clears it)
+        upd["playback.video_error"] = str(data.get("error") or "")[:40]
     if upd:
         await db.karaoke_sessions.update_one({"is_active": True}, {"$set": upd})
     return {"success": True}

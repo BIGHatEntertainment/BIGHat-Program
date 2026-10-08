@@ -260,3 +260,42 @@ def test_an_old_session_saved_with_the_qr_off_still_reports_it_on(client):
         k.db.karaoke_sessions.update_one({"is_active": True}, {"$set": {"qr_enabled": False, "overlay_enabled": False}}))
     pb = c.get("/api/karaoke/session/playback").json()
     assert pb["overlay_enabled"] is True and pb["qr_enabled"] is True
+
+
+# ---------------------------------------------------------------- alpha.96: why a song could not play is reported to the host
+def _playing(c, name="Ann"):
+    start(c); add(c, name, "A")
+    cur = c.post("/api/karaoke/queue/next").json()["current"]
+    c.post("/api/karaoke/session/playback", json={"song_playing": True, "current_singer": cur, "mode": "karaoke"})
+    return cur
+
+
+def test_the_tv_reports_why_a_song_could_not_play(client):
+    c, _ = client
+    cur = _playing(c)
+    assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == ""
+    c.post("/api/karaoke/session/audience-report", json={"singer_id": cur["id"], "error": "101"})
+    assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == "101"
+
+
+def test_the_error_survives_the_host_resending_the_same_song_but_not_a_new_song(client):
+    c, _ = client
+    cur = _playing(c)
+    c.post("/api/karaoke/session/audience-report", json={"singer_id": cur["id"], "error": "150"})
+    c.post("/api/karaoke/session/playback", json={"song_playing": True, "song_ending": True, "current_singer": cur, "mode": "karaoke"})
+    assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == "150"       # same song: kept
+    b = add(c, "Bob", "B")
+    c.post("/api/karaoke/queue/finish-current")
+    cur2 = c.post("/api/karaoke/queue/next").json()["current"]
+    c.post("/api/karaoke/session/playback", json={"song_playing": True, "current_singer": cur2, "mode": "karaoke"})
+    assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == ""         # a different song starts clean
+
+
+def test_a_stale_error_for_an_old_song_is_ignored_and_an_empty_error_clears_it(client):
+    c, _ = client
+    cur = _playing(c)
+    assert c.post("/api/karaoke/session/audience-report", json={"singer_id": "someone-else", "error": "100"}).json()["success"] is False
+    assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == ""
+    c.post("/api/karaoke/session/audience-report", json={"singer_id": cur["id"], "error": "5"})
+    c.post("/api/karaoke/session/audience-report", json={"singer_id": cur["id"], "error": ""})
+    assert c.get("/api/karaoke/session/playback").json()["playback"]["video_error"] == ""

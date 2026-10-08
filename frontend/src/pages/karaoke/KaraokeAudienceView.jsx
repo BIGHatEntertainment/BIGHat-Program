@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Mic, Music, Maximize } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import axios from "axios";
-import { bufferStatus } from "./karaokeFlow";
+import { bufferStatus, explainVideoError } from "./karaokeFlow";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -57,6 +57,7 @@ export default function KaraokeAudienceView() {
   const [wantPlaying, setWantPlaying] = useState(false);
   const [isFading, setIsFading] = useState(false);
   const [ytProblem, setYtProblem] = useState(false);
+  const [ytReason, setYtReason] = useState("");          // alpha.96: YouTube's error code, shown as words
   const [requestUrl, setRequestUrl] = useState(`${window.location.origin}/karaoke/request`);
 
   const rootRef = useRef(null);
@@ -131,7 +132,7 @@ export default function KaraokeAudienceView() {
       try {
         destroyPlayer();
         songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
-        setYtProblem(false);
+        setYtProblem(false); setYtReason("");
         buf.adopted = true;
         if (buf.timer) { clearInterval(buf.timer); buf.timer = null; }
         const player = buf.player;
@@ -141,7 +142,7 @@ export default function KaraokeAudienceView() {
         bufferHostRef.current.style.zIndex = "1";
         // events set at creation time cannot be swapped, so listen to the state through the player itself
         player.addEventListener("onStateChange", onYtState);
-        player.addEventListener("onError", () => setYtProblem(true));
+        player.addEventListener("onError", (ev) => { setYtProblem(true); setYtReason(String((ev && ev.data) || "5")); report({ error: String((ev && ev.data) || "5") }); });
         player.unMute();
         player.seekTo(0, true);
         if (wantPlayingRef.current) player.playVideo();
@@ -154,7 +155,7 @@ export default function KaraokeAudienceView() {
     }
     destroyPlayer();
     songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
-    setYtProblem(false);
+    setYtProblem(false); setYtReason("");
     try {
       const YT = await loadYouTubeApi();
       if (songRef.current.videoId !== videoId || !playerHostRef.current) return;   // song changed while loading
@@ -165,13 +166,14 @@ export default function KaraokeAudienceView() {
         events: {
           onReady: (ev) => { if (wantPlayingRef.current) { try { ev.target.playVideo(); } catch { /* ignore */ } } else { try { ev.target.pauseVideo(); } catch { /* ignore */ } } },
           onStateChange: onYtState,
-          onError: () => setYtProblem(true),
+          onError: (ev) => { setYtProblem(true); setYtReason(String((ev && ev.data) || "5")); report({ error: String((ev && ev.data) || "5") }); },
         },
       });
     } catch {
-      setYtProblem(true);
+      setYtProblem(true); setYtReason("no_youtube");
+      report({ error: "no_youtube" });
     }
-  }, [destroyPlayer, onYtState]);
+  }, [destroyPlayer, onYtState, report]);
 
   // ---- apply what the host says. A new song starts the video. The SAME song is never restarted or seeked.
   const apply = useCallback((pb) => {
@@ -362,7 +364,7 @@ export default function KaraokeAudienceView() {
             </div>
             <p className="text-5xl font-black text-white mb-3" style={{ textShadow: `0 0 40px ${accent}40` }}>{singer.name}</p>
             <p className="text-2xl" style={{ color: accent }}>{singer.song}</p>
-            {ytProblem && <p className="text-sm mt-4" style={{ color: "#fbdd68" }} data-testid="karaoke-audience-yt-problem">The video could not load. Check the internet connection.</p>}
+            {ytProblem && <p className="text-sm mt-4" style={{ color: "#fbdd68" }} data-testid="karaoke-audience-yt-problem">{ytReason ? explainVideoError(ytReason) : "The video could not load."} The host will pick another song.</p>}
           </div>
         )}
         {!showVideo && !singer && (

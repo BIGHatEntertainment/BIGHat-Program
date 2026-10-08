@@ -12,8 +12,7 @@ import {
 } from "lucide-react";
 import {
   AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState, bufferView, justBecameReady,
-  readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume,
-} from "./karaokeFlow";
+  readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume, explainVideoError } from "./karaokeFlow";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -47,7 +46,8 @@ export default function KaraokePlayer() {
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
-  const [mode, setMode] = useState("filler");
+  const [mode, setMode] = useState("filler");       // what the TV is showing (filler or a song)
+  const [tab, setTab] = useState("filler");         // alpha.96: which tab the HOST is looking at. A song ending never moves it.
 
   // ---- filler
   const [tracks, setTracks] = useState([]);
@@ -336,7 +336,7 @@ export default function KaraokePlayer() {
       if (!cur) { toast.info("No one is waiting"); return; }
       endingHandledRef.current = null;
       setCurrentSinger(cur);
-      setMode("karaoke");
+      setMode("karaoke"); setTab("karaoke");
       setSongEnding(false);
       setAudience({ started: false, time: 0, duration: 0, ending: false, ended: false });
       // filler music fades out while the song comes in
@@ -405,7 +405,7 @@ export default function KaraokePlayer() {
   }, [session, currentSinger, finishSong, sendState]);
 
   // ======================================================================== header actions
-  const switchMode = async (m) => { setMode(m); await axios.post(`${API}/karaoke/session/mode`, { mode: m }).catch(() => {}); };
+  const switchMode = async (m) => { setMode(m); setTab(m); await axios.post(`${API}/karaoke/session/mode`, { mode: m }).catch(() => {}); };
   // alpha.89: same as the Bingo player. In the desktop app the audience screen is a REAL window
   // ("karaoke-audience"); a pop-up never opens there, which is why the button used to do nothing.
   const openAudience = async () => {
@@ -469,7 +469,7 @@ export default function KaraokePlayer() {
           <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${accentBorder}` }}>
             {[["filler", "Filler", Music], ["karaoke", "Karaoke", Mic]].map(([m, label, Icon]) => (
               <button key={m} onClick={() => switchMode(m)} className="flex items-center gap-2 px-4 py-2 text-sm font-bold"
-                style={{ backgroundColor: mode === m ? accent : "transparent", color: mode === m ? "#000e2a" : "#8892b0" }} data-testid={`karaoke-tab-${m}`}>
+                style={{ backgroundColor: tab === m ? accent : "transparent", color: tab === m ? "#000e2a" : "#8892b0" }} data-testid={`karaoke-tab-${m}`}>
                 <Icon size={14} /> {label}
               </button>
             ))}
@@ -489,7 +489,7 @@ export default function KaraokePlayer() {
       <div className="flex-1 flex gap-4 p-4 overflow-hidden" data-testid="karaoke-body">
       <main className="flex-1 min-w-0 overflow-hidden">
         {/* ============ FILLER TAB ============ */}
-        {mode === "filler" && (
+        {tab === "filler" && (
           <div className="max-w-3xl mx-auto" data-testid="karaoke-filler-tab">
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               <button onClick={toggleFiller} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold" style={{ backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-filler-play-btn">
@@ -549,7 +549,7 @@ export default function KaraokePlayer() {
         )}
 
         {/* ============ KARAOKE TAB ============ */}
-        {mode === "karaoke" && (
+        {tab === "karaoke" && (
           <div className="flex gap-4 h-full" data-testid="karaoke-karaoke-tab">
             {/* left: now singing + queue */}
             <div className="w-[340px] xl:w-[420px] shrink-0 flex flex-col gap-3">
@@ -568,6 +568,14 @@ export default function KaraokePlayer() {
                       <span>{prog.remaining == null ? "" : clock(prog.remaining)}</span>
                     </div>
                   </div>
+                  {audience.error && (
+                    <div className="mt-3 rounded-lg p-3" style={{ backgroundColor: "rgba(251,221,104,0.10)", border: "1.5px solid rgba(251,221,104,0.45)" }} data-testid="karaoke-song-error">
+                      <p className="text-sm font-bold" style={{ color: "#fbdd68" }}>This song could not play on the TV.</p>
+                      <p className="text-xs mt-1" style={{ color: "#fbdd68" }} data-testid="karaoke-song-error-why">{explainVideoError(audience.error)}</p>
+                      <p className="text-xs mt-1" style={{ color: "#8892b0" }}>{currentSinger.singer_name} goes back in the line with no song. Drag a different song onto them.</p>
+                      <button onClick={() => finishSong()} className="mt-2 w-full py-2 rounded-lg text-sm font-bold" style={{ backgroundColor: "#fbdd68", color: "#000e2a" }} data-testid="karaoke-song-error-pick-another">Pick another song</button>
+                    </div>
+                  )}
                   <div className="flex gap-2 mt-3">
                     <button onClick={pauseResumeSong} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold" style={{ backgroundColor: accentDim, border: `1px solid ${accentBorder}`, color: accent }} data-testid="karaoke-pause-song-btn">{songPlaying ? <Pause size={14} /> : <Play size={14} />} {songPlaying ? "Pause" : "Play"}</button>
                     <button onClick={endSongNow} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold" style={{ backgroundColor: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444" }} data-testid="karaoke-end-song-btn"><X size={14} /> End Song</button>

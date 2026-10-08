@@ -140,6 +140,21 @@ rev += 1; pb = { song_playing: true, song_ending: false, current_singer: ann, mo
 render(React.createElement(AudFresh)); await fullscreen(); await wait(3200);
 ok(!!q('karaoke-audience-singer') && /Ann/.test(q('karaoke-audience-singer').textContent) && /Africa/.test(q('karaoke-audience-singer').textContent), 'no YouTube: audience shows the singer and song instead of a blank box');
 ok(!!q('karaoke-audience-yt-problem'), 'and says the video could not load');
+// alpha.96: ...and says WHY, and tells the host the same reason
+ok(/could not reach YouTube/i.test((q('karaoke-audience-yt-problem') || {}).textContent || ''), 'no internet: the TV says it could not reach YouTube: ' + ((q('karaoke-audience-yt-problem') || {}).textContent || ''));
+ok(reports.some(r => r.error === 'no_youtube'), 'and the host is told "no_youtube"');
+cleanup();
+
+// 13b. alpha.96: YouTube is reachable but REFUSES this video (error 101 = the owner does not allow it outside YouTube)
+reset(); installYT(); yt.players.length = 0; reports.length = 0;
+rev += 1; pb = { song_playing: true, song_ending: false, current_singer: ann, mode: 'karaoke', rev };
+render(React.createElement(Aud)); await fullscreen(); await wait(3200);
+const real = yt.players.filter(p => p.id === 'karaoke-yt').pop();
+ok(!!real, 'the real player was created for the song');
+if (real) { await act(async () => { real.opts.events.onError({ data: 101 }); }); await wait(500); }
+ok(!!q('karaoke-audience-yt-problem') && /does not allow it to be played/i.test(q('karaoke-audience-yt-problem').textContent), 'YouTube refuses the video: the TV says the owner does not allow it: ' + ((q('karaoke-audience-yt-problem') || {}).textContent || '(nothing)'));
+ok(reports.some(r => r.error === '101'), 'and the host is told the real YouTube code (101)');
+ok(/host will pick another song/i.test((q('karaoke-audience-yt-problem') || {}).textContent || ''), 'and the audience is told the host will pick another song');
 cleanup();
 
 // 14. session ended
