@@ -15,8 +15,8 @@ ok(f.nextWaiting(q).id === 'b', 'next singer is the lowest-position WAITING one 
 ok(f.nextWaiting([]) === null && f.nextWaiting(null) === null, 'empty queue has no next singer');
 eq(f.nextSingerState(q, 100).reason, 'no_song', 'a singer with no song picked cannot start');
 const q2 = q.filter((e) => e.id !== 'b');
-eq(f.nextSingerState(q2, 59), { enabled: false, reason: 'loading', singer: q2[0], percent: 59 }, 'blocked while the video is under 60% loaded');
-ok(f.nextSingerState(q2, 60).enabled === true, 'enabled at exactly 60%');
+eq(f.nextSingerState(q2, 99), { enabled: false, reason: 'loading', singer: q2[0], percent: 99 }, 'blocked while the video is under 100% loaded');
+ok(f.nextSingerState(q2, 100).enabled === true, 'enabled at 100% (the rule is PRELOAD_READY)');
 eq(f.nextSingerState([], 100).reason, 'no_one_waiting', 'no one waiting');
 ok(f.nextWaiting(q).id === 'b' && q[0].id === 'a', 'does not reorder the queue it was given');
 

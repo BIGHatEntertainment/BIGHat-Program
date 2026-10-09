@@ -401,23 +401,3 @@ def test_old_cached_searches_from_before_the_check_are_not_reused(client, monkey
     assert [x["id"] for x in r["results"]] == ["good1"] and not r.get("cached")
 
 
-def test_check_one_video_says_playable_or_why_not(client, monkeypatch):
-    c, _ = client
-    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
-    _fake_httpx(monkeypatch, items=[_item("v1")])
-    assert c.get("/api/karaoke/youtube/check/v1").json() == {"known": True, "playable": True, "reason": ""}
-    _fake_httpx(monkeypatch, items=[_item("v2", embeddable=False)])
-    r = c.get("/api/karaoke/youtube/check/v2").json()
-    assert r["known"] is True and r["playable"] is False and "does not allow" in r["reason"]
-    _fake_httpx(monkeypatch, items=[])                                                   # YouTube has never heard of it
-    r = c.get("/api/karaoke/youtube/check/v3").json()
-    assert r["playable"] is False and "removed" in r["reason"]
-
-
-def test_a_failed_check_never_blocks_the_show(client, monkeypatch):
-    c, _ = client
-    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
-    for kwargs in ({"boom": True}, {"code": 403}, {"code": 500}):
-        _fake_httpx(monkeypatch, items=[], **kwargs)
-        assert c.get("/api/karaoke/youtube/check/v1").json() == {"known": False, "playable": True, "reason": ""}, kwargs
-    assert c.get("/api/karaoke/youtube/check/").status_code in (404, 405, 307)

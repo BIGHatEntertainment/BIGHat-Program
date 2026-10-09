@@ -29,11 +29,7 @@ export default function KaraokeRightPanel({
       <div>
         <div className="rounded-xl overflow-hidden flex items-center justify-center text-center" data-testid="karaoke-preview"
              style={{ border: `1.5px solid ${accentBorder}`, aspectRatio: "16/9", backgroundColor: "#000" }}>
-          {live && /embed\/([A-Za-z0-9_-]{6,})/.test(currentSinger.embed_url || "") ? (
-            <iframe data-testid="karaoke-preview-video" title="Preview" className="w-full h-full" style={{ border: 0 }}
-              src={`https://www.youtube.com/embed/${/embed\/([A-Za-z0-9_-]{6,})/.exec(currentSinger.embed_url)[1]}?autoplay=0&mute=1&controls=0&rel=0&modestbranding=1`}
-              referrerPolicy="strict-origin-when-cross-origin" allow="encrypted-media" />
-          ) : live ? (
+          {live ? (
             <div className="p-3" data-testid="karaoke-preview-live">
               <Mic size={26} style={{ color: accent }} className="mx-auto mb-2" />
               <p className="text-sm font-bold text-white">{currentSinger.singer_name}</p>

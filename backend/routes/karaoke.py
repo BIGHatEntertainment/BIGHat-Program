@@ -478,29 +478,6 @@ def playable_in_embed(v: Dict[str, Any]) -> bool:
     return True
 
 
-@router.get("/youtube/check/{video_id}")
-async def youtube_check(video_id: str):
-    """alpha.99: ask YouTube whether ONE video can play in an embedded player. Never blocks the show: if YouTube or the
-    internet cannot be reached the answer is {"known": false, "playable": true} (assume it plays)."""
-    import httpx
-    key = kl.youtube_key()
-    vid = re.sub(r"[^A-Za-z0-9_-]", "", video_id or "")[:20]
-    if not key or not vid:
-        return {"known": False, "playable": True, "reason": ""}
-    try:
-        async with httpx.AsyncClient(timeout=8) as c:
-            r = await c.get("https://www.googleapis.com/youtube/v3/videos", params={"part": "contentDetails,status", "id": vid, "key": key})
-        if r.status_code != 200:
-            return {"known": False, "playable": True, "reason": ""}
-        items = r.json().get("items", [])
-    except Exception:                                                       # noqa: BLE001
-        return {"known": False, "playable": True, "reason": ""}
-    if not items:
-        return {"known": True, "playable": False, "reason": "This video was removed or is not available."}
-    why = why_not_playable(items[0])
-    return {"known": True, "playable": not why, "reason": why}
-
-
 @router.get("/youtube/search")
 async def youtube_search(q: str = "", max_results: int = 10):
     import httpx

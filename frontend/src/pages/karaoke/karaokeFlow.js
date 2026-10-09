@@ -56,12 +56,11 @@ export const justBecameReady = (prevReadyFor, view, singerId) => view.state === 
  *  - someone must be waiting and have a song
  *  - the video must be loaded enough (or it was never going to preload, e.g. no internet check)
  */
-export function nextSingerState(queue /* , preloadPercent (alpha.98: no longer needed) */) {
-  // alpha.98: like the prototype, the next singer is available as soon as they have a song. The song is played in a plain
-  // YouTube iframe, which cannot report how much has downloaded, so there is no longer a "loading 0%" gate that can block the show.
+export function nextSingerState(queue, preloadPercent) {
   const next = nextWaiting(queue);
   if (!next) return { enabled: false, reason: "no_one_waiting" };
   if (!hasSong(next)) return { enabled: false, reason: "no_song", singer: next };
+  if (preloadPercent < PRELOAD_READY) return { enabled: false, reason: "loading", singer: next, percent: preloadPercent };
   return { enabled: true, reason: "ready", singer: next };
 }
 

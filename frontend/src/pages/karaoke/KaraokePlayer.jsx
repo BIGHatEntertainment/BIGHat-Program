@@ -1,4 +1,3 @@
-import { IFRAME_REFERRER } from "./iframePlayback";
 import { usePointerDrag } from "./pointerDrag";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -12,7 +11,7 @@ import {
   Plus, Trash2, GripVertical, Check, X, ListMusic, UserPlus, Settings, AlertCircle, RefreshCw,
 } from "lucide-react";
 import {
-  AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState,
+  AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState, bufferView, justBecameReady,
   readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume, explainVideoError } from "./karaokeFlow";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -80,6 +79,7 @@ export default function KaraokePlayer() {
   const [currentSinger, setCurrentSinger] = useState(null);
   const [songPlaying, setSongPlaying] = useState(false);
   const [songEnding, setSongEnding] = useState(false);
+  const [preloadPct, setPreloadPct] = useState(0);
   const [audience, setAudience] = useState({ started: false, time: 0, duration: 0, ending: false, ended: false });
 
   // ---- shared
@@ -91,7 +91,6 @@ export default function KaraokePlayer() {
   const audioCtxRef = useRef(null);
   const gainRef = useRef(null);
   const channelRef = useRef(null);
-  const queueRef = useRef([]);
   const audienceWinRef = useRef(null);
   const revRef = useRef(0);
   const fadeTimerRef = useRef(null);
@@ -164,9 +163,7 @@ export default function KaraokePlayer() {
       if (r.data && typeof r.data.rev === "number") rev = r.data.rev;
     } catch { /* the channel copy below still reaches the screen */ }
     revRef.current = rev;
-    // alpha.99: the host also sends who is waiting, so the TV's "UP NEXT" bar never depends on the TV's own request succeeding
-    const waiting = (queueRef.current || []).filter((e) => (e.status || "waiting") === "waiting").map((e) => ({ singer_name: e.singer_name, song_title: e.song_title || "" }));
-    if (channelRef.current) channelRef.current.postMessage({ type: "karaoke-state", pb: { ...pb, rev }, waiting });
+    if (channelRef.current) channelRef.current.postMessage({ type: "karaoke-state", pb: { ...pb, rev } });
   }, []);
 
   // ======================================================================== filler player
@@ -264,22 +261,7 @@ export default function KaraokePlayer() {
     await axios.post(`${API}/karaoke/queue/add`, { singer_name: name });
     setNewSinger(""); loadQueue();
   };
-  // alpha.99: before a song is given to anyone, ask YouTube if it can play in an embedded player. Only a clear "no" stops it;
-  // if YouTube or the internet cannot be reached the song goes ahead as normal (the show is never blocked by the check).
-  const songIsPlayable = async (song) => {
-    const m = /embed\/([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])/.exec(song.embed_url || "");   // a real YouTube id is exactly 11 characters
-    if (!m || song.source === "local") return true;
-    try {
-      const r = await axios.get(`${API}/karaoke/youtube/check/${m[1]}`);
-      if (r.data && r.data.known && r.data.playable === false) {
-        toast.error(`"${song.title}" cannot be used: ${r.data.reason} Pick another version of the song.`);
-        return false;
-      }
-    } catch { /* cannot ask: carry on */ }
-    return true;
-  };
   const assignSong = async (entryId, song) => {
-    if (!(await songIsPlayable(song))) { setContextMenu(null); return; }
     await axios.post(`${API}/karaoke/queue/add`, {
       assign_to: entryId, song_title: song.title, song_artist: song.artist, embed_url: song.embed_url,
       source: song.source, duration_seconds: song.duration_seconds,
@@ -289,7 +271,6 @@ export default function KaraokePlayer() {
   const addSingerWithSong = async (song) => {
     const name = window.prompt("Singer name?");
     if (!name || !name.trim()) return;
-    if (!(await songIsPlayable(song))) { setContextMenu(null); return; }
     await axios.post(`${API}/karaoke/queue/add`, {
       singer_name: name.trim(), song_title: song.title, song_artist: song.artist, embed_url: song.embed_url,
       source: song.source, duration_seconds: song.duration_seconds,
@@ -309,34 +290,46 @@ export default function KaraokePlayer() {
   const rejectRequest = async (id) => { await axios.post(`${API}/karaoke/requests/${id}/reject`); loadRequests(); };
 
   const waiting = queue.filter((e) => e.status === "waiting");
-  const next = nextSingerState(queue);
+  const next = nextSingerState(queue, preloadPct);
 
   // preload (alpha.89): the audience screen is the only thing that can load video. We tell it which song is next
   // and it reports how much is REALLY buffered (percent of the first 45 seconds). The host sees that as a bar on
   // the queued singer, and is told once when the song has loaded enough.
   const nextId = next.singer && next.singer.id;
   const nextUrl = next.singer && next.singer.embed_url;
-  // alpha.99: keep a copy of the queue for the state message, and tell the TV whenever the waiting list changes
-  const waitingKey = queue.filter((e) => (e.status || "waiting") === "waiting").map((e) => e.singer_name + "|" + (e.song_title || "")).join("~");
+  const [preload, setPreload] = useState(null);
+  const readyToldFor = useRef(null);
   useEffect(() => {
-    queueRef.current = queue;
-    if (session && channelRef.current) sendState({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waitingKey]);
-
-  // alpha.99: like the prototype, the HOST also warms the next singer's song in a 1px hidden muted iframe (autoplay off, preload on).
-  const nextVideoId = ((/embed\/([A-Za-z0-9_-]{6,})/.exec(nextUrl || "")) || [])[1] || "";
-  const playingVideoId = ((/embed\/([A-Za-z0-9_-]{6,})/.exec((currentSinger && currentSinger.embed_url) || "")) || [])[1] || "";
-  const warmId = nextVideoId && nextVideoId !== playingVideoId ? nextVideoId : "";
-  // alpha.98: the host also tells the audience screen which song is next; the audience warms it in a plain hidden iframe.
-  useEffect(() => {
-    if (!session) return;
+    if (!session) return undefined;
+    setPreloadPct(0); setPreload(null);
     axios.post(`${API}/karaoke/session/preload`, nextId && nextUrl ? { singer_id: nextId, embed_url: nextUrl } : {}).catch(() => {});
+    if (!nextId || !nextUrl) return undefined;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const r = await axios.get(`${API}/karaoke/session/playback`);
+        const pre = r.data.preload;
+        if (stopped) return;
+        if (pre && pre.singer_id === nextId) { setPreload({ ...pre }); setPreloadPct(pre.ready ? 100 : Math.min(99, pre.percent || 0)); }
+      } catch { /* try again */ }
+    };
+    poll();
+    const t = setInterval(poll, 700);
+    return () => { stopped = true; clearInterval(t); };
   }, [session, nextId, nextUrl]);
+
+  const buffer = bufferView({ next: next.singer, preload, audienceOpen });
+  useEffect(() => {      // tell the host ONCE per singer when the song has loaded enough
+    if (justBecameReady(readyToldFor.current, buffer, nextId)) {
+      readyToldFor.current = nextId;
+      toast.success(`${next.singer.singer_name}'s song is loaded and ready`, { description: next.singer.song_title });
+    }
+    if (!nextId) readyToldFor.current = null;
+  }, [buffer.state, nextId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- start the next singer
   const startNextSinger = async (force = false) => {
-    if (!force && !nextSingerState(queue).enabled) return;
+    if (!force && !nextSingerState(queue, preloadPct).enabled) return;
     try {
       const r = await axios.post(`${API}/karaoke/queue/next`);
       const cur = r.data.current;
@@ -600,10 +593,34 @@ export default function KaraokePlayer() {
                 <button onClick={() => startNextSinger(false)} disabled={!next.enabled} className="w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold disabled:opacity-40" style={{ backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-next-singer-btn">
                   <SkipForward size={16} />
                   {next.reason === "ready" && `Next Singer: ${next.singer.singer_name}`}
+                  {next.reason === "loading" && `Loading ${next.singer.singer_name}'s song... ${next.percent}%`}
                   {next.reason === "no_song" && `Pick a song for ${next.singer.singer_name}`}
                   {next.reason === "no_one_waiting" && "No one waiting"}
                 </button>
-                {/* alpha.98: no loading bar / Start anyway / Retry: the next song is a plain iframe (like the prototype) and Next Singer is ready as soon as they have a song */}
+                {buffer.state !== "none" && (
+                  <div className="mt-2" data-testid="karaoke-buffer">
+                    <div className="flex items-center justify-between text-[11px] mb-1" style={{ color: buffer.state === "ready" ? accent : "#8892b0" }}>
+                      <span data-testid="karaoke-buffer-label">
+                        {buffer.state === "ready" && "Loaded and ready"}
+                        {buffer.state === "loading" && "Loading the next song..."}
+                        {buffer.state === "no_screen" && "Open the Audience View so the next song can load"}
+                        {buffer.state === "error" && "The next song could not load"}
+                      </span>
+                      <span data-testid="karaoke-buffer-pct">{buffer.percent}%</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.1)" }} role="progressbar"
+                         aria-valuenow={buffer.percent} aria-valuemin={0} aria-valuemax={100} data-testid="karaoke-buffer-bar">
+                      <div className="h-full rounded-full" style={{ width: `${buffer.percent}%`, backgroundColor: buffer.state === "ready" ? accent : buffer.state === "loading" ? "#fbdd68" : "#555", transition: "width 0.4s" }} data-testid="karaoke-buffer-fill" />
+                    </div>
+                  </div>
+                )}
+                {(next.reason === "loading") && (
+                  <div className="flex items-center justify-center gap-4 mt-2">
+                    <button onClick={() => { setPreloadPct(0); setPreload(null); axios.post(`${API}/karaoke/session/preload`, { singer_id: nextId, embed_url: nextUrl, retry: Date.now() }).catch(() => {}); }}
+                      className="text-xs text-zinc-300 underline" data-testid="karaoke-retry-load-btn">Retry loading</button>
+                    <button onClick={() => startNextSinger(true)} className="text-xs text-zinc-400 underline" data-testid="karaoke-start-anyway-btn">Start anyway</button>
+                  </div>
+                )}
               </div>
 
               <div className="overflow-y-auto space-y-1 rounded-xl p-2 flex-1" style={{ maxHeight: "calc(100vh - 460px)", backgroundColor: "rgba(0,14,42,0.3)", border: `1.5px solid ${accentBorder}` }} data-testid="karaoke-queue" data-drop-list>
@@ -662,12 +679,6 @@ export default function KaraokePlayer() {
 
 
       {/* right-click menu */}
-      {warmId && (
-        <iframe key={warmId} title="Next song (warming)" width="1" height="1" tabIndex={-1} aria-hidden="true"
-          src={`https://www.youtube.com/embed/${warmId}?autoplay=0&mute=1&preload=auto&controls=0&rel=0&modestbranding=1`}
-          style={{ position: "fixed", left: -10, top: -10, width: 1, height: 1, opacity: 0, border: 0, pointerEvents: "none" }}
-          referrerPolicy={IFRAME_REFERRER} allow="encrypted-media" data-testid="karaoke-host-warm-iframe" />
-      )}
       {drag && (
         <div className="fixed z-[60] pointer-events-none px-3 py-1.5 rounded-lg text-xs font-bold shadow-xl"
           style={{ left: drag.x + 14, top: drag.y + 10, maxWidth: 260, backgroundColor: accent, color: "#000e2a" }} data-testid="karaoke-drag-chip">
