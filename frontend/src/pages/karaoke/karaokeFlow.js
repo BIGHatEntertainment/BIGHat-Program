@@ -101,6 +101,14 @@ export function explainVideoError(code) {
   if (c === "100") return "This video was removed or is private.";
   if (c === "2") return "This video link is not valid.";
   if (c === "5") return "The video player had a problem with this video.";
+  if (c.startsWith("fallback_")) {   // alpha.108: YouTube's own player gave up and the TV switched to the downloaded file
+    const why = c.slice(9);
+    if (why === "150" || why === "101") return "YouTube does not allow this song to be embedded (error " + why + "). The TV is using the downloaded file instead.";
+    if (why === "153") return "YouTube rejected the player setup (error 153). The TV is using the downloaded file instead.";
+    if (why === "timeout") return "YouTube's player did not start in time. The TV is using the downloaded file instead.";
+    if (why === "no_youtube") return "The TV could not reach YouTube's player. It is using the downloaded file instead.";
+    return "YouTube's player had a problem (" + why + "). The TV is using the downloaded file instead.";
+  }
   if (c === "stream") return "The song could not be downloaded for the TV. Check the internet connection, or pick another song.";
   if (c === "stream_signin") return "YouTube wants a sign-in before it will give this song. Sign in to YouTube once in Edge or Chrome on this PC, then try again.";
   if (c === "stream_blocked") return "YouTube refused to send this song (403). Try another version of the song.";
