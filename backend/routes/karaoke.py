@@ -18,9 +18,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 from native import karaoke_library as kl
 from native import karaoke_relay
+from routes.karaoke_stream import router as _stream_router      # alpha.105: songs play from a yt-dlp download
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/karaoke", tags=["karaoke"])
+
+router.include_router(_stream_router)
 
 db = None
 
@@ -481,6 +484,10 @@ async def _filter_embeddable(results: list) -> list:
 
     Resilient: if there is no API key or the call fails, return the unfiltered list so search
     still works."""
+    # alpha.105: songs play from a yt-dlp download, so the owner's "embedding disabled" flag no longer matters.
+    # Keep every result (filtering would hide songs that now play fine).
+    return results
+
     import httpx
 
     api_key = kl.youtube_key()
@@ -539,8 +546,8 @@ async def youtube_search(q: str = "", max_results: int = 15):
         return {"results": []}
 
     search_query = f"{q} karaoke"
-    # cache_key is versioned (|v2) so old cached entries from before the embeddable filter are ignored.
-    cache_key = f"{q} karaoke|v2".lower().strip()
+    # cache_key is versioned (|v3) so old cached entries from before the embeddable filter are ignored.
+    cache_key = f"{q} karaoke|v3".lower().strip()
     effective_max = min(max_results, 12)
 
     # Step 1: MongoDB cache (fresh <24h) - instant repeat searches.
