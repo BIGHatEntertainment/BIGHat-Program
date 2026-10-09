@@ -166,42 +166,6 @@ def test_qr_request_validation(client):
     assert c.post("/api/karaoke/requests/nope/accept").status_code == 404
 
 
-def test_youtube_needs_a_key_then_searches_caches_and_sorts(client, monkeypatch):
-    c, k = client
-    assert c.get("/api/karaoke/youtube/search", params={"q": "africa"}).status_code == 400          # no key yet
-    from native import karaoke_library as kl
-    kl.save_settings(youtube_api_key="TESTKEY123456789")
-    calls = []
-
-    class Resp:
-        def __init__(self, code, data): self.status_code, self._d = code, data
-        def json(self): return self._d
-
-    class FakeClient:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def get(self, url, params=None):
-            calls.append((url, dict(params)))
-            if url.endswith("/search"):
-                return Resp(200, {"items": [
-                    {"id": {"videoId": "v_other"}, "snippet": {"title": "Africa (Cover)", "channelTitle": "Some Guy", "thumbnails": {}}},
-                    {"id": {"videoId": "v_kf"}, "snippet": {"title": "Africa", "channelTitle": "KaraFun Karaoke", "thumbnails": {}}}]})
-            return Resp(200, {"items": [{"id": "v_kf", "contentDetails": {"duration": "PT4M5S"}}, {"id": "v_other", "contentDetails": {"duration": "PT1H1M1S"}}]})
-
-    import httpx
-    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
-    r = c.get("/api/karaoke/youtube/search", params={"q": "africa"}).json()
-    assert [x["id"] for x in r["results"]] == ["v_kf", "v_other"]                                    # trusted karaoke channel first
-    assert r["results"][0]["duration_seconds"] == 245 and r["results"][1]["duration_seconds"] == 3661
-    assert r["results"][0]["embed_url"].startswith("https://www.youtube.com/embed/v_kf")
-    assert calls[0][1]["key"] == "TESTKEY123456789" and calls[0][1]["q"] == "africa karaoke"
-    n = len(calls)
-    again = c.get("/api/karaoke/youtube/search", params={"q": "Africa"}).json()
-    assert again["cached"] is True and len(calls) == n                                               # second search costs no quota
-    assert c.get("/api/karaoke/youtube/search", params={"q": "a"}).json() == {"results": []}
-
-
 def test_preload_is_only_ready_when_the_audience_says_so(client):
     c, _ = client
     start(c)
@@ -335,35 +299,17 @@ def test_the_next_song_is_still_handed_to_the_tv_to_warm(client):
 
 
 # ---------------------------------------------------------------- alpha.99: never offer, or silently start, a video YouTube will not embed
+class _Resp:
+    def __init__(self, code, data): self.status_code, self._d = code, data
+    def json(self): return self._d
+
+
 def _item(vid, embeddable=True, privacy="public", upload="processed", rating=None, blocked=None, allowed=None, dur="PT3M"):
     cd = {"duration": dur}
     if rating: cd["contentRating"] = {"ytRating": rating}
     if blocked is not None or allowed is not None:
         cd["regionRestriction"] = {k: v for k, v in (("blocked", blocked), ("allowed", allowed)) if v is not None}
     return {"id": vid, "contentDetails": cd, "status": {"embeddable": embeddable, "privacyStatus": privacy, "uploadStatus": upload}}
-
-
-def test_the_rules_for_a_video_that_can_play_in_an_embed():
-    from routes import karaoke as k
-    assert k.playable_in_embed(_item("a")) and k.why_not_playable(_item("a")) == ""
-    assert k.playable_in_embed(_item("a", privacy="unlisted"))
-    cases = {
-        "owner blocked embedding": (_item("a", embeddable=False), "does not allow"),
-        "private": (_item("a", privacy="private"), "private"),
-        "still processing": (_item("a", upload="uploaded"), "not available yet"),
-        "age restricted": (_item("a", rating="ytAgeRestricted"), "age-restricted"),
-        "blocked in the US": (_item("a", blocked=["US", "DE"]), "blocked in the United States"),
-        "only allowed elsewhere": (_item("a", allowed=["DE", "FR"]), "blocked in the United States"),
-    }
-    for name, (item, words) in cases.items():
-        assert not k.playable_in_embed(item), name
-        assert words in k.why_not_playable(item), name
-    assert k.playable_in_embed(_item("a", blocked=["DE"])) and k.playable_in_embed(_item("a", allowed=["US", "CA"]))
-
-
-class _Resp:
-    def __init__(self, code, data): self.status_code, self._d = code, data
-    def json(self): return self._d
 
 
 def _fake_httpx(monkeypatch, items=None, search_ids=(), code=200, boom=False):
@@ -380,44 +326,112 @@ def _fake_httpx(monkeypatch, items=None, search_ids=(), code=200, boom=False):
     monkeypatch.setattr(httpx, "AsyncClient", C)
 
 
-def test_search_drops_videos_youtube_says_cannot_be_embedded(client, monkeypatch):
+# ---------------------------------------------------------------------------------------------------------------
+# alpha.104: the prototype's YouTube search (yt-dlp, no key, no daily quota), ported as written.
+# yt-dlp is replaced by a fake that returns what yt-dlp's extract_flat really returns (id, title, channel, duration).
+# ---------------------------------------------------------------------------------------------------------------
+def _yt_entries(*rows):
+    return [{"id": i, "title": t, "channel": ch, "duration": d} for (i, t, ch, d) in rows]
+
+
+def _fake_ytdlp(monkeypatch, entries, boom_times=0):
+    import sys, types
+    state = {"calls": [], "boom": boom_times}
+    class YDL:
+        def __init__(self, opts): state["opts"] = opts
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, q, download=False):
+            state["calls"].append(q)
+            if state["boom"] > 0:
+                state["boom"] -= 1
+                raise RuntimeError("yt-dlp hiccup")
+            return {"entries": entries}
+    mod = types.ModuleType("yt_dlp"); mod.YoutubeDL = YDL
+    monkeypatch.setitem(sys.modules, "yt_dlp", mod)
+    return state
+
+
+def test_alpha104_search_uses_ytdlp_with_no_key_and_the_prototype_fields(client, monkeypatch):
+    c, _ = client
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    st = _fake_ytdlp(monkeypatch, _yt_entries(("aaaaaaaaaaa", "Africa - Karaoke", "Some Guy", 245)))
+    r = c.get("/api/karaoke/youtube/search", params={"q": "africa"})
+    assert r.status_code == 200, r.text                                   # NO key needed (the old search answered 400)
+    res = r.json()["results"]
+    assert st["calls"] == ["ytsearch12:africa karaoke"], st["calls"]      # "{q} karaoke", up to 12 results
+    assert res[0]["id"] == "aaaaaaaaaaa" and res[0]["artist"] == "Some Guy" and res[0]["duration_seconds"] == 245
+    assert res[0]["embed_url"] == "https://www.youtube.com/embed/aaaaaaaaaaa?autoplay=1&controls=0&rel=0&modestbranding=1"
+    assert res[0]["thumbnail"] == "https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg" and res[0]["source"] == "youtube"
+    assert st["opts"]["extract_flat"] is True and st["opts"]["noplaylist"] is True
+
+
+def test_alpha104_second_search_comes_from_the_24h_cache(client, monkeypatch):
+    c, _ = client
+    st = _fake_ytdlp(monkeypatch, _yt_entries(("aaaaaaaaaaa", "Africa", "X", 100)))
+    c.get("/api/karaoke/youtube/search", params={"q": "Africa"})
+    again = c.get("/api/karaoke/youtube/search", params={"q": "africa"}).json()
+    assert again.get("cached") is True and len(st["calls"]) == 1, (again, st["calls"])
+
+
+def test_alpha104_provider_channels_are_ranked_first_and_nothing_is_dropped(client, monkeypatch):
+    c, _ = client
+    _fake_ytdlp(monkeypatch, _yt_entries(("o1o1o1o1o1o", "Song (Cover)", "Some Guy", 10), ("p1p1p1p1p1p", "Song", "PARTY TYME KARAOKE CHANNEL", 20),
+                                         ("s1s1s1s1s1s", "Song", "Sing King", 30), ("o2o2o2o2o2o", "Song 2", "Another", 40)))
+    ids = [x["id"] for x in c.get("/api/karaoke/youtube/search", params={"q": "song"}).json()["results"]]
+    assert ids == ["p1p1p1p1p1p", "s1s1s1s1s1s", "o1o1o1o1o1o", "o2o2o2o2o2o"], ids       # providers first, order kept, none dropped
+
+
+def test_alpha104_blocked_videos_are_dropped_when_a_key_is_saved(client, monkeypatch):
     c, _ = client
     monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
-    _fake_httpx(monkeypatch, search_ids=["good1", "blocked1", "gone1", "age1"],
-                items=[_item("good1"), _item("blocked1", embeddable=False), _item("age1", rating="ytAgeRestricted")])   # gone1 is unknown to YouTube
-    r = c.get("/api/karaoke/youtube/search", params={"q": "toto africa"}).json()
-    assert [x["id"] for x in r["results"]] == ["good1"], r
-    assert r["results"][0]["duration_seconds"] == 180
+    _fake_ytdlp(monkeypatch, _yt_entries(("good1good1g", "A", "X", 0), ("blck1blck1b", "B", "X", 0), ("priv1priv1p", "C", "X", 0)))
+    _fake_httpx(monkeypatch, items=[_item("good1good1g"), _item("blck1blck1b", embeddable=False), _item("priv1priv1p", privacy="private")])
+    res = c.get("/api/karaoke/youtube/search", params={"q": "mix"}).json()["results"]
+    assert [x["id"] for x in res] == ["good1good1g"], res
+    assert res[0]["duration_seconds"] == 180                              # the API's exact duration replaces the scraped one
 
 
-def test_old_cached_searches_from_before_the_check_are_not_reused(client, monkeypatch):
+def test_alpha104_if_every_result_is_blocked_the_original_list_is_returned(client, monkeypatch):
+    c, _ = client                                                         # prototype: "never hand back an empty list purely due to filtering"
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    _fake_ytdlp(monkeypatch, _yt_entries(("blck1blck1b", "B", "X", 0), ("blck2blck2b", "C", "X", 0)))
+    _fake_httpx(monkeypatch, items=[_item("blck1blck1b", embeddable=False), _item("blck2blck2b", embeddable=False)])
+    res = c.get("/api/karaoke/youtube/search", params={"q": "allblocked"}).json()["results"]
+    assert [x["id"] for x in res] == ["blck1blck1b", "blck2blck2b"], res
+
+
+def test_alpha104_a_failed_embeddable_check_returns_the_unfiltered_list(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    _fake_ytdlp(monkeypatch, _yt_entries(("aaaaaaaaaaa", "A", "X", 5)))
+    _fake_httpx(monkeypatch, items=[], code=403)                          # quota used up / bad key
+    res = c.get("/api/karaoke/youtube/search", params={"q": "nocheck"}).json()["results"]
+    assert [x["id"] for x in res] == ["aaaaaaaaaaa"], res
+
+
+def test_alpha104_ytdlp_gets_one_retry_then_the_similar_cached_search_is_used(client, monkeypatch):
     import asyncio
     c, k = client
-    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
-    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(k.db.youtube_search_cache.insert_one(
-        {"query": "toto africa karaoke", "results": [{"id": "blocked-old"}], "cached_at": "2999-01-01T00:00:00+00:00"}))
-    _fake_httpx(monkeypatch, search_ids=["good1"], items=[_item("good1")])
-    r = c.get("/api/karaoke/youtube/search", params={"q": "toto africa"}).json()
-    assert [x["id"] for x in r["results"]] == ["good1"] and not r.get("cached")
+    st = _fake_ytdlp(monkeypatch, _yt_entries(("aaaaaaaaaaa", "A", "X", 5)), boom_times=1)
+    ok = c.get("/api/karaoke/youtube/search", params={"q": "retry me"}).json()
+    assert [x["id"] for x in ok["results"]] == ["aaaaaaaaaaa"] and len(st["calls"]) == 2          # first call failed, the retry worked
+    st2 = _fake_ytdlp(monkeypatch, [], boom_times=5)
+    fz = c.get("/api/karaoke/youtube/search", params={"q": "retry other"}).json()                 # new query, yt-dlp down: fuzzy cache on the first word
+    assert fz.get("fuzzy") is True and [x["id"] for x in fz["results"]] == ["aaaaaaaaaaa"], fz
 
 
+def test_alpha104_only_the_60_most_recent_searches_are_kept(client, monkeypatch):
+    import asyncio
+    c, k = client
+    _fake_ytdlp(monkeypatch, _yt_entries(("aaaaaaaaaaa", "A", "X", 5)))
+    for n in range(65):
+        c.get("/api/karaoke/youtube/search", params={"q": f"song number {n:03d}"})
+    total = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(k.db.youtube_search_cache.count_documents({}))
+    assert total == 60, total
 
 
-def test_alpha103_all_blocked_gives_an_empty_list_and_is_not_cached(client, monkeypatch):
-    # prototype PRD: a video YouTube says cannot be embedded is DROPPED, even if nothing is left.
+def test_alpha104_pre_warm_does_nothing(client):
     c, _ = client
-    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
-    _fake_httpx(monkeypatch, search_ids=["blk1", "blk2"], items=[_item("blk1", embeddable=False), _item("blk2", embeddable=False)])
-    r = c.get("/api/karaoke/youtube/search", params={"q": "all blocked song"}).json()
-    assert r["results"] == [] and r["embeddable_checked"] is True, r
-    # a second search must go back to YouTube (an empty list is never cached)
-    r2 = c.get("/api/karaoke/youtube/search", params={"q": "all blocked song"}).json()
-    assert not r2.get("cached"), r2
+    assert c.post("/api/karaoke/youtube/pre-warm").json() == {"success": True, "skipped": True, "reason": "yt-dlp search is unlimited; pre-warm not needed"}
 
-
-def test_alpha103_the_search_says_when_the_embeddable_check_ran(client, monkeypatch):
-    c, _ = client
-    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
-    _fake_httpx(monkeypatch, search_ids=["ok1"], items=[_item("ok1")])
-    r = c.get("/api/karaoke/youtube/search", params={"q": "checked song"}).json()
-    assert r["embeddable_checked"] is True and [x["id"] for x in r["results"]] == ["ok1"], r

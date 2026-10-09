@@ -422,123 +422,239 @@ async def reject_request(request_id: str):
 
 
 # ===================== YouTube karaoke search (cached) =====================
-KARAOKE_PROVIDERS = ["karafun", "partytyme", "party tyme", "sing king", "singking", "stingray karaoke",
-                     "stingray music", "karaoke version", "karaoke songs", "karaoke star", "you sing karaoke"]
-
-
-def _provider_rank(item: Dict[str, Any]) -> int:
-    text = f"{item.get('artist', '')} {item.get('title', '')}".lower()
-    for i, p in enumerate(KARAOKE_PROVIDERS):
-        if p in text:
-            return i
-    return 100
-
-
 def _seconds(iso: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso or "")
     return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0) if m else 0
 
 
-def why_not_playable(v: Dict[str, Any]) -> str:
-    """alpha.99: the plain-English reason a video cannot be embedded ("" = it can). Same rules as playable_in_embed."""
-    st = v.get("status", {}) or {}
-    cd = v.get("contentDetails", {}) or {}
-    if st.get("embeddable") is False:
-        return "The owner of this video does not allow it to be played outside YouTube."
-    if st.get("privacyStatus") not in (None, "public", "unlisted"):
-        return "This video is private."
-    if st.get("uploadStatus") not in (None, "processed"):
-        return "This video is not available yet."
-    if (cd.get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
-        return "This video is age-restricted, so it cannot play in an embedded player."
-    rr = cd.get("regionRestriction") or {}
-    if "US" in (rr.get("blocked") or []) or (rr.get("allowed") is not None and "US" not in rr.get("allowed", [])):
-        return "This video is blocked in the United States."
-    return ""
+# ===================== alpha.104: the prototype's YouTube search, ported as written =====================
+# Source: BIGHat-Beta-Testing backend/routes/karaoke.py (owner pasted the current version 2026-10-08 19:20 MST).
+# Only change: the key comes from kl.youtube_key() (saved in Karaoke Setup, else the YOUTUBE_API_KEY variable).
+
+def _ytdlp_search(search_query: str, count: int) -> list:
+    """Blocking yt-dlp search. Runs in a worker thread. Returns a list of result dicts.
+
+    Uses yt-dlp's `ytsearchN:` with extract_flat so it scrapes YouTube's public search
+    page (no Data API, no quota, no key). Fast (~1s) and unlimited."""
+    import yt_dlp
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,   # don't resolve each video (fast); we only need metadata
+        "skip_download": True,
+        "default_search": "ytsearch",
+        "noplaylist": True,
+        "socket_timeout": 12,
+    }
+    results = []
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{count}:{search_query}", download=False)
+    for e in (info or {}).get("entries", []) or []:
+        vid = e.get("id")
+        if not vid:
+            continue
+        dur = e.get("duration")
+        try:
+            dur = int(dur) if dur else 0
+        except (TypeError, ValueError):
+            dur = 0
+        results.append({
+            "id": vid,
+            "title": e.get("title", "") or "",
+            "artist": e.get("channel") or e.get("uploader") or "",
+            "thumbnail": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg",
+            "source": "youtube",
+            "embed_url": f"https://www.youtube.com/embed/{vid}?autoplay=1&controls=0&rel=0&modestbranding=1",
+            "duration_seconds": dur,
+        })
+    return results
 
 
-def playable_in_embed(v: Dict[str, Any]) -> bool:
-    """alpha.99: can this video (a YouTube 'videos' item with contentDetails + status) play in an embedded player?
-    Rejects: owner turned embedding off, not public, not yet processed, age-restricted, or blocked in the US."""
-    st = v.get("status", {}) or {}
-    cd = v.get("contentDetails", {}) or {}
-    if st.get("embeddable") is False:
-        return False
-    if st.get("privacyStatus") not in (None, "public", "unlisted"):
-        return False
-    if st.get("uploadStatus") not in (None, "processed"):
-        return False
-    if (cd.get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
-        return False                                                  # age-gated videos cannot play inside an embed
-    rr = cd.get("regionRestriction") or {}
-    if "US" in (rr.get("blocked") or []):
-        return False
-    if rr.get("allowed") is not None and "US" not in rr.get("allowed", []):
-        return False
-    return True
+async def _filter_embeddable(results: list) -> list:
+    """Keep only videos that are actually EMBEDDABLE (playable in our audience view).
+
+    Many karaoke uploads set 'Playback on other websites has been disabled by the video owner'
+    (YouTube error 150). yt-dlp search can't tell us this, so we make ONE YouTube Data API
+    videos.list call (part=status,contentDetails): 1 quota unit for up to 50 ids. We drop any
+    video that is not embeddable / not public, and use the API's exact duration.
+
+    Resilient: if there is no API key or the call fails, return the unfiltered list so search
+    still works."""
+    import httpx
+
+    api_key = kl.youtube_key()
+    if not api_key or not results:
+        return results
+
+    ids = [r["id"] for r in results if r.get("id")]
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            r = await client.get("https://www.googleapis.com/youtube/v3/videos", params={
+                "part": "status,contentDetails",
+                "id": ",".join(ids[:50]),
+                "key": api_key,
+            })
+        if r.status_code != 200:
+            logger.warning(f"[YouTube] embeddable check failed ({r.status_code}) - returning unfiltered")
+            return results
+        data = r.json()
+    except Exception as e:
+        logger.warning(f"[YouTube] embeddable check error: {e} - returning unfiltered")
+        return results
+
+    embeddable = {}
+    durations = {}
+    for it in data.get("items", []):
+        vid = it["id"]
+        status = it.get("status", {})
+        embeddable[vid] = bool(status.get("embeddable")) and status.get("privacyStatus") == "public"
+        dur_str = it.get("contentDetails", {}).get("duration", "")
+        m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur_str)
+        if m:
+            durations[vid] = int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)
+
+    filtered = []
+    for res in results:
+        vid = res.get("id")
+        # If the API didn't return this id at all, keep it (benefit of the doubt) - but if it
+        # was returned and flagged non-embeddable/private, drop it.
+        if vid in embeddable and not embeddable[vid]:
+            continue
+        if vid in durations and durations[vid]:
+            res["duration_seconds"] = durations[vid]
+        filtered.append(res)
+
+    # Safety: never hand back an empty list purely due to filtering.
+    return filtered if filtered else results
 
 
 @router.get("/youtube/search")
-async def youtube_search(q: str = "", max_results: int = 10):
-    import httpx
-    key = kl.youtube_key()
-    if not key:
-        raise HTTPException(status_code=400, detail="No YouTube key saved. Add it in Karaoke Setup.")
-    if not q or len(q.strip()) < 2:
+async def youtube_search(q: str = "", max_results: int = 15):
+    """Search YouTube for karaoke videos via yt-dlp (NO API quota).
+    A 24h MongoDB cache (LRU, 60 entries) front-runs repeat queries for instant results."""
+    import asyncio
+
+    if not q or len(q) < 2:
         return {"results": []}
-    query = f"{q.strip()} karaoke"
-    cache_key = "v2|" + query.lower()                     # alpha.99: results cached before the embeddable check are not reused
+
+    search_query = f"{q} karaoke"
+    # cache_key is versioned (|v2) so old cached entries from before the embeddable filter are ignored.
+    cache_key = f"{q} karaoke|v2".lower().strip()
+    effective_max = min(max_results, 12)
+
+    # Step 1: MongoDB cache (fresh <24h) - instant repeat searches.
     try:
         cached = await db.youtube_search_cache.find_one({"query": cache_key})
-        if cached and (datetime.now(timezone.utc) - datetime.fromisoformat(cached["cached_at"])).total_seconds() < 86400:
-            return {"results": cached["results"], "cached": True}
-    except Exception:
-        pass
-    results: List[Dict[str, Any]] = []
-    checked = False                                         # alpha.103: did the embeddable check actually run?
-    try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get("https://www.googleapis.com/youtube/v3/search", params={
-                "part": "snippet", "q": query, "type": "video", "maxResults": min(max_results, 10),
-                "key": key, "videoCategoryId": "10", "videoEmbeddable": "true"})
-            if r.status_code == 403:
-                return {"results": [], "quota_warning": True}
-            if r.status_code != 200:
-                raise HTTPException(status_code=502, detail="YouTube search failed")
-            ids = []
-            for it in r.json().get("items", []):
-                vid = it.get("id", {}).get("videoId")
-                if not vid:
-                    continue
-                sn = it.get("snippet", {})
-                ids.append(vid)
-                results.append({"id": vid, "title": sn.get("title", ""), "artist": sn.get("channelTitle", ""),
-                                "thumbnail": sn.get("thumbnails", {}).get("medium", {}).get("url", ""),
-                                "source": "youtube", "duration_seconds": 0,
-                                "embed_url": f"https://www.youtube.com/embed/{vid}?autoplay=1&controls=0&rel=0&modestbranding=1"})
-            if ids:
-                # alpha.99: ask for "status" too. The search filter videoEmbeddable=true is only approximate; "status.embeddable"
-                # and "privacyStatus" are YouTube's real answer. A video it says cannot be embedded would show "Video unavailable" on the TV.
-                d = await c.get("https://www.googleapis.com/youtube/v3/videos", params={"part": "contentDetails,status", "id": ",".join(ids), "key": key})
-                if d.status_code == 200:
-                    details = {v["id"]: v for v in d.json().get("items", [])}
-                    kept = []
-                    for res in results:
-                        v = details.get(res["id"])
-                        if v is None:
-                            continue                                  # YouTube no longer knows this video: it was removed
-                        if not playable_in_embed(v):
-                            continue                                  # blocked, private or restricted: never offered to the host
-                        res["duration_seconds"] = _seconds(v.get("contentDetails", {}).get("duration", ""))
-                        kept.append(res)
-                    results = kept                            # alpha.103: as in the prototype PRD, a video YouTube says cannot be embedded is DROPPED, even if that leaves the list empty
-                    checked = True
-    except HTTPException:
-        raise
+        if cached:
+            cache_age = (datetime.now(timezone.utc) - datetime.fromisoformat(cached["cached_at"])).total_seconds()
+            if cache_age < 86400:  # 24h
+                logger.info(f"[YouTube] Cache hit for '{q}' ({len(cached['results'])} results)")
+                try:
+                    await db.youtube_search_cache.update_one(
+                        {"query": cache_key},
+                        {"$set": {"last_accessed_at": datetime.now(timezone.utc).isoformat()}},
+                    )
+                    await _enforce_cache_cap()
+                except Exception:
+                    pass
+                return {"results": cached["results"], "cached": True}
     except Exception as e:
-        logger.warning("[Karaoke] YouTube search error: %s", e)
-        raise HTTPException(status_code=504, detail="YouTube search timed out")
-    results.sort(key=_provider_rank)
-    if results and checked:                                  # only cache lists that passed the check, so an unchecked list is never kept for 24 hours
-        await db.youtube_search_cache.update_one({"query": cache_key}, {"$set": {"query": cache_key, "results": results, "cached_at": _now()}}, upsert=True)
-    return {"results": results, "embeddable_checked": checked}
+        logger.warning(f"[YouTube] Cache read error: {e}")
+
+    # Step 2: yt-dlp search in a worker thread (blocking lib) with one retry.
+    results = []
+    for attempt in range(2):
+        try:
+            results = await asyncio.wait_for(
+                asyncio.to_thread(_ytdlp_search, search_query, effective_max),
+                timeout=20,
+            )
+            break
+        except Exception as e:
+            logger.warning(f"[YouTube] yt-dlp search attempt {attempt + 1} failed: {e}")
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+                continue
+            # Final fallback: fuzzy cache match on the first word so the host still sees SOMETHING.
+            try:
+                first_word = q.lower().split()[0]
+                fuzzy = await db.youtube_search_cache.find(
+                    {"query": {"$regex": first_word, "$options": "i"}},
+                ).sort("cached_at", -1).limit(1).to_list(1)
+                if fuzzy:
+                    return {"results": fuzzy[0]["results"], "cached": True, "fuzzy": True}
+            except Exception:
+                pass
+            return {"results": []}
+
+    # Drop videos the owner disabled for embedding (would show 'Video unavailable' on the TV).
+    results = await _filter_embeddable(results)
+
+    # Prioritize reputable karaoke providers (keeps ALL results, just re-orders).
+    results = _sort_by_karaoke_providers(results)
+
+    # Step 3: Cache with LRU eviction (last 60 songs).
+    if results:
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await db.youtube_search_cache.update_one(
+                {"query": cache_key},
+                {"$set": {
+                    "query": cache_key,
+                    "results": results,
+                    "cached_at": now_iso,
+                    "last_accessed_at": now_iso,
+                }},
+                upsert=True,
+            )
+            await _enforce_cache_cap()
+        except Exception as e:
+            logger.warning(f"[YouTube] Cache write error: {e}")
+
+    return {"results": results}
+
+
+CACHE_MAX_ENTRIES = 60
+
+async def _enforce_cache_cap():
+    """Keep only the 60 most-recently-accessed entries. Evicts oldest by last_accessed_at."""
+    try:
+        total = await db.youtube_search_cache.count_documents({})
+        if total <= CACHE_MAX_ENTRIES:
+            return
+        excess = total - CACHE_MAX_ENTRIES
+        oldest = await db.youtube_search_cache.find(
+            {},
+            {"_id": 1, "query": 1},
+        ).sort([("last_accessed_at", 1), ("cached_at", 1)]).limit(excess).to_list(excess)
+        if oldest:
+            ids = [o["_id"] for o in oldest]
+            await db.youtube_search_cache.delete_many({"_id": {"$in": ids}})
+            logger.info(f"[YouTube] LRU eviction: dropped {len(ids)} old cache entries (cap={CACHE_MAX_ENTRIES})")
+    except Exception as e:
+        logger.warning(f"[YouTube] LRU eviction error: {e}")
+
+
+# Reputable karaoke providers - results from these channels are ranked FIRST, but ALL results are kept.
+KARAOKE_PROVIDERS = [
+    "partytyme", "party tyme",
+    "stingray karaoke", "stingray music", "stingray",
+    "sing king", "singking",
+    "sing2karaoke", "sing 2 karaoke",
+]
+
+
+def _sort_by_karaoke_providers(results: list) -> list:
+    """Rank reputable karaoke providers first while KEEPING every result (stable sort)."""
+    def is_provider(r) -> bool:
+        blob = f"{(r.get('artist') or '').lower()} {(r.get('title') or '').lower()}"
+        return any(p in blob for p in KARAOKE_PROVIDERS)
+
+    return sorted(results, key=lambda r: 0 if is_provider(r) else 1)
+
+
+@router.post("/youtube/pre-warm")
+async def pre_warm_cache():
+    """No-op kept for backward compatibility (yt-dlp search is unlimited; pre-warm not needed)."""
+    return {"success": True, "skipped": True, "reason": "yt-dlp search is unlimited; pre-warm not needed"}

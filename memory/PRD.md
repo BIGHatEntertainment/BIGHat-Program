@@ -1554,3 +1554,9 @@ See `/app/memory/test_credentials.md`. Native master admin:
 - Karaoke search drops every video YouTube says cannot be embedded, even if that empties the list; unchecked lists are not cached. Needs a YouTube API key in Karaoke Setup. See DO_NOT_REPEAT #10.
 - Still OPEN: YouTube error 101/150 on a PARTY TYME song in alpha.102 (F-004). Waiting for the owner's checks (alpha.96, prototype, youtube.com) and the current prototype files.
 
+## STATUS alpha.104 (2026-10-08 19:50 MST)
+- Karaoke SEARCH = the prototype's current search, ported as written: yt-dlp (no key, no quota), embeddable filter via one videos?part=status call when a key is saved, never an empty list from filtering, providers first, 24h cache with 60 LRU, retry + similar-search fallback. See backend/routes/karaoke.py (_ytdlp_search, _filter_embeddable, youtube_search).
+- yt-dlp is in backend/requirements-desktop.txt. If a future PyInstaller build cannot find it, add it as a hidden import in scripts/build_sidecar.py.
+- The YouTube key in Karaoke Setup is now OPTIONAL: it only hides songs the video owner blocked.
+- OPEN: F-004, whether songs now play on the owner's PC; the installer build with yt-dlp has not been run by the assistant.
+

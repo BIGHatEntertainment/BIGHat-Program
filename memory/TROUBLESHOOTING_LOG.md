@@ -34,3 +34,8 @@ OPEN QUESTIONS (check next time):
 [2026-10-08 ~19:40] alpha.103 (local, NOT pushed) | backend search: removed my alpha.100 fallback "results = kept if kept else results" (it put BLOCKED videos back when all were blocked); blocked videos are now always dropped; results report embeddable_checked; unchecked lists are not cached for 24h | 2 new backend tests (48 pass); proven able to fail by putting the old line back
 
 [2026-10-08 19:15] alpha.103 | PUSHED (owner said push at 19:14): host loading lock removed; search always drops blocked videos | WAITING FOR OWNER PC TEST; GitHub build not checked by assistant
+[2026-10-08 19:20] owner | pasted the CURRENT prototype backend (yt-dlp search, _filter_embeddable with "never an empty list", 60-entry LRU, providers, no-op pre-warm) | showed my alpha.103 claim was wrong; see DO_NOT_REPEAT 10, 11
+[2026-10-08 19:35] sandbox | real yt-dlp call from backend returned a real karaoke result (Toto - Africa, Sing King, 310s) | search port is proven to work against live YouTube (playback still unproven)
+[2026-10-08 19:50] alpha.104 | prototype search ported as written; yt-dlp added to requirements; key optional; lobby/setup text fixed | 61 backend tests + 5 front-end suites pass; 5 deliberate breaks caught
+[2026-10-08 20:05] packaging | built a one-file PyInstaller exe importing yt_dlp inside a function: worked with AND without --collect-all yt_dlp (searched live YouTube, real result) | flags kept as a safety belt; Windows installer build still not run by the assistant
+[2026-10-08 19:36] alpha.104 | PUSHED (owner said push at 19:36): prototype yt-dlp search ported, yt-dlp in installer requirements | WAITING FOR OWNER PC TEST; GitHub build not checked by assistant

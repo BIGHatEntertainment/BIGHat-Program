@@ -312,7 +312,7 @@ export default function KaraokeSetup() {
         {/* 5. YouTube key */}
         <section className="rounded-xl p-5 mb-6" style={card} data-testid="karaoke-key-section">
           <h2 className="text-lg font-semibold text-white mb-1 flex items-center gap-2"><KeyRound size={18} style={{ color: accent }} /> YouTube key</h2>
-          <p className="text-zinc-500 text-sm mb-3">Used to search for karaoke videos. It is stored on this PC only.</p>
+          <p className="text-zinc-500 text-sm mb-3">Song search works without it. With a key saved, songs the video owner has blocked from playing in the app are hidden from your results. It is stored on this PC only.</p>
           <input value={ytKey} onChange={(e) => setYtKey(e.target.value)} type="password" autoComplete="off" placeholder={hint ? `Saved (${hint}). Paste a new key to replace it.` : "Paste your YouTube Data API key..."} className="w-full px-3 py-2 rounded-lg text-sm" style={field} data-testid="karaoke-key-input" />
           <p className="text-xs mt-2" style={{ color: state?.youtube_key_set ? accent : "#8892b0" }} data-testid="karaoke-key-status">{state?.youtube_key_set ? "A key is saved." : "No key saved yet."}</p>
         </section>

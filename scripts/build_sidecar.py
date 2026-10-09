@@ -159,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
         "--collect-all", "passlib",
         "--collect-all", "jose",
         "--collect-all", "montydb",
+        # alpha.104: Karaoke search. yt_dlp is imported inside a function and loads its site extractors dynamically,
+        # so PyInstaller would miss them. Without this the installed app cannot search for songs.
+        "--collect-all", "yt_dlp",
+        "--hidden-import", "yt_dlp",
         # Hidden imports the native router needs (PyInstaller often misses
         # these — they're the usual cause of "Setup Wizard 405 Method Not
         # Allowed" because native/router.py fails to import inside the bundle).

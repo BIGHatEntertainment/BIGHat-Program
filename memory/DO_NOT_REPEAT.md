@@ -47,8 +47,9 @@ If you are about to do something listed here, STOP and ask the owner first.
 - The first port had no lock. A failing preload sends no report, so the host sat at "Loading ... 0%" and had to press "Start anyway" (owner, 2026-10-08 18:59).
 - RULE: a waiting singer with a song is always startable. Preload status may be shown, never enforced.
 
-### 10. NEVER put a "blocked" song back in the search results to avoid an empty list (alpha.100 did: results = kept if kept else results)
+### 10. (CORRECTED 2026-10-08 19:20) The prototype's _filter_embeddable DOES fall back to the unfiltered list when everything is blocked ("never hand back an empty list purely due to filtering"). My alpha.103 claim that it drops even to empty was WRONG and the opposite of the prototype. Copy the prototype's code; do not paraphrase it from a PRD summary. (Original heading was: NEVER put a blocked song back in the results.)
 - The prototype PRD (2026-06): a video with status.embeddable false is DROPPED. YouTube error 150 is set per video by the uploader; nothing in the app can play it.
 - RULE: an empty list is correct when every result is blocked. Never cache a list the embeddable check did not run on.
 - NOTE: the check needs a YouTube API key saved in Karaoke Setup. Without it the search refuses (400), as before.
 
+### 11. NEVER describe the prototype's code from memory or from a summary. Read the CURRENT file. The three files attached on 2026-10-08 18:59 were OLDER than the live prototype (they still used the Data API search); the owner had to paste the current backend. Ask for or fetch the current file BEFORE comparing.

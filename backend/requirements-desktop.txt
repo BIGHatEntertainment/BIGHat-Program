@@ -168,3 +168,6 @@ emergentintegrations==0.1.0
 
 # --- pandas (used by some trivia analytics paths) ---
 pandas==3.0.1
+
+# alpha.104: Karaoke YouTube search (prototype parity; no API key, no daily quota)
+yt-dlp==2026.8.19

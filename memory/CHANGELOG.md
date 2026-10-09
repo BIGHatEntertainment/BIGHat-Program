@@ -4091,3 +4091,17 @@ TESTED: backend 48 pass (karaoke session + setup), including 2 new tests; the al
 NOT VERIFIED: playing a song in the real Windows desktop window; whether the owner's failing song (Foo Fighters - My Hero, PARTY TYME) was an uploader-blocked video or a window-origin problem; that a YouTube API key is saved on the owner's install (the embeddable check needs one); the GitHub Actions build of this release.
 FILES: frontend/src/pages/karaoke/karaokeFlow.js, frontend/scripts/bingo/karaoke_flow.check.mjs, frontend/scripts/bingo/karaoke_player.check.mjs, backend/routes/karaoke.py, backend/tests/test_alpha70_karaoke_session.py, memory/*, src-tauri/tauri.conf.json.
 
+## alpha.104 (2026-10-08 ~19:50 MST; owner: "YES! please do that! thats literally what i have been asking this whole time")
+- Karaoke SEARCH ported from the prototype's current backend/routes/karaoke.py as written (owner pasted it 2026-10-08 19:20): yt-dlp search ("ytsearch12:{q} karaoke", no API key, no daily quota), one videos?part=status call to drop videos YouTube says cannot be embedded (only when a key is saved), "never hand back an empty list purely due to filtering", providers (Party Tyme, Stingray, Sing King, Sing2Karaoke) ranked first with nothing dropped, 24h cache with 60-entry LRU cap, 1 retry then similar-search cache fallback, pre-warm is a no-op, up to 12 results.
+- ONE adaptation: the key comes from the key saved in Karaoke Setup (else the YOUTUBE_API_KEY variable) instead of only the variable.
+- Reverted my alpha.103 search change (it dropped blocked videos even when that emptied the list, the opposite of the prototype).
+- Search no longer needs a key (before: answered 400 "No YouTube key"). Lobby and Setup text now say the key only hides blocked songs.
+- Installer: yt-dlp==2026.8.19 added to backend/requirements-desktop.txt and requirements.txt.
+- The alpha.103 host change (no loading lock) stays.
+TIME (MST): 2026-10-08 ~19:50 (commit); built and tested 2026-10-08 19:22 to 19:48.
+FIXES FAILURE: F-004 (Karaoke songs refused / search differs from the prototype). Not confirmed on the owner's PC.
+TESTED: backend 61 pass (karaoke session + setup + buffer), 9 new alpha.104 tests; 5 deliberate breaks each caught by a test (blocked not dropped, empty-list fallback, no 60 cap, providers not first, no retry). REAL yt-dlp ran from the sandbox and returned a real result (Toto - Africa (Karaoke Version), Sing King, 310 s) with the prototype's fields. Full app build compiled; karaoke flow, aud, request, setup and player front-end checks pass on fresh bundles.
+PACKAGING CHECK (2026-10-08 ~20:05): a one-file PyInstaller executable that imports yt_dlp inside a function (like _ytdlp_search) was built and run on Linux, WITH and WITHOUT --collect-all yt_dlp: both searched live YouTube and returned a real song. So the flags added to scripts/build_sidecar.py are a safety belt, not a proven requirement (PyInstaller's own hooks already know yt-dlp).
+NOT VERIFIED: the real Windows installer build with yt-dlp inside it (the Windows PyInstaller build was NOT run; only the Linux probe above); playing any song in the Windows desktop window; that the owner's failing song is now filtered out; the GitHub Actions build.
+FILES: scripts/build_sidecar.py, backend/routes/karaoke.py, backend/requirements-desktop.txt, backend/requirements.txt, backend/tests/test_alpha70_karaoke_session.py, frontend/src/pages/karaoke/KaraokeLobby.jsx, frontend/src/pages/karaoke/KaraokeSetup.jsx, memory/*, src-tauri/tauri.conf.json.
+

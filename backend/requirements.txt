@@ -140,3 +140,6 @@ xlsxwriter==3.2.9
 yarl==1.23.0
 zipp==3.23.0
 montydb==2.5.3
+
+# alpha.104: Karaoke YouTube search (prototype parity)
+yt-dlp==2026.8.19

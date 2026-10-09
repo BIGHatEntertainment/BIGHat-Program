@@ -122,7 +122,7 @@ export default function KaraokeLobby() {
       <main className="max-w-4xl mx-auto px-6 py-8">
         {!keySet && (
           <p className="mb-5 text-sm flex items-center gap-2 text-yellow-400" data-testid="karaoke-no-key-warning">
-            <AlertCircle size={16} /> No YouTube key saved, so song search will not work. Add it in Karaoke Setup.
+            <AlertCircle size={16} /> No YouTube key saved. Song search still works, but songs the video owner has blocked from playing here may show up. Add the key in Karaoke Setup to hide them.
           </p>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
