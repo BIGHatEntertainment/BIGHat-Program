@@ -60,7 +60,7 @@ export function nextSingerState(queue, preloadPercent) {
   const next = nextWaiting(queue);
   if (!next) return { enabled: false, reason: "no_one_waiting" };
   if (!hasSong(next)) return { enabled: false, reason: "no_song", singer: next };
-  if (preloadPercent < PRELOAD_READY) return { enabled: false, reason: "loading", singer: next, percent: preloadPercent };
+  // alpha.103: NO loading lock. The first port had none; a slow or failed preload must never stop the host from starting a song.
   return { enabled: true, reason: "ready", singer: next };
 }
 

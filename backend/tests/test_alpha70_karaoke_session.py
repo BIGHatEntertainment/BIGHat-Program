@@ -401,3 +401,23 @@ def test_old_cached_searches_from_before_the_check_are_not_reused(client, monkey
     assert [x["id"] for x in r["results"]] == ["good1"] and not r.get("cached")
 
 
+
+
+def test_alpha103_all_blocked_gives_an_empty_list_and_is_not_cached(client, monkeypatch):
+    # prototype PRD: a video YouTube says cannot be embedded is DROPPED, even if nothing is left.
+    c, _ = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    _fake_httpx(monkeypatch, search_ids=["blk1", "blk2"], items=[_item("blk1", embeddable=False), _item("blk2", embeddable=False)])
+    r = c.get("/api/karaoke/youtube/search", params={"q": "all blocked song"}).json()
+    assert r["results"] == [] and r["embeddable_checked"] is True, r
+    # a second search must go back to YouTube (an empty list is never cached)
+    r2 = c.get("/api/karaoke/youtube/search", params={"q": "all blocked song"}).json()
+    assert not r2.get("cached"), r2
+
+
+def test_alpha103_the_search_says_when_the_embeddable_check_ran(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
+    _fake_httpx(monkeypatch, search_ids=["ok1"], items=[_item("ok1")])
+    r = c.get("/api/karaoke/youtube/search", params={"q": "checked song"}).json()
+    assert r["embeddable_checked"] is True and [x["id"] for x in r["results"]] == ["ok1"], r

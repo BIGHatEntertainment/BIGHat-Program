@@ -4080,3 +4080,14 @@ FIXES FAILURE: F-001 (Karaoke video "unavailable"), F-002 (wrong test bundle hid
 TESTED: backend 46 pass (karaoke session + setup); frontend karaoke_aud, karaoke_player, karaoke_flow all pass on FRESH bundles built with karaoke_all.build.mjs; 9 new preload checks; proven able to fail by putting the old full-size buffer back (5 checks failed), then restoring.
 NOT VERIFIED: playing a real YouTube song in the real Windows desktop window (sandbox cannot reach YouTube); GitHub Actions build status of the release; the exact YouTube behavior for each song.
 FILES: frontend/src/pages/karaoke/KaraokeAudienceView.jsx, KaraokePlayer.jsx, KaraokeRightPanel.jsx, karaokeFlow.js, frontend/public/index.html; backend/routes/karaoke.py; tests karaoke_aud/player/flow.check.mjs, backend/tests/test_alpha70_karaoke_session.py; removed frontend/src/pages/karaoke/iframePlayback.js.
+
+## alpha.103 (pushed 2026-10-08 ~19:15 MST; owner said "push to alpha.103" at 19:14)
+- Karaoke host: the Next Singer button is never locked by the TV's preload. A waiting singer with a song can always start. The "Loading ... %" lock, "Start anyway" and "Retry loading" are gone. The preload still runs and its status strip still shows (information only).
+- Karaoke search (backend): a video YouTube says cannot be embedded is always dropped, even if every result is blocked (removed my alpha.100 fallback that put blocked videos back). Results now include embeddable_checked. A list the check did not run on is not cached for 24 hours.
+- Docs: failure report F-004, DO_NOT_REPEAT #9 and #10, troubleshooting log.
+TIME (MST): 2026-10-08 ~19:15 (commit); built and tested 2026-10-08 ~18:50 to 19:40.
+FIXES FAILURE: F-004 (first song locked at "Loading 0%"). The TV refusal (YouTube error 101/150) is NOT confirmed fixed; it may be a blocked video, which the search change now keeps out.
+TESTED: backend 48 pass (karaoke session + setup), including 2 new tests; the all-blocked test fails when the old fallback is put back. Frontend karaoke_flow, karaoke_player and karaoke_aud checks pass on fresh bundles built with karaoke_all.build.mjs; the rules check fails when the lock is put back. Full app build compiled.
+NOT VERIFIED: playing a song in the real Windows desktop window; whether the owner's failing song (Foo Fighters - My Hero, PARTY TYME) was an uploader-blocked video or a window-origin problem; that a YouTube API key is saved on the owner's install (the embeddable check needs one); the GitHub Actions build of this release.
+FILES: frontend/src/pages/karaoke/karaokeFlow.js, frontend/scripts/bingo/karaoke_flow.check.mjs, frontend/scripts/bingo/karaoke_player.check.mjs, backend/routes/karaoke.py, backend/tests/test_alpha70_karaoke_session.py, memory/*, src-tauri/tauri.conf.json.
+

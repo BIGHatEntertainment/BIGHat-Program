@@ -42,3 +42,13 @@ If you are about to do something listed here, STOP and ask the owner first.
 
 ## DATA
 ### 8. Anything the owner types must survive updates (re-entering data after updates is the number one complaint). Venues live in the Schedule only; backup copy in AppData\backups\schedule.
+
+### 9. NEVER lock the host's Next Singer / Start button on something the TV must report (alpha.89 to 102 did: preload under 100%)
+- The first port had no lock. A failing preload sends no report, so the host sat at "Loading ... 0%" and had to press "Start anyway" (owner, 2026-10-08 18:59).
+- RULE: a waiting singer with a song is always startable. Preload status may be shown, never enforced.
+
+### 10. NEVER put a "blocked" song back in the search results to avoid an empty list (alpha.100 did: results = kept if kept else results)
+- The prototype PRD (2026-06): a video with status.embeddable false is DROPPED. YouTube error 150 is set per video by the uploader; nothing in the app can play it.
+- RULE: an empty list is correct when every result is blocked. Never cache a list the embeddable check did not run on.
+- NOTE: the check needs a YouTube API key saved in Karaoke Setup. Without it the search refuses (400), as before.
+

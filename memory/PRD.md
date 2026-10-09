@@ -1549,3 +1549,8 @@ See `/app/memory/test_credentials.md`. Native master admin:
 - Every failure, regression or failed fix gets its own report: copy memory/failures/TEMPLATE.md to memory/failures/F-NNN-short-name.md and fill all 14 sections. Existing: F-001 Karaoke video unavailable, F-002 wrong test bundle, F-003 docs not kept in repo.
 - The alpha.102 release is documented in the new format (see its CHANGELOG block).
 
+## STATUS alpha.103 (2026-10-08 19:15 MST)
+- Karaoke host has NO loading lock (alpha.103): a waiting singer with a song is always startable; preload status is shown, never enforced. See DO_NOT_REPEAT #9.
+- Karaoke search drops every video YouTube says cannot be embedded, even if that empties the list; unchecked lists are not cached. Needs a YouTube API key in Karaoke Setup. See DO_NOT_REPEAT #10.
+- Still OPEN: YouTube error 101/150 on a PARTY TYME song in alpha.102 (F-004). Waiting for the owner's checks (alpha.96, prototype, youtube.com) and the current prototype files.
+

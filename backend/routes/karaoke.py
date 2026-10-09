@@ -495,6 +495,7 @@ async def youtube_search(q: str = "", max_results: int = 10):
     except Exception:
         pass
     results: List[Dict[str, Any]] = []
+    checked = False                                         # alpha.103: did the embeddable check actually run?
     try:
         async with httpx.AsyncClient(timeout=15) as c:
             r = await c.get("https://www.googleapis.com/youtube/v3/search", params={
@@ -530,13 +531,14 @@ async def youtube_search(q: str = "", max_results: int = 10):
                             continue                                  # blocked, private or restricted: never offered to the host
                         res["duration_seconds"] = _seconds(v.get("contentDetails", {}).get("duration", ""))
                         kept.append(res)
-                    results = kept if kept else results      # alpha.100: never return an empty list only because of our extra check (the prototype would show them)
+                    results = kept                            # alpha.103: as in the prototype PRD, a video YouTube says cannot be embedded is DROPPED, even if that leaves the list empty
+                    checked = True
     except HTTPException:
         raise
     except Exception as e:
         logger.warning("[Karaoke] YouTube search error: %s", e)
         raise HTTPException(status_code=504, detail="YouTube search timed out")
     results.sort(key=_provider_rank)
-    if results:
+    if results and checked:                                  # only cache lists that passed the check, so an unchecked list is never kept for 24 hours
         await db.youtube_search_cache.update_one({"query": cache_key}, {"$set": {"query": cache_key, "results": results, "cached_at": _now()}}, upsert=True)
-    return {"results": results}
+    return {"results": results, "embeddable_checked": checked}
