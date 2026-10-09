@@ -236,3 +236,48 @@ def video_path(theme_id: str, number: int) -> Optional[Path]:
         return None
     name = video_map(folder).get(int(number))
     return (folder / name) if name else None
+
+
+def cards_folder(theme_id: str) -> Optional[Path]:
+    """alpha.110: the "Cards" folder inside a theme folder (Loteria rounds keep their pictures there). Any capitalisation works."""
+    folder = theme_folder(theme_id)
+    if not folder:
+        return None
+    try:
+        for d in folder.iterdir():
+            if d.is_dir() and d.name.lower() == "cards":
+                return d
+    except OSError:
+        pass
+    return None
+
+
+def card_themes() -> List[Dict[str, Any]]:
+    """alpha.109/110: themes the Bingo CARD generator may offer = every theme switched ON in Bingo Setup that has a song list
+    (.csv or .xlsx). A card only needs the list, not the videos.
+    A theme with "Loteria" in its name makes PICTURE cards instead: its count is the number of pictures in its Cards folder."""
+    s = load_settings()
+    res = scan(s["main_folder"])
+    out: List[Dict[str, Any]] = []
+    try:
+        from native import bingo_cards as _bc
+    except Exception:  # pragma: no cover
+        _bc = None
+    for t in res["themes"]:
+        if not t["enabled"] or not t["song_list"]:
+            continue
+        loteria = bool(_bc and _bc.is_loteria(t["id"]))
+        try:
+            if loteria:
+                cf = cards_folder(t["id"])
+                n = len(_bc.loteria_images(cf)) if cf else 0
+            else:
+                folder = theme_folder(t["id"])
+                lst = _song_list_file(folder) if folder else None
+                songs = parse_song_list(lst) if lst else []
+                n = len(_bc.unique_titles(songs)) if _bc else len(songs)       # the number of DIFFERENT titles a card can actually use
+        except Exception:
+            n = 0
+        out.append({"id": t["id"], "name": t["name"], "song_list": t["song_list"], "songs": n, "videos": t["videos"],
+                    "kind": "loteria" if loteria else "words", "need": (_bc.LOTERIA_PICS if loteria else _bc.MIN_SONGS) if _bc else 24})
+    return out
