@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { isTauri, openNativeAudience } from '../../../lib/audienceWindow';
-import { X, ChevronLeft, ChevronRight, Monitor, ListOrdered, Pause, Play, Eye, Flag, Loader2, CheckCircle } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Monitor, ListOrdered, Pause, Play, Eye, Flag, Loader2, CheckCircle, HelpCircle } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { toast } from '../../../utils/toastCompat';
 import axios from 'axios';
@@ -128,6 +128,56 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
     const textElements = slide.elements.filter(el => el.type === 'text');
     return textElements.length;  // Return full count, no -1 since there's no title
   }, [slides]);
+
+  // Answer Helper (host only): for the answer about to be revealed on an answer slide, return the matching
+  // QUESTION text, pulled from this round's Review slide, so the host can re-read it aloud before revealing.
+  // Only for MC/REG/MISC/MYS rounds (BIG and the tiebreaker are single-question, so they are left out).
+  // It never touches the audience view. `revealIndex` is 0-based (the answer about to be revealed).
+  const getQuestionForReveal = useCallback((slideIndex, revealIndex) => {
+    const slide = slides[slideIndex];
+    const md = slide?.metadata;
+    const roundType = md?.roundType;
+    if (!slide || !['MC', 'REG', 'MISC', 'MYS'].includes(roundType)) return null;
+    if (!isAnswerSlide(slideIndex)) return null;   // only ever answer slides (same rule the Reveal button uses)
+
+    const answerRel = md.slideIndexInRound;
+    const reviewRel = answerRel - 2; // the .gif slide sits between the review slide and the answers in every round
+
+    // Find THIS round's review slide by walking backward (handles a round type that is used more than once).
+    let review = null;
+    for (let j = slideIndex - 1; j >= 0 && j >= slideIndex - 6; j--) {
+      const s = slides[j];
+      if (s?.metadata?.roundType === roundType && s?.metadata?.slideIndexInRound === reviewRel) {
+        review = s;
+        break;
+      }
+    }
+    if (!review) return null;
+
+    // Answers use the SAME order the audience view reveals them in: text elements sorted by Y only
+    // (see TriviaAudienceView renderAnswerSlide). The review slide is sorted the same way.
+    const byY = (a, b) => a.y - b.y;
+    const answerTexts = (slide.elements || []).filter(e => e.type === 'text').slice().sort(byY);
+    const reviewTexts = (review.elements || []).filter(e => e.type === 'text').slice().sort(byY);
+    const ansEl = answerTexts[revealIndex];
+    if (!ansEl) return null;
+
+    const leadNum = (c) => {
+      const m = (c || '').trim().match(/^(\d+)/);
+      return m ? parseInt(m[1], 10) : null;
+    };
+    const stripNum = (c) => (c || '').replace(/^\s*\d+\s*[.)]?\s*/, '').trim();
+
+    // Primary: match by the leading question number (safe against titles and layout changes).
+    const ansNum = leadNum(ansEl.content);
+    if (ansNum != null) {
+      const match = reviewTexts.find(e => leadNum(e.content) === ansNum);
+      if (match) return stripNum(match.content);
+    }
+    // Fallback: line up the end of the review list with the answers (drops any leading title).
+    const questions = reviewTexts.slice(Math.max(0, reviewTexts.length - answerTexts.length));
+    return questions[revealIndex] ? stripNum(questions[revealIndex].content) : null;
+  }, [slides, isAnswerSlide]);
 
   const getAutoAdvanceTime = useCallback((slideIndex) => {
     const slide = slides[slideIndex];
@@ -917,6 +967,42 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
             );
           })}
           
+          {/* Answer Helper: HOST-ONLY question reminder, left of the answers. Shows the question for the answer the
+              Reveal button is about to show, moves on as answers are revealed, and disappears when all are revealed.
+              Follows the AUDIENCE slide (the one Reveal Next Answer works on), so it stays right even with sync off.
+              MC/REG/MISC/MYS only. Never sent to the audience window. */}
+          {(() => {
+            if (!audienceWindow || !isAnswerSlide(audienceIndex)) return null;
+            const roundType = slides[audienceIndex]?.metadata?.roundType;
+            if (!['MC', 'REG', 'MISC', 'MYS'].includes(roundType)) return null;
+            const total = getAnswerCount(audienceIndex);
+            const revealed = revealedAnswers[audienceIndex] || 0;
+            if (total === 0 || revealed >= total) return null;
+            const question = getQuestionForReveal(audienceIndex, revealed);
+            if (!question) return null;
+            return (
+              <div
+                className="absolute z-30"
+                style={{ left: '1.5%', top: '50%', transform: 'translateY(-50%)', width: '38%', maxWidth: '38%' }}
+                data-testid="host-question-reminder"
+              >
+                <div className="relative bg-slate-900/95 backdrop-blur-sm border-2 border-yellow-400 rounded-2xl shadow-2xl px-5 py-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <HelpCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                    <span className="text-yellow-400 font-bold text-sm uppercase tracking-wide" data-testid="host-question-reminder-label">
+                      Question {revealed + 1} of {total}
+                    </span>
+                  </div>
+                  <p className="text-white font-semibold leading-snug" style={{ fontSize: 'clamp(14px, 1.5vw, 22px)', maxHeight: '40vh', overflowY: 'auto' }} data-testid="host-question-reminder-text">
+                    {question}
+                  </p>
+                  {/* Arrow pointing right toward the answers */}
+                  <div className="absolute" style={{ right: '-14px', top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '12px solid transparent', borderBottom: '12px solid transparent', borderLeft: '14px solid #facc15' }} />
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Auto-Advance Timer - Only visible to host when active */}
           {isTimerActive && timeRemaining !== null && (
             <div className="absolute top-4 right-4 bg-orange-600/90 text-white px-6 py-3 rounded-lg font-bold text-3xl border-2 border-orange-400">
