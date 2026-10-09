@@ -844,8 +844,21 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
         return;
       }
       
-      if (e.key === 'ArrowRight' || e.key === ' ') {
+      if (e.key === 'ArrowRight') {
         goNext();
+      } else if (e.key === ' ' || e.key === 'Spacebar') {
+        // Spacebar: on an answer slide (audience view open) with answers left, reveal the next answer
+        // instead of advancing the slide. Once every answer is revealed, space advances like the right arrow.
+        // Left / right arrows are always plain slide navigation.
+        e.preventDefault();            // stop the page from scrolling
+        if (e.repeat) return;          // ignore held-key auto-repeat so one long press cannot reveal several answers
+        const revealActive = audienceWindow && isAnswerSlide(audienceIndex) &&
+          (revealedAnswers[audienceIndex] || 0) < getAnswerCount(audienceIndex);
+        if (revealActive) {
+          revealNextAnswer();
+        } else {
+          goNext();
+        }
       } else if (e.key === 'ArrowLeft') {
         goPrev();
       } else if (e.key === 'Escape') {
@@ -855,7 +868,7 @@ const PresentationMode = ({ slides, onExit, onOpenScoreTracker, presentationId, 
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [goNext, goPrev, onExit, isScoreTrackerOpen]);
+  }, [goNext, goPrev, onExit, isScoreTrackerOpen, audienceWindow, audienceIndex, revealedAnswers, isAnswerSlide, getAnswerCount, revealNextAnswer]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black">
