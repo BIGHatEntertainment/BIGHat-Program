@@ -193,3 +193,13 @@ async def songlist_compat(decade: str):
         raise HTTPException(status_code=404, detail=(res or {}).get("error") or "theme_not_found")
     return {"success": True, "decade": decade, "source": "local-folder",
             "songs": [{"number": s["number"], "title": s["title"], "artist": s["artist"], "has_video": s["has_video"]} for s in res["songs"]]}
+
+
+# alpha.109: the Bingo card generator lives in routes/bingo_cards.py (its own file). It is attached to this router so it is
+# mounted wherever Bingo Setup is, at /api/bingo/cards/themes and /api/bingo/cards/generate. Guarded: if it ever failed
+# to import, Bingo Setup keeps working.
+try:
+    from routes import bingo_cards as _bingo_cards
+    router.include_router(_bingo_cards.router)
+except Exception as _e:  # pragma: no cover
+    logger.warning("Bingo card generator not loaded: %s", _e)
