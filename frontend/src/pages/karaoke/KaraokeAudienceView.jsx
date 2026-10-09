@@ -22,13 +22,15 @@ export const videoIdOf = (embedUrl) => {
 
 /**
  * Karaoke audience screen (alpha.70). THIS SCREEN IS THE CLOCK.
- *  - It plays the song itself (a plain <video> fed by the backend's yt-dlp download, alpha.105) and reports started / time / ended to the server.
+ *  - It plays the song itself and reports started / time / ended to the server. alpha.108: FIRST through a tiny relay page (/karaoke/embed) that holds the
+ *    YouTube player with a proper origin; if YouTube refuses the song (101/150/153) or it never starts, it falls back to the yt-dlp download in a plain <video>.
  *    The host follows these reports. The host never guesses where the song is.
  *  - A routine refresh never seeks or pauses the video. Only the host's play / pause / end commands do.
  *  - The video fades out over 3 s when a song is ending, then the screen goes back to the music view.
  *  - Layout: the master overlay image with the video, scrolling "up next" bar, venue logo and request QR placed in its windows.
  */
 const RETRY_AFTER_MS = 4000;     // alpha.93: a failed preload is tried again after this long
+const RELAY_START_TIMEOUT_MS = 12000;   // alpha.108: if the YouTube relay has not started the song by then, use the download
 
 export default function KaraokeAudienceView() {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -41,6 +43,7 @@ export default function KaraokeAudienceView() {
   const [isFading, setIsFading] = useState(false);
   const [ytProblem, setYtProblem] = useState(false);
   const [loadingSong, setLoadingSong] = useState(false);
+  const [via, setVia] = useState("");               // alpha.108: "youtube" (relay) or "file" (yt-dlp download), for the host's information
   const [ytReason, setYtReason] = useState("");          // alpha.96: YouTube's error code, shown as words
   const [requestUrl, setRequestUrl] = useState(`${window.location.origin}/karaoke/request`);
 
@@ -52,6 +55,8 @@ export default function KaraokeAudienceView() {
   const timerRef = useRef(null);
   const channelRef = useRef(null);
   const preloadRef = useRef({ singerId: null, videoId: null });   // the next singer's video, loading silently in the background
+  const relayTimerRef = useRef(null);
+  const relayCleanupRef = useRef(null);
   const revRef = useRef(-1);        // newest host revision applied; anything older is a stale copy and is ignored
 
   const enterFullscreen = useCallback(() => {
@@ -78,15 +83,18 @@ export default function KaraokeAudienceView() {
 
   const destroyPlayer = useCallback(() => {
     stopTimer();
-    try { const v = playerRef.current; if (v) { v.pause(); v.removeAttribute('src'); v.load(); } if (playerHostRef.current) playerHostRef.current.innerHTML = ''; } catch { /* already gone */ }
+    if (relayTimerRef.current) { clearTimeout(relayTimerRef.current); relayTimerRef.current = null; }
+    if (relayCleanupRef.current) { relayCleanupRef.current(); relayCleanupRef.current = null; }
+    try { const v = playerRef.current; if (v && v.pause) { v.pause(); v.removeAttribute('src'); v.load(); } if (playerHostRef.current) playerHostRef.current.innerHTML = ''; } catch { /* already gone */ }
     playerRef.current = null;
   }, []);
 
-  // alpha.105: the song is a plain <video> whose file is downloaded by the backend (yt-dlp). No YouTube player, no embed,
-  // so YouTube's "owner does not allow it to be played outside YouTube" can never happen.
-  const startSong = useCallback((videoId, singerId) => {
+  // alpha.105/107: the FALLBACK. The song is a plain <video> whose file is downloaded by the backend (yt-dlp), so YouTube's
+  // embed rules never apply. Used when the YouTube relay is refused (101/150/153) or never starts.
+  const startFile = useCallback((videoId, singerId) => {
     destroyPlayer();
-    songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false };
+    songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false, mode: "file" };
+    setVia("file");
     setYtProblem(false); setYtReason(""); setLoadingSong(true);
     const host = playerHostRef.current;
     if (!host) return;
@@ -97,13 +105,13 @@ export default function KaraokeAudienceView() {
     v.autoplay = false;
     v.preload = "auto";
     v.setAttribute("data-testid", "karaoke-audience-video-el");
-    const mine = () => songRef.current.videoId === videoId && songRef.current.id === singerId;
+    const mine = () => songRef.current.videoId === videoId && songRef.current.id === singerId && songRef.current.mode === "file";
     v.addEventListener("loadedmetadata", () => { if (mine()) report({ duration: v.duration || 0 }); });
     v.addEventListener("playing", () => {
       if (!mine()) return;
       setLoadingSong(false);
       const song = songRef.current;
-      if (!song.startedReported) { song.startedReported = true; report({ started: true, duration: v.duration || 0 }); }
+      if (!song.startedReported) { song.startedReported = true; report({ started: true, duration: v.duration || 0, error: "" }); }   // error "" clears an earlier "YouTube gave up" note
       if (!timerRef.current) timerRef.current = setInterval(() => { if (mine()) report({ time: v.currentTime || 0 }); }, 1000);
     });
     v.addEventListener("pause", () => { if (!v.ended) stopTimer(); });
@@ -131,6 +139,52 @@ export default function KaraokeAudienceView() {
     v.load();
   }, [destroyPlayer, report]);
 
+  // alpha.108: the FIRST choice. YouTube's own player, but inside a tiny relay page served by our backend (/karaoke/embed),
+  // so YouTube sees a proper origin and Referer (the fix for error 153 in Tauri/webview apps). The relay tells us what the
+  // player does with postMessage. If YouTube refuses the song, or it does not start in time, we switch to the download.
+  const startSong = useCallback((videoId, singerId) => {
+    destroyPlayer();
+    songRef.current = { id: singerId, videoId, startedReported: false, endedReported: false, mode: "youtube" };
+    setVia("youtube");
+    setYtProblem(false); setYtReason(""); setLoadingSong(true);
+    const host = playerHostRef.current;
+    if (!host) return;
+    host.innerHTML = "";
+    const mine = () => songRef.current.videoId === videoId && songRef.current.id === singerId && songRef.current.mode === "youtube";
+    const fallBack = (why) => { if (!mine()) return; console.warn("[karaoke audience] YouTube relay gave up (" + why + "), using the downloaded file"); report({ error: "fallback_" + why }); startFile(videoId, singerId); };
+    const f = document.createElement("iframe");
+    f.src = `${API}/karaoke/embed?v=${encodeURIComponent(videoId)}&autoplay=${wantPlayingRef.current ? 1 : 0}`;
+    f.allow = "autoplay; encrypted-media; fullscreen";
+    f.referrerPolicy = "strict-origin-when-cross-origin";
+    f.style.cssText = "width:100%;height:100%;border:0;background:#000";
+    f.setAttribute("data-testid", "karaoke-audience-youtube-relay");
+    const onMsg = (ev) => {
+      const m = ev.data;
+      if (!m || !m.__karaoke || m.vid !== videoId || ev.source !== f.contentWindow || !mine()) return;
+      const song = songRef.current;
+      if (m.type === "started") {
+        if (relayTimerRef.current) { clearTimeout(relayTimerRef.current); relayTimerRef.current = null; }
+        setLoadingSong(false);
+        if (!song.startedReported) { song.startedReported = true; report({ started: true, duration: m.duration || 0, error: "" }); }
+      } else if (m.type === "time") {
+        report({ time: m.time || 0, duration: m.duration || 0 });
+      } else if (m.type === "ended") {
+        if (!song.endedReported) { song.endedReported = true; report({ ended: true }); }
+      } else if (m.type === "error") {
+        fallBack(m.code || "error");
+      }
+    };
+    window.addEventListener("message", onMsg);
+    relayCleanupRef.current = () => window.removeEventListener("message", onMsg);
+    host.appendChild(f);
+    playerRef.current = f;
+    // a song that never starts (YouTube can hang silently) must not leave the TV waiting forever
+    relayTimerRef.current = setTimeout(() => { if (mine() && !songRef.current.startedReported) fallBack("timeout"); }, RELAY_START_TIMEOUT_MS);
+  }, [destroyPlayer, report, startFile]);
+
+  // alpha.108: send a command (play / pause) to the YouTube relay page
+  const sendRelay = (cmd) => { try { const w = playerRef.current && playerRef.current.contentWindow; if (w) w.postMessage({ __karaoke_cmd: 1, cmd }, "*"); } catch { /* relay gone */ } };
+
   // ---- apply what the host says. A new song starts the video. The SAME song is never restarted or seeked.
   const apply = useCallback((pb) => {
     if (!pb) return;
@@ -152,13 +206,15 @@ export default function KaraokeAudienceView() {
     const song = songRef.current;
     if (playing && s && videoId) {
       if (song.id !== s.id || song.videoId !== videoId) startSong(videoId, s.id);
-      else if (playerRef.current && playerRef.current.paused && !playerRef.current.ended) {
+      else if (playerRef.current) {
         // deliberate host command on the SAME song: play it if it was paused (no seeking)
-        playerRef.current.play().catch(() => {});
+        if (song.mode === "youtube") sendRelay("play");
+        else if (playerRef.current.paused && !playerRef.current.ended) playerRef.current.play().catch(() => {});
       }
     } else if (!playing && playerRef.current && song.id === (s && s.id)) {
       // host paused the song
-      try { playerRef.current.pause(); } catch { /* ignore */ }
+      if (song.mode === "youtube") sendRelay("pause");
+      else { try { playerRef.current.pause(); } catch { /* ignore */ } }
     }
     if (!s || (!playing && !s)) {
       destroyPlayer();
@@ -274,12 +330,12 @@ export default function KaraokeAudienceView() {
       <img src={`${API}/karaoke/overlay/master`} alt="" className="absolute inset-0 w-full h-full" style={{ zIndex: 1, pointerEvents: "none", objectFit: "fill" }} data-testid="karaoke-audience-overlay" />
 
       {/* 1. VIDEO */}
-      <div className="absolute" style={{ ...OVERLAY.video, zIndex: 2, backgroundColor: "#000", overflow: "hidden", opacity: isFading ? 0 : 1, transition: "opacity 3s ease-out" }} data-testid="karaoke-audience-video">
-        <div ref={playerHostRef} className="absolute inset-0" style={{ display: showVideo ? "block" : "none" }} />
+      <div className="absolute" style={{ ...OVERLAY.video, zIndex: 2, backgroundColor: "#000", overflow: "hidden", opacity: isFading ? 0 : 1, transition: "opacity 3s ease-out" }} data-testid="karaoke-audience-video" data-via={via}>
+        <div ref={playerHostRef} className="absolute inset-0" style={{ visibility: (wantPlaying && singer && singer.videoId && !ytProblem) ? "visible" : "hidden" }} />
         {/* alpha.89: the NEXT song buffers here, invisible but full size, so when it starts it is simply revealed
             (the player is never moved or rebuilt, which would throw the buffer away). */}
         {!showVideo && singer && (
-          <div className="w-full h-full flex flex-col items-center justify-center text-center px-8" data-testid="karaoke-audience-singer">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8" style={{ backgroundColor: "#000", zIndex: 1 }} data-testid="karaoke-audience-singer">
             <div className="w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-4" style={{ backgroundColor: "rgba(34,197,94,0.15)", border: `3px solid ${accent}` }}>
               <Mic size={36} style={{ color: accent }} />
             </div>
@@ -290,7 +346,7 @@ export default function KaraokeAudienceView() {
           </div>
         )}
         {!showVideo && !singer && (
-          <div className="w-full h-full flex flex-col items-center justify-center text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center" style={{ backgroundColor: "#000", zIndex: 1 }}>
             <Music size={40} style={{ color: accent, opacity: 0.5 }} className="mx-auto mb-3" />
             <p className="text-2xl text-white">Music Playing</p>
           </div>

@@ -371,6 +371,65 @@ async def stream_update_ytdlp():
         return {"updated": False, "reason": str(e)[:200]}
 
 
+# --------------------------------------------------------------------------------------------- YouTube relay page (alpha.108)
+# YouTube refuses an embed (error 153 "player configuration error", or 101/150) when it cannot see a usable page origin /
+# Referer for the page that holds the player. Tauri issue #14422 and YouTube's own docs describe the fix: do not put the
+# player inside the app's own page, serve a tiny plain HTTP page whose only job is to hold the player, and embed THAT.
+# This route is that page. It also reports what the player is doing to the TV page (postMessage), so the TV can follow it
+# and, if YouTube refuses the song, fall back to the yt-dlp download.
+_RELAY_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;overflow:hidden;background:#000}
+#p{width:100%;height:100%;border:0}</style></head>
+<body><div id="p"></div>
+<script>
+var VID=__VID__, AUTOPLAY=__AUTOPLAY__, HOST=__HOST__, ORIGIN=location.origin, player=null, timer=null, started=false, ended=false;
+function say(o){o.__karaoke=1;o.vid=VID;try{parent.postMessage(o,"*")}catch(e){}}
+function stopT(){if(timer){clearInterval(timer);timer=null}}
+window.onYouTubeIframeAPIReady=function(){
+  player=new YT.Player("p",{host:HOST,videoId:VID,width:"100%",height:"100%",
+    playerVars:{autoplay:AUTOPLAY,controls:0,rel:0,modestbranding:1,playsinline:1,disablekb:1,fs:0,enablejsapi:1,origin:ORIGIN,widget_referrer:ORIGIN},
+    events:{
+      onReady:function(){say({type:"ready",duration:player.getDuration()||0});},
+      onStateChange:function(e){
+        var S=YT.PlayerState;
+        if(e.data===S.PLAYING){
+          if(!started){started=true;say({type:"started",duration:player.getDuration()||0});}
+          if(!timer)timer=setInterval(function(){try{say({type:"time",time:player.getCurrentTime()||0,duration:player.getDuration()||0})}catch(x){}},1000);
+        }else if(e.data===S.ENDED){stopT();if(!ended){ended=true;say({type:"ended"});}}
+        else if(e.data===S.PAUSED){stopT();say({type:"paused"});}
+      },
+      onError:function(e){stopT();say({type:"error",code:String(e.data)});}
+    }});
+};
+window.addEventListener("message",function(ev){
+  var m=ev.data||{};if(!m.__karaoke_cmd||!player)return;
+  try{
+    if(m.cmd==="play")player.playVideo(); else if(m.cmd==="pause")player.pauseVideo();
+    else if(m.cmd==="mute")player.mute(); else if(m.cmd==="unmute")player.unMute();
+  }catch(x){}
+});
+var s=document.createElement("script");s.src="https://www.youtube.com/iframe_api";
+s.onerror=function(){say({type:"error",code:"no_youtube"})};document.head.appendChild(s);
+setTimeout(function(){if(!player)say({type:"error",code:"no_youtube"})},15000);
+</script></body></html>"""
+
+
+@router.get("/embed")
+async def youtube_relay(v: str = "", autoplay: int = 1, nocookie: int = 1):
+    """A tiny page that holds ONE YouTube player. The TV page shows it in an iframe and listens for postMessage events."""
+    import json as _json
+    from fastapi.responses import HTMLResponse
+    if not _VID_RE.match(v or ""):
+        raise HTTPException(status_code=400, detail="bad video id")
+    host = "https://www.youtube-nocookie.com" if nocookie else "https://www.youtube.com"
+    html = (_RELAY_HTML.replace("__VID__", _json.dumps(v)).replace("__AUTOPLAY__", "1" if autoplay else "0")
+            .replace("__HOST__", _json.dumps(host)))
+    # No Referrer-Policy header that would hide our origin from YouTube; frames of this page are allowed; no caching.
+    return HTMLResponse(html, headers={"Cache-Control": "no-store", "Referrer-Policy": "strict-origin-when-cross-origin"})
+
+
 def _iter_file(path: str, start: int, end: int, chunk: int = 512 * 1024):
     with open(path, "rb") as fh:
         fh.seek(start)
