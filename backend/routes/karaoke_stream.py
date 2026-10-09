@@ -59,12 +59,30 @@ def _ffmpeg_path():
         return None
 
 
+class _YtLog:
+    """yt-dlp logger that never touches the console (a console-less Windows app has a broken stdout/stderr)."""
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        logger.warning(f"[yt-dlp] {msg}")
+
+    def error(self, msg):
+        logger.error(f"[yt-dlp] {msg}")
+
+
 def _ytdlp_download(video_id: str) -> str:
     """Blocking. Download the song as ONE mp4 (H.264 video + AAC audio, joined with ffmpeg) that any <video> tag can play."""
     import yt_dlp
     STREAM_DIR.mkdir(parents=True, exist_ok=True)
     base = {
         "quiet": True, "no_warnings": True, "noplaylist": True,
+        # alpha.106: the installed Windows app has no console. yt-dlp writes progress to it and crashes with
+        # [Errno 22] Invalid argument (every format then "fails"). Stay silent, and send its log to our logger.
+        "noprogress": True, "consoletitle": False, "color": "never", "logger": _YtLog(),
         "outtmpl": str(STREAM_DIR / f"{video_id}.%(ext)s"),
         "retries": 5, "fragment_retries": 5, "socket_timeout": 20,
         "overwrites": False, "merge_output_format": "mp4",
