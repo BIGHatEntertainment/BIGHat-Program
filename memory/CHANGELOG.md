@@ -4072,5 +4072,11 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - 2026-10-08 14:25 alpha.99: more guesses on top (referrer settings, assign-time check, host warm-up, host-sent waiting list, TV debug strip). Backend kept: search drops videos with status.embeddable false.
 - 2026-10-08 14:56 alpha.100: TV iframe address matched to the prototype string; muted video preview on host; search fallback. Still the bare iframe. Video still unavailable.
 - 2026-10-08 15:40 alpha.101: YT.Player restored for the song, but the alpha.98 stopwatch clock and extras still ran.
+## alpha.102 (commit 9d51418, pushed 2026-10-08 19:10 MST; owner said "push" at 18:10)
 - 2026-10-08 19:10 alpha.102 (commit 9d51418; owner said "push" at 18:10): Karaoke TV page, host player, right panel, flow rules and tests restored from alpha.96; bare iframe, stopwatch, debug strip, referrer extras and the assign-time check removed; the TV preloads the next song the first port's way (1px muted player, cue only, tells the host "ready"). Backend search filter kept. Not yet confirmed on the owner's PC.
 - TESTS: backend 46 pass (karaoke session + setup). Frontend checks (scripts/bingo karaoke_aud / karaoke_player / karaoke_flow) pass on fresh bundles built with karaoke_all.build.mjs. karaoke_flow test fixed: Next Singer unlocks at PRELOAD_READY (100), not 60.
+TIME (MST): 2026-10-08 19:10 (commit); built and tested 2026-10-08 ~15:50 to 17:15.
+FIXES FAILURE: F-001 (Karaoke video "unavailable"), F-002 (wrong test bundle hid the failure). See memory/failures/.
+TESTED: backend 46 pass (karaoke session + setup); frontend karaoke_aud, karaoke_player, karaoke_flow all pass on FRESH bundles built with karaoke_all.build.mjs; 9 new preload checks; proven able to fail by putting the old full-size buffer back (5 checks failed), then restoring.
+NOT VERIFIED: playing a real YouTube song in the real Windows desktop window (sandbox cannot reach YouTube); GitHub Actions build status of the release; the exact YouTube behavior for each song.
+FILES: frontend/src/pages/karaoke/KaraokeAudienceView.jsx, KaraokePlayer.jsx, KaraokeRightPanel.jsx, karaokeFlow.js, frontend/public/index.html; backend/routes/karaoke.py; tests karaoke_aud/player/flow.check.mjs, backend/tests/test_alpha70_karaoke_session.py; removed frontend/src/pages/karaoke/iframePlayback.js.

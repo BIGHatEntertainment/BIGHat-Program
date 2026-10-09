@@ -1543,3 +1543,9 @@ See `/app/memory/test_credentials.md`. Native master admin:
 3. Add every failure to TROUBLESHOOTING_LOG.md and every "do not do this again" to DO_NOT_REPEAT.md.
 4. Simplest code, standard commands. One change at a time. Prove a new test can fail before trusting it.
 5. Say "pushed" only after the GitHub build is confirmed, otherwise say it was not checked.
+### Release documentation gate (added 2026-10-08 18:40 MST, owner: "as much documentation as possible, twice as much for failures")
+- BEFORE any version bump commit run: bash scripts/release_check.sh  (the git pre-commit hook runs it automatically; install once per clone with bash scripts/install_hooks.sh).
+- Each release needs, in the same commit: a "## alpha.N (" block in memory/CHANGELOG.md with lines TIME (MST):, TESTED:, NOT VERIFIED:, FILES: (and FIXES FAILURE: F-xxx when it fixes something); a mention in this PRD status; a line in memory/TROUBLESHOOTING_LOG.md.
+- Every failure, regression or failed fix gets its own report: copy memory/failures/TEMPLATE.md to memory/failures/F-NNN-short-name.md and fill all 14 sections. Existing: F-001 Karaoke video unavailable, F-002 wrong test bundle, F-003 docs not kept in repo.
+- The alpha.102 release is documented in the new format (see its CHANGELOG block).
+

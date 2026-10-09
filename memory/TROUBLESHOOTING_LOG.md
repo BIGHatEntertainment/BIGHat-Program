@@ -24,3 +24,5 @@ Owner's PC: Windows, installed alpha build, TV window = Tauri window at http://1
 OPEN QUESTIONS (check next time):
  - Does alpha.102 play a song from an allowed channel (e.g. PARTY TYME KARAOKE CHANNEL)? If one song fails and others play, it is a blocked VIDEO, not the player.
  - If ALL songs fail on alpha.102: ask for a screenshot of the TV text (the page names the YouTube error code) before changing anything.
+[2026-10-08 18:12] process | owner: PRD/changelog not kept in repo, no "do not repeat" file | admitted; docs backfilled in 384f31c (see failures/F-003)
+[2026-10-08 18:40] process | added scripts/release_check.sh + pre-commit hook + memory/failures/ (14-section report per failure) | hook proven to block a version bump with no docs (8 reasons listed)
