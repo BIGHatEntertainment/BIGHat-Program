@@ -1526,3 +1526,20 @@ See `/app/memory/test_credentials.md`. Native master admin:
    and the canonical Windows-launcher rules (NEVER-DO RULES at the top).
 2. Pick the next item from the **Pending / Backlog** section above.
 3. `/app/memory/PRD.md` (this file) is the long-form spec.
+
+## STATUS AS OF alpha.102 (2026-10-08 19:10 MST) - read DO_NOT_REPEAT.md and TROUBLESHOOTING_LOG.md first
+### Karaoke (module state)
+- HOST (KaraokePlayer.jsx) controls the show; TV (KaraokeAudienceView.jsx) is a separate native window at the same origin (frontend/src/lib/audienceWindow.js). They talk by BroadcastChannel "karaoke-state" (instant) + server polling (slow, survives a refreshed window).
+- TV SONG PLAYER = YouTube's own player script (new YT.Player), as the FIRST PORT (alpha.70). NEVER a bare iframe (DO_NOT_REPEAT #1).
+- TV PRELOAD = 1px muted YT.Player, autoplay 0, cueVideoById; when CUED it posts /karaoke/session/preload-report {ready:true}; host Next Singer unlocks at PRELOAD_READY (100) (karaokeFlow.js).
+- TV LAYOUT (= prototype, exact percentages): video box left 7.14 / top 10 / w 71.82 / h 75.93; up-next bar left 5.12 / top 87.74 / w 75.79 / h 10.54; logo left 82.66 / top 10 / w 12.97 / h 23.06; QR left 82.66 / top 62.87 / w 12.97 / h 23.06. Overlay is always on (no toggle). 3 second fade at song end.
+- SEARCH (backend/routes/karaoke.py /youtube/search) = prototype's: "{q} karaoke", type video, videoCategoryId 10, videoEmbeddable true, max 10, durations, karaoke channels first, 24h cache. EXTRA (kept on purpose): drops videos whose status.embeddable is false; if that would empty the list, keeps the unfiltered list.
+- STORED LINK embed_url = https://www.youtube.com/embed/{id}?autoplay=1&controls=0&rel=0&modestbranding=1 (same as prototype). The TV reads the id from it; it does not use the link as an iframe address.
+- A song YouTube refuses to play is explained on the TV in plain words (explainVideoError) and the host can Pick another song.
+- UNCONFIRMED: alpha.102 has not been played on the owner's PC yet (see TROUBLESHOOTING_LOG.md K-1).
+### Working rules for the builder (from the owner)
+1. Update PRD.md and CHANGELOG.md in the repo (memory/) with EVERY change, with a time stamp, in the same commit as the code.
+2. Update FILE_MAP.md so files are not re-learned.
+3. Add every failure to TROUBLESHOOTING_LOG.md and every "do not do this again" to DO_NOT_REPEAT.md.
+4. Simplest code, standard commands. One change at a time. Prove a new test can fail before trusting it.
+5. Say "pushed" only after the GitHub build is confirmed, otherwise say it was not checked.

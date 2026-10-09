@@ -4051,3 +4051,26 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - Bingo has no place picker (nothing to change). The Trivia story finds pictures by presentation location name -> venue name via loose matching.
 - Tests: tests/test_alpha80_venue_sync.py (17); scripts/e2e_venues.sh, e2e_venue_migration.sh, e2e_story_venues.sh (real app); frontend scripts/bingo/story_venues.check.mjs. Backend total 157 (use BOTH patterns: tests/test_alpha7*.py tests/test_alpha8*.py).
 - KNOWN: a venue created from an old location has a blank address until the host fills it in (Schedule > Admin > Venues).
+
+## alpha.81 to alpha.102 (added 2026-10-08 18:20 MST; entries below were back-filled from git, times are the commit times in MST = UTC-6)
+- 2026-10-06 09:57 alpha.81: master admin created in the Schedule at setup and on update; their password is never replaced.
+- 2026-10-06 11:05 alpha.82: QR relay on api.bighat.live (Karaoke phone requests, Story/Scoreboard download QRs). 2026-10-06 12:41 alpha.83: QR links use /api/relay/...
+- 2026-10-06 13:39 alpha.84: scale-up (indexes, license-check cache, adaptive polling, storage cap, separate relay address) + load test scripts.
+- 2026-10-06 14:26 alpha.85: Setup Package (Admin > Integrations): publish/pull venues, pricing, people, roles, location pictures by master email.
+- 2026-10-06 15:04 alpha.86: Schedule is the source of truth; a venue is on for a game only when that game's price is above $0. (This price filter later hid venues: see alpha.92.)
+- 2026-10-06 15:26 alpha.87: trivia winners videos. 2026-10-06 15:57 alpha.88: sponsor slides.
+- 2026-10-06 17:14 alpha.89: karaoke player (native audience window, singer drag, right panel, real song buffering with a second full-size YouTube player on the TV).
+- 2026-10-07 08:58 alpha.90: concurrent database failures (locations list), duplicate rounds, BIG answers, Mystery review title, pill font 28. (First attempt failed to build; owner fixed the GitHub workflow by hand.)
+- 2026-10-07 14:20 alpha.91: Bingo quiet song check (round + number verified for the up-next song, its preload, the host message and the audience; wrong preloads silently rebuilt).
+- 2026-10-07 14:53 alpha.92: venues are entered in the Schedule only; unpriced venues list in every setup. 15:07: Schedule data safety net (copy to AppData\backups\schedule, auto-restore when a tab comes up empty).
+- 2026-10-07 15:53 alpha.93: Karaoke drag and drop rebuilt as pointer drag (song onto singer); Give to... button removed; Tauri dragDropEnabled off.
+- 2026-10-07 16:31 alpha.94: Karaoke first singer always loads (fullscreen gate no longer drops the buffer, automatic retry, host Retry loading); next singer preloads while one sings.
+- 2026-10-07 17:10 alpha.95: Karaoke overlay + request QR always on (toggles removed everywhere); lobby warns when the venue has no logo.
+- 2026-10-08 10:49 alpha.96: host stays on the Karaoke tab after a song; a song the TV cannot play is explained (YouTube error codes in plain words) with a one-tap Pick another song. LAST BUILD WHERE KARAOKE VIDEO PLAYED.
+- 2026-10-08 11:52 alpha.97: Scoreboard reads the folder Trivia saves to (and its AppData copy); SharePoint off in standalone; tie-breaker text + same blue; rewards slot removed; Use default really reverts; per-venue venue-data.json.
+- 2026-10-08 12:56 alpha.98: REGRESSION. Karaoke song moved to a bare YouTube iframe, stopwatch clock, no buffering gate. Result: "This video is unavailable" on the owner's PC. See DO_NOT_REPEAT #1.
+- 2026-10-08 14:25 alpha.99: more guesses on top (referrer settings, assign-time check, host warm-up, host-sent waiting list, TV debug strip). Backend kept: search drops videos with status.embeddable false.
+- 2026-10-08 14:56 alpha.100: TV iframe address matched to the prototype string; muted video preview on host; search fallback. Still the bare iframe. Video still unavailable.
+- 2026-10-08 15:40 alpha.101: YT.Player restored for the song, but the alpha.98 stopwatch clock and extras still ran.
+- 2026-10-08 19:10 alpha.102 (commit 9d51418; owner said "push" at 18:10): Karaoke TV page, host player, right panel, flow rules and tests restored from alpha.96; bare iframe, stopwatch, debug strip, referrer extras and the assign-time check removed; the TV preloads the next song the first port's way (1px muted player, cue only, tells the host "ready"). Backend search filter kept. Not yet confirmed on the owner's PC.
+- TESTS: backend 46 pass (karaoke session + setup). Frontend checks (scripts/bingo karaoke_aud / karaoke_player / karaoke_flow) pass on fresh bundles built with karaoke_all.build.mjs. karaoke_flow test fixed: Next Singer unlocks at PRELOAD_READY (100), not 60.
