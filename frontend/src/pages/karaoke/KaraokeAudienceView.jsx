@@ -112,10 +112,14 @@ export default function KaraokeAudienceView() {
       const song = songRef.current;
       if (mine() && !song.endedReported) { song.endedReported = true; report({ ended: true }); }
     });
-    v.addEventListener("error", () => {
+    v.addEventListener("error", async () => {
       if (!mine()) return;
-      setLoadingSong(false); setYtProblem(true); setYtReason("stream");
-      report({ error: "stream" });
+      // alpha.107: ask the backend WHY the download failed (sign-in, 403, ffmpeg, no internet...) and show that
+      let why = "stream";
+      try { const r = await axios.get(`${API}/karaoke/stream/status/${videoId}`); if (r.data && r.data.error) why = `stream_${r.data.error}`; } catch { /* keep the generic reason */ }
+      if (!mine()) return;
+      setLoadingSong(false); setYtProblem(true); setYtReason(why);
+      report({ error: why });
     });
     v.addEventListener("canplay", () => {
       if (!mine()) return;
@@ -182,11 +186,11 @@ export default function KaraokeAudienceView() {
         for (let i = 0; i < 90 && preloadRef.current === mine; i++) {
           const r = await axios.get(`${API}/karaoke/stream/status/${videoId}`);
           if (r.data && r.data.ready) { mine.ready = true; mine.asking = false; say({ percent: 100, ready: true }); return; }
-          if (r.data && r.data.error) throw new Error(r.data.error);
+          if (r.data && r.data.error) { mine.reason = `stream_${r.data.error}`; throw new Error(r.data.error); }
           await new Promise((res) => setTimeout(res, 1500));
         }
         mine.asking = false;
-      } catch { mine.asking = false; mine.failedAt = Date.now(); say({ error: "stream" }); }
+      } catch { mine.asking = false; mine.failedAt = Date.now(); say({ error: mine.reason || "stream" }); }
     })();
   }, []);
 
