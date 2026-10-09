@@ -101,6 +101,16 @@ export function explainVideoError(code) {
   if (c === "100") return "This video was removed or is private.";
   if (c === "2") return "This video link is not valid.";
   if (c === "5") return "The video player had a problem with this video.";
+  if (c === "stream") return "The song could not be downloaded for the TV. Check the internet connection, or pick another song.";
+  if (c === "stream_signin") return "YouTube wants a sign-in before it will give this song. Sign in to YouTube once in Edge or Chrome on this PC, then try again.";
+  if (c === "stream_blocked") return "YouTube refused to send this song (403). Try another version of the song.";
+  if (c === "stream_ratelimit") return "YouTube is limiting downloads from this connection. Wait a few minutes.";
+  if (c === "stream_ffmpeg") return "The video tool (ffmpeg) is missing from this install.";
+  if (c === "stream_network") return "This PC cannot reach YouTube. Check its internet connection.";
+  if (c === "stream_private" || c === "stream_unavailable") return "This video is private or no longer available. Pick another version.";
+  if (c === "stream_region") return "This video is blocked in this country. Pick another version.";
+  if (c === "stream_age") return "This video is age-restricted. Pick another version.";
+  if (c.startsWith("stream_")) return "The song could not be downloaded for the TV. Pick another version.";
   if (c === "no_youtube") return "The TV screen could not reach YouTube. Check its internet connection.";
   return "This video could not be played.";
 }
