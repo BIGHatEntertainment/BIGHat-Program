@@ -1103,11 +1103,14 @@ async def tag_overlay_image(
     _, loc = await _require_location_access(location_id, request)
     tags_raw = payload.get("applies_to_round_types") or []
     allowed = {"MC", "REG", "MISC", "MYS", "BIG", "ANS"}
+    # 32.1.0: REG and MISC are per ROUND NUMBER (REG1..REG10, MISC1..MISC10) because shows run 5, 6 or up to 10 rounds
+    allowed |= {f"{k}{n}" for k in ("REG", "MISC") for n in range(1, 11)}
     tags = []
     for t in tags_raw:
         u = (t or "").strip().upper()
         if u and u in allowed:
-            tags.append(u)
+            if u not in tags:
+                tags.append(u)
         elif u and u not in allowed:
             raise HTTPException(400, detail=f"invalid round type {u!r}")
     images = loc.get("overlay_images") or []

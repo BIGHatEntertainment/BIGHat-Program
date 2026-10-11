@@ -684,7 +684,7 @@ def build_from_roulette(
 
 def overlays_for_round_type(
     location_overlays: List[Dict[str, Any]], round_type: str,
-    slide_kind: str = "question",
+    slide_kind: str = "question", round_number: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Return overlays for `round_type` and `slide_kind` ("question"|"answer").
 
@@ -693,6 +693,10 @@ def overlays_for_round_type(
     Untagged (legacy) overlays apply to question slides of every round type.
     Explicit [] = dormant. Question slides never get ANS-only overlays;
     answer slides get ONLY ANS-tagged overlays.
+
+    32.1.0: REG and MISC can be tagged per ROUND NUMBER ("REG2", "MISC4"), since shows run
+    5, 6 or up to 10 rounds. A bare "REG" / "MISC" tag still matches every round of that type
+    (older saves keep working). A numbered tag matches only when `round_number` equals it.
     """
     rt = (round_type or "").upper()
     answer = (slide_kind or "").lower() == "answer"
@@ -707,6 +711,8 @@ def overlays_for_round_type(
         if tags is None:
             out.append(ov)  # untagged legacy -> question slides everywhere
         elif rt in up:
+            out.append(ov)
+        elif round_number and f"{rt}{int(round_number)}" in up:
             out.append(ov)
     out.sort(key=lambda o: o.get("order") or 0)
     return out
