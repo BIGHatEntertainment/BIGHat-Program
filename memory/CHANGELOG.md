@@ -3826,3 +3826,4 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - Fix: added ("bingo", "music_bingo") substring rule in cloud/config.py license_product_name_rules (after "music bingo", before "karaoke").
 - Verified: resolve_tier passes for all catalog names + merch guard; full process_order simulation minted bingo add-on key, upgraded SAME key on later karaoke purchase, and replayed order returned duplicate (idempotent). Test rows cleaned from DB.
 - User will trigger the api.bighat.live redeploy himself (fix requires redeploy to go live).
+- Karaoke add-on re-verified per user request (no code change needed — "Karaoke Player Add-on" matches the "karaoke" rule): karaoke-first purchase mints key, later base purchase upgrades SAME key, and a full 3-product cart mints one key with all flags in one order. Test rows cleaned.
