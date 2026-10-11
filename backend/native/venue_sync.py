@@ -64,6 +64,38 @@ def _persist(loc: Dict[str, Any]) -> None:
         logger.warning("could not write location.json for %s: %s", loc.get("slug"), e)
 
 
+def _restore_from_disk(name: str, venue: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """32.1.0: native mode starts every launch with an EMPTY database. If this venue already has a saved
+    Files/Locations/<slug>/location.json (written by an earlier session), rebuild the location from it, so the
+    overlay round tags, image order, admins and the location id survive an update or reinstall.
+    Without this, a blank row was created here and its _persist() overwrote the saved file, wiping the tags.
+    Never raises; returns None when nothing usable is saved."""
+    try:
+        from native import locations_router as lr
+        root = lr._files_locations_root()
+        if not root.is_dir():
+            return None
+        want = name_key(name)
+        for folder in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith((".", "_"))):
+            saved = lr._read_location_json(folder.name)
+            if not saved or name_key(saved.get("name", "")) != want:
+                continue
+            now = _now()
+            return {
+                "id": saved["id"], "name": name, "slug": folder.name,
+                "branding_images": saved.get("branding_images") or [],
+                "overlay_images": saved.get("overlay_images") or [],
+                "assigned_user_ids": saved.get("assigned_user_ids") or [],
+                "created_at": saved.get("created_at") or now, "updated_at": saved.get("updated_at") or now,
+                "created_by": saved.get("created_by") or "restored",
+                "venue_id": venue["id"], "retired": False,
+                "sponsor_image": saved.get("sponsor_image"),
+            }
+    except Exception as e:                                        # noqa: BLE001
+        logger.warning("could not restore location from disk for %s: %s", name, e)
+    return None
+
+
 async def ensure_location(db, venue: Dict[str, Any], created_by: str = "venue-sync") -> Optional[Dict[str, Any]]:
     """Make sure `venue` has a live location; link both ways.  Returns the location.  Never raises."""
     try:
@@ -80,6 +112,10 @@ async def ensure_location(db, venue: Dict[str, Any], created_by: str = "venue-sy
             if loc is not None and loc.get("venue_id") and loc["venue_id"] != venue["id"] \
                     and await db.venues.find_one({"id": loc["venue_id"]}, {"_id": 0, "id": 1}):
                 loc = None
+        if loc is None:
+            loc = _restore_from_disk(name, venue)                 # 32.1.0: a saved location.json wins over a blank row
+            if loc is not None:
+                await db.locations.insert_one({"_id": loc["id"], **loc})
         if loc is None:
             now = _now()
             loc = {"id": str(uuid.uuid4()), "name": name, "slug": await _unique_slug(db, name),

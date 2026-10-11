@@ -789,23 +789,24 @@ function ImageGrid({ locationId, images, onChange, setError, setSuccess, kind = 
 // PATCH /native/locations/{id}/overlays/{imageId}/tags.
 // ---------------------------------------------------------------
 const ROUND_TYPES = ['MC', 'REG', 'MISC', 'MYS', 'BIG', 'ANS']; // ANS = answer-slide overlay
+// 32.1.0: MC, MYS, BIG and ANS are simple type tags. REG and MISC are picked by ROUND NUMBER, because shows run
+// 5, 6 or up to 10 rounds and a plain "REG" would stack overlays on the longer ones. Stored as "REG2", "MISC4"...
+const SIMPLE_TAGS = ['MC', 'MYS', 'BIG', 'ANS'];
+const NUMBERED_TAGS = ['REG', 'MISC'];
+const ROUND_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 function OverlayRoundTags({ locationId, image, onChange, setError, setSuccess }) {
   const [saving, setSaving] = useState(false);
   const tagged = image.applies_to_round_types;
   // undefined/null = legacy "all question slides" (ANS off); [] = dormant.
+  // Legacy bare REG / MISC keep working on the server; here they show as "every round" until the user picks numbers.
   const effective = Array.isArray(tagged) ? tagged : ROUND_TYPES.filter((t) => t !== 'ANS');
 
-  const toggle = async (rt) => {
-    const next = effective.includes(rt)
-      ? effective.filter((t) => t !== rt)
-      : [...effective, rt];
+  const save = async (next, label) => {
     setSaving(true);
     try {
       await api.tagLocationOverlay(locationId, image.id, next);
-      setSuccess?.(next.length
-        ? `Overlay shows on: ${next.join(', ')}`
-        : 'Overlay disabled for all rounds');
+      setSuccess?.(next.length ? `${label}: overlay shows on ${next.join(', ')}` : 'Overlay disabled for all rounds');
       onChange();
     } catch (e) {
       setError?.(e.response?.data?.detail || 'Failed to update overlay rounds');
@@ -814,29 +815,63 @@ function OverlayRoundTags({ locationId, image, onChange, setError, setSuccess })
     }
   };
 
+  const toggle = (tag) => {
+    const next = effective.includes(tag) ? effective.filter((t) => t !== tag) : [...effective, tag];
+    return save(next, tag);
+  };
+
+  // Picking a round number replaces a bare REG/MISC tag (which meant "every round of that type").
+  const toggleNumber = (kind, n) => {
+    const tag = `${kind}${n}`;
+    const base = effective.filter((t) => t !== kind);
+    const next = effective.includes(tag) ? base.filter((t) => t !== tag) : [...base, tag];
+    return save(next, tag);
+  };
+
+  const chip = (on, saving_) => ({
+    backgroundColor: on ? 'rgba(244, 196, 48, 0.18)' : PALETTE.bg,
+    color: on ? PALETTE.accent : PALETTE.textDim,
+    border: `1px solid ${on ? `${PALETTE.accent}66` : PALETTE.border}`,
+    opacity: saving_ ? 0.5 : 1,
+  });
+
   return (
-    <div className="flex flex-wrap gap-1 px-1.5 py-1.5"
+    <div className="flex flex-col gap-1 px-1.5 py-1.5"
          style={{ borderTop: `1px solid ${PALETTE.border}` }}
          data-testid={`overlay-round-tags-${image.id}`}>
-      {ROUND_TYPES.map((rt) => {
-        const on = effective.includes(rt);
+      <div className="flex flex-wrap gap-1">
+        {SIMPLE_TAGS.map((rt) => {
+          const on = effective.includes(rt);
+          return (
+            <button key={rt} onClick={() => toggle(rt)} disabled={saving}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-semibold transition"
+                    style={chip(on, saving)}
+                    title={on ? `Shown during ${rt} rounds, click to remove` : `Not shown during ${rt} rounds, click to add`}
+                    data-testid={`overlay-tag-${image.id}-${rt}`}>
+              {rt}
+            </button>
+          );
+        })}
+      </div>
+      {NUMBERED_TAGS.map((kind) => {
+        const bare = effective.includes(kind);
         return (
-          <button
-            key={rt}
-            onClick={() => toggle(rt)}
-            disabled={saving}
-            className="px-1.5 py-0.5 rounded text-[10px] font-semibold transition"
-            style={{
-              backgroundColor: on ? 'rgba(244, 196, 48, 0.18)' : PALETTE.bg,
-              color: on ? PALETTE.accent : PALETTE.textDim,
-              border: `1px solid ${on ? `${PALETTE.accent}66` : PALETTE.border}`,
-              opacity: saving ? 0.5 : 1,
-            }}
-            title={on ? `Shown during ${rt} rounds — click to remove` : `Not shown during ${rt} rounds — click to add`}
-            data-testid={`overlay-tag-${image.id}-${rt}`}
-          >
-            {rt}
-          </button>
+          <div key={kind} className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-semibold w-9" style={{ color: PALETTE.textDim }}>{kind}</span>
+            {ROUND_NUMBERS.map((n) => {
+              const on = effective.includes(`${kind}${n}`);
+              return (
+                <button key={n} onClick={() => toggleNumber(kind, n)} disabled={saving}
+                        className="w-5 py-0.5 rounded text-[10px] font-semibold transition"
+                        style={chip(on || bare, saving)}
+                        title={on ? `Shown on round ${n} when it is a ${kind} round, click to remove`
+                                  : `Click to show on round ${n} when it is a ${kind} round`}
+                        data-testid={`overlay-tag-${image.id}-${kind}${n}`}>
+                  {n}
+                </button>
+              );
+            })}
+          </div>
         );
       })}
     </div>

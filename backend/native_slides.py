@@ -1896,8 +1896,9 @@ def _apply_location_overlays(
     except ImportError:
         return slides
     rtype = (round_ref.get("type") or "").upper()
-    q_matched = overlays_for_round_type(overlays, rtype, "question")
-    a_matched = overlays_for_round_type(overlays, rtype, "answer")
+    rnum = round_ref.get("order") or None
+    q_matched = overlays_for_round_type(overlays, rtype, "question", rnum)
+    a_matched = overlays_for_round_type(overlays, rtype, "answer", rnum)
     if not q_matched and not a_matched:
         return slides
     is_big_round = rtype == "BIG"
