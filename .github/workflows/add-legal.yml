@@ -1,0 +1,59 @@
+name: add-legal
+on:
+  push:
+    branches: [add-legal-docs-installer]
+    paths: ['.github/workflows/add-legal.yml']
+permissions:
+  contents: write
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build legal files
+        run: |
+          B='https://customer-assets-jt897jd0.emergentagent.net/wingman/da26ecda-379e-4789-81bd-529e0c2dad93/attachments'
+          mkdir -p src-tauri/legal
+          curl -fsSL -o src-tauri/legal/Terms_and_Conditions.pdf "$B/477c34dfdb514d399ac4c9931b2a551b_BHE_Terms%20%26%20Conditions.pdf"
+          curl -fsSL -o src-tauri/legal/Privacy_Policy.pdf "$B/740e6ab5985247078cbf5da61573649b_BHE_Privacy%20Policy.pdf"
+          curl -fsSL -o src-tauri/legal/California_Privacy_Addendum.pdf "$B/8d1481ccb9354d2eb0086be89bff70df_BHE_PP_California%20Only.pdf"
+          ls -l src-tauri/legal
+          pip install -q pypdf
+          python3 - <<'PY'
+          import json,re,pypdf
+          def rtf(s):
+              o=[]
+              for ch in s:
+                  c=ord(ch)
+                  if ch=='\\': o.append('\\\\')
+                  elif ch in '{}': o.append('\\'+ch)
+                  elif ch=='\n': o.append('\\par\n')
+                  elif c>127: o.append('\\u%d?'%(c if c<32768 else c-65536))
+                  else: o.append(ch)
+              return ''.join(o)
+          parts=[('TERMS AND CONDITIONS','Terms_and_Conditions'),('PRIVACY POLICY','Privacy_Policy'),('CALIFORNIA PRIVACY ADDENDUM','California_Privacy_Addendum')]
+          body='{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Segoe UI;}}\\f0\\fs20\n'
+          body+=rtf('Please read the following documents. By clicking I Agree you accept the Terms and Conditions and acknowledge the Privacy Policy and California Privacy Addendum. Copies (PDF) are also installed in the legal folder inside the program folder.\n\n')
+          for i,(t,n) in enumerate(parts):
+              r=pypdf.PdfReader('src-tauri/legal/'+n+'.pdf')
+              txt='\n'.join(p.extract_text() or '' for p in r.pages)
+              txt=re.sub(r'[ \t]+\n','\n',txt)
+              if i: body+='\\page\n'
+              body+='{\\b\\fs28 '+rtf(t)+'}\\par\\par\n'+rtf(txt)+'\\par\n'
+          body+='}'
+          open('src-tauri/legal/LICENSE.rtf','w',encoding='ascii').write(body)
+          p='src-tauri/tauri.conf.json'
+          c=json.load(open(p,encoding='utf-8'))
+          for n in ['Terms_and_Conditions','Privacy_Policy','California_Privacy_Addendum']:
+              c['bundle']['resources']['legal/'+n+'.pdf']='legal/'+n+'.pdf'
+          c['bundle']['windows']['nsis']['licenseFile']='legal/LICENSE.rtf'
+          open(p,'w',encoding='utf-8').write(json.dumps(c,indent=2,ensure_ascii=False)+'\n')
+          PY
+          git diff --stat
+      - name: Commit
+        run: |
+          git config user.name 'github-actions'
+          git config user.email 'actions@github.com'
+          git add src-tauri/legal src-tauri/tauri.conf.json
+          git commit -m 'Show Terms, Privacy Policy and California addendum at install; bundle the PDFs' || exit 0
+          git push
