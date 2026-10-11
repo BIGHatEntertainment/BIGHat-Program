@@ -89,8 +89,7 @@
         "languages": [
           "English"
         ],
-        "installerHooks": "installer-hooks.nsh",
-        "licenseFile": "legal/LICENSE.rtf"
+        "installerHooks": "installer-hooks.nsh"
       },
       "wix": {
         "language": [
@@ -109,7 +108,8 @@
       "deb": {
         "depends": []
       }
-    }
+    },
+    "licenseFile": "legal/LICENSE.rtf"
   },
   "plugins": {
     "shell": {
