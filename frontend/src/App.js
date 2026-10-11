@@ -36,6 +36,7 @@ import LicenseApiLanding from './pages/LicenseApiLanding';
 import UpdateTool from './pages/UpdateTool';
 import FilesTool from './pages/FilesTool';
 import { Toaster } from './components/ui/sonner';
+import LegalAcceptScreen, { hasAcceptedLegal, GUEST_PATHS } from './pages/LegalAcceptScreen';
 import './index.css';
 
 /**
@@ -85,6 +86,7 @@ function PublicRoute({ children }) {
 function NativeGate({ children }) {
   const { loading, error, isNativeBuild, nativeMode, setupComplete, refresh } = useNative();
   const location = useLocation();
+  const [legalOk, setLegalOk] = React.useState(hasAcceptedLegal());
 
   // v31.0.10 hardening: a native install whose backend isn't reachable must
   // NEVER fall through to /login (where the user would face cryptic auth
@@ -120,6 +122,12 @@ function NativeGate({ children }) {
   }
 
   if (loading) return <LoadingScreen label="Initializing..." />;
+
+  // Legal acceptance on first launch (all desktop builds, incl. Mac which has no
+  // installer license page). Guest phone / TV pages are never blocked.
+  if (nativeMode && !legalOk && !GUEST_PATHS.includes(location.pathname)) {
+    return <LegalAcceptScreen onAccept={() => setLegalOk(true)} />;
+  }
 
   if (nativeMode && !setupComplete && location.pathname !== '/setup') {
     return <Navigate to="/setup" replace />;
