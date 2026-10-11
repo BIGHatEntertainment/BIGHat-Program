@@ -29,10 +29,12 @@ function saveAccepted() {
   } catch (e) { /* storage blocked: the screen will simply show again next launch */ }
 }
 
+// Page images (public/legal/pages/<id>-<n>.png) are used instead of the browser's PDF viewer: the desktop
+// webview draws an embedded PDF in a small strip and blocks "open in new window". Images scroll normally.
 const DOCS = [
-  { id: 'terms', label: 'Terms and Conditions', file: '/legal/Terms_and_Conditions.pdf' },
-  { id: 'privacy', label: 'Privacy Policy', file: '/legal/Privacy_Policy.pdf' },
-  { id: 'california', label: 'California Privacy Addendum', file: '/legal/California_Privacy_Addendum.pdf' },
+  { id: 'terms', label: 'Terms and Conditions', pages: 5 },
+  { id: 'privacy', label: 'Privacy Policy', pages: 4 },
+  { id: 'california', label: 'California Privacy Addendum', pages: 3 },
 ];
 
 export default function LegalAcceptScreen({ onAccept }) {
@@ -66,13 +68,19 @@ export default function LegalAcceptScreen({ onAccept }) {
         ))}
       </div>
 
-      <div style={{ flex: 1, width: '100%', maxWidth: 900, minHeight: 320, background: '#fff', borderRadius: 8, overflow: 'hidden' }}>
-        <iframe key={doc.id} title={doc.label} src={doc.file} style={{ width: '100%', height: '100%', border: 0 }} />
+      <div data-testid="legal-doc-scroll"
+           style={{ width: '100%', maxWidth: 900, height: '55vh', minHeight: 260, overflowY: 'auto',
+                    background: '#2b2f3a', borderRadius: 8, padding: 10, boxSizing: 'border-box' }}>
+        {Array.from({ length: doc.pages }, (_, n) => (
+          <img key={`${doc.id}-${n}`} src={`/legal/pages/${doc.id}-${n + 1}.png`}
+               alt={`${doc.label}, page ${n + 1} of ${doc.pages}`}
+               style={{ display: 'block', width: '100%', height: 'auto', background: '#fff',
+                        borderRadius: 4, marginBottom: 10 }} />
+        ))}
       </div>
-      <a href={doc.file} target="_blank" rel="noreferrer"
-         style={{ color: '#fbdd68', fontSize: 13, margin: '8px 0' }}>
-        Can't see the document? Open {doc.label} in a new window
-      </a>
+      <p style={{ color: '#8892b0', fontSize: 12, margin: '6px 0' }}>
+        Scroll to read all {doc.pages} pages of the {doc.label}.
+      </p>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, margin: '6px 0 10px', cursor: 'pointer' }}>
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
