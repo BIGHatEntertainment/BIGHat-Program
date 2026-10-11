@@ -117,6 +117,7 @@ def license_product_name_rules() -> list[tuple[str, str]]:
     match wins. Tier MUST be one of standalone/music_bingo/karaoke/cloud_library."""
     return [
         ("music bingo", "music_bingo"),
+        ("bingo", "music_bingo"),
         ("karaoke", "karaoke"),
         ("cloud library", "cloud_library"),
         ("big hat entertainment", "standalone"),

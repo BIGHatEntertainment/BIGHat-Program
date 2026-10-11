@@ -3820,3 +3820,9 @@ All of these are obsolete. v31.0.5 is the current canonical build.
 - E2E tested on preview URL: license auth 401s (bad key / wrong hwid), karaoke session open → phone form (mobile screenshot) → request → PC pull (once-only) → accept → phone status accepted, 20s cooldown 429, file upload → /d download 200 → delete → 404, bad extension 400, session close → phone page 404, expired-link HTML page.
 - Local test license for relay testing: BHE-SWHT-JNAP-9XJ7-SBT3 / hwid RELAY-TEST-HWID-001 (relay-test@bighat.live, local preview DB only).
 - Deployment is user-triggered (declined auto-deploy). RELAY_* env defaults kept. Note for deploy check: on api.bighat.live use /api/relay/d/aaaaaaaaaaaaaaaaaaaaaa for the expired-page smoke test (plain /d/... serves the SPA first, then redirects).
+
+## 2026-06 — Bingo add-on purchase matching fix
+- Found gap: storefront product "Bingo Player Add-on" did not match the "music bingo" name rule — purchases would be silently skipped (no key minted). Karaoke and base program matched fine.
+- Fix: added ("bingo", "music_bingo") substring rule in cloud/config.py license_product_name_rules (after "music bingo", before "karaoke").
+- Verified: resolve_tier passes for all catalog names + merch guard; full process_order simulation minted bingo add-on key, upgraded SAME key on later karaoke purchase, and replayed order returned duplicate (idempotent). Test rows cleaned from DB.
+- User will trigger the api.bighat.live redeploy himself (fix requires redeploy to go live).
