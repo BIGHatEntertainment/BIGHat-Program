@@ -39,7 +39,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "dmg", "app"],
+    "targets": [
+      "nsis",
+      "msi",
+      "dmg",
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -48,7 +53,10 @@
       "icons/icon.png"
     ],
     "resources": {
-      "../packaging/bighat.ico": "bighat.ico"
+      "../packaging/bighat.ico": "bighat.ico",
+      "legal/Terms_and_Conditions.pdf": "legal/Terms_and_Conditions.pdf",
+      "legal/Privacy_Policy.pdf": "legal/Privacy_Policy.pdf",
+      "legal/California_Privacy_Addendum.pdf": "legal/California_Privacy_Addendum.pdf"
     },
     "externalBin": [
       "binaries/bighat-backend"
@@ -61,7 +69,9 @@
     "homepage": "https://bighat.live",
     "fileAssociations": [
       {
-        "ext": ["bighat"],
+        "ext": [
+          "bighat"
+        ],
         "name": "BIG Hat round file",
         "description": "Portable BIG Hat round / bingo / scoreboard archive",
         "role": "Editor",
@@ -76,11 +86,16 @@
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installMode": "perMachine",
-        "languages": ["English"],
-        "installerHooks": "installer-hooks.nsh"
+        "languages": [
+          "English"
+        ],
+        "installerHooks": "installer-hooks.nsh",
+        "licenseFile": "legal/LICENSE.rtf"
       },
       "wix": {
-        "language": ["en-US"]
+        "language": [
+          "en-US"
+        ]
       }
     },
     "macOS": {
@@ -91,7 +106,9 @@
       "entitlements": null
     },
     "linux": {
-      "deb": { "depends": [] }
+      "deb": {
+        "depends": []
+      }
     }
   },
   "plugins": {
