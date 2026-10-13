@@ -54,12 +54,15 @@ def _build_native_client() -> AsyncMontyClient:
     """Build a MontyDB-backed sqlite client and async-wrap it."""
     from montydb import MontyClient, set_storage  # local import; only load when needed
 
-    base_dir = Path(
-        os.environ.get(
-            "BIGHAT_DB_DIR",
-            str(Path(__file__).resolve().parent / "data"),
-        )
-    )
+    # Persistence fix: launcher.py exports MONTYDB_DATA_DIR (=%LOCALAPPDATA%\\BIGHat\\data\\montydb)
+    # but this factory only read BIGHAT_DB_DIR, so packaged builds fell back to a
+    # folder beside the code (a per-launch temp dir) and data silently vanished.
+    # Resolution order: BIGHAT_DB_DIR, then the parent of MONTYDB_DATA_DIR
+    # (we append "bighat_db" ourselves), then the legacy in-repo dev path.
+    _env_db = os.environ.get("BIGHAT_DB_DIR")
+    if not _env_db and os.environ.get("MONTYDB_DATA_DIR"):
+        _env_db = str(Path(os.environ["MONTYDB_DATA_DIR"]).parent)
+    base_dir = Path(_env_db or str(Path(__file__).resolve().parent / "data"))
     base_dir.mkdir(parents=True, exist_ok=True)
     repo_dir = base_dir / "bighat_db"
     # alpha.90: the connection is used from worker threads, one call at a time (see async_monty._DB_LOCK)

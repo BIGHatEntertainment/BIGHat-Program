@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // First-launch legal acceptance (Terms, Privacy Policy, California addendum).
 // Bump LEGAL_VERSION when the documents change so users are asked again.
+// The user is also asked again after a new app version is installed; the
+// backend compares the app version stored with the acceptance record.
 export const LEGAL_VERSION = '2026-10-10';
-const KEY = 'bighat_legal_accepted';
+const KEY = 'bighat_legal_accepted'; // localStorage mirror (fallback only)
+const API = process.env.REACT_APP_BACKEND_URL || '';
 
 // Pages that guests' phones and TV windows open directly. They must never be
 // blocked by the host's acceptance screen.
@@ -14,7 +17,7 @@ export const GUEST_PATHS = [
   '/bingo/audience',
 ];
 
-export function hasAcceptedLegal() {
+function localAccepted() {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || 'null');
     return !!v && v.version === LEGAL_VERSION;
@@ -23,30 +26,87 @@ export function hasAcceptedLegal() {
   }
 }
 
-function saveAccepted() {
+// The persistent record lives in the backend's per-user data dir (survives
+// restarts and updates). Resolves true only when it matches BOTH the current
+// legal version and the installed app version. If the backend cannot be
+// reached we do NOT silently trust localStorage for a changed app version; we
+// fall back to it only when the backend errors, so the user is never locked out.
+export async function checkLegalAccepted() {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ version: LEGAL_VERSION, at: new Date().toISOString() }));
-  } catch (e) { /* storage blocked: the screen will simply show again next launch */ }
+    const r = await fetch(
+      `${API}/api/native/system/legal/status?legal_version=${encodeURIComponent(LEGAL_VERSION)}`,
+      { cache: 'no-store' },
+    );
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    const j = await r.json();
+    return !!j.accepted;
+  } catch (e) {
+    return localAccepted();
+  }
 }
 
-// Page images (public/legal/pages/<id>-<n>.png) are used instead of the browser's PDF viewer: the desktop
-// webview draws an embedded PDF in a small strip and blocks "open in new window". Images scroll normally.
+async function saveAccepted() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ version: LEGAL_VERSION, at: new Date().toISOString() }));
+  } catch (e) { /* storage blocked: backend record is the source of truth */ }
+  try {
+    const r = await fetch(`${API}/api/native/system/legal/accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ legal_version: LEGAL_VERSION }),
+    });
+    return r.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Page images (public/legal/pages/<id>-<n>.png) are used instead of the browser's PDF viewer:
+// the desktop webview draws an embedded PDF in a small strip and blocks "open in new window".
+// Images scroll normally.
 const DOCS = [
   { id: 'terms', label: 'Terms and Conditions', pages: 5 },
   { id: 'privacy', label: 'Privacy Policy', pages: 4 },
   { id: 'california', label: 'California Privacy Addendum', pages: 3 },
 ];
 
+// Kept for App.js compatibility. Always false: the real answer is async (it
+// comes from the backend's persistent record), so LegalAcceptScreen checks it
+// itself on mount and passes straight through when already accepted.
+export function hasAcceptedLegal() {
+  return false;
+}
+
 export default function LegalAcceptScreen({ onAccept }) {
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    checkLegalAccepted().then((ok) => {
+      if (!alive) return;
+      if (ok) onAccept(); else setChecking(false);
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [tab, setTab] = useState(0);
   const [agreed, setAgreed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [warn, setWarn] = useState('');
   const doc = DOCS[tab];
 
-  const accept = () => {
-    if (!agreed) return;
-    saveAccepted();
+  const accept = async () => {
+    if (!agreed || saving) return;
+    setSaving(true);
+    const ok = await saveAccepted();
+    setSaving(false);
+    if (!ok) {
+      // Let them in for this session, but tell them the record did not save.
+      setWarn('Your agreement could not be saved to disk, so you may be asked again next launch.');
+    }
     onAccept();
   };
+
+  if (checking) return <div data-testid="legal-checking" style={{ minHeight: '100vh', background: '#000e2a' }} />;
 
   return (
     <div data-testid="legal-accept-screen"
@@ -87,12 +147,13 @@ export default function LegalAcceptScreen({ onAccept }) {
                data-testid="legal-agree-checkbox" />
         I have read and agree to the Terms and Conditions, and I acknowledge the Privacy Policy and California Privacy Addendum.
       </label>
-      <button onClick={accept} disabled={!agreed} data-testid="legal-accept-btn"
+      <button onClick={accept} disabled={!agreed || saving} data-testid="legal-accept-btn"
               style={{ padding: '12px 28px', borderRadius: 10, border: 0, fontWeight: 700, fontSize: 15,
                        background: agreed ? '#fbdd68' : '#3a4560', color: agreed ? '#1a1a1a' : '#8892b0',
-                       cursor: agreed ? 'pointer' : 'not-allowed' }}>
-        I Agree and Continue
+                       cursor: agreed && !saving ? 'pointer' : 'not-allowed' }}>
+        {saving ? 'Saving...' : 'I Agree and Continue'}
       </button>
+      {warn && <p data-testid="legal-save-warning" style={{ color: '#ffb4a2', fontSize: 12, marginTop: 8 }}>{warn}</p>}
       <p style={{ color: '#8892b0', fontSize: 12, marginTop: 10 }}>
         If you do not agree, close BIG Hat and uninstall it.
       </p>
