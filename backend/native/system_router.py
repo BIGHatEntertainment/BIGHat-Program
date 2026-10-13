@@ -172,3 +172,12 @@ async def save_download(file: UploadFile = File(...), filename: str = Form(""), 
     if reveal != "0" and os.environ.get("BIGHAT_NO_BROWSER") != "1":
         shown = _show_in_folder(dest)
     return {"ok": True, "path": str(dest), "filename": dest.name, "folder": str(folder), "size": total, "shown": shown}
+
+
+# Legal acceptance record (persistent in the per-user data dir). Mounted here so
+# it rides on the already-registered system router: /api/native/system/legal/*
+try:
+    from .legal_router import router as _legal_router
+    router.include_router(_legal_router)
+except Exception as _e:  # never take the whole system router down
+    logger.warning("legal router not loaded: %s", _e)
