@@ -1,59 +1,54 @@
 # BIG Hat Entertainment
 
-Standalone desktop program (React + FastAPI + MontyDB/SQLite) for trivia,
-bingo, scheduling, scoreboards, and round generation. Ships as a single
+Standalone desktop program (React + FastAPI + MontyDB/SQLite, wrapped in a Tauri shell) for trivia,
+bingo, karaoke, scheduling, scoreboards, and round generation. Ships as a single
 installer per platform; runs entirely offline once installed.
+
+Current release: **v32.1.1** (2026-10-13). Release numbering is `v32.x.y`; the old `alpha.N` scheme is retired.
 
 ## Layout
 
 ```
 backend/        FastAPI app (single uvicorn process serves API + SPA bundle)
-  native/       Local-only services: SQLite, HWID, license seats, subscription
+  native/       Local-only services: SQLite, HWID, license seats, subscription,
+                data_map.py (where data lives), legal_router.py (legal acceptance record)
   cloud/        api.bighat.live SaaS layer (Squarespace webhooks, license activation, Resend emails)
   routes/       Feature routers (trivia, bingo, scoreboard, roundmaker, ...)
-  tests/        pytest suites (`phase{0..10}_*`)
-frontend/       React (Vite/CRA) — built once into backend/static/
+  tests/        pytest suites
+frontend/       React (CRA) — built once into backend/static/
+src-tauri/      Tauri desktop shell, installer hooks (installer-hooks.nsh), legal PDFs
 packaging/      Installer assets
-  start_bighat.vbs                Windows launcher (boots backend, opens chromeless --app= window)
-  installer/bighat-installer.nsi  Windows NSIS installer script
-  macos/                          .app / .pkg / .dmg templates
-scripts/        Build orchestrators (build_installer.py, build_dmg.py, build_standalone.py, publish_github_release.py)
+scripts/        Build + release helpers; scripts/release_notes/<version>.md per release
 memory/         PRD.md + CHANGELOG.md (source of truth for next agent / session)
 ```
 
+## Where user data lives
+
+- **AppData** `%LOCALAPPDATA%\BIGHat\data` (macOS: `~/Library/Application Support/BIGHat/data`): `system_config.json`, local database (`bighat_db`), `legal_acceptance.json`, backups, secure ledger.
+- **Documents** `Documents\BIG Hat Entertainment\Files`: files the merchant can see and edit.
+- Full map: `backend/native/data_map.py`.
+- The database folder is set from `MONTYDB_DATA_DIR` (launcher) by `backend/native/db_factory.py`. Do not move it without a migration for existing installs.
+- Uninstall deliberately wipes `%LOCALAPPDATA%\BIGHat` (`src-tauri/installer-hooks.nsh`). Updates installed over an existing install should not.
+
+## Legal acceptance
+
+The Terms, Privacy Policy and California addendum are shown once. Acceptance is stored by the backend
+(`/api/native/system/legal/*`, file `legal_acceptance.json`) and is asked again only on a fresh install, after an
+app update (`backend/VERSION.txt` changes), or when `LEGAL_VERSION` in `frontend/src/pages/LegalAcceptScreen.jsx` is bumped.
+
 ## Build a release
 
-### Windows installer
+Releases are built by GitHub Actions (`.github/workflows/release.yml`) when a tag matching `v32.*` or `v33.*` is pushed.
 
-```bash
-echo "31.X.Y" > backend/VERSION.txt
-python scripts/build_installer.py
-export GITHUB_TOKEN=<PAT with contents:write>
-export GITHUB_OWNER=BIGHatEntertainment
-export GITHUB_REPO=BIGHat-Program
-python scripts/publish_github_release.py --replace-existing
-```
+1. Merge the PR into `main`.
+2. Push the tag on the merge commit, e.g. `v32.1.1`.
+3. The workflow writes the tag into `backend/VERSION.txt` and `src-tauri/tauri.conf.json`, builds Windows (x64 NSIS `.exe`) and macOS (Apple Silicon `.dmg`), and publishes the release as Latest only if both installers are present. If either is missing it demotes the release to a draft.
 
-### macOS — Apple Silicon (default)
+Intel Mac builds are retired (the macos-13 runner no longer exists).
 
-```bash
-python scripts/build_dmg.py                 # produces .app under dist/macos/
-# Run on a macOS host for full .pkg/.dmg:
-python scripts/build_dmg.py \
-    --developer-id "Developer ID Application: BH Entertainment (TEAMID)" \
-    --installer-id "Developer ID Installer:    BH Entertainment (TEAMID)" \
-    --notarize-profile bighat
-```
+Legacy manual builders still exist in `scripts/` (`build_installer.py`, `build_dmg.py`, `publish_github_release.py`) but the tag workflow is the normal path.
 
-### macOS — Intel
-
-```bash
-python scripts/build_dmg.py --arch x86_64
-```
-
-Both Mac archs share the same `.app` template and `pkgbuild`/`productbuild`
-flow; the only differences are the embedded CPython triplet and the
-`pip download --platform` tags baked into `Resources/python/lib/.../site-packages/`.
+Release notes for each version go in `scripts/release_notes/<version>.md`.
 
 ## Local development
 
