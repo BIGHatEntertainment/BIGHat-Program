@@ -25,8 +25,46 @@ permissions:
   contents: write   # required to create/update GitHub Releases
 
 jobs:
+  # Creates the ONE draft release that both build legs upload into. Before
+  # this job existed, each leg created its own draft at the same moment and
+  # GitHub kept two separate drafts (v32.1.1: .exe on one, .dmg on the other),
+  # so the verify gate never saw both installers together.
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+      version: ${{ steps.create.outputs.version }}
+    steps:
+      - name: Create draft release (once)
+        id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then V="$INPUT_VERSION"; else V="${GITHUB_REF_NAME#v}"; fi
+          TAG="v$V"
+          # Reuse an existing draft for this tag if a previous run left one.
+          # (Drafts are listed as 'untagged-...', so match on the release name.)
+          ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=50" \
+            --jq "[.[] | select(.name==\"BIG Hat Entertainment $TAG\" and .draft==true)][0].id // empty")
+          if [ -z "$ID" ]; then
+            ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+              -f name="BIG Hat Entertainment $TAG" \
+              -f body="Native Tauri desktop builds. See CHANGELOG.md for the full notes." \
+              -F draft=true -F prerelease=false --jq .id)
+          fi
+          echo "release_id=$ID" >> "$GITHUB_OUTPUT"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Using release id $ID for $TAG"
+
   build-tauri:
     name: ${{ matrix.label }}
+    needs: create-release
     timeout-minutes: 75    # any leg stuck > 75 min (incl. queued-waiting-for-runner) auto-fails so a stuck macos-13 runner can't tie up a release indefinitely
     strategy:
       fail-fast: false
@@ -124,6 +162,8 @@ jobs:
         run: python scripts/build_sidecar.py --target ${{ matrix.target }}
 
       - name: Build Tauri app
+        id: build1
+        continue-on-error: true
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -135,23 +175,28 @@ jobs:
           # secrets to land in repo Actions settings first.
           APPLE_SIGNING_IDENTITY: '-'
         with:
-          tagName: v${{ steps.ver.outputs.version }}
-          releaseName: 'BIG Hat Entertainment v${{ steps.ver.outputs.version }}'
-          releaseBody: |
-            Native Tauri desktop builds.
+          # Upload into the single draft made by create-release. Never create
+          # a release here (that is what produced two drafts for v32.1.1).
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-            - Windows: `BIGHatEntertainment-Setup-${{ steps.ver.outputs.version }}.exe`
-            - macOS (Apple Silicon): `BIGHatEntertainment-${{ steps.ver.outputs.version }}_aarch64.dmg`
-
-            See CHANGELOG.md for the full notes.
-          # Always create as draft. The verify-release-assets gate job that
-          # runs after the matrix is the ONLY place in the entire pipeline
-          # that flips a release public — and only after confirming all 2
-          # OS installers are attached. This closes the race window where
-          # a customer could briefly see a half-baked release between
-          # tauri-action upload and the verification gate.
-          releaseDraft: true
-          prerelease: false
+      - name: Build Tauri app (retry once)
+        id: build2
+        if: steps.build1.outcome == 'failure'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple Developer ID cert yet — `-` triggers ad-hoc signing,
+          # which lets the .app + .dmg bundle without erroring. Users will
+          # still see the Gatekeeper warning on first launch (right-click
+          # → Open). Real signing + notarization is a future task; needs
+          # APPLE_CERTIFICATE / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # secrets to land in repo Actions settings first.
+          APPLE_SIGNING_IDENTITY: '-'
+        with:
+          # Upload into the single draft made by create-release. Never create
+          # a release here (that is what produced two drafts for v32.1.1).
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
   # -------------------------------------------------------------------------
@@ -164,7 +209,7 @@ jobs:
   # -------------------------------------------------------------------------
   verify-release-assets:
     name: Verify release assets are complete
-    needs: build-tauri
+    needs: [create-release, build-tauri]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -188,18 +233,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
           VERSION: ${{ steps.ver.outputs.version }}
+          REL_ID: ${{ needs.create-release.outputs.release_id }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "Looking up release for tag $TAG..."
-          REL=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=30")
-          REL_JSON=$(echo "$REL" | python -c "import sys,json; t='${TAG}'; r=[x for x in json.load(sys.stdin) if x.get('tag_name')==t]; print(json.dumps(r[0] if r else {}))")
-          REL_ID=$(echo "$REL_JSON" | python -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+          echo "Looking up release id $REL_ID (tag $TAG)..."
           if [ -z "$REL_ID" ]; then
-            echo "::error::No release found at $TAG. The matrix legs may have all failed before tauri-action could create the release."
+            echo "::error::create-release did not produce a release id."
             exit 1
           fi
+          REL_JSON=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${REL_ID}")
           ASSETS=$(echo "$REL_JSON" | python -c "import sys,json;print('\n'.join(a['name'] for a in json.load(sys.stdin).get('assets',[])))")
           echo "Assets currently on release:"
           echo "$ASSETS" | sed 's/^/  /'
