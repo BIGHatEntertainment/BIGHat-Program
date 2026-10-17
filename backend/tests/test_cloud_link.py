@@ -72,10 +72,14 @@ def test_access_key_is_encrypted_on_disk_and_never_in_the_api_view(link, tmp_pat
     assert link.get_token() == secret
 
 
-def test_no_cloud_address_means_a_calm_message_and_no_network(link):
-    out = run(link.check())
-    assert out["cloud_configured"] is False
-    assert "not available" in out["message"].lower()
+def test_default_cloud_address_is_host_bighat_live(link):
+    assert link.cloud_base_url() == "https://host.bighat.live"
+    assert link.public_view()["cloud_configured"] is True
+
+
+def test_env_overrides_the_default_cloud_address(link, monkeypatch):
+    monkeypatch.setenv("BIGHAT_CLOUD_BASE_URL", "https://staging.example/")
+    assert link.cloud_base_url() == "https://staging.example"
 
 
 def test_no_license_key_stops_before_any_network_call(link, monkeypatch):
