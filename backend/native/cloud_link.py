@@ -42,8 +42,12 @@ KEY_NAME = "ledger.key"            # shared with credential_ledger.py on purpose
 _LOCK = threading.Lock()
 
 
+DEFAULT_CLOUD_URL = "https://host.bighat.live"
+
+
 def cloud_base_url() -> str:
-    """Empty until the Cloud app is deployed. Order: env BIGHAT_CLOUD_BASE_URL > system config cloud_base_url."""
+    """Where BIG Hat Cloud lives. Order: env BIGHAT_CLOUD_BASE_URL > system config cloud_base_url > the default.
+    The first two let a test or a staging cloud override it without a new release."""
     url = os.environ.get("BIGHAT_CLOUD_BASE_URL", "").strip()
     if not url:
         try:
@@ -51,7 +55,7 @@ def cloud_base_url() -> str:
             url = str((config_manager.config or {}).get("cloud_base_url", "") or "").strip()
         except Exception:
             url = ""
-    return url.rstrip("/")
+    return (url or DEFAULT_CLOUD_URL).rstrip("/")
 
 
 def _dir() -> Path:
