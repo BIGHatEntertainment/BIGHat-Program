@@ -24,6 +24,10 @@ const api = {
   addProductKey: (productKey) =>
     axios.post(`${API}/api/native/license/product-key`, { product_key: productKey }, { withCredentials: true, headers: authHeaders() }),
 
+  // BIG Hat Cloud link (Admin > Integrations). The access key never reaches the browser.
+  cloudLinkStatus: () => axios.get(`${API}/api/native/system/cloud-link/status`, { withCredentials: true, headers: authHeaders() }),
+  cloudLinkCheck: () => axios.post(`${API}/api/native/system/cloud-link/check`, {}, { withCredentials: true, headers: authHeaders(), timeout: 30000 }),
+
   // Setup Package (Admin > Integrations)
   pkgCheck: () => axios.get(`${API}/api/native/setup-package/check`, { withCredentials: true, headers: authHeaders() }),
   pkgPublish: () => axios.post(`${API}/api/native/setup-package/publish`, {}, { withCredentials: true, headers: authHeaders(), timeout: 150000 }),
