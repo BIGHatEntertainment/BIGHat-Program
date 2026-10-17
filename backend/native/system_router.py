@@ -181,3 +181,12 @@ try:
     router.include_router(_legal_router)
 except Exception as _e:  # never take the whole system router down
     logger.warning("legal router not loaded: %s", _e)
+
+
+# Cloud link (this PC's permanent code + cloud access key, kept in AppData/secure).
+# /api/native/system/cloud-link/*
+try:
+    from .cloud_link_router import router as _cloud_link_router
+    router.include_router(_cloud_link_router)
+except Exception as _e:  # never take the whole system router down
+    logger.warning("cloud link router not loaded: %s", _e)

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../lib/api';
 import { saveBlob } from '../../lib/saveFile';
-import { Package, UploadCloud, DownloadCloud, FileDown, FileUp, Loader2, CheckCircle2, AlertTriangle, Mail, HardDrive, Cloud } from 'lucide-react';
+import { Package, UploadCloud, DownloadCloud, FileDown, FileUp, Loader2, CheckCircle2, AlertTriangle, Mail, HardDrive, Cloud, Copy, Link2 } from 'lucide-react';
 
 const card = { backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.12)' };
 const gold = '#fbdd68';
@@ -40,6 +40,61 @@ function Btn({ id, busy, onClick, icon: Icon, children, primary, disabled }) {
             style={{ backgroundColor: primary ? gold : 'rgba(251,221,104,0.12)', color: primary ? '#000e2a' : gold, opacity: busy || disabled ? 0.5 : 1 }}>
       {busy === id ? <Loader2 size={16} className="animate-spin" /> : <Icon size={16} />} {children}
     </button>
+  );
+}
+
+
+const LINK_TEXT = {
+  not_linked: 'Not linked yet',
+  waiting: 'Waiting for you to enter this code in the BIG Hat Cloud app',
+  linked: 'Linked to your BIG Hat Cloud account',
+};
+
+function CloudLinkCard() {
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    try { setInfo((await api.cloudLinkStatus()).data); } catch (e) { setNote(msg(e, 'Could not read the cloud link.')); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const check = async () => {
+    setBusy(true); setNote('');
+    try { const r = (await api.cloudLinkCheck()).data; setInfo(r); setNote(r.message || ''); }
+    catch (e) { setNote(msg(e, 'Could not check the link.')); }
+    finally { setBusy(false); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(info.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch (e) { /* the code stays visible to copy by hand */ }
+  };
+
+  const status = info?.status || 'not_linked';
+  return (
+    <div className="rounded-xl p-6 space-y-4" style={card} data-testid="cloud-link-card">
+      <div className="flex items-center gap-3">
+        <Link2 size={20} style={{ color: gold }} />
+        <h2 className="text-xl font-bold text-white">BIG Hat Cloud</h2>
+      </div>
+      <p className="text-sm" style={{ color: muted }}>
+        Link this computer to your BIG Hat Cloud account so your schedule, files and updates can be shared between your computers.
+        Open BIG Hat Cloud, go to Settings, and type the code below. Each computer has its own code, and the code never changes.
+      </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="px-4 py-2 rounded-lg font-mono text-2xl tracking-widest" style={{ backgroundColor: 'rgba(251,221,104,0.12)', color: gold }} data-testid="cloud-link-code">
+          {info ? info.code : '......'}
+        </span>
+        <Btn id="cloud-copy" onClick={copy} icon={Copy} disabled={!info}>{copied ? 'Copied' : 'Copy'}</Btn>
+        <Btn id="cloud-check" busy={busy ? 'cloud-check' : ''} onClick={check} icon={UploadCloud} primary disabled={!info}>Check link</Btn>
+      </div>
+      <p className="text-sm flex items-center gap-2" style={{ color: status === 'linked' ? '#4ade80' : '#e5edff' }} data-testid="cloud-link-status">
+        {status === 'linked' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} style={{ color: gold }} />} {LINK_TEXT[status] || LINK_TEXT.not_linked}
+      </p>
+      {info && !info.cloud_configured && <p className="text-xs" style={{ color: muted }}>The BIG Hat Cloud app is not available yet. Your code is saved and will work as soon as it is.</p>}
+      {note && <p className="text-xs" style={{ color: muted }} data-testid="cloud-link-note">{note}</p>}
+    </div>
   );
 }
 
@@ -207,6 +262,9 @@ export default function IntegrationsTab({ isMaster, setError, setSuccess }) {
           </div>
         )}
       </div>
+
+      {/* ---- BIG Hat Cloud link ---- */}
+      <CloudLinkCard />
 
       {/* ---- Other integrations (coming next) ---- */}
       {[['Google Drive', Cloud], ['SharePoint', HardDrive]].map(([name, Icon]) => (
