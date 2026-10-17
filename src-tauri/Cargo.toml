@@ -25,7 +25,10 @@ serde_json = "1"
 # Disable default features (bzip2, deflate64, …) — we only ever need the
 # raw `stored` + `deflate` readers, and stripping the rest shaves ~1 MB
 # off the bundle.
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
+# zip 0.6.x was YANKED from crates.io in Oct 2026 (every 0.6 release), which broke the
+# v32.1.2 build: "failed to select a version for the requirement zip = ^0.6". Cargo.lock is
+# gitignored, so each build resolves fresh. Only ZipArchive::new / by_name / read are used.
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 log = "0.4"
 env_logger = "0.11"
