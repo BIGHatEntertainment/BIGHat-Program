@@ -19,7 +19,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from . import config
 from . import downloads_resolver
@@ -30,7 +30,7 @@ from .license_models import (
     StatusResponse,
     ValidateRequest, ValidateResponse,
 )
-from .license_service import LicenseService, mask_key, now_utc
+from .license_service import LicenseService, cloud_subscription_state, mask_key, now_utc
 from .license_store import LicenseStore
 from .squarespace_webhook import WebhookHandler, verify_signature
 
@@ -71,6 +71,7 @@ async def activate(req: ActivateRequest) -> ActivateResponse:
     if not ok or lic is None:
         raise HTTPException(status_code=400, detail=msg)
     revalidate_after = now_utc() + timedelta(days=config.VALIDATION_INTERVAL_DAYS)
+    _sub = cloud_subscription_state(lic)
     return ActivateResponse(
         ok=True, message=msg,
         owns_standalone=lic.owns_standalone,
@@ -79,6 +80,8 @@ async def activate(req: ActivateRequest) -> ActivateResponse:
         cloud_library_active=lic.cloud_library_status == "active"
                              and not lic.revoked,
         cloud_library_expires_at=lic.cloud_library_expires_at,
+        cloud_subscription_status=_sub["status"] if not lic.revoked else "inactive",
+        cloud_subscription_paid_through=_sub["paid_through"],
         max_seats=lic.max_seats,
         active_seats=len(lic.active_hwids),
         revalidate_after=revalidate_after,
@@ -109,6 +112,8 @@ async def validate(req: ValidateRequest) -> ValidateResponse:
         owns_karaoke=lic.owns_karaoke,
         cloud_library_active=lic.cloud_library_status == "active" and not lic.revoked,
         cloud_library_expires_at=lic.cloud_library_expires_at,
+        cloud_subscription_status=cloud_subscription_state(lic)["status"] if not lic.revoked else "inactive",
+        cloud_subscription_paid_through=lic.cloud_subscription_paid_through,
         revoked=lic.revoked,
         revalidate_after=revalidate_after,
     )
@@ -137,6 +142,7 @@ async def status(key: str = Path(..., min_length=8, max_length=64)) -> StatusRes
         owns_music_bingo=lic.owns_music_bingo,
         owns_karaoke=lic.owns_karaoke,
         cloud_library_status=lic.cloud_library_status,
+        cloud_subscription_status=cloud_subscription_state(lic)["status"],
         active_seats=len(lic.active_hwids),
         max_seats=lic.max_seats,
     )
@@ -216,14 +222,15 @@ async def download_auto(request: Request, platform: Optional[str] = None):
         key = downloads_resolver.detect_platform(request.headers.get("user-agent", ""))
     if key == "unknown":
         # Send anything we can't detect to the friendly landing page so
-        # they can pick manually instead of a hard 404.
-        return RedirectResponse(url="/download", status_code=302)
+        # they can pick manually instead of a hard 404. (/api path: the
+        # deployed ingress routes bare /download to the SPA, not to us.)
+        return RedirectResponse(url="/api/download", status_code=302)
 
     info = downloads_resolver.resolve(key)
     if not info.get("url"):
         # No artifact for that OS yet — also send to landing page so the
         # user can fall back to the other platform or contact support.
-        return RedirectResponse(url=f"/download?missing={key}", status_code=302)
+        return RedirectResponse(url=f"/api/download?missing={key}", status_code=302)
     logger.info(
         "[downloads/auto] %s → %s (source=%s, version=%s)",
         key, info["filename"], info["source"], info["version"],

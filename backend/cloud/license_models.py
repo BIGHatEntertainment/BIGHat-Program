@@ -42,6 +42,11 @@ class LicenseKey(BaseModel):
     squarespace_music_bingo_order_id: Optional[str] = None
     squarespace_karaoke_order_id: Optional[str] = None
     squarespace_subscription_id: Optional[str] = None
+    # BIG Hat Cloud monthly subscription (date-based access, 1 order = 1 month)
+    cloud_subscription_paid_through: Optional[datetime] = None
+    cloud_subscription_canceled: bool = False
+    cloud_subscription_last_order_id: Optional[str] = None
+    cloud_subscription_bridge_synced: bool = True
     revoked: bool = False
     revocation_reason: str = ""
     created_at: datetime
@@ -73,6 +78,8 @@ class ActivateResponse(BaseModel):
     owns_karaoke: bool = False
     cloud_library_active: bool
     cloud_library_expires_at: Optional[datetime] = None
+    cloud_subscription_status: str = "inactive"
+    cloud_subscription_paid_through: Optional[datetime] = None
     max_seats: int
     active_seats: int
     revalidate_after: datetime        # when the client should next call /validate
@@ -90,6 +97,8 @@ class ValidateResponse(BaseModel):
     owns_karaoke: bool = False
     cloud_library_active: bool
     cloud_library_expires_at: Optional[datetime] = None
+    cloud_subscription_status: str = "inactive"
+    cloud_subscription_paid_through: Optional[datetime] = None
     revoked: bool
     revalidate_after: datetime
 
@@ -124,6 +133,11 @@ class MintKeyRequest(BaseModel):
     owns_music_bingo: bool = False
     owns_karaoke: bool = False
     cloud_library_months: int = 0         # grants N months of subscription
+    # BIG Hat Cloud monthly subscription grants (comp/support):
+    #   months > 0 → extends paid_through by N×30 days
+    #   lifetime   → paid_through pushed ~100 years out (employee comps)
+    cloud_subscription_months: int = 0
+    cloud_subscription_lifetime: bool = False
     note: str = ""
     # When True (default), the customer receives the standard license-key
     # email — same template as the Squarespace poller path. Pass False
@@ -140,6 +154,8 @@ class AdminKeyView(BaseModel):
     owns_karaoke: bool = False
     cloud_library_status: CloudLibraryStatus
     cloud_library_expires_at: Optional[datetime] = None
+    cloud_subscription_status: str = "inactive"
+    cloud_subscription_paid_through: Optional[datetime] = None
     max_seats: int
     active_seats: int
     revoked: bool

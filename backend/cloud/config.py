@@ -23,6 +23,10 @@ SKU_STANDALONE: Final[str] = os.environ.get("LICENSE_SKU_STANDALONE", "BHE-STAND
 SKU_CLOUD_LIBRARY: Final[str] = os.environ.get("LICENSE_SKU_CLOUD_LIBRARY", "BHE-CLOUD-LIBRARY")
 SKU_MUSIC_BINGO: Final[str] = os.environ.get("LICENSE_SKU_MUSIC_BINGO", "BHE-MUSIC-BINGO")
 SKU_KARAOKE: Final[str] = os.environ.get("LICENSE_SKU_KARAOKE", "BHE-KARAOKE")
+# "BIG Hat Cloud" $5/mo subscription — Squarespace assigns SQ-prefixed SKUs.
+# NOTE: real digital-product orders have shipped with sku=null, so the poller
+# matches by product NAME first; this SKU is a secondary matcher.
+SKU_CLOUD_SUBSCRIPTION: Final[str] = os.environ.get("LICENSE_SKU_CLOUD_SUBSCRIPTION", "SQ6389919")
 
 # ---- License key format -------------------------------------------------
 LICENSE_KEY_PREFIX: Final[str] = "BHE"          # BIG Hat Entertainment
@@ -119,6 +123,7 @@ def license_product_name_rules() -> list[tuple[str, str]]:
         ("music bingo", "music_bingo"),
         ("bingo", "music_bingo"),
         ("karaoke", "karaoke"),
+        ("big hat cloud", "cloud_subscription"),
         ("cloud library", "cloud_library"),
         ("big hat entertainment", "standalone"),
         ("bighat entertainment", "standalone"),
@@ -133,6 +138,15 @@ def resend_api_key() -> str:
 
 def sender_email() -> str:
     return os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+
+
+# ---- BIG Hat Cloud monthly subscription ----------------------------------
+def cloud_subscription_grace_days() -> int:
+    """Days of access after paid_through before the subscription lapses."""
+    try:
+        return max(0, int(os.environ.get("CLOUD_SUB_GRACE_DAYS", "5")))
+    except ValueError:
+        return 5
 
 
 def support_email() -> str:

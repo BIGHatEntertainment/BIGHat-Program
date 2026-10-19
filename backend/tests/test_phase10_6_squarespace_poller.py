@@ -232,6 +232,9 @@ class TestRunOnce:
         try:
             summary = await poller.run_once(
                 service=service, store=store, api_key="fake", client=client,
+                # Pin "now" so the 168h lookback window always contains the
+                # hard-coded June order (was a time-bomb against real now()).
+                now=datetime(2026, 6, 22, 6, 0, 0, tzinfo=timezone.utc),
             )
         finally:
             await client.aclose()

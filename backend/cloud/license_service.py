@@ -63,6 +63,43 @@ def _extend_subscription(current: Optional[datetime], months: int) -> datetime:
     return base + timedelta(days=30 * max(1, months))
 
 
+def _aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def cloud_subscription_state(lic, now: Optional[datetime] = None) -> dict:
+    """Date-based access state for the monthly BIG Hat Cloud subscription.
+
+    Returns {"status", "access", "paid_through", "grace_until"} where status
+    is one of inactive | active | grace | lapsed | canceled.
+      * active:   now <= paid_through
+      * grace:    paid_through < now <= paid_through + CLOUD_SUB_GRACE_DAYS
+      * lapsed:   past grace (or past paid_through when canceled)
+      * canceled: canceled but still inside the paid period
+    """
+    now = now or now_utc()
+    pt = _aware(lic.cloud_subscription_paid_through)
+    if pt is None:
+        return {"status": "inactive", "access": False,
+                "paid_through": None, "grace_until": None}
+    grace_until = pt + timedelta(days=config.cloud_subscription_grace_days())
+    if lic.cloud_subscription_canceled:
+        # No grace after a cancel/refund — access ends at paid_through.
+        status = "canceled" if now <= pt else "lapsed"
+        return {"status": status, "access": now <= pt,
+                "paid_through": pt, "grace_until": pt}
+    if now <= pt:
+        return {"status": "active", "access": True,
+                "paid_through": pt, "grace_until": grace_until}
+    if now <= grace_until:
+        return {"status": "grace", "access": True,
+                "paid_through": pt, "grace_until": grace_until}
+    return {"status": "lapsed", "access": False,
+            "paid_through": pt, "grace_until": grace_until}
+
+
 class LicenseService:
     def __init__(self, store: LicenseStore, email_sender: Optional[EmailSender] = None):
         self.store = store
@@ -260,6 +297,87 @@ class LicenseService:
         logger.info("[license] minted addon-only key for %s (addon=%s)", email, addon)
         return lic
 
+    # ---- minting (poller-driven) — BIG Hat Cloud monthly subscription ----
+    async def mint_cloud_monthly(
+        self,
+        *,
+        email: str,
+        order_id: str,
+        customer_id: str = "",
+    ) -> LicenseKey:
+        """One paid Squarespace order = +1 month (30d) of BIG Hat Cloud,
+        counted from the later of now and the current paid_through.
+        Idempotent on order_id. A payment after a cancel re-activates."""
+        existing = await self.store.get_by_email(email)
+        if existing and existing.cloud_subscription_last_order_id == order_id:
+            logger.info("[license] cloud-subscription replay for %s; no-op", email)
+            return existing
+
+        now = now_utc()
+        if existing:
+            cur = _aware(existing.cloud_subscription_paid_through)
+            base = cur if cur and cur > now else now
+            updates: dict = {
+                "cloud_subscription_paid_through": (base + timedelta(days=30)).isoformat(),
+                "cloud_subscription_canceled": False,
+                "cloud_subscription_last_order_id": order_id,
+            }
+            if customer_id:
+                updates["squarespace_customer_id"] = customer_id
+            updated = await self.store.update(existing.key, updates)
+            assert updated is not None
+            await self._bridge_sync(updated)
+            return updated
+
+        # First interaction with this customer is the Cloud subscription.
+        lic = LicenseKey(
+            key=generate_key(),
+            email=email.lower(),
+            owns_standalone=False,
+            max_seats=config.DEFAULT_MAX_SEATS,
+            squarespace_customer_id=customer_id or None,
+            cloud_subscription_paid_through=now + timedelta(days=30),
+            cloud_subscription_last_order_id=order_id,
+            created_at=now,
+            updated_at=now,
+        )
+        await self.store.insert(lic)
+        if self.email:
+            await self.email.send_license_key_email(
+                to=lic.email, key=lic.key,
+                owns_standalone=False, cloud_library_active=False,
+                owns_music_bingo=False, owns_karaoke=False,
+            )
+        await self._bridge_sync(lic)
+        logger.info("[license] minted cloud-subscription key for %s", email)
+        return lic
+
+    async def cancel_cloud_monthly(self, *, email: str) -> Optional[LicenseKey]:
+        """Cancel/refund of BIG Hat Cloud: keep access until paid_through,
+        then lapse with no grace window."""
+        lic = await self.store.get_by_email(email)
+        if not lic or lic.cloud_subscription_paid_through is None:
+            return None
+        updated = await self.store.update(lic.key, {"cloud_subscription_canceled": True})
+        if updated:
+            await self._bridge_sync(updated)
+        return updated
+
+    async def _bridge_sync(self, lic: LicenseKey) -> bool:
+        """Push the entitlement to the bridge cluster; never raises.
+        Records the outcome so the poller can retry failures."""
+        from . import bridge
+        try:
+            ok = await bridge.sync_entitlement(lic)
+        except Exception as e:
+            logger.error("[CLOUD-SUB][BRIDGE] unexpected sync error for %s: %s", lic.email, e)
+            ok = False
+        try:
+            await self.store.update(lic.key, {"cloud_subscription_bridge_synced": ok})
+        except Exception:
+            pass
+        return ok
+
     # ---- minting (webhook-driven) — Cloud Library subscription ----
     async def cancel_cloud_subscription(self, *, subscription_id: str) -> Optional[LicenseKey]:
         # Find the key by subscription_id. Iterate (volume is tiny in early SaaS).
@@ -347,6 +465,8 @@ class LicenseService:
         cloud_library_months: int,
         owns_music_bingo: bool = False,
         owns_karaoke: bool = False,
+        cloud_subscription_months: int = 0,
+        cloud_subscription_lifetime: bool = False,
         note: str = "",
         send_email: bool = True,
         key: Optional[str] = None,
@@ -376,11 +496,24 @@ class LicenseService:
                     existing.cloud_library_expires_at, cloud_library_months,
                 ).isoformat()
                 updates["cloud_library_status"] = "active"
+            if cloud_subscription_lifetime:
+                updates["cloud_subscription_paid_through"] = (now + timedelta(days=36500)).isoformat()
+                updates["cloud_subscription_canceled"] = False
+                updates["cloud_subscription_last_order_id"] = f"ADMIN-COMP:{note or 'manual'}"
+            elif cloud_subscription_months > 0:
+                cur = _aware(existing.cloud_subscription_paid_through)
+                base = cur if cur and cur > now else now
+                updates["cloud_subscription_paid_through"] = (
+                    base + timedelta(days=30 * cloud_subscription_months)).isoformat()
+                updates["cloud_subscription_canceled"] = False
+                updates["cloud_subscription_last_order_id"] = f"ADMIN-COMP:{note or 'manual'}"
             if note:
                 updates["revocation_reason"] = ""  # reusing; leave note in logs only
             updated = await self.store.update(existing.key, updates)
             assert updated is not None
             logger.info("[license] admin updated key for %s (note=%s)", email, note)
+            if cloud_subscription_lifetime or cloud_subscription_months > 0:
+                await self._bridge_sync(updated)
             if send_email and self.email:
                 await self.email.send_license_key_email(
                     to=updated.email, key=updated.key,
@@ -405,11 +538,22 @@ class LicenseService:
                 config.CLOUD_LIBRARY_MAX_SEATS if cloud_library_months > 0
                 else config.DEFAULT_MAX_SEATS
             ),
+            cloud_subscription_paid_through=(
+                now + timedelta(days=36500) if cloud_subscription_lifetime
+                else (now + timedelta(days=30 * cloud_subscription_months)
+                      if cloud_subscription_months > 0 else None)
+            ),
+            cloud_subscription_last_order_id=(
+                f"ADMIN-COMP:{note or 'manual'}"
+                if cloud_subscription_lifetime or cloud_subscription_months > 0 else None
+            ),
             created_at=now,
             updated_at=now,
         )
         await self.store.insert(lic)
         logger.info("[license] admin minted key for %s (note=%s)", email, note)
+        if cloud_subscription_lifetime or cloud_subscription_months > 0:
+            await self._bridge_sync(lic)
         if send_email and self.email:
             await self.email.send_license_key_email(
                 to=lic.email, key=lic.key,

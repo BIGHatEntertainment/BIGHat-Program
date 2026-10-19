@@ -1566,3 +1566,9 @@ See `/app/memory/test_credentials.md`. Native master admin:
 - Contract (defined by BIGHat-Cloud backend/routes/program_routes.py): the program shows a permanent 6-character code; the owner types it in Cloud Settings; the program announces {code, license_key, name, app_version} to /api/program/announce and, once linked, collects its access key ONCE from /api/program/claim-token.
 - Persistence rule: code and link state live in <AppData>/secure/cloud_link.json, access key encrypted with secure/ledger.key. Disk is the source of truth. Never in the database, never in the browser.
 - Open: the program does not yet USE the access key (no sync calls are built). The cloud address is empty until the cloud app is deployed. A way to reset the code and unlink is not built.
+
+## STATUS cloud-sub-v1 (2026-10-17 17:30 MST) — api.bighat.live licensing (build agent)
+- BIG Hat Cloud $5/mo subscription live in backend/cloud/: 1 order = +1 month; active→grace(5d)→lapsed; cancel keeps access until paid_through; poller matches "big hat cloud" name first (digital orders ship sku=null), SKU SQ6389919 second.
+- Entitlements mirrored one-way to the bridge cluster `cloud_entitlements` (BRIDGE_MONGO_URL/BRIDGE_DB_NAME — bridge only, never licensing data). The Cloud app reads this collection to admit users.
+- 8 BIG Hat employees seeded with non-expiring entitlements (paid_through 2126) + role field; regular customers must keep the monthly fee active.
+- Admin mint supports cloud_subscription_months / cloud_subscription_lifetime; admin cancel endpoint added. See CHANGELOG cloud-sub-v1 block + TROUBLESHOOTING_LOG.

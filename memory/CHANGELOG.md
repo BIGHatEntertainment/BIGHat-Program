@@ -8,6 +8,14 @@
 ---
 ---
 
+## cloud-sub-v1 (api.bighat.live licensing only — no desktop changes)
+TIME (MST): 2026-10-17 17:30
+TESTED: 22 pytest cases in backend/tests/test_phase10_9_cloud_subscription.py (purchase, renewal extend, replay no-op, grace->lapsed, cancel keeps access until paid_through, refund->cancel, unknown product skip, bridge doc shape, employee lifetime comps); test_no_plaintext_credentials + test_phase10_1_no_secret_leakage pass; live E2E on the deployed API verified mint + bridge upsert + /api/license/validate exposing cloud_subscription_status.
+NOT VERIFIED: a real Squarespace "BIG Hat Cloud" purchase/renewal order (none exist yet; renewals-as-new-orders per Squarespace docs). Real refund payload shape.
+FILES: backend/cloud/config.py, license_models.py, license_service.py, squarespace_poller.py, license_router.py, admin_router.py, download_landing.py, bridge.py (NEW), backend/tests/test_phase10_9_cloud_subscription.py (NEW), test_phase10_6 (time-bomb pinned), test_no_plaintext_credentials (ALLOWED_PATHS).
+DESIGN: new cloud_subscription tier ($5/mo, SKU SQ6389919, name-match "big hat cloud" primary because digital orders ship sku=null). 1 paid order = +30d from later of now/paid_through, idempotent per order id. Access: active -> grace (CLOUD_SUB_GRACE_DAYS, default 5) -> lapsed; cancel/refund keeps access until paid_through, NO grace; renewal after cancel reactivates. Entitlements mirrored ONE-WAY into the bridge cluster collection cloud_entitlements keyed by lowercase email {status, paid_through, grace_until, plan, updated_at, last_order_id} — no license key, no payment data, no customer id. Bridge failure NEVER breaks order processing (flagged + retried each poll; failed cloud orders replayed each poll). BRIDGE_MONGO_URL/BRIDGE_DB_NAME only ever used by cloud/bridge.py. Existing cloud_library tier untouched. Admin: POST /keys/mint accepts cloud_subscription_months / cloud_subscription_lifetime (employee comps, ~100y); POST /keys/{key}/cloud-subscription/cancel. Validate/activate/status responses expose cloud_subscription_status + paid_through so the program and Cloud app can gate features.
+
+
 ## 2026-10-16 — v32.1.2: Cloud link (Admin > Integrations > BIG Hat Cloud)
 - New: the Integrations tab has a "BIG Hat Cloud" card. It shows THIS computer's permanent 6-character code, a Copy button, a "Check link" button and the link state (Not linked yet / Waiting / Linked). The owner types the code into BIG Hat Cloud (Settings). The program always talks first, as the cloud app expects (POST /api/program/announce, then /api/program/claim-token).
 - One code per computer, made once and never changed. A freelance host with 2 or 3 computers links each one to the same cloud account. The code is a label only; the product key is what proves the program and the account belong together.

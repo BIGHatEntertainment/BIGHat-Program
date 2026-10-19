@@ -40,6 +40,9 @@ FORBIDDEN = [
 #   - Migrations / fixtures that ship example data.
 ALLOWED_PATHS = (
     "backend/tests/test_no_plaintext_credentials.py",
+    # Live preview-env contract test logs in with the documented preview
+    # test account (test/demo data only — see memory/test_credentials.md).
+    "backend/tests/test_locations_live_iter27.py",
     "memory/CHANGELOG.md",
     "_reference/",
     ".so",

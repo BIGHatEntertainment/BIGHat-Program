@@ -89,6 +89,8 @@ async def _require_admin(request: Request) -> str:
 
 
 def _to_view(lic) -> AdminKeyView:
+    from .license_service import cloud_subscription_state
+    _sub = cloud_subscription_state(lic)
     return AdminKeyView(
         key=lic.key,
         email=lic.email,
@@ -97,6 +99,8 @@ def _to_view(lic) -> AdminKeyView:
         owns_karaoke=lic.owns_karaoke,
         cloud_library_status=lic.cloud_library_status,
         cloud_library_expires_at=lic.cloud_library_expires_at,
+        cloud_subscription_status=_sub["status"],
+        cloud_subscription_paid_through=_sub["paid_through"],
         max_seats=lic.max_seats,
         active_seats=len(lic.active_hwids),
         revoked=lic.revoked,
@@ -167,6 +171,8 @@ async def mint_key(
         owns_music_bingo=req.owns_music_bingo,
         owns_karaoke=req.owns_karaoke,
         cloud_library_months=req.cloud_library_months,
+        cloud_subscription_months=req.cloud_subscription_months,
+        cloud_subscription_lifetime=req.cloud_subscription_lifetime,
         note=req.note,
         send_email=req.send_email,
     )
@@ -219,6 +225,8 @@ async def restore_key(
         owns_music_bingo=req.owns_music_bingo,
         owns_karaoke=req.owns_karaoke,
         cloud_library_months=req.cloud_library_months,
+        cloud_subscription_months=req.cloud_subscription_months,
+        cloud_subscription_lifetime=req.cloud_subscription_lifetime,
         note=(req.note or "restored after data-wipe"),
         send_email=False,   # don't double-email — customer already has the key
         key=req.key,
@@ -255,3 +263,20 @@ async def revoke_key(
     if not lic:
         raise HTTPException(status_code=404, detail="not_found")
     return _to_view(lic)
+
+
+@router.post("/keys/{key}/cloud-subscription/cancel", response_model=AdminKeyView)
+async def cancel_cloud_subscription_monthly(
+    key: str = Path(..., min_length=8, max_length=64),
+    _admin: str = Depends(_require_admin),
+) -> AdminKeyView:
+    """Cancel/refund path for the BIG Hat Cloud monthly subscription.
+    Access is kept until paid_through, then the subscription lapses."""
+    svc = _require_service()
+    lic = await svc.store.get_by_key(key.strip().upper())
+    if not lic:
+        raise HTTPException(status_code=404, detail="not_found")
+    updated = await svc.cancel_cloud_monthly(email=lic.email)
+    if not updated:
+        raise HTTPException(status_code=400, detail="no_cloud_subscription")
+    return _to_view(updated)
