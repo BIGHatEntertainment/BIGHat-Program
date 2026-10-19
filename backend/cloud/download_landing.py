@@ -135,6 +135,7 @@ def _alt_label(key: str) -> tuple[str, str]:
 
 
 @router.get("/download", response_class=HTMLResponse)
+@router.get("/api/download", response_class=HTMLResponse)
 async def download_landing(request: Request, missing: Optional[str] = None):
     """OS-aware landing page. Squarespace store button + bighat.live link
     should both point here."""

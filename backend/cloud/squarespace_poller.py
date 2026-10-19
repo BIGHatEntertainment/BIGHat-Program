@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -50,15 +50,22 @@ EVENT_ID_PREFIX = "sqsp:order:"
 # ---------------------------------------------------------------------------
 # Tier resolution
 # ---------------------------------------------------------------------------
-def resolve_tier(*, product_id: str, product_name: str) -> Optional[str]:
-    """Map a Squarespace line item to one of our four license tiers.
+def resolve_tier(*, product_id: str, product_name: str, sku: str = "") -> Optional[str]:
+    """Map a Squarespace line item to one of our license tiers.
 
-    Returns one of: standalone | music_bingo | karaoke | cloud_library
-    or None if the item shouldn't trigger a mint (e.g. merch t-shirts).
+    Returns one of: standalone | music_bingo | karaoke | cloud_library |
+    cloud_subscription, or None if the item shouldn't trigger a mint
+    (e.g. merch t-shirts).
+
+    Order: productId map → SKU → product-name substring. NOTE: real digital
+    orders have shipped with sku=null, so name matching is the workhorse.
     """
     mapping = config.license_product_map()
     if product_id and product_id in mapping:
         return mapping[product_id]
+
+    if sku and sku == config.SKU_CLOUD_SUBSCRIPTION:
+        return "cloud_subscription"
 
     if product_name:
         needle = product_name.lower()
@@ -109,7 +116,8 @@ async def process_order(
     for item in line_items:
         product_id = str(item.get("productId") or "")
         product_name = str(item.get("productName") or "")
-        tier = resolve_tier(product_id=product_id, product_name=product_name)
+        sku = str(item.get("sku") or "")
+        tier = resolve_tier(product_id=product_id, product_name=product_name, sku=sku)
         if tier is None:
             skipped.append(f"{product_name or product_id} (no tier match)")
             continue
@@ -134,9 +142,29 @@ async def process_order(
                     customer_id=customer_id,
                 )
                 minted.append(f"{tier}:{lic.key}")
+            elif tier == "cloud_subscription":
+                refunded_raw = (order.get("refundedTotal") or {}).get("value") or "0"
+                try:
+                    refunded = float(refunded_raw) > 0
+                except (TypeError, ValueError):
+                    refunded = False
+                if refunded:
+                    lic = await service.cancel_cloud_monthly(email=email)
+                    minted.append(f"cloud_subscription:canceled:{lic.key if lic else 'no_key'}")
+                else:
+                    lic = await service.mint_cloud_monthly(
+                        email=email, order_id=order_id, customer_id=customer_id,
+                    )
+                    minted.append(f"cloud_subscription:{lic.key}")
             else:
                 skipped.append(f"{product_name} (unknown tier '{tier}')")
         except Exception as e:
+            if tier == "cloud_subscription":
+                logger.error(
+                    "[CLOUD-SUB] ORDER %s (%s) COULD NOT BE PROCESSED: %s — "
+                    "recorded unprocessed; the poller will replay it next cycle.",
+                    order_id, email, e,
+                )
             logger.exception("[poller] mint failed for order=%s tier=%s: %s",
                              order_id, tier, e)
             skipped.append(f"{tier} ({type(e).__name__})")
@@ -295,6 +323,48 @@ async def run_once(
     n_duplicate = sum(1 for r in results if r["status"] == "duplicate")
     n_skipped = sum(1 for r in results if r["status"] == "skipped")
 
+    # [CLOUD-SUB] Replay BIG Hat Cloud orders that previously failed to
+    # process (recorded with processed=False). Merch/no-match orders are
+    # intentionally NOT replayed.
+    replayed = 0
+    try:
+        pending = await store.db["license_webhook_events"].find(
+            {"topic": "poll.order", "processed": False}, {"_id": 0},
+        ).to_list(200)
+        for ev in pending:
+            raw = ev.get("raw_payload") or {}
+            has_cloud_line = any(
+                resolve_tier(
+                    product_id=str(li.get("productId") or ""),
+                    product_name=str(li.get("productName") or ""),
+                    sku=str(li.get("sku") or ""),
+                ) == "cloud_subscription"
+                for li in (raw.get("lineItems") or [])
+            )
+            if not has_cloud_line:
+                continue
+            r = await process_order(order=raw, service=service, store=store)
+            if r.get("status") == "minted":
+                replayed += 1
+                logger.info("[CLOUD-SUB] replayed order %s successfully", r.get("order_id"))
+    except Exception as e:
+        logger.error("[CLOUD-SUB] replay sweep failed: %s", e)
+
+    # [CLOUD-SUB] Retry bridge upserts that failed on an earlier poll.
+    try:
+        from . import bridge
+        from .license_models import LicenseKey
+        if bridge.is_configured():
+            stale = await store.db["license_keys"].find(
+                {"cloud_subscription_bridge_synced": False}, {"_id": 0},
+            ).to_list(200)
+            for d in stale:
+                lic = LicenseKey(**d)
+                if await bridge.sync_entitlement(lic):
+                    await store.update(lic.key, {"cloud_subscription_bridge_synced": True})
+    except Exception as e:
+        logger.error("[CLOUD-SUB] bridge retry sweep failed: %s", e)
+
     await save_state(store, {
         "last_modified_at": new_high_water.isoformat(),
         "last_run_at": now.isoformat(),
@@ -309,6 +379,7 @@ async def run_once(
         "minted": n_minted,
         "duplicate": n_duplicate,
         "skipped": n_skipped,
+        "cloud_replayed": replayed,
         "high_water": new_high_water.isoformat(),
         "results": results,
     }
