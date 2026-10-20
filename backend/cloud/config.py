@@ -149,6 +149,11 @@ def cloud_subscription_grace_days() -> int:
         return 5
 
 
+def cloud_app_url() -> str:
+    """Public URL of the BIG Hat Cloud app once launched (empty until then)."""
+    return os.environ.get("CLOUD_APP_URL", "").strip()
+
+
 def support_email() -> str:
     return os.environ.get("SUPPORT_EMAIL", "support@bighat.live")
 

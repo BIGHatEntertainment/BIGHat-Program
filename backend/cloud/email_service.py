@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import Optional
 
 import resend
@@ -38,8 +37,17 @@ _STYLE = """
 """
 
 
+def _cloud_login_line() -> str:
+    url = config.cloud_app_url()
+    if url:
+        return f"Log in at {url} using this email address (the one on your purchase)."
+    return ("You'll sign in to BIG Hat Cloud with this email address "
+            "(the one on your purchase) when the Cloud portal goes live.")
+
+
 def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: bool,
-                      owns_music_bingo: bool = False, owns_karaoke: bool = False) -> str:
+                      owns_music_bingo: bool = False, owns_karaoke: bool = False,
+                      cloud_subscription: bool = False) -> str:
     # IMPORTANT: download links MUST point at api.bighat.live (the FastAPI
     # pod that owns /api/downloads/auto and /download), NOT bighat.live
     # (the Squarespace marketing site, which has no /download route and
@@ -62,7 +70,20 @@ def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: 
         tier_line.append("✓ Karaoke add-on (lifetime)")
     if cloud_library_active:
         tier_line.append("✓ Cloud Library subscription (active)")
+    if cloud_subscription:
+        tier_line.append("✓ BIG Hat Cloud subscription (active — monthly)")
     tier_html = "<br/>".join(tier_line) or "No paid tier — manually issued"
+
+    cloud_block = ""
+    if cloud_subscription:
+        cloud_block = f"""  <hr class="divider"/>
+  <p><strong>Your BIG Hat Cloud access</strong></p>
+  <p class="small">{_cloud_login_line()}</p>
+  <p class="small">To link a BIG Hat Entertainment program to your Cloud account:
+     open <em>Admin → Integrations → BIG Hat Cloud</em> inside the program to see
+     your 6-character link code, then enter that code in your Cloud account's
+     Settings. Keep your subscription active to retain access.</p>
+"""
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>{_STYLE}</style></head>
@@ -71,7 +92,7 @@ def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: 
   <p>Thanks for your purchase. Your license key is:</p>
   <p><span class="key">{key}</span></p>
   <p class="small">{tier_html}</p>
-  <hr class="divider"/>
+{cloud_block}  <hr class="divider"/>
   <p><strong>Get the app</strong></p>
   <p><a class="btn" href="{download_url}">Download BIG Hat Entertainment</a></p>
   <p class="small">The button above auto-detects your OS and serves the latest installer
@@ -89,7 +110,8 @@ def _license_key_html(key: str, *, owns_standalone: bool, cloud_library_active: 
 
 
 def _license_key_text(key: str, *, owns_standalone: bool, cloud_library_active: bool,
-                      owns_music_bingo: bool = False, owns_karaoke: bool = False) -> str:
+                      owns_music_bingo: bool = False, owns_karaoke: bool = False,
+                      cloud_subscription: bool = False) -> str:
     tier = []
     if owns_standalone:
         tier.append("- BIG Hat Entertainment (lifetime)")
@@ -99,12 +121,24 @@ def _license_key_text(key: str, *, owns_standalone: bool, cloud_library_active: 
         tier.append("- Karaoke add-on (lifetime)")
     if cloud_library_active:
         tier.append("- Cloud Library subscription (active)")
+    if cloud_subscription:
+        tier.append("- BIG Hat Cloud subscription (active — monthly)")
     tier_s = "\n".join(tier) or "- No paid tier (manually issued)"
+    cloud_block = ""
+    if cloud_subscription:
+        cloud_block = (
+            f"\nYour BIG Hat Cloud access:\n"
+            f"{_cloud_login_line()}\n"
+            f"To link a BIG Hat Entertainment program to your Cloud account, open\n"
+            f"Admin > Integrations > BIG Hat Cloud inside the program to see your\n"
+            f"6-character link code, then enter that code in your Cloud account's\n"
+            f"Settings. Keep your subscription active to retain access.\n"
+        )
     return (
         f"Your BIG Hat Entertainment license\n\n"
         f"Thanks for your purchase. Your license key is:\n\n"
         f"    {key}\n\n"
-        f"Tier:\n{tier_s}\n\n"
+        f"Tier:\n{tier_s}\n{cloud_block}\n"
         f"Download the app at {config.api_base_url()}/api/downloads/auto?key={key}\n"
         f"(or pick manually at {config.api_base_url()}/download)\n"
         f"Paste the key into the Setup Wizard on first launch.\n\n"
@@ -179,18 +213,23 @@ class ResendEmailSender:
         cloud_library_active: bool,
         owns_music_bingo: bool = False,
         owns_karaoke: bool = False,
+        cloud_subscription: bool = False,
     ) -> bool:
         subject = "Your BIG Hat Entertainment license"
+        if cloud_subscription and not (owns_standalone or owns_music_bingo or owns_karaoke):
+            subject = "Your BIG Hat Cloud access"
         return await self._send(
             to=to, subject=subject,
             html=_license_key_html(key, owns_standalone=owns_standalone,
                                    cloud_library_active=cloud_library_active,
                                    owns_music_bingo=owns_music_bingo,
-                                   owns_karaoke=owns_karaoke),
+                                   owns_karaoke=owns_karaoke,
+                                   cloud_subscription=cloud_subscription),
             text=_license_key_text(key, owns_standalone=owns_standalone,
                                    cloud_library_active=cloud_library_active,
                                    owns_music_bingo=owns_music_bingo,
-                                   owns_karaoke=owns_karaoke),
+                                   owns_karaoke=owns_karaoke,
+                                   cloud_subscription=cloud_subscription),
         )
 
     async def send_subscription_canceled(self, *, to: str, key: str) -> bool:
