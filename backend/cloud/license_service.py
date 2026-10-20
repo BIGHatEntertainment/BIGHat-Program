@@ -25,7 +25,8 @@ class EmailSender(Protocol):
     async def send_license_key_email(self, *, to: str, key: str, owns_standalone: bool,
                                      cloud_library_active: bool,
                                      owns_music_bingo: bool = False,
-                                     owns_karaoke: bool = False) -> bool: ...
+                                     owns_karaoke: bool = False,
+                                     cloud_subscription: bool = False) -> bool: ...
     async def send_subscription_canceled(self, *, to: str, key: str) -> bool: ...
 
 
@@ -347,6 +348,7 @@ class LicenseService:
                 to=lic.email, key=lic.key,
                 owns_standalone=False, cloud_library_active=False,
                 owns_music_bingo=False, owns_karaoke=False,
+                cloud_subscription=True,
             )
         await self._bridge_sync(lic)
         logger.info("[license] minted cloud-subscription key for %s", email)
@@ -521,6 +523,7 @@ class LicenseService:
                     cloud_library_active=updated.cloud_library_status == "active",
                     owns_music_bingo=updated.owns_music_bingo,
                     owns_karaoke=updated.owns_karaoke,
+                    cloud_subscription=cloud_subscription_state(updated)["access"],
                 )
             return updated
 
@@ -561,6 +564,7 @@ class LicenseService:
                 cloud_library_active=lic.cloud_library_status == "active",
                 owns_music_bingo=lic.owns_music_bingo,
                 owns_karaoke=lic.owns_karaoke,
+                cloud_subscription=cloud_subscription_state(lic)["access"],
             )
         return lic
 
@@ -579,6 +583,7 @@ class LicenseService:
             cloud_library_active=lic.cloud_library_status == "active",
             owns_music_bingo=lic.owns_music_bingo,
             owns_karaoke=lic.owns_karaoke,
+            cloud_subscription=cloud_subscription_state(lic)["access"],
         )
         logger.info("[license] resent key email for %s", lic.email)
         return True, "sent"

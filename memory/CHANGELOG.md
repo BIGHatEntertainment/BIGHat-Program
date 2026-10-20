@@ -8,6 +8,14 @@
 ---
 ---
 
+## cloud-buyer-email-v1 (api.bighat.live — follow-up to cloud-sub-v1)
+TIME (MST): 2026-10-17 19:30
+TESTED: rendered-template assertions (cloud-only buyer gets tier line, login line and link-code instructions; base-program buyer email contains NO cloud copy); 40 licensing tests pass (phase10_9 + 10_8 + 10_6). Entitlement separation audit passed: base -> standalone only, Bingo -> bingo only, Karaoke -> karaoke only, Cloud -> subscription only + bridge doc, no cross-unlocks.
+NOT VERIFIED: real delivery rendering in all mail clients.
+FILES: backend/cloud/email_service.py, backend/cloud/license_service.py, backend/cloud/config.py.
+DESIGN: send_license_key_email gains cloud_subscription flag. Cloud-only buyers get subject "Your BIG Hat Cloud access", a "BIG Hat Cloud subscription (active - monthly)" tier line, a login line driven by new env CLOUD_APP_URL (graceful "when the Cloud portal goes live" copy until set), and link instructions matching the v32.1.2 Cloud-link contract (program shows 6-char code in Admin > Integrations > BIG Hat Cloud; owner enters it in Cloud Settings). Wired through mint_cloud_monthly, both mint_manual paths and resend_license_email.
+
+
 ## cloud-sub-v1 (api.bighat.live licensing only — no desktop changes)
 TIME (MST): 2026-10-17 17:30
 TESTED: 22 pytest cases in backend/tests/test_phase10_9_cloud_subscription.py (purchase, renewal extend, replay no-op, grace->lapsed, cancel keeps access until paid_through, refund->cancel, unknown product skip, bridge doc shape, employee lifetime comps); test_no_plaintext_credentials + test_phase10_1_no_secret_leakage pass; live E2E on the deployed API verified mint + bridge upsert + /api/license/validate exposing cloud_subscription_status.
