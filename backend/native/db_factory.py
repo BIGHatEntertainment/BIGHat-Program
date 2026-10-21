@@ -17,11 +17,14 @@ to work unchanged.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 from .async_monty import AsyncMontyClient, AsyncMontyDatabase
+
+logger = logging.getLogger("bighat-db-factory")
 
 
 def _is_cloud_mode() -> bool:
@@ -50,6 +53,55 @@ _native_client: Optional[AsyncMontyClient] = None
 _motor_client = None  # AsyncIOMotorClient when not in native mode
 
 
+# montydb stores each collection as its own SQLite file (<db>/<collection>.collection) with one table, "documents".
+# A file that exists but has NO table (0 bytes) is treated by montydb as a real collection, and every read then fails
+# with "OperationalError: no such table: documents". That is what a hard kill between "create file" and "create table"
+# leaves behind (seen on a Mac after the app was closed once; the login then failed forever).
+# A 0-byte file holds no data, so creating the table in it cannot lose anything. A NON-empty file is NEVER touched.
+_EMPTY_COLLECTION_SQL = "CREATE TABLE IF NOT EXISTS [documents](k text NOT NULL, v text NOT NULL, PRIMARY KEY(k))"
+
+
+def heal_empty_collections(repo_dir) -> dict:
+    """Create the missing table in any zero-byte collection file under repo_dir. Never raises.
+
+    Returns {"healed": [paths], "suspect": [paths]}. "suspect" = non-empty files without the table; left alone and logged.
+    """
+    import sqlite3
+
+    out = {"healed": [], "suspect": []}
+    try:
+        base = Path(repo_dir)
+        if not base.is_dir():
+            return out
+        for f in base.rglob("*.collection"):
+            try:
+                size = f.stat().st_size
+                if size == 0:
+                    con = sqlite3.connect(str(f))
+                    try:
+                        with con:
+                            con.execute(_EMPTY_COLLECTION_SQL)
+                    finally:
+                        con.close()
+                    out["healed"].append(str(f))
+                    logger.warning("db heal: created the missing table in empty collection file %s", f)
+                else:
+                    con = sqlite3.connect(f"file:{f}?mode=ro", uri=True)
+                    try:
+                        has = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'").fetchone()
+                    finally:
+                        con.close()
+                    if not has:
+                        out["suspect"].append(str(f))
+                        logger.error("db heal: %s has data but no documents table. NOT touching it.", f)
+            except Exception as e:  # one bad file must never stop the app from starting
+                logger.error("db heal: could not check %s: %s", f, e)
+    except Exception as e:
+        logger.error("db heal failed: %s", e)
+    return out
+
+
+
 def _build_native_client() -> AsyncMontyClient:
     """Build a MontyDB-backed sqlite client and async-wrap it."""
     from montydb import MontyClient, set_storage  # local import; only load when needed
@@ -66,6 +118,7 @@ def _build_native_client() -> AsyncMontyClient:
     base_dir.mkdir(parents=True, exist_ok=True)
     repo_dir = base_dir / "bighat_db"
     # alpha.90: the connection is used from worker threads, one call at a time (see async_monty._DB_LOCK)
+    heal_empty_collections(repo_dir)          # before anything reads: repair half-made collection files
     set_storage(repository=str(repo_dir), storage="sqlite", check_same_thread=False)
     sync_client = MontyClient(str(repo_dir))
     return AsyncMontyClient(sync_client)
