@@ -1,0 +1,81 @@
+--- a/frontend/src/pages/scoreboard/ScoreboardDashboard.js
++++ b/frontend/src/pages/scoreboard/ScoreboardDashboard.js
+@@ -23,6 +23,21 @@
+ import { openExternal } from '../../lib/openExternal';
+ import { isTauri, openNativeAudience } from '../../lib/audienceWindow';
+ 
++// A server error can come back as text, as an object ({message, error, ...}) or not at all. Always return words,
++// never "[object Object]" (that hid the real reason a score file could not be read).
++export function errorText(err, fallback = 'Something went wrong.') {
++  const d = err?.response?.data?.detail ?? err?.response?.data?.message;
++  if (typeof d === 'string' && d.trim()) return d;
++  if (d && typeof d === 'object') {
++    if (typeof d.message === 'string' && d.message.trim()) return d.message;
++    if (typeof d.error === 'string' && d.error.trim()) return d.error;
++    if (Array.isArray(d) && d.length) return d.map((x) => (typeof x === 'string' ? x : x?.msg || '')).filter(Boolean).join('; ') || fallback;
++    try { return JSON.stringify(d).slice(0, 200); } catch (e) { return fallback; }
++  }
++  if (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error') return 'The program could not be reached. Is it still running?';
++  return (typeof err?.message === 'string' && err.message) || fallback;
++}
++
+ const Dashboard = () => {
+   const [mode, setMode] = useState('leaderboard');
+   const [aspectRatio, setAspectRatio] = useState('landscape');
+@@ -117,7 +132,7 @@
+       if (!quiet) toast.success(`Found ${count} score file${count === 1 ? '' : 's'}`);
+     } catch (err) {
+       console.error('Score file load error:', err);
+-      if (!quiet) toast.error('Could not read the score files: ' + (err.response?.data?.detail || err.message));
++      if (!quiet) toast.error('Could not read the score files: ' + errorText(err));
+     } finally {
+       setSyncing(false);
+     }
+@@ -125,6 +140,24 @@
+ 
+   const handleSync = () => refreshScoreFiles(false);
+ 
++  // Import a plain score .json (what Trivia "Save & Exit" writes). A .bighat file uses the Import button beside this one.
++  const scoreFileInput = useRef(null);
++  const handleScoreFilePick = async (e) => {
++    const file = e.target.files?.[0];
++    e.target.value = '';
++    if (!file) return;
++    const name = file.name.toLowerCase();
++    if (name.endsWith('.bighat')) { toast.info('That is a .bighat file. Use the Import button next to this one.'); return; }
++    if (!name.endsWith('.json')) { toast.error('Please choose a score file ending in .json'); return; }
++    try {
++      const r = await api.importScoreFile(file);
++      toast.success(`Imported ${r.filename || file.name}`);
++      await refreshScoreFiles(true);
++    } catch (err) {
++      toast.error('Could not import that file: ' + errorText(err));
++    }
++  };
++
+   // load them as soon as the page opens, so a night saved a minute ago is already there
+   React.useEffect(() => { refreshScoreFiles(true); /* eslint-disable-next-line */ }, []);
+ 
+@@ -378,8 +411,9 @@
+       }
+     } catch (err) {
+       console.error('Video export failed:', err);
+-      setExportStatus('Video export failed: ' + (err.response?.data?.detail || err.message));
+-      toast.error('Video export failed');
++      const why = errorText(err, 'Video export failed.');
++      setExportStatus('Video export failed: ' + why);
++      toast.error('Video export failed: ' + why);
+     } finally { setExporting(false); }
+   };
+ 
+@@ -445,6 +479,10 @@
+                 <span className="text-[10px] text-green-400 font-mono">SYNCED {lastSync}</span>
+               </div>
+             )}
++            <input ref={scoreFileInput} type="file" accept=".json,.bighat,application/json" className="hidden" onChange={handleScoreFilePick} data-testid="score-file-input" />
++            <Button type="button" variant="outline" size="sm" onClick={() => scoreFileInput.current?.click()} data-testid="import-score-file-btn">
++              Import score file
++            </Button>
+             <BIGHatFileButtons type="scoreboard" />
+           </div>
+         </div>

@@ -1,0 +1,45 @@
+name: Apply scoreboard patches (one-time)
+
+# One-time helper. Applies patches/*.patch to the code on THIS branch, runs the scoreboard tests, and commits the
+# result back to the same branch ONLY if the tests pass. Delete this workflow and the patches folder afterwards.
+# Runs only when started by hand, and only on the branch fix/scoreboard-apply-patches.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/fix/scoreboard-apply-patches'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply the two patches (fails loudly if they do not apply cleanly)
+        run: |
+          set -euo pipefail
+          patch -p1 --forward --no-backup-if-mismatch < patches/scoreboard_py.patch
+          patch -p1 --forward --no-backup-if-mismatch < patches/dashboard_js.patch
+          git diff --stat
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        run: pip install -q -r backend/requirements-desktop.txt pytest httpx
+
+      - name: Run the scoreboard and scores tests
+        working-directory: backend
+        run: python -m pytest tests/test_scoreboard_import_and_fetch.py tests/test_alpha97_scores_to_scoreboard.py tests/test_alpha73_scores.py tests/test_db_heal_empty_collection.py -q -p no:cacheprovider
+
+      - name: Commit the two patched files (only reached if everything above passed)
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add backend/routes/scoreboard.py frontend/src/pages/scoreboard/ScoreboardDashboard.js
+          git commit -m "Scoreboard: Fetch reads Files/Scoreboard, plain .json import, readable errors (applied from patches, tests passed)"
+          git push
