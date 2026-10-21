@@ -57,11 +57,12 @@ def _local_scores_roots() -> list:
     """alpha.97: every folder that can hold score files, best first.
     1) Documents\\BIG Hat Entertainment\\Files\\Trivia\\Scores   (where Trivia 'Save & Exit' writes)
     2) <AppData>\\backups\\scores                              (its safety copy)
-    3) <assets>\\01_Scores                                       (older installs / files dropped in by hand, if configured)"""
+    3) Documents\\BIG Hat Entertainment\\Files\\Scoreboard   (read-only: older builds / files copied in by hand)
+    4) <assets>\\01_Scores                                       (older installs / files dropped in by hand, if configured)"""
     roots = []
     try:
         from native import scores_store
-        roots += [scores_store.primary_root(), scores_store.backup_root()]
+        roots += [scores_store.primary_root(), scores_store.backup_root(), *scores_store.extra_read_roots()]
     except Exception as e:                                  # noqa: BLE001
         logger.warning(f"[SCOREBOARD] scores_store unavailable: {e}")
     try:
@@ -352,7 +353,8 @@ async def sync_sharepoint_data():
                 "synced_at": datetime.now(timezone.utc).isoformat(),
                 "data": data,
             }
-            await db.score_files.update_one({"file_name": f.name}, {"$set": doc}, upsert=True)
+            # keyed by venue AND file name: two venues can have a night with the same file name
+            await db.score_files.update_one({"venue": venue, "file_name": f.name}, {"$set": doc}, upsert=True)
             synced.append(f.name)
         return {"synced": synced, "count": len(synced), "source": "local"}
 
@@ -405,6 +407,23 @@ async def sync_sharepoint_data():
     except Exception as e:
         logger.error(f"SharePoint sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scores/import")
+async def import_score_file(file: UploadFile = File(...)):
+    """Import a plain .json score file (what Trivia 'Save & Exit' writes) into the Scoreboard.
+    It is saved in the normal score folder like any other night, then synced, so it shows up and can be turned
+    into a video. A file that is not a score night is refused with a plain message (HTTP 400)."""
+    from native import scores_store
+    raw = await file.read()
+    try:
+        saved = scores_store.import_json(raw)
+    except scores_store.BadScoreFile as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not save the score file on this PC: {e}")
+    sync = await sync_sharepoint_data()
+    return {"ok": True, "imported": saved["path"], "filename": saved["filename"], "count": sync.get("count", 0)}
 
 
 @router.get("/scores")
