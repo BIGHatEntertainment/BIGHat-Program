@@ -149,4 +149,26 @@ def import_json(raw: bytes) -> Dict[str, str]:
     data = validate_score_json(raw)
     data.setdefault("location", str(data.get("locationName") or "Imported"))
     data.setdefault("date", str(data.get("presentationDate") or datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+    # v32.1.9: importing a night that is ALREADY here (same content) must not add a second copy of it to the list.
+    # A different night with the same name/date still gets its own numbered file (save() never overwrites).
+    folder = _clean(data.get("location", ""), "Unknown_Location")
+    date = _clean((data.get("date") or "").replace("/", "-"), datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    d = primary_root() / folder
+    if d.is_dir():
+        for existing in sorted(d.glob(f"{folder}_{date}*.json")):
+            try:
+                if _same_night(json.loads(existing.read_text(encoding="utf-8")), data):
+                    return {"folder": folder, "filename": existing.name, "path": f"{folder}/{existing.name}", "duplicate": True}
+            except (OSError, ValueError):
+                continue
     return save(data)
+
+
+def _same_night(a: Any, b: Any) -> bool:
+    """Same teams and scores. Ignores the fields that change on every save (when it was saved, the presentation id)."""
+    def core(x):
+        if not isinstance(x, dict):
+            return None
+        teams = [(str(t.get("name", "")).strip().lower(), t.get("total"), tuple(t.get("roundScores") or [])) for t in (x.get("teams") or []) if isinstance(t, dict)]
+        return (sorted(teams), str(x.get("date", "")).replace("/", "-"))
+    return core(a) is not None and core(a) == core(b)

@@ -13,7 +13,7 @@ const TYPE_LABELS = {
   scoreboard:   'Scoreboard theme',
 };
 
-export default function BIGHatFileButtons({ type, itemId, itemName, onImported }) {
+export default function BIGHatFileButtons({ type, itemId, itemName, onImported, importLabel, exportLabel }) {
   const inputRef = useRef(null);
   const [preview, setPreview] = useState(null);   // {manifest, payload} after inspect
   const [pendingFile, setPendingFile] = useState(null);
@@ -85,7 +85,7 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
             style={btnStyle}
           >
             <Download size={14} />
-            <span>Export</span>
+            <span>{exportLabel || 'Export'}</span>
           </button>
         )}
         <button
@@ -97,7 +97,7 @@ export default function BIGHatFileButtons({ type, itemId, itemName, onImported }
           style={btnStyle}
         >
           <Upload size={14} />
-          <span>Import</span>
+          <span>{importLabel || 'Import'}</span>
         </button>
         <input
           ref={inputRef}

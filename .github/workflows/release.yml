@@ -161,6 +161,25 @@ jobs:
           PIP_EXTRA_INDEX_URL: https://d33sy5i8bnduwe.cloudfront.net/simple/
         run: python scripts/build_sidecar.py --target ${{ matrix.target }}
 
+      # v32.1.9 release gate. v32.1.8 shipped a backend whose Scoreboard router crashed while loading INSIDE the bundle (it created a
+      # folder beside its own file, read-only there). The app still started, so nothing noticed. This runs the frozen backend that is
+      # about to be packaged and FAILS THE BUILD if any router failed to load or the Scoreboard does not answer.
+      - name: Smoke-test the frozen backend (fails the release if a router did not load)
+        shell: bash
+        run: |
+          set -e
+          BIN=$(ls src-tauri/binaries/bighat-backend-* | head -1)
+          echo "testing $BIN"
+          case "${{ matrix.target }}" in
+            *apple-darwin)
+              ARCH=$(uname -m)
+              case "${{ matrix.target }}" in
+                aarch64-*) WANT=arm64;; x86_64-*) WANT=x86_64;; *) WANT=$ARCH;;
+              esac
+              if [ "$ARCH" != "$WANT" ]; then echo "::warning::cross-built sidecar ($WANT on $ARCH runner) cannot run here; the gate was SKIPPED for this target"; exit 0; fi ;;
+          esac
+          python scripts/smoke_frozen_backend.py "$BIN"
+
       - name: Build Tauri app
         id: build1
         continue-on-error: true

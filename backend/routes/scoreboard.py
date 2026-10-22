@@ -424,7 +424,8 @@ async def import_score_file(file: UploadFile = File(...)):
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Could not save the score file on this PC: {e}")
     sync = await sync_sharepoint_data()
-    return {"ok": True, "imported": saved["path"], "filename": saved["filename"], "count": sync.get("count", 0)}
+    return {"ok": True, "imported": saved["path"], "filename": saved["filename"], "count": sync.get("count", 0),
+            "duplicate": bool(saved.get("duplicate"))}
 
 
 def _score_file_entry(root, venue: str, f) -> Optional[Dict[str, Any]]:
@@ -552,8 +553,34 @@ async def delete_preset(preset_id: str):
 
 # ===================== EXPORT FILE SERVING =====================
 
-EXPORTS_DIR = ROOT_DIR / "exports"
-EXPORTS_DIR.mkdir(exist_ok=True)
+def _exports_dir() -> Path:
+    """Where finished scoreboard videos/images are kept. v32.1.9: this used to be <this file's folder>/exports, created while the
+    module loads. In the INSTALLED app that folder is inside PyInstaller's read-only temporary bundle, so the mkdir crashed the
+    import, the whole Scoreboard router silently never mounted, and every /api/scoreboard/* call answered not_found /
+    api_route_not_found (owner, v32.1.8). It now lives in the app's own data folder (AppData), which is writable, survives
+    restarts (a QR link or a re-download keeps working) and is never inside the bundle. Never raises."""
+    candidates = []
+    try:
+        from native.data_map import appdata_root
+        candidates.append(appdata_root() / "scoreboard_exports")
+    except Exception:                                        # noqa: BLE001
+        pass
+    import tempfile
+    candidates.append(Path(tempfile.gettempdir()) / "bighat_scoreboard_exports")
+    candidates.append(ROOT_DIR / "exports")
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            probe = c / ".w"
+            probe.write_text("1")
+            probe.unlink()
+            return c
+        except OSError:
+            continue
+    return candidates[1]                                     # cannot write anywhere: exports will fail with a message, the router still mounts
+
+
+EXPORTS_DIR = _exports_dir()
 
 
 @router.post("/exports/upload", dependencies=_video_gate)

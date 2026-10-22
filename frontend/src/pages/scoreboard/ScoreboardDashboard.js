@@ -160,7 +160,8 @@ const Dashboard = () => {
     if (!name.endsWith('.json')) { toast.error('Please choose a score file ending in .json'); return; }
     try {
       const r = await api.importScoreFile(file);
-      toast.success(`Imported ${r.filename || file.name}`);
+      if (r.duplicate) toast.info(`That night is already in your list (${r.filename}). Nothing was added.`);
+      else toast.success(`Imported ${r.filename || file.name}`);
       await refreshScoreFiles(true);
     } catch (err) {
       toast.error('Could not import that file: ' + errorText(err));
@@ -489,10 +490,12 @@ const Dashboard = () => {
               </div>
             )}
             <input ref={scoreFileInput} type="file" accept=".json,.bighat,application/json" className="hidden" onChange={handleScoreFilePick} data-testid="score-file-input" />
-            <Button type="button" variant="outline" size="sm" onClick={() => scoreFileInput.current?.click()} data-testid="import-score-file-btn">
-              Import score file
+            <Button type="button" variant="outline" size="sm" onClick={() => scoreFileInput.current?.click()} data-testid="import-score-file-btn"
+                    title="Load a night's scores from a .json score file (the files Save & Exit makes), for example one copied from another PC">
+              Import score file (.json)
             </Button>
-            <BIGHatFileButtons type="scoreboard" />
+            {/* The yellow pair is the scoreboard LOOK (theme) as a portable .bighat file. It is NOT where scores come from. */}
+            <BIGHatFileButtons type="scoreboard" importLabel="Import theme" exportLabel="Export theme" />
           </div>
         </div>
       </header>
