@@ -1,5 +1,7 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **180-day round lock fixed (awaiting merge/release):** the Wizard/Roulette lists now find the lock for any form of the location they send; the legacy import path enforces + records it; a locked refusal cannot be overridden; round_usage.json has a damaged-file guard and an AppData copy. See CHANGELOG round-lock-holes-v1.
+
 > **Sync Phase 3 (pull from BIG Hat Cloud) built, awaiting merge/release.** See CHANGELOG phase3-pull-v1 and memory/SYNC_PLAN.md. Program is read-only for synced data except claims (push is Phase 4). Latest released: v32.1.5 (login heal).
 
 > **Current release: `v32.0.0-alpha.72` (2026-10-03).** alpha.72: employees are users (employee_sync.py), temp password shown once, duplicate/bad email

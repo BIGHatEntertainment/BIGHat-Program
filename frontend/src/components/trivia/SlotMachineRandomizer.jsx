@@ -967,14 +967,21 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
       } catch (rouletteErr) {
         const detail = rouletteErr?.response?.data?.detail || rouletteErr.message;
         // ACL-safe confirm (Tauri may route it through the dialog plugin).
-        let proceed = true;
+        // v32.1.7: a LOCKED-round refusal (409/400 "locked for this location") can never be overridden. Other check
+        // failures still offer the old fallback, but a prompt that cannot be shown now means NO (it used to mean yes).
+        if (/locked for this location/i.test(String(detail))) {
+          window.alert(String(detail));
+          setBuilding(false);
+          return;
+        }
+        let proceed = false;
         try {
           proceed = await Promise.resolve(window.confirm(
             `Check failed while building roulette presentation:\n\n${detail}\n\n` +
             'Continue with legacy (unchecked) build anyway?'
           ));
         } catch (_confirmErr) {
-          proceed = true;
+          proceed = false;
         }
         if (!proceed) {
           setBuilding(false);

@@ -394,6 +394,23 @@ async def _import_trivia_native(request: "TriviaImportRequest") -> dict:
         nativeManifest=request.nativeManifest,
     )
 
+    # 180-day lock on the legacy path too (it used to skip the check AND never record usage, so a build that got here
+    # could repeat rounds and its own rounds were never locked). v32.1.7
+    _loc = (request.nativeManifest or {}).get("location", {}) or {}
+    _loc_keys = [k for k in (_loc.get("id"), _loc.get("name"), request.location) if k]
+    try:
+        import round_usage
+        _locked = set()
+        for k in _loc_keys:
+            _locked |= round_usage.locked_names(k)
+        _clash = [Path(rf["path"]).name for rf in round_files if round_usage.norm_name(rf["path"]) in _locked]
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("[presentations] lock check skipped: %s", e)
+        _clash = []
+    if _clash:
+        raise HTTPException(status_code=409, detail="These rounds are locked for this location (used within the last "
+                            f"180 days): {', '.join(_clash)}. An admin can release them in Trivia Admin.")
+
     doc = presentation.model_dump()
     # datetime → ISO string so JSON.dump doesn't choke
     if isinstance(doc.get("createdAt"), datetime):
@@ -429,6 +446,15 @@ async def _import_trivia_native(request: "TriviaImportRequest") -> dict:
         await db.trivia_presentations.insert_one(doc)
     except Exception as e:
         logger.warning("[presentations] DB mirror insert failed (non-fatal): %s", e)
+
+    try:                                                      # lock these rounds for this location
+        import round_usage
+        round_usage.record_usage(
+            location_id=_loc.get("id") or "", location_name=_loc.get("name") or request.location or "",
+            round_files=[{"order": rf["order"], "type": rf["type"], "file": rf["path"]} for rf in round_files],
+            used_by=request.userName or "", presentation_id=presentation.id, presentation_name=presentation_name)
+    except Exception as e:                                    # noqa: BLE001  never lose a built show over bookkeeping
+        logger.warning("[round_usage] record failed on legacy import: %s", e)
 
     return {
         "id": presentation.id,
