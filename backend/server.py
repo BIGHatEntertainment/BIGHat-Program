@@ -28,6 +28,8 @@ from datetime import datetime, timezone, timedelta
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("bighat-hub")
 
+_ROUTER_FAILURES: list = []          # filled by the "Could not load ... routes" handlers below (v32.1.9)
+
 # v31.0.10: previously this file hardcoded a default employee password
 # literal in 11+ places (visible in the public GitHub mirror). Replaced
 # with env-driven constants. Production MUST set both env vars. In dev /
@@ -2361,6 +2363,7 @@ try:
     logger.info("Trivia presenter routes mounted successfully (independent mode)")
 except Exception as e:
     logger.warning(f"Could not load trivia presenter routes: {e}")
+    _ROUTER_FAILURES.append({"router": "trivia presenter routes", "error": f"{type(e).__name__}: {e}"})
 
 # Mount Round Generator routes
 try:
@@ -2371,6 +2374,7 @@ try:
     logger.info("Round Generator routes mounted successfully")
 except Exception as e:
     logger.warning(f"Could not load Round Generator routes: {e}")
+    _ROUTER_FAILURES.append({"router": "Round Generator routes", "error": f"{type(e).__name__}: {e}"})
 
 # alpha.70: Karaoke Setup (folders, master overlay, venue logos, filler music)
 try:
@@ -2382,6 +2386,7 @@ try:
     logger.info("Karaoke Setup routes mounted successfully")
 except Exception as e:
     logger.warning(f"Could not load Karaoke Setup routes: {e}")
+    _ROUTER_FAILURES.append({"router": "Karaoke Setup routes", "error": f"{type(e).__name__}: {e}"})
 
 # Mount Bingo routes
 try:
@@ -2396,6 +2401,7 @@ try:
     logger.info("Bingo routes mounted successfully")
 except Exception as e:
     logger.warning(f"Could not load Bingo routes: {e}")
+    _ROUTER_FAILURES.append({"router": "Bingo routes", "error": f"{type(e).__name__}: {e}"})
 
 # Mount Scoreboard routes
 try:
@@ -2406,6 +2412,7 @@ try:
     logger.info("Scoreboard routes mounted successfully")
 except Exception as e:
     logger.warning(f"Could not load Scoreboard routes: {e}")
+    _ROUTER_FAILURES.append({"router": "Scoreboard routes", "error": f"{type(e).__name__}: {e}"})
 
 # Mount .bighat file import/export routes (Phase 10.7)
 try:
@@ -2416,6 +2423,7 @@ try:
     logger.info(".bighat file routes mounted successfully")
 except Exception as e:
     logger.warning(f"Could not load .bighat file routes: {e}")
+    _ROUTER_FAILURES.append({"router": ".bighat file routes", "error": f"{type(e).__name__}: {e}"})
 
 # Include router
 app.include_router(api_router)
@@ -2451,6 +2459,7 @@ else:
             logger.exception("Native router import traceback (Setup Wizard will 405 until fixed):")
         else:
             logger.warning(f"Could not load Native-Standalone router: {e}")
+            _ROUTER_FAILURES.append({"router": "Native-Standalone router", "error": f"{type(e).__name__}: {e}"})
 
 
 # v31.0.13: SharePoint Hybrid Sync router removed.
@@ -2467,6 +2476,7 @@ try:
     logger.info("Native admin router registered at /api/native/admin/*")
 except Exception as e:
     logger.warning(f"Could not load Native admin router: {e}")
+    _ROUTER_FAILURES.append({"router": "Native admin router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Native updates router (Phase 9.1). Auto-update channel; apply is master-admin only.
@@ -2477,6 +2487,7 @@ try:
     logger.info("Native updates router registered at /api/native/updates/*")
 except Exception as e:
     logger.warning(f"Could not load Native updates router: {e}")
+    _ROUTER_FAILURES.append({"router": "Native updates router", "error": f"{type(e).__name__}: {e}"})
 
 # alpha.78: open links in the default browser + save downloads to the Downloads folder (the desktop
 # window blocks window.open and <a download>, so the page asks the backend).
@@ -2486,6 +2497,7 @@ try:
     logger.info("Native system router registered at /api/native/system/*")
 except Exception as e:
     logger.warning(f"Could not load Native system router: {e}")
+    _ROUTER_FAILURES.append({"router": "Native system router", "error": f"{type(e).__name__}: {e}"})
 
 # Native .bighat files router (Phase 10.11). Lets the user save/load .bighat
 # files in a folder on their machine (Documents/BIGHat Entertainment/Files).
@@ -2495,6 +2507,7 @@ try:
     logger.info("Native files router registered at /api/native/files/*")
 except Exception as e:
     logger.warning(f"Could not load Native files router: {e}")
+    _ROUTER_FAILURES.append({"router": "Native files router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Native locations router (v32.0.0-alpha.22, Phase 11). Admin-managed
@@ -2507,6 +2520,7 @@ try:
     logger.info("Native locations router registered at /api/native/locations/*")
 except Exception as e:
     logger.warning(f"Could not load Native locations router: {e}")
+    _ROUTER_FAILURES.append({"router": "Native locations router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Setup Package router (alpha.85): Admin Settings > Integrations. Desktop only (never loaded in cloud mode).
@@ -2518,6 +2532,7 @@ if not _native_router_skipped_cloud:
         logger.info("Native setup-package router registered at /api/native/setup-package/*")
     except Exception as e:
         logger.warning(f"Could not load Native setup-package router: {e}")
+        _ROUTER_FAILURES.append({"router": "Native setup-package router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Winners videos (alpha.87): 1st / 2nd / 3rd place clips.
@@ -2526,6 +2541,7 @@ try:
     app.include_router(winners_video_router, prefix="/api")
 except Exception as e:
     logger.warning(f"Could not load winners video router: {e}")
+    _ROUTER_FAILURES.append({"router": "winners video router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Global slides router (alpha.64): company / rules / Format slides.
@@ -2535,6 +2551,7 @@ try:
     logger.info("Native global-slides router registered at /api/native/global-slides")
 except Exception as e:
     logger.warning(f"Could not load global-slides router: {e}")
+    _ROUTER_FAILURES.append({"router": "global-slides router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Slide style router (alpha.61): global + per-location trivia slide style.
@@ -2544,6 +2561,7 @@ try:
     logger.info("Native slide-style router registered at /api/native/slide-style")
 except Exception as e:
     logger.warning(f"Could not load slide-style router: {e}")
+    _ROUTER_FAILURES.append({"router": "slide-style router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Native backup router (v32.0.0-alpha.22). Manual "Backup my setup"
@@ -2554,6 +2572,7 @@ try:
     logger.info("Native backup router registered at /api/native/backup/*")
 except Exception as e:
     logger.warning(f"Could not load Native backup router: {e}")
+    _ROUTER_FAILURES.append({"router": "Native backup router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Cloud licensing service (Phase 10.0). Gated by BIGHAT_CLOUD_MODE=1; this is
@@ -2901,6 +2920,7 @@ except Exception as e:
         logger.exception("Cloud router import traceback:")
     else:
         logger.warning(f"Could not load Cloud licensing router: {e}")
+        _ROUTER_FAILURES.append({"router": "Cloud licensing router", "error": f"{type(e).__name__}: {e}"})
 
 
 # Bingo WebSocket endpoint (must be on app level, not sub-router)
@@ -2929,6 +2949,14 @@ except Exception as e:
 @app.get("/health")
 async def root_health():
     return {"status": "healthy"}
+
+
+@app.get("/api/diagnostics/routers")
+async def router_diagnostics():
+    """Which route groups failed to load in THIS running app, and why. A router that cannot be imported is skipped with only a log
+    line, so the page that needs it opens fine and every call it makes answers not_found (this is how the Scoreboard broke in the
+    installed app in v32.1.8). v32.1.9: failures are listed here and the release build checks this list is empty."""
+    return {"failed": _ROUTER_FAILURES, "count": len(_ROUTER_FAILURES)}
 
 
 # Always-on diagnostic for the Setup Wizard. Mirrors /api/license/health.

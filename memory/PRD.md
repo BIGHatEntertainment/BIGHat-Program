@@ -1,5 +1,7 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **Scoreboard root cause found + fixed (awaiting merge/release):** the router crashed on import inside the installed app (read-only folder), so every Scoreboard call was not_found. Exports now in AppData; /api/diagnostics/routers; release gate runs the frozen backend. See CHANGELOG scoreboard-frozen-mount-v1.
+
 > **Scoreboard Fetch reworked (awaiting merge/release):** Fetch is one GET that reads the score folders; damaged files are reported; venue lookup is plain text; dropdown uses unique ids. Cause of the installed app's api_route_not_found NOT found. See CHANGELOG scoreboard-fetch-flow-v1.
 
 > **Round lock by round, not by file name (awaiting merge/release):** a round is one round whether it is MC__x, x or x-<8hex>; released rounds are freed at the venue under every spelling and stay released. See CHANGELOG round-lock-same-round-v1.

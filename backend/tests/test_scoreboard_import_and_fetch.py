@@ -102,9 +102,21 @@ def test_import_accepts_a_plain_json_score_file(api):
 
 
 def test_importing_the_same_night_twice_never_overwrites(api):
+    """v32.1.9 (owner rule: no copies of the same file): the identical night imported again adds NOTHING and says so.
+    It used to leave a _2 copy, which showed the same night twice in the dropdown. Nothing is ever overwritten."""
     c, tmp = api
-    for _ in range(2):
-        assert c.post("/api/scoreboard/scores/import", files={"file": ("n.json", json.dumps(NIGHT), "application/json")}).status_code == 200
+    first = c.post("/api/scoreboard/scores/import", files={"file": ("n.json", json.dumps(NIGHT), "application/json")})
+    again = c.post("/api/scoreboard/scores/import", files={"file": ("n.json", json.dumps(NIGHT), "application/json")})
+    assert first.status_code == 200 and again.status_code == 200
+    assert again.json()["duplicate"] is True and again.json()["filename"] == first.json()["filename"]
+    assert len(list((_files(tmp) / "Trivia" / "Scores").rglob("*.json"))) == 1
+
+
+def test_a_different_night_with_the_same_venue_and_date_is_kept_beside_it_never_overwriting(api):
+    c, tmp = api
+    other = {**NIGHT, "teams": [{**NIGHT["teams"][0], "total": 999}] + NIGHT["teams"][1:]}
+    for body in (NIGHT, other):
+        assert c.post("/api/scoreboard/scores/import", files={"file": ("n.json", json.dumps(body), "application/json")}).status_code == 200
     assert len(list((_files(tmp) / "Trivia" / "Scores").rglob("*.json"))) == 2
 
 

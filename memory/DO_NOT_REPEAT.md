@@ -53,3 +53,6 @@ If you are about to do something listed here, STOP and ask the owner first.
 - NOTE: the check needs a YouTube API key saved in Karaoke Setup. Without it the search refuses (400), as before.
 
 ### 11. NEVER describe the prototype's code from memory or from a summary. Read the CURRENT file. The three files attached on 2026-10-08 18:59 were OLDER than the live prototype (they still used the Data API search); the owner had to paste the current backend. Ask for or fetch the current file BEFORE comparing.
+
+## Test the FROZEN app, not only the source (added 2026-10-22, v32.1.8 -> v32.1.9)
+A module that works from source can crash while loading inside the installed app: files next to `__file__` are read-only in the PyInstaller bundle. server.py hides a router that fails to import (only a log line), so the app starts and the page opens but every call is not_found. Never create or write folders at import time; use data_map.appdata_root(). Never declare a fix done from a source run alone: run scripts/smoke_frozen_backend.py on a frozen build (it is now a release gate), and check /api/diagnostics/routers.

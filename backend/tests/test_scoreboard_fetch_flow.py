@@ -114,3 +114,25 @@ def fetch_and_store(m):
     class DB: score_files = _Col()
     m.db = DB()
     asyncio.run(m.get_local_scores())
+
+
+# ---- v32.1.9: importing the same night twice must not list it twice ----
+def test_importing_a_night_that_is_already_here_adds_no_copy(sb):
+    m, root = sb
+    from native import scores_store
+    body = {"location": "Test Venue", "date": "10/20/2026", "teams": [{"name": "A", "total": 11, "roundScores": [5, 6]}, {"name": "B", "total": 7, "roundScores": [3, 4]}]}
+    first = scores_store.import_json(json.dumps(body).encode())
+    again = scores_store.import_json(json.dumps({**body, "savedAt": "later", "presentationId": "other"}).encode())
+    assert again.get("duplicate") and again["filename"] == first["filename"]
+    assert len(list((scores_store.primary_root() / "Test_Venue").glob("*.json"))) == 1
+
+
+def test_a_different_night_with_the_same_name_and_date_still_gets_its_own_file(sb):
+    m, root = sb
+    from native import scores_store
+    a = {"location": "Test Venue", "date": "10/20/2026", "teams": [{"name": "A", "total": 11, "roundScores": [5, 6]}]}
+    b = {"location": "Test Venue", "date": "10/20/2026", "teams": [{"name": "A", "total": 9, "roundScores": [4, 5]}]}
+    scores_store.import_json(json.dumps(a).encode())
+    second = scores_store.import_json(json.dumps(b).encode())
+    assert not second.get("duplicate")
+    assert len(list((scores_store.primary_root() / "Test_Venue").glob("*.json"))) == 2          # nothing is ever overwritten
