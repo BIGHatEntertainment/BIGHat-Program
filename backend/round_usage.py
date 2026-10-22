@@ -41,12 +41,56 @@ def _parse(s: Any) -> Optional[datetime]:
         return None
 
 
-def _read_doc() -> Dict[str, Any]:
-    p = _path()
+def _backup_file() -> Optional[Path]:
     try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        from native.data_map import backups_dir
+        d = backups_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        return d / "round_usage.json"
+    except Exception:
+        return None
+
+
+def _read_backup() -> Dict[str, Any]:
+    b = _backup_file()
+    try:
+        d = json.loads(b.read_text(encoding="utf-8")) if b and b.exists() else {}
+        return d if isinstance(d, dict) else {}
     except Exception:
         return {}
+
+
+def _read_doc() -> Dict[str, Any]:
+    """The usage file. A damaged file is kept aside as .bad and is NEVER read as 'no records' (the next save would
+    have overwritten every lock). If the file is DAMAGED or EMPTY (0 bytes), the copy kept in AppData\\backups is put back.
+    A file that is simply missing is a fresh start and is NOT refilled (no old locks come back by surprise)."""
+    p = _path()
+    damaged = False
+    doc: Any = None
+    if not p.exists():
+        return {}
+    if p.exists():
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(doc, dict):
+                raise ValueError("not an object")
+        except Exception:
+            damaged, doc = True, None
+            try:
+                import os
+                os.replace(p, p.with_suffix(".json.bad"))
+            except OSError:
+                pass
+    if doc is None:
+        bak = _read_backup()
+        if bak.get("records") or bak.get("released"):
+            try:
+                _write_main(bak)
+            except OSError:
+                pass
+            return bak
+        return {}
+    return doc
 
 
 def _load() -> List[Dict[str, Any]]:
@@ -59,12 +103,25 @@ def _released() -> set:
     return set(_read_doc().get("released", []))
 
 
-def _save(records: List[Dict[str, Any]], released: Optional[set] = None) -> None:
+def _write_main(doc: Dict[str, Any]) -> None:
     p = _path()
-    rel = _released() if released is None else released
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"records": records, "released": sorted(rel)}, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     tmp.replace(p)
+
+
+def _save(records: List[Dict[str, Any]], released: Optional[set] = None) -> None:
+    rel = _released() if released is None else released
+    doc = {"records": records, "released": sorted(rel)}
+    _write_main(doc)
+    b = _backup_file()                              # second copy outside Documents (best effort)
+    if b is not None:
+        try:
+            tmp = b.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+            tmp.replace(b)
+        except OSError:
+            pass
 
 
 def norm_name(s: Any) -> str:
@@ -73,8 +130,17 @@ def norm_name(s: Any) -> str:
     return re.sub(r"\.(bighat|pptx)$", "", t)
 
 
+_LOC_FORMS = (re.compile(r"^location:([^/\\]+)$", re.I),                       # sentinel when a location has no branding image
+              re.compile(r"/api/native/locations/([^/\\?]+)", re.I))            # branding image URL the Wizard/Roulette send
+
+
 def norm_location(s: Any) -> str:
-    t = str(s or "").replace("\\", "/").rstrip("/").split("/")[-1].strip().lower()
+    raw = str(s or "").strip()
+    for rx in _LOC_FORMS:                       # v32.1.7: the lists were sent these and matched nothing, so nothing was hidden
+        m = rx.search(raw)
+        if m:
+            return re.sub(r"[^a-z0-9]+", "-", m.group(1).lower()).strip("-")
+    t = raw.replace("\\", "/").rstrip("/").split("/")[-1].strip().lower()
     t = re.sub(r"^\d+_", "", t)
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")
 
