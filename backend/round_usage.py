@@ -110,9 +110,10 @@ def _write_main(doc: Dict[str, Any]) -> None:
     tmp.replace(p)
 
 
-def _save(records: List[Dict[str, Any]], released: Optional[set] = None) -> None:
+def _save(records: List[Dict[str, Any]], released: Optional[set] = None, released_rounds: Optional[set] = None) -> None:
     rel = _released() if released is None else released
-    doc = {"records": records, "released": sorted(rel)}
+    rr = _released_rounds() if released_rounds is None else released_rounds
+    doc = {"records": records, "released": sorted(rel), "released_rounds": sorted([list(x) for x in rr])}
     _write_main(doc)
     b = _backup_file()                              # second copy outside Documents (best effort)
     if b is not None:
@@ -128,6 +129,35 @@ def norm_name(s: Any) -> str:
     """Stable key for a round: file stem, lowercased, no extension."""
     t = str(s or "").replace("\\", "/").split("/")[-1].strip().lower()
     return re.sub(r"\.(bighat|pptx)$", "", t)
+
+
+_TYPE_PREFIX = re.compile(r"^(mc|reg|misc|mys|big)__")        # the File Creator names its exports TYPE__name
+_STAMP = re.compile(r"-[0-9a-f]{8}$")                         # alpha.90 stamped copy: name-<8 hex>
+
+
+def same_round_keys(s: Any) -> set:
+    """Every spelling a round can have on disk. The File Creator gives each export a NEW random id, so a re-uploaded round
+    comes back as MYS__name, name, or name-<8 hex>: the lock must treat all of them as ONE round.
+    v32.1.8: locks used to match only the exact file name, so a re-uploaded copy of a locked round was offered again."""
+    base = norm_name(s)
+    keys = {base}
+    no_prefix = _TYPE_PREFIX.sub("", base)
+    keys.add(no_prefix)
+    for k in list(keys):
+        if _STAMP.search(k):
+            keys.add(_STAMP.sub("", k))        # an 8-hex tail is also treated as a stamp; it only ever ADDS a possible match
+    return {k for k in keys if k}
+
+
+def is_locked(name_or_path: Any, locked: set) -> bool:
+    """True when this file is the same round as any locked one. `locked` comes from locked_names()."""
+    mine = same_round_keys(name_or_path)
+    if mine & locked:
+        return True
+    for l in locked:                         # a locked stamped copy locks the plain file too
+        if same_round_keys(l) & mine:
+            return True
+    return False
 
 
 _LOC_FORMS = (re.compile(r"^location:([^/\\]+)$", re.I),                       # sentinel when a location has no branding image
@@ -154,11 +184,15 @@ def record_usage(*, location_id: str, location_name: str, round_files: List[Dict
         recs = _load()
         have = {(r.get("presentationId"), r.get("roundNumber")) for r in recs}
         gone = _released() if skip_released else set()
+        gone_rounds = _released_rounds() if skip_released else set()
+        loc_key = norm_location(location_id or location_name)
         added = 0
         for rf in round_files:
             key = (presentation_id, rf.get("order"))
             if key in have or f"{presentation_id}:{rf.get('order')}" in gone:
                 continue
+            if skip_released and any((loc_key, k) in gone_rounds for k in same_round_keys(rf.get("file", ""))):
+                continue                      # an admin released this round at this venue: an older saved show cannot re-lock it
             recs.append({
                 "id": str(uuid.uuid4()),
                 "location": location_name or location_id,
@@ -215,35 +249,69 @@ def locked_names(location: Optional[str]) -> set:
     return s
 
 
+def _round_tomb(recs: List[Dict[str, Any]]) -> set:
+    out = set()
+    for r in recs:
+        loc = norm_location(r.get("locationId") or r.get("location"))
+        for k in same_round_keys(r.get("roundFileName") or r.get("roundFile")):
+            out.add((loc, k))
+    return out
+
+
 def _tomb(recs: List[Dict[str, Any]]) -> set:
     return {f"{r.get('presentationId')}:{r.get('roundNumber')}" for r in recs}
 
 
+def _same_place_and_round(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    la = {norm_location(a.get("location")), norm_location(a.get("locationId"))} - {""}
+    lb = {norm_location(b.get("location")), norm_location(b.get("locationId"))} - {""}
+    if la and lb and not (la & lb):
+        return False
+    return bool(same_round_keys(a.get("roundFileName") or a.get("roundFile")) &
+                same_round_keys(b.get("roundFileName") or b.get("roundFile")))
+
+
 def release(usage_id: str) -> int:
+    """Release a round: the record AND every other active record of the same round at the same venue (another spelling of its
+    file name, or an earlier show that used it), so it cannot stay locked after an admin released it. v32.1.8"""
     with _lock:
         recs = _load()
-        gone = [r for r in recs if r.get("id") == usage_id]
-        keep = [r for r in recs if r.get("id") != usage_id]
-        if gone:
-            _save(keep, _released() | _tomb(gone))
+        first = [r for r in recs if r.get("id") == usage_id]
+        if not first:
+            return 0
+        gone = [r for r in recs if r.get("id") == usage_id or any(_same_place_and_round(r, f) for f in first)]
+        gone_ids = {r.get("id") for r in gone}
+        keep = [r for r in recs if r.get("id") not in gone_ids]
+        _save(keep, _released() | _tomb(gone), _released_rounds() | _round_tomb(gone))
         return len(gone)
 
 
 def release_presentation(presentation_id: str) -> int:
+    """Release every round of one show. Each round is freed at that venue (every other record of the same round there goes too),
+    so another show that used it cannot keep it locked. v32.1.8"""
     with _lock:
         recs = _load()
-        gone = [r for r in recs if r.get("presentationId") == presentation_id]
-        keep = [r for r in recs if r.get("presentationId") != presentation_id]
-        if gone:
-            _save(keep, _released() | _tomb(gone))
+        mine = [r for r in recs if r.get("presentationId") == presentation_id]
+        if not mine:
+            return 0
+        gone = [r for r in recs if r.get("presentationId") == presentation_id or any(_same_place_and_round(r, m) for m in mine)]
+        gone_ids = {r.get("id") for r in gone}
+        keep = [r for r in recs if r.get("id") not in gone_ids]
+        _save(keep, _released() | _tomb(gone), _released_rounds() | _round_tomb(gone))
         return len(gone)
 
 
 def release_all() -> int:
     with _lock:
         recs = _load()
-        _save([], _released() | _tomb(recs))
+        _save([], _released() | _tomb(recs), _released_rounds() | _round_tomb(recs))
         return len(recs)
+
+
+def _released_rounds() -> set:
+    """(venue key, round key) pairs an admin released. A saved show that used any spelling of that round at that venue must not
+    re-create its lock when the usage file is rebuilt from the saved shows."""
+    return set(tuple(x) for x in _read_doc().get("released_rounds", []) if isinstance(x, list) and len(x) == 2)
 
 
 def backfill_from_presentations() -> int:

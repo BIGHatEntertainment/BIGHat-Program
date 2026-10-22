@@ -744,8 +744,43 @@ const SlotMachineRandomizer = ({ open, onClose, onComplete, locations = [] }) =>
     return Object.values(selectedOptions).every(selections => selections.length === 5);
   };
 
-  const startSpinning = () => {
+  // v32.1.8: locks can change after the candidates were ticked (an admin release, a show built in another window). Re-read the
+  // lists for this venue before spinning; any ticked candidate that is now locked is removed and the host is told, so a locked
+  // round can never come out of the wheels and fail at the very end.
+  const dropLockedCandidates = async () => {
+    if (!selectedLocationPath) return 0;
+    try {
+      const get = (t) => axios.get(`${API}/trivia/round-files/${t}?location=${encodeURIComponent(selectedLocationPath)}`);
+      const [reg, misc, big] = await Promise.all([get('reg'), get('misc'), get('big')]);
+      const fresh = { REG: reg.data, MISC: misc.data, BIG: big.data };
+      let removed = 0;
+      setSelectedOptions(prev => {
+        const next = { ...prev };
+        ['REG', 'MISC', 'BIG'].forEach(cat => {
+          const names = new Set((fresh[cat] || []).map(r => r.name));
+          next[cat] = (prev[cat] || []).filter(n => names.has(n));
+          removed += (prev[cat] || []).length - next[cat].length;
+        });
+        return next;
+      });
+      setAvailableRounds({
+        REG: (fresh.REG || []).map(r => ({ name: r.name, path: r.path })),
+        MISC: (fresh.MISC || []).map(r => ({ name: r.name, path: r.path })),
+        BIG: (fresh.BIG || []).map(r => ({ name: r.name, path: r.path })),
+      });
+      return removed;
+    } catch (e) {
+      return 0;                                           // cannot reach the list: the build step still enforces the lock
+    }
+  };
+
+  const startSpinning = async () => {
     if (!canStartSpinning()) return;
+    const removed = await dropLockedCandidates();
+    if (removed > 0) {
+      setError(`${removed} round${removed === 1 ? ' is' : 's are'} now locked for this location and ${removed === 1 ? 'was' : 'were'} removed from your picks. Choose replacements, then spin.`);
+      return;
+    }
     setPhase('spinning');
     const newSpinning = [true, true, true];
     setSpinning(newSpinning);

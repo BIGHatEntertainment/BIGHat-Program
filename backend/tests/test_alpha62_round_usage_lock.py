@@ -56,11 +56,17 @@ def test_expires_after_180_days(ru):
 
 
 def test_admin_release_single_and_by_presentation(ru):
+    """v32.1.8 (owner decision 2026-10-22): releasing a round frees it at that venue. Two shows that used the same round at
+    the same venue used to leave the second record locking it after an admin released the first ("released rounds get stuck").
+    Releasing one record now frees every record of that round at that venue; other rounds are untouched."""
     rec(ru, pid="p1"); rec(ru, pid="p2")
-    first = next(r for r in ru.list_records() if r["presentationId"] == "p1")["id"]
-    assert ru.release(first) == 1
-    assert ru.release_presentation("p2") == 2
-    assert len(ru.list_records()) == 1
+    mc_first = next(r for r in ru.list_records() if r["presentationId"] == "p1" and r["roundFileName"] == "mc-02-a")["id"]
+    assert ru.release(mc_first) == 2                                  # the p1 record AND the p2 record of the same round
+    here = ru.locked_names("Monkey Pants Bar Grill")
+    assert "mc-02-a" not in here and "reg-space-1" in here             # the other round is still locked
+    assert len(ru.list_records()) == 2                                 # reg-space-1 from p1 and from p2
+    assert ru.release_presentation("p2") == 2                          # p2's reg-space-1 AND p1's: the round is freed at the venue
+    assert "reg-space-1" not in ru.locked_names("Monkey Pants Bar Grill") and ru.list_records() == []
     assert ru.release("nope") == 0
 
 

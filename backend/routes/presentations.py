@@ -403,7 +403,7 @@ async def _import_trivia_native(request: "TriviaImportRequest") -> dict:
         _locked = set()
         for k in _loc_keys:
             _locked |= round_usage.locked_names(k)
-        _clash = [Path(rf["path"]).name for rf in round_files if round_usage.norm_name(rf["path"]) in _locked]
+        _clash = [Path(rf["path"]).name for rf in round_files if round_usage.is_locked(rf["path"], _locked)]
     except Exception as e:                                    # noqa: BLE001
         logger.warning("[presentations] lock check skipped: %s", e)
         _clash = []

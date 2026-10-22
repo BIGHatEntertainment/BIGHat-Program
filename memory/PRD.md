@@ -1,5 +1,7 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **Round lock by round, not by file name (awaiting merge/release):** a round is one round whether it is MC__x, x or x-<8hex>; released rounds are freed at the venue under every spelling and stay released. See CHANGELOG round-lock-same-round-v1.
+
 > **Creator media on slides built (awaiting merge/release):** images, GIFs and videos from File Creator .bighat files now reach the slides for MC, REG, MISC, MYS and BIG. See CHANGELOG creator-media-slides-v1.
 
 > **180-day round lock fixed (awaiting merge/release):** the Wizard/Roulette lists now find the lock for any form of the location they send; the legacy import path enforces + records it; a locked refusal cannot be overridden; round_usage.json has a damaged-file guard and an AppData copy. See CHANGELOG round-lock-holes-v1.
