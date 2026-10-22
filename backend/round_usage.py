@@ -230,20 +230,45 @@ def list_records() -> List[Dict[str, Any]]:
     return out
 
 
+def venue_identities(location: Optional[str]) -> set:
+    """Every normalised identity (id, slug, name) of the venue `location` points at. A lock can be saved under the NAME (old shows,
+    backfilled shows) while a screen sends the ID or an image URL, and the other way round. v32.1.10: the Wizard list only matched
+    the one form it was sent, so a round locked under the venue's name was offered and then refused on the review page."""
+    want = norm_location(location) if location else ""
+    ids = {want} if want else set()
+    if not want:
+        return ids
+    try:
+        from native_slides import _docs_root
+        root = _docs_root() / "Files" / "Locations"
+        for lj in root.glob("*/location.json") if root.is_dir() else []:
+            try:
+                d = json.loads(lj.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            mine = {norm_location(d.get(k)) for k in ("id", "slug", "name") if d.get(k)} | {norm_location(lj.parent.name)}
+            mine.discard("")
+            if want in mine:
+                ids |= mine
+    except Exception:                                   # noqa: BLE001  never break the list over a bad folder
+        pass
+    return ids
+
+
 def locked_names(location: Optional[str]) -> set:
     """Round stems currently locked (active, not expired) for a location."""
     try:
         backfill_from_presentations()
     except Exception:
         pass
-    want = norm_location(location) if location else ""
+    want = venue_identities(location) if location else set()
     now = _now()
     s = set()
     for r in _load():
         exp = _parse(r.get("expiresDate"))
         if exp and exp < now:
             continue
-        if want and want not in (norm_location(r.get("location")), norm_location(r.get("locationId"))):
+        if want and not (want & {norm_location(r.get("location")), norm_location(r.get("locationId"))}):
             continue
         s.add(norm_name(r.get("roundFileName") or r.get("roundFile")))
     return s
@@ -265,6 +290,8 @@ def _tomb(recs: List[Dict[str, Any]]) -> set:
 def _same_place_and_round(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     la = {norm_location(a.get("location")), norm_location(a.get("locationId"))} - {""}
     lb = {norm_location(b.get("location")), norm_location(b.get("locationId"))} - {""}
+    for k in list(la):                                  # v32.1.10: a venue's id, slug and name are ONE place
+        la |= venue_identities(k)
     if la and lb and not (la & lb):
         return False
     return bool(same_round_keys(a.get("roundFileName") or a.get("roundFile")) &
