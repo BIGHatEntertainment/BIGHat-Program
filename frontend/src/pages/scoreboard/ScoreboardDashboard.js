@@ -385,12 +385,13 @@ const Dashboard = () => {
     }
     
     setExporting(true);
-    setExportStatus('Generating MP4 video...');
-    toast.info('Creating video on server...');
+    setExportStatus('Drawing the MP4 video (a long night can take a minute)...');
+    toast.info('Creating video on this computer...');
     try {
-      const videoRes = await api.generateVideo({
+      const payload = {
         teams: data.teams.map((t, i) => ({
           name: t.name,
+          swag: t.swag || '',
           total: t.total,
           rank: t.rank || i + 1,
           roundScores: t.roundScores || [],
@@ -398,9 +399,9 @@ const Dashboard = () => {
         location: data.location || data.presentationName || 'BIG Hat Trivia',
         date: data.date || '',
         rounds: data.rounds || [],
-        aspectRatio: aspectRatio,
         duration: 15,
-      });
+      };
+      const videoRes = await api.generateVideo({ ...payload, aspectRatio });
       
       if (videoRes.data?.url) {
         const mp4Url = `${BACKEND_URL}${videoRes.data.url}`;
@@ -413,8 +414,19 @@ const Dashboard = () => {
         } catch {
           openExternal(mp4Url);
         }
-        const qrLink = await publishForQr(videoRes.data.file_id);
-        setExportStatus(qrLink ? 'MP4 exported! QR ready.' : 'MP4 exported! (QR not available right now)');
+        // v32.1.10: the phone download is ALWAYS 9:16. If the saved file is landscape, draw a portrait copy just for the QR.
+        let qrFileId = videoRes.data.file_id;
+        if (aspectRatio !== 'portrait') {
+          setExportStatus('Making the 9:16 phone version for the QR...');
+          try {
+            const phoneRes = await api.generateVideo({ ...payload, aspectRatio: 'portrait' });
+            if (phoneRes.data?.file_id) qrFileId = phoneRes.data.file_id;
+          } catch (e) {
+            console.warn('9:16 copy for the QR failed, using the saved video:', e);
+          }
+        }
+        const qrLink = await publishForQr(qrFileId);
+        setExportStatus(qrLink ? 'MP4 exported! QR ready (9:16 for phones).' : 'MP4 exported! (QR not available right now)');
         toast.success('Video exported!');
       } else {
         throw new Error('No video URL returned');
