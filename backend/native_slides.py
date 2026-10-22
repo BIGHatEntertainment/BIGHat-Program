@@ -842,8 +842,7 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
                     "question": q.get("prompt") or q.get("question") or "",
                     "answer": q.get("answer", ""),
                     "options": q.get("options") or [],
-                    "correctOption": q.get("correct_index",
-                                          q.get("correctOption", 0)),
+                    "correctOption": q.get("correct_index", q.get("correctOption")),     # None = unknown, never "A" by default
                     "category": q.get("category", ""),
                     "points": q.get("points"),
                     "media_url": media_url,
@@ -866,6 +865,48 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
     except (zipfile.BadZipFile, KeyError, ValueError, OSError) as e:
         logger.warning("[native-slides] .bighat unzip failed for %s: %s", path, e)
         return None
+
+
+_LETTERS = ["A", "B", "C", "D"]
+
+
+def correct_letter(q: Dict[str, Any]) -> str:
+    """The letter (A-D) of an MC question's correct option, or "" when it cannot be told. Never guesses.
+    Order: (1) the answer TEXT equals one of the options (ignoring case/spacing/trailing dot), (2) the stored marker
+    (correctOption / correct_index) when it points at a real option, (3) the answer is itself a bare letter.
+    v32.1.10: the answer slide showed only the text; paper sheets for MC rounds have A/B/C/D bubbles, so hosts need the letter."""
+    if not isinstance(q, dict):
+        return ""
+    raw_opts = q.get("options") or []
+    opts: List[str] = []
+    for o in raw_opts:
+        if isinstance(o, dict):
+            opts.append(str(o.get("text") or o.get("label") or o.get("value") or o.get("option") or ""))
+        else:
+            opts.append(str(o))
+    opts = opts[:4]
+    if len(opts) < 2:
+        return ""
+    def norm(x: Any) -> str:
+        return re.sub(r"\s+", " ", str(x or "")).strip().strip(".").casefold()
+    ans = norm(q.get("answer"))
+    if ans:
+        hits = [i for i, o in enumerate(opts) if norm(o) == ans]
+        if len(hits) == 1:
+            return _LETTERS[hits[0]]
+        if len(hits) > 1:                                     # two options with the same text: only the marker can tell
+            mk = q.get("correctOption", q.get("correct_index"))
+            if isinstance(mk, int) and not isinstance(mk, bool) and mk in hits:
+                return _LETTERS[mk]
+            return ""
+    mk = q.get("correctOption", q.get("correct_index"))
+    if isinstance(mk, int) and not isinstance(mk, bool) and 0 <= mk < len(opts):
+        # only trust the marker when the answer text does not contradict it
+        if not ans or norm(opts[mk]) == ans or not any(norm(o) == ans for o in opts):
+            return _LETTERS[mk]
+    if ans.upper() in _LETTERS and _LETTERS.index(ans.upper()) < len(opts):
+        return ans.upper()
+    return ""
 
 
 def question_media(q: Dict[str, Any]) -> Dict[str, str]:
@@ -1430,6 +1471,10 @@ def render_round_section(
             q = questions[i]
             qn = q.get("number") or (i + 1)
             ans = q.get("answer", "")
+            if rtype == "MC":                                  # v32.1.10: "3. B. Seinfeld" so a paper A/B/C/D sheet can be graded
+                _l = correct_letter(q)
+                if _l:
+                    ans = f"{_l}. {ans}"
             ans_elements.append(_text(
                 f"{qn}. {ans}",
                 x=160, y=80 + i * row_h, w=1600, h=row_h,

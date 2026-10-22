@@ -7,6 +7,15 @@
 
 ---
 ---
+## mc-answer-letters-v1 (program; next release after v32.1.9)
+TIME (MST): 2026-10-22 16:00
+REQUEST (owner): the MC answer slide must show the letter with the answer; paper sheets have A/B/C/D bubbles only.
+CHANGE: backend/native_slides.py. The MC answer slide now reads "3. B. Seinfeld" instead of "3. Seinfeld". New correct_letter(q): (1) answer text equal to an option (case/space/trailing dot ignored), (2) else the stored marker (correctOption / correct_index) when it points at a real option and the text does not contradict it, (3) else a bare A-D answer, (4) else NO letter (never guesses). Two options with identical text are settled only by the marker.
+ALSO: the ZIP reader used to default a missing marker to 0 (= "A"). It now keeps it unknown, so a file without a marker is not labelled A.
+UNCHANGED: REG/MISC/MYS/BIG answer slides, the question slide, row sizes (the letter adds 3 characters to a row of ~50), every file format.
+PROVEN: 32 new tests; 5 deliberate breaks each fail tests; no new failures in the wider suite (59 old failures before and after: stale /app paths, unrelated).
+NOT PROVEN: not viewed in the desktop player. Only 10 sample MC questions were available here, not the owner's full library.
+---
 ## scoreboard-frozen-mount-v1 (program, the REAL cause of the Scoreboard errors; next release after v32.1.8)
 TIME (MST): 2026-10-22 15:00
 PROBLEM (owner, v32.1.8 installed): Fetch -> "not_found"; white Import Score File -> "missing part of its score service (/api/scoreboard/scores/import)"; yellow Import wants a .bighat. v32.1.8 (PR #43) did not fix it because it was tested only from source.
