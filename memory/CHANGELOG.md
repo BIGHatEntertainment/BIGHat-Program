@@ -7,6 +7,18 @@
 
 ---
 ---
+## scoreboard-video-final-slide-v1 (program; goes out as v32.1.10 with the other merged PRs)
+TIME (MST): 2026-10-22 19:00
+REPORT (owner): the downloaded scoreboard video is nothing like the preview: text far too small, the grid scrolls far too slowly. Wants it as true to the preview (or the Trivia Player's FINAL SCORES slide, "perfect"). Also a QR for a mobile 9:16 download, or send to the Cloud, whichever is easier.
+CAUSE (measured): routes/scoreboard.py drew the picture with Pillow at fixed sizes (14-56 px on a 1080/1920 canvas), found its font only at the Linux path /usr/share/fonts/truetype/dejavu (on Windows Pillow then uses its tiny default font), listed only the top 10 teams as a still picture, and scrolled the grid one line every 6 s at 10 fps.
+CHANGE: new backend/native/scoreboard_video.py, drawn like frontend FinalScoresBoard.jsx. All sizes are a fraction of the canvas HEIGHT (the slide's vh units). Title in the bundled Lemonada Bold; other text Segoe UI Bold / Arial Bold on Windows, Arial on Mac, DejaVu/Liberation on Linux, and Lemonada if none exists (never Pillow's default). Gold / silver / bronze podium boxes, navy boxes below, round chips (MYS x2 / BIG x3 highlighted), footer. The grid is still. The list holds ~2 s, scrolls up so EVERY team is shown, then rests on the last team. Round chips shrink to fit one line and are never dropped; a long name is shrunk then cut with "..." so it cannot run over the score. Frames are piped straight to the bundled ffmpeg (about 40 s for 12 teams, was 68 s). routes/scoreboard.py generate-video keeps the same request and answer (adds width, height, teams).
+QR: the page already published a QR after the video. It now ALWAYS publishes a 9:16 copy: if the page is on landscape it draws a portrait copy for the QR. Page request timeout raised 60 s -> 240 s. Sending to the Cloud was NOT built (needs a Cloud endpoint that does not exist yet).
+RELEASE GATE: scripts/smoke_frozen_backend.py now also draws a scoreboard video inside the frozen app and downloads it. It writes the standalone-owner record into its throw-away config, as an activated PC has; the app gate is unchanged.
+UNCHANGED: the video licence gate (story_generator_enabled), Save & Exit, Fetch, Import, themes, every file format.
+PROVEN: 26 new tests; 8 deliberate breaks each fail a test; real frames pulled from MP4s made by the FROZEN backend (1080x1920, 12 teams, 36 s, 4 MB) and from source in landscape; the gate fails when the video is wrong and passes when right.
+NOT PROVEN: Windows. Built and run on Linux, so the Windows font files (Segoe UI Bold, Consolas Bold) were not exercised: if they are missing the video uses Lemonada. The new gate step runs on the real Windows runner in the release. The QR phone download needs a real activated key; not tested here. How long a render takes on the owner's PC is unknown (about 40 s here for 12 teams).
+---
+---
 ## story-generator-disk-shows-v1 (program; goes out as v32.1.10 with mc-answer-letters-v1 and round-lock-venue-identity-v1)
 TIME (MST): 2026-10-22 17:30
 REPORT (owner): the Story Generator says "Presentation not found" / no round files, while the page itself shows the show, its rounds and host.
