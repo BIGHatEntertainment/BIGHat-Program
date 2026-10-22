@@ -50,3 +50,17 @@ Read memory/SYNC_PLAN.md first. Owner decisions of 2026-10-21 are at the bottom.
 - Exact fields inside `data` for each kind (mirror the Cloud models).
 - Whether the Cloud license-key setter (Settings) is deployed. Linking depends on it.
 - Whether older .bighat readers ignore unknown manifest keys.
+
+## Organization login (added 2026-10-21, v0.2)
+Goal: anyone in a Cloud organization can sign in on ANY Program linked to that organization. Checked against the Cloud EVERY time; no offline Cloud login.
+- Endpoint (Cloud, NEW): `POST /api/program/auth/login`, header `Authorization: Bearer <program access key>`, body `{email, password, totp_code?}`.
+  - The Cloud takes account_id from the key (never from the body), finds the user by lowercase email WITH THAT account_id, checks is_active and the password with the same hash and the same rate limits as /api/auth/login (per email + per client ip, plus the program-key throttle). Same work for unknown email and wrong password (no account enumeration).
+  - 200: `{ok: true, user: {email, name, role, is_admin, phone}}`. role is the Cloud role (account_owner | master_admin | admin | host as the Cloud defines them). NOTHING else: no id, no hash, no account_id, no license key.
+  - 401 `{error: "invalid_credentials"}` for wrong email/password/not in this organization (one message for all three). 403 `{error: "deactivated"}`. 429 `rate_limited`. 401 `unlinked`, 402 `subscription_lapsed` as in require_program.
+  - Cloud users with two-factor on (master_admin today): 200 `{ok: false, error: "totp_required"}` when no code was sent; wrong code counts as a failed attempt. The Program shows a code box.
+  - Never sets a cookie, never returns a Cloud token. A new audit_log row per success: action `program_login`, actor_email, program_id.
+- Program (NEW): the existing /api/auth/login tries the LOCAL login first (unchanged). Only when there is no local match and the PC is linked does it call the Cloud. A local user with a wrong password is NEVER sent to the Cloud (no bypass, no extra guessing surface).
+- After a Cloud success the person is signed in with a session for this PC only. Cloud role -> local role: account_owner / master_admin / admin -> `admin` (never the local master admin, which is whoever set the PC up); host -> `host`.
+- Then the Program asks "Copy my account to this computer?" Yes: a local user is created (hashed password, role as above, auth_method "cloud"); that person then logs in locally AND still gets re-checked against the Cloud while linked. Later: signed in for this visit only; asked again next time. A person created by the Cloud pull (temporary password) that signs in with a Cloud password gets the local password updated to match.
+- Cloud checks every time: a cloud-origin local user who signs in while the PC is linked is verified with the Cloud first; the Cloud saying invalid_credentials/deactivated refuses the login even if the local copy would accept it. Cloud unreachable: a local-only user logs in as always; a copied Cloud user is refused with "can't reach the Cloud" (owner decision 2026-10-21: no offline Cloud login). The local master admin is never affected by any of this.
+- A PC's venue assignment still limits what that person sees and claims there.
