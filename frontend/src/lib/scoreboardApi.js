@@ -9,6 +9,8 @@ const api = {
   
   // Scores
   getScores: () => axios.get(`${API}/scores`).then(r => r.data),
+  // v32.1.8: Fetch = ONE GET that reads the score folders directly (no POST, no database step)
+  getLocalScores: () => axios.get(`${API}/scores/local`, { timeout: 30000 }).then(r => r.data),
   importScoreFile: (file) => { const f = new FormData(); f.append('file', file); return axios.post(`${API}/scores/import`, f, { timeout: 60000 }).then(r => r.data); },
   getVenueScores: (venue) => axios.get(`${API}/scores/${encodeURIComponent(venue)}`).then(r => r.data),
   getAccumulatedScores: (venue) => axios.get(`${API}/accumulated-scores/${encodeURIComponent(venue)}`).then(r => r.data),
