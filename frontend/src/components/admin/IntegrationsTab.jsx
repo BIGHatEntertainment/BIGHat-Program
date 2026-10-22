@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../lib/api';
 import { saveBlob } from '../../lib/saveFile';
-import { Package, UploadCloud, DownloadCloud, FileDown, FileUp, Loader2, CheckCircle2, AlertTriangle, Mail, HardDrive, Cloud, Copy, Link2 } from 'lucide-react';
+import { Package, UploadCloud, DownloadCloud, FileDown, FileUp, Loader2, CheckCircle2, AlertTriangle, Mail, HardDrive, Cloud, Copy, Link2, RefreshCw } from 'lucide-react';
 
 const card = { backgroundColor: 'rgba(20, 27, 80, 0.4)', border: '1px solid rgba(251, 221, 104, 0.12)' };
 const gold = '#fbdd68';
@@ -71,6 +71,23 @@ function CloudLinkCard() {
     try { await navigator.clipboard.writeText(info.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch (e) { /* the code stays visible to copy by hand */ }
   };
 
+  const [sync, setSync] = useState(null);
+  const [logins, setLogins] = useState([]);
+  const loadSync = useCallback(async () => {
+    try {
+      setSync((await api.cloudSyncStatus()).data);
+      const l = (await api.cloudSyncNewLogins()).data.logins || [];
+      if (l.length) setLogins((old) => [...old, ...l]);
+    } catch (e) { /* the sync box just stays hidden */ }
+  }, []);
+  useEffect(() => { loadSync(); const t = setInterval(loadSync, 30000); return () => clearInterval(t); }, [loadSync]);
+  const syncNow = async (approve) => {
+    setBusy(true); setNote('');
+    try { setSync(approve ? (await api.cloudSyncApprove()).data : (await api.cloudSyncNow()).data); await loadSync(); }
+    catch (e) { setNote(msg(e, 'Could not sync.')); }
+    finally { setBusy(false); }
+  };
+
   const status = info?.status || 'not_linked';
   return (
     <div className="rounded-xl p-6 space-y-4" style={card} data-testid="cloud-link-card">
@@ -94,6 +111,41 @@ function CloudLinkCard() {
       </p>
       {info && !info.cloud_configured && <p className="text-xs" style={{ color: muted }}>The BIG Hat Cloud app is not available yet. Your code is saved and will work as soon as it is.</p>}
       {note && <p className="text-xs" style={{ color: muted }} data-testid="cloud-link-note">{note}</p>}
+
+      {sync && sync.state !== 'not_linked' && (
+        <div className="rounded-lg p-4 space-y-2" style={{ backgroundColor: 'rgba(251,221,104,0.06)' }} data-testid="cloud-sync-box">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-semibold text-white">Schedule sync</span>
+            <Btn id="cloud-sync-now" busy={busy ? 'cloud-sync-now' : ''} onClick={() => syncNow(false)} icon={RefreshCw}>Sync now</Btn>
+          </div>
+          <p className="text-sm" style={{ color: sync.state === 'ok' ? '#4ade80' : '#e5edff' }} data-testid="cloud-sync-message">{sync.message || 'Waiting for the first sync.'}</p>
+          {sync.last_ok && <p className="text-xs" style={{ color: muted }}>Last synced {new Date(sync.last_ok).toLocaleString()}. This computer pulls every 5 minutes.</p>}
+          {sync.state === 'needs_approval' && (
+            <div className="space-y-2" data-testid="cloud-sync-approval">
+              <p className="text-xs" style={{ color: muted }}>
+                The Cloud has {Object.entries(sync.counts?.preview || {}).map(([k, n]) => `${n} ${k.replace('_', ' ')}${n === 1 ? '' : 's'}`).join(', ') || 'nothing new'}.
+                Anything with the same name or email is matched, nothing on this computer is deleted, and a backup is saved first.
+              </p>
+              <Btn id="cloud-sync-apply" busy={busy ? 'cloud-sync-apply' : ''} onClick={() => syncNow(true)} icon={DownloadCloud} primary>Apply Cloud data</Btn>
+            </div>
+          )}
+          {sync.conflict_count > 0 && (
+            <div className="text-xs space-y-1" style={{ color: muted }} data-testid="cloud-sync-conflicts">
+              <p className="font-semibold" style={{ color: gold }}>{sync.conflict_count} item{sync.conflict_count === 1 ? '' : 's'} kept as they are on this computer:</p>
+              {(sync.conflicts || []).slice(-5).map((c, i) => <p key={i}>- {c.why}</p>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {logins.length > 0 && (
+        <div className="rounded-lg p-4 space-y-2" style={{ backgroundColor: 'rgba(74,222,128,0.08)' }} data-testid="cloud-new-logins">
+          <p className="text-sm font-semibold text-white">New people from the Cloud can now sign in here</p>
+          <p className="text-xs" style={{ color: muted }}>Give each person their temporary password. It is shown only now and is not stored anywhere readable.</p>
+          {logins.map((l) => <p key={l.email} className="text-sm font-mono" style={{ color: '#e5edff' }}>{l.name || l.email} ({l.email}): {l.temp_password}</p>)}
+          <Btn id="cloud-logins-done" onClick={() => setLogins([])} icon={CheckCircle2}>I have written them down</Btn>
+        </div>
+      )}
     </div>
   );
 }

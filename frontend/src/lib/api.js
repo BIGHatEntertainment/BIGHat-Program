@@ -28,6 +28,12 @@ const api = {
   cloudLinkStatus: () => axios.get(`${API}/api/native/system/cloud-link/status`, { withCredentials: true, headers: authHeaders() }),
   cloudLinkCheck: () => axios.post(`${API}/api/native/system/cloud-link/check`, {}, { withCredentials: true, headers: authHeaders(), timeout: 30000 }),
 
+  // BIG Hat Cloud sync (Phase 3): status, sync now, approve the first merge, one-time temporary passwords
+  cloudSyncStatus: () => axios.get(`${API}/api/native/system/cloud-link/sync-status`, { withCredentials: true, headers: authHeaders() }),
+  cloudSyncNow: () => axios.post(`${API}/api/native/system/cloud-link/sync-now`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
+  cloudSyncApprove: () => axios.post(`${API}/api/native/system/cloud-link/sync-approve`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
+  cloudSyncNewLogins: () => axios.post(`${API}/api/native/system/cloud-link/new-logins`, {}, { withCredentials: true, headers: authHeaders() }),
+
   // Setup Package (Admin > Integrations)
   pkgCheck: () => axios.get(`${API}/api/native/setup-package/check`, { withCredentials: true, headers: authHeaders() }),
   pkgPublish: () => axios.post(`${API}/api/native/setup-package/publish`, {}, { withCredentials: true, headers: authHeaders(), timeout: 150000 }),

@@ -1,5 +1,7 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **Sync Phase 3 (pull from BIG Hat Cloud) built, awaiting merge/release.** See CHANGELOG phase3-pull-v1 and memory/SYNC_PLAN.md. Program is read-only for synced data except claims (push is Phase 4). Latest released: v32.1.5 (login heal).
+
 > **Current release: `v32.0.0-alpha.72` (2026-10-03).** alpha.72: employees are users (employee_sync.py), temp password shown once, duplicate/bad email
 > refused with the real reason, passwords never returned or stored in plain text, Schedule Admin header tab removed. OPEN: trivia scores need local storage (SharePoint only today).
 > (Previous:) `v32.0.0-alpha.71` (2026-10-03): alpha.71: Purchase button opens the store in the user's browser (openExternal.js);

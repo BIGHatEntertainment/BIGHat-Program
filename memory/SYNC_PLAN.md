@@ -1,6 +1,6 @@
 # Program <-> Cloud sync plan (agreed 2026-10-20)
 
-STATUS: PLAN ONLY. Built so far: the link handshake (code, announce, claim-token). Nothing moves data yet.
+STATUS: Cloud Phase 1 (key accepted, /whoami, /changes) and venue assignment are deployed. Program Phase 3 (the pull, native/cloud_sync.py) is built, see CHANGELOG phase3-pull-v1. NOT built: Phase 2 item-by-item merge, Phase 4 push of claims, Phases 5-6 files.
 Same file lives in BIGHat-Program and BIGHat-Cloud (memory/SYNC_PLAN.md). Keep both copies identical.
 
 ## Decision
@@ -48,4 +48,4 @@ Why: the Cloud serves a company with many hosts at many bars. The Program serves
 - Largest files are bingo videos, 25 to 35 MB each. Fits the 50 MB cap for now.
 
 ## Where to pick up
-Write the Phase 0 contract page (no code), have the owner read it, then give the same page to the Cloud and Program build agents.
+Program: after Phase 3 is merged and tested against the real Cloud, build Phase 4 (outbox + POST /api/program/actions; Cloud side must exist first). Cloud still needs POST /api/program/actions, /snapshot and /manifest. Phase 2 (preview item by item) can replace the all-or-nothing Apply button.
