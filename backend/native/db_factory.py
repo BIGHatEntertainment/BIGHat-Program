@@ -75,25 +75,24 @@ def heal_empty_collections(repo_dir) -> dict:
             return out
         for f in base.rglob("*.collection"):
             try:
-                size = f.stat().st_size
-                if size == 0:
-                    con = sqlite3.connect(str(f))
-                    try:
+                # A SQLite file with NO tables at all holds no rows, whatever its size (montydb leaves a 4096-byte
+                # file with only its settings when it is stopped between "create file" and "create table"; 0 bytes too).
+                # Creating the table in it cannot lose data. A file that has OTHER tables but no "documents" is left alone.
+                con = sqlite3.connect(str(f))
+                try:
+                    tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                    if "documents" in tables:
+                        continue
+                    if not tables:
                         with con:
                             con.execute(_EMPTY_COLLECTION_SQL)
-                    finally:
-                        con.close()
-                    out["healed"].append(str(f))
-                    logger.warning("db heal: created the missing table in empty collection file %s", f)
-                else:
-                    con = sqlite3.connect(f"file:{f}?mode=ro", uri=True)
-                    try:
-                        has = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'").fetchone()
-                    finally:
-                        con.close()
-                    if not has:
+                        out["healed"].append(str(f))
+                        logger.warning("db heal: created the missing table in table-less collection file %s", f)
+                    else:
                         out["suspect"].append(str(f))
-                        logger.error("db heal: %s has data but no documents table. NOT touching it.", f)
+                        logger.error("db heal: %s has other tables but no documents table. NOT touching it.", f)
+                finally:
+                    con.close()
             except Exception as e:  # one bad file must never stop the app from starting
                 logger.error("db heal: could not check %s: %s", f, e)
     except Exception as e:
@@ -119,6 +118,8 @@ def _build_native_client() -> AsyncMontyClient:
     repo_dir = base_dir / "bighat_db"
     # alpha.90: the connection is used from worker threads, one call at a time (see async_monty._DB_LOCK)
     heal_empty_collections(repo_dir)          # before anything reads: repair half-made collection files
+    from . import async_monty as _am
+    _am.HEAL_HOOK = lambda: heal_empty_collections(repo_dir)   # same repair, if it happens while the app runs
     set_storage(repository=str(repo_dir), storage="sqlite", check_same_thread=False)
     sync_client = MontyClient(str(repo_dir))
     return AsyncMontyClient(sync_client)

@@ -29,10 +29,27 @@ import threading
 _DB_LOCK = threading.RLock()
 
 
+# Set by db_factory: repairs collection files that have no table (see heal_empty_collections). Never raises.
+HEAL_HOOK = None
+
+
 def _db_thread(fn, *args, **kwargs):
     def _locked():
         with _DB_LOCK:
-            return fn(*args, **kwargs)
+            try:
+                return fn(*args, **kwargs)
+            except Exception as exc:
+                # A collection file with no table makes every call fail with "no such table: documents" (login broke
+                # this way). Repair the file(s) once and retry the same call. Reads of a truly missing collection are
+                # still handled by the callers; anything else is re-raised.
+                if HEAL_HOOK is not None and "no such table" in str(exc).lower():
+                    try:
+                        res = HEAL_HOOK()
+                    except Exception:
+                        res = None
+                    if res and res.get("healed"):
+                        return fn(*args, **kwargs)
+                raise
     return asyncio.to_thread(_locked)
 
 from typing import Any, Iterable, List, Mapping, Optional, Sequence

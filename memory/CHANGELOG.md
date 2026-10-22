@@ -7,6 +7,14 @@
 
 ---
 ---
+## login-heal-v2 (program, for the next release after v32.1.4)
+TIME (MST): 2026-10-21 19:00
+PROBLEM: after PR #31 (zero-byte heal) users such as Caelie still got "Login failed: OperationalError: no such table: documents". PR #31 only repaired files of exactly 0 bytes. Reproduced on the real launcher: montydb leaves users.collection at 4096 bytes (its settings written, NO table) when it is stopped between creating the file and creating the table, so #31 skipped it and the first login (insert of the user) failed.
+FIX: backend/native/db_factory.py heal_empty_collections now repairs ANY collection file that has no tables at all, whatever its size (no tables = no rows, nothing can be lost). A file with other tables but no "documents" is still left alone and logged. backend/native/async_monty.py: if "no such table" happens while the app is running, the file is repaired and the same call retried once (hook set by db_factory). Files with data are never touched.
+TESTED: tests/test_db_heal_empty_collection.py 10 passed (3 new: 4096-byte file healed, running app repairs + retries the insert, and the same insert FAILS with the hook removed). Real launcher on a data folder that reproduced the error: before = login 500 "no such table: documents"; after = startup log "db heal: created the missing table", login returns the user + token, wrong password still 401.
+NOT VERIFIED: the installed Windows/Mac build; Caelie's own machine; WHY the file is left half-made (suspected: hard close during first write). The heal makes it harmless either way.
+FILES: backend/native/db_factory.py, backend/native/async_monty.py, backend/tests/test_db_heal_empty_collection.py, memory/CHANGELOG.md.
+
 
 ## cloud-buyer-email-v1 (api.bighat.live — follow-up to cloud-sub-v1)
 TIME (MST): 2026-10-17 19:30

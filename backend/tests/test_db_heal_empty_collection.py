@@ -118,3 +118,54 @@ def test_native_client_startup_heals_before_opening(tmp_path):
     subprocess.run([sys.executable, str(probe), "seed", str(data)], check=True, capture_output=True)
     r = subprocess.run([sys.executable, str(probe), "read", str(data)], capture_output=True, text=True)
     assert "WROTE True" in r.stdout, (r.stdout, r.stderr[-400:])
+
+
+# ---- v32.1.5: the half-made file is 4096 bytes (montydb's settings only), not 0 bytes ----
+def _tableless_file(repo, name):
+    p = _col(repo, name)
+    os.remove(p)
+    con = sqlite3.connect(p)
+    con.execute("PRAGMA journal_mode=WAL")      # what montydb writes on connect; makes the file non-empty, still no table
+    con.close()
+    with open(p, "ab") as fh:
+        fh.write(b"")
+    return p
+
+
+def test_heal_repairs_a_nonzero_file_that_has_no_table(tmp_path):
+    repo, client = _fresh_repo(tmp_path)
+    client["bighat"].users.insert_one({"email": "a@b.c"})
+    p = _tableless_file(repo, "users")
+    out = db_factory.heal_empty_collections(repo)
+    assert str(p) in out["healed"] and out["suspect"] == []
+    client["bighat"].users.insert_one({"email": "new@b.c"})
+    assert client["bighat"].users.find_one({"email": "new@b.c"}) is not None
+
+
+def test_a_running_app_repairs_and_retries_a_tableless_file(tmp_path):
+    """The exact login failure: insert_one on a table-less users file. The wrapper must repair it and succeed."""
+    import asyncio
+    from native import async_monty
+    repo, client = _fresh_repo(tmp_path)
+    client["bighat"].users.insert_one({"email": "a@b.c"})
+    _tableless_file(repo, "users")
+    async_monty.HEAL_HOOK = lambda: db_factory.heal_empty_collections(repo)
+    try:
+        col = async_monty.AsyncMontyClient(client)["bighat"].users
+        asyncio.run(col.insert_one({"email": "caelie@x.com"}))
+        assert asyncio.run(col.find_one({"email": "caelie@x.com"})) is not None
+    finally:
+        async_monty.HEAL_HOOK = None
+
+
+def test_without_the_hook_the_tableless_file_still_fails(tmp_path):
+    """Proves the retry test above can fail."""
+    import asyncio
+    from native import async_monty
+    repo, client = _fresh_repo(tmp_path)
+    client["bighat"].users.insert_one({"email": "a@b.c"})
+    _tableless_file(repo, "users")
+    async_monty.HEAL_HOOK = None
+    col = async_monty.AsyncMontyClient(client)["bighat"].users
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        asyncio.run(col.insert_one({"email": "x@y.z"}))
