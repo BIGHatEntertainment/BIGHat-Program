@@ -11,6 +11,7 @@ from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
 import json
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -426,6 +427,53 @@ async def import_score_file(file: UploadFile = File(...)):
     return {"ok": True, "imported": saved["path"], "filename": saved["filename"], "count": sync.get("count", 0)}
 
 
+def _score_file_entry(root, venue: str, f) -> Optional[Dict[str, Any]]:
+    """One score file as the Scoreboard dropdown shows it. Never raises: a damaged file is reported, not skipped silently."""
+    try:
+        st = f.stat()
+        modified = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+    except OSError:
+        return None
+    entry: Dict[str, Any] = {
+        "id": f"{venue}/{f.name}",                       # unique: two venues, or two nights, never collide
+        "file_name": f.name, "venue": venue, "last_modified": modified, "data": None, "error": None,
+    }
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("teams"), list):
+            entry["error"] = "This file has no teams in it."
+        else:
+            entry["data"] = data
+    except (OSError, ValueError) as e:
+        entry["error"] = f"Could not read this file ({type(e).__name__})."
+    return entry
+
+
+@router.get("/scores/local")
+async def get_local_scores():
+    """Fetch: every score file saved on this PC (Trivia 'Save & Exit' folder, its AppData copy, Files/Scoreboard), newest first,
+    in ONE call. A GET reading the folders directly: no POST, no database step to go wrong. Also keeps the database copy up to
+    date for the older routes. Files that cannot be read are listed with the reason instead of vanishing."""
+    out: List[Dict[str, Any]] = []
+    for root, venue, f in _local_score_files():
+        e = _score_file_entry(root, venue, f)
+        if e is None:
+            continue
+        out.append(e)
+        if e["data"] is not None and db is not None:
+            try:
+                await db.score_files.update_one({"venue": venue, "file_name": f.name},
+                                                {"$set": {"file_name": f.name, "venue": venue, "last_modified": e["last_modified"],
+                                                          "synced_at": datetime.now(timezone.utc).isoformat(), "data": e["data"]}},
+                                                upsert=True)
+            except Exception as ex:                          # noqa: BLE001  the files are the truth; the copy is a convenience
+                logger.warning(f"[SCOREBOARD] database copy skipped for {f.name}: {ex}")
+    out.sort(key=lambda x: (str((x["data"] or {}).get("savedAt") or x["last_modified"])), reverse=True)
+    roots = [str(r) for r in _local_scores_roots()]
+    return {"files": out, "count": len([x for x in out if x["data"] is not None]),
+            "unreadable": len([x for x in out if x["data"] is None]), "folders": roots[:1]}
+
+
 @router.get("/scores")
 async def get_scores():
     """Get all synced score files from MongoDB"""
@@ -433,14 +481,19 @@ async def get_scores():
     return {"files": docs, "count": len(docs)}
 
 
+def _venue_key(v: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(v or "").lower())
+
+
 @router.get("/scores/{venue}")
 async def get_venue_scores(venue: str):
-    """Get scores for a specific venue"""
-    docs = await db.score_files.find(
-        {"venue": {"$regex": venue, "$options": "i"}},
-        {"_id": 0}
-    ).sort("data.date", -1).to_list(100)
-    return {"files": docs, "count": len(docs)}
+    """Scores for one venue. The venue is matched as PLAIN TEXT (it used to be a regex, so 'Cornish Pasty Co. (Glendale)' broke it)
+    against the folder name AND the venue name written inside the file, ignoring spaces, underscores and punctuation."""
+    want = _venue_key(venue)
+    docs = await db.score_files.find({}, {"_id": 0}).to_list(2000)
+    hit = [d for d in docs if want and (_venue_key(d.get("venue")) == want or _venue_key((d.get("data") or {}).get("location")) == want)]
+    hit.sort(key=lambda d: str((d.get("data") or {}).get("savedAt") or d.get("last_modified") or ""), reverse=True)
+    return {"files": hit[:100], "count": len(hit[:100])}
 
 
 # ===================== PRESET ROUTES =====================

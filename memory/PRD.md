@@ -1,5 +1,7 @@
 # BIG Hat Standalone V31 — Product Requirements
 
+> **Scoreboard Fetch reworked (awaiting merge/release):** Fetch is one GET that reads the score folders; damaged files are reported; venue lookup is plain text; dropdown uses unique ids. Cause of the installed app's api_route_not_found NOT found. See CHANGELOG scoreboard-fetch-flow-v1.
+
 > **Round lock by round, not by file name (awaiting merge/release):** a round is one round whether it is MC__x, x or x-<8hex>; released rounds are freed at the venue under every spelling and stay released. See CHANGELOG round-lock-same-round-v1.
 
 > **Creator media on slides built (awaiting merge/release):** images, GIFs and videos from File Creator .bighat files now reach the slides for MC, REG, MISC, MYS and BIG. See CHANGELOG creator-media-slides-v1.

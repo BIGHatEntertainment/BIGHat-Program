@@ -4,10 +4,10 @@ import api from './scoreboardApi';
 
 /** Look in the score folders, copy what is found into the Scoreboard, and return { files, count }. Never throws on an empty folder. */
 export async function loadLocalScores() {
-  const sync = await api.syncScores();                 // reads Documents\\...\\Trivia\\Scores (+ its AppData copy)
-  const scores = await api.getScores();                // the synced nights, each with its teams inside `data`
-  const files = (scores && scores.files) || [];
-  return { files, count: (sync && sync.count) || 0 };
+  const r = await api.getLocalScores();                // ONE GET: reads Trivia\\Scores (+ its AppData copy + Files\\Scoreboard)
+  const all = (r && r.files) || [];
+  const files = all.filter(f => f && f.data);          // readable nights only; unreadable ones are counted below
+  return { files, count: files.length, unreadable: (r && r.unreadable) || 0, unreadableFiles: all.filter(f => f && !f.data) };
 }
 
 /** The venues that have at least one night saved, from a list of score files (the folder name is the venue). */

@@ -27,6 +27,12 @@ import { isTauri, openNativeAudience } from '../../lib/audienceWindow';
 // never "[object Object]" (that hid the real reason a score file could not be read).
 export function errorText(err, fallback = 'Something went wrong.') {
   const d = err?.response?.data?.detail ?? err?.response?.data?.message;
+  if (d && typeof d === 'object' && d.error === 'api_route_not_found') {
+    return `This program is missing part of its score service (${d.path || 'unknown route'}). Close and reopen the program; if it happens again, update to the latest release.`;
+  }
+  if (d && typeof d === 'object' && d.error === 'premium_required') {
+    return 'Video and image export needs an active subscription. Your scores are fine; they are still saved on this PC.';
+  }
   if (typeof d === 'string' && d.trim()) return d;
   if (d && typeof d === 'object') {
     if (typeof d.message === 'string' && d.message.trim()) return d.message;
@@ -126,10 +132,13 @@ const Dashboard = () => {
     setSyncing(true);
     try {
       if (!quiet) toast.info('Looking in your score files...');
-      const { files, count } = await loadLocalScores();
+      const { files, count, unreadable } = await loadLocalScores();
       setScoreFiles(files);
       setLastSync(new Date().toLocaleTimeString());
-      if (!quiet) toast.success(`Found ${count} score file${count === 1 ? '' : 's'}`);
+      if (!quiet) {
+        if (count === 0 && unreadable === 0) toast.info('No score files yet. Finish a trivia night and press Save & Exit on the final slide.');
+        else toast.success(`Found ${count} score file${count === 1 ? '' : 's'}${unreadable ? ` (${unreadable} could not be read)` : ''}`);
+      }
     } catch (err) {
       console.error('Score file load error:', err);
       if (!quiet) toast.error('Could not read the score files: ' + errorText(err));
@@ -281,7 +290,7 @@ const Dashboard = () => {
     try {
       await api.createPreset({
         name: presetName, mode, aspect_ratio: aspectRatio, animation_speed: animationSpeed,
-        config: { selectedFile: selectedFile?.file_name, tournamentName, totalTeams, byeCount },
+        config: { selectedFile: selectedFile?.id || selectedFile?.file_name, tournamentName, totalTeams, byeCount },
       });
       toast.success('Preset saved!');
       setShowSavePreset(false);
@@ -298,7 +307,7 @@ const Dashboard = () => {
     if (preset.config?.totalTeams) setTotalTeams(preset.config.totalTeams);
     if (preset.config?.byeCount) setByeCount(preset.config.byeCount);
     if (preset.config?.selectedFile) {
-      const match = scoreFiles.find(f => f.file_name === preset.config.selectedFile);
+      const match = scoreFiles.find(f => (f.id || f.file_name) === preset.config.selectedFile || f.file_name === preset.config.selectedFile);
       if (match) setSelectedFile(match);
     }
     toast.success(`Loaded preset: ${preset.name}`);
@@ -558,22 +567,15 @@ const Dashboard = () => {
                       {scoreFiles.length} files available
                     </span>
                   </div>
-                  <Select 
-                    onValueChange={async (val) => {
-                      const file = scoreFiles.find(f => f.file_name === val);
-                      if (file && file.file_id) {
-                        try {
-                          toast.info('Loading score data...');
-                          const content = await api.getSharePointFileContent(file.file_id);
-                          setSelectedFile({ ...file, data: content });
-                          toast.success(`Loaded: ${content.teams?.length || 0} teams`);
-                        } catch (err) {
-                          toast.error('Failed to load file content');
-                          setSelectedFile(file);
-                        }
-                      } else {
-                        setSelectedFile(file);
-                      }
+                  <Select
+                    value={selectedFile ? (selectedFile.id || selectedFile.file_name) : ''}
+                    onValueChange={(val) => {
+                      // v32.1.8: pick by the unique id (venue/file). It used to be the file name only, so two nights or two venues
+                      // with the same file name could load each other's scores. The data is already in the list: nothing else to fetch.
+                      const file = scoreFiles.find(f => (f.id || f.file_name) === val);
+                      if (!file) return;
+                      setSelectedFile(file);
+                      toast.success(`Loaded: ${file.data?.teams?.length || 0} teams`);
                     }}
                   >
                     <SelectTrigger className="bg-[#141b50] border-[rgba(251,221,104,0.15)] hover:border-[#fbdd68]/40 text-white" data-testid="sharepoint-file-picker">
@@ -581,8 +583,8 @@ const Dashboard = () => {
                     </SelectTrigger>
                     <SelectContent className="bg-[#15151f] border-[rgba(251,221,104,0.15)]">
                       {scoreFiles.map((f) => (
-                        <SelectItem key={f.file_name} value={f.file_name} data-testid={`file-option-${f.file_name}`}>
-                          {f.data?.presentationName || f.file_name}
+                        <SelectItem key={f.id || f.file_name} value={f.id || f.file_name} data-testid={`file-option-${f.file_name}`}>
+                          {(f.data?.location || f.venue || '').replace(/_/g, ' ')} · {f.data?.date || f.file_name} · {f.data?.teams?.length || 0} teams
                         </SelectItem>
                       ))}
                     </SelectContent>
