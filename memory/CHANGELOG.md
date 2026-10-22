@@ -7,6 +7,16 @@
 
 ---
 ---
+## story-generator-disk-shows-v1 (program; goes out as v32.1.10 with mc-answer-letters-v1 and round-lock-venue-identity-v1)
+TIME (MST): 2026-10-22 17:30
+REPORT (owner): the Story Generator says "Presentation not found" / no round files, while the page itself shows the show, its rounds and host.
+CAUSE (reproduced on the real backend): the page LISTS shows from /trivia-viewer/list (reads the files in Files/Trivia/Rounds), but every action (details, images, preview, generate) used /story-generator/*, which read ONLY the in-memory database. That database is empty after every launch, and a Build Wizard show exists only as a file. So listing worked and every action 404'd. Same rule the presentations route already follows: DISK IS TRUTH.
+CHANGE: backend/routes/story_generator.py. One lookup, _find_presentation(): database (both collections, as before), then the show's .bighat on disk. The 4 duplicated lookups use it. The Wizard's v2 field names (host_name, location_name, created_by, created_at, round_count) are mapped to the names the Story routes read, never overwriting an old name. The details route shows the host name and readable round names ("memes-3" -> "Memes 3") when there is no SharePoint host file or round name. The asset route looks the host picture up by the host name when there is no host file.
+UNCHANGED: the show list, the video job (process_video_generation), Story Images, premium gate, every file format.
+PROVEN: 13 new tests; 5 deliberate breaks fail tests; on the real backend an on-disk show now returns host "Nick Sellards" and rounds "Memes 3, Dragon Ball Z 1, Simpsons 1" and an unknown id still 404s; no new failures (37 old, same before and after).
+NOT PROVEN: the video itself was not generated here (the Story gate needs a license on this PC; yours passed it). The venue picture on the preview is looked up by venue name from Files/Story/Trivia: if it is still blank after this release, the picture file is missing or named differently, and that is a separate, smaller fix.
+---
+---
 ## round-lock-venue-identity-v1 (program; next release after v32.1.9, goes out with mc-answer-letters-v1 as v32.1.10)
 TIME (MST): 2026-10-22 17:00
 REQUEST (owner): the Build Wizard still offers locked rounds (the review page then refuses). Tighten lock/release everywhere. Sync locks with the Cloud Trivia tab.

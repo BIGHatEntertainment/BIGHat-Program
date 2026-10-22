@@ -40,6 +40,77 @@ except ImportError as _e:
     _story_gate = []
 
 router = APIRouter(prefix="/story-generator", tags=["story-generator"])
+
+
+def _normalise_saved_show(d: Dict) -> Dict:
+    """A show saved by the Build Wizard (schema v2) uses created_by / created_at / host_name / location_name / round_count; the Story
+    Generator reads the older createdBy / createdAt / host / location / numRounds. Fill the old names from the new ones; never overwrite one that exists."""
+    out = dict(d)
+    loc = out.get('location') or out.get('location_name') or out.get('locationFolder') or out.get('location_id') or ''
+    out['location'] = loc
+    out.setdefault('locationFolder', loc)
+    out['host'] = out.get('host') or out.get('host_name') or ''
+    out['createdBy'] = out.get('createdBy') or out.get('created_by') or ''
+    out['createdAt'] = out.get('createdAt') or out.get('created_at')
+    rf = out.get('roundFiles') or []
+    out['roundFiles'] = rf
+    out['numRounds'] = out.get('numRounds') or out.get('round_count') or len(rf) or 5
+    if not out.get('roundTypes'):
+        out['roundTypes'] = [str(r.get('type') or '').upper() for r in rf if isinstance(r, dict) and r.get('type')]
+    return out
+
+
+def _saved_show_from_disk(presentation_id: str) -> Optional[Dict]:
+    """The show's own .bighat in Files/Trivia/Rounds. Disk is the truth: the database is empty after every launch, and a show built by the
+    Build Wizard is only ever written to disk. v32.1.10: Story Generator listed these (it reads the disk) but every action on one answered
+    "Presentation not found" (it read only the database)."""
+    try:
+        import json as _json
+        from native.files_router import _docs_root as _dr
+        rdir = _dr() / "Files" / "Trivia" / "Rounds"
+        if not rdir.is_dir():
+            return None
+        for entry in rdir.iterdir():
+            if not entry.is_file() or entry.suffix.lower() != ".bighat":
+                continue
+            try:
+                d = _json.loads(entry.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(d, dict) and d.get("id") == presentation_id:
+                d["_disk_path"] = str(entry)
+                return d
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning("[story] disk lookup failed: %s", e)
+    return None
+
+
+def _round_display_name(rf: Dict, fallback: str) -> str:
+    """A readable name for a round saved in a native show: the name stored on it, else its file name ("memes-3.bighat" -> "Memes 3")."""
+    nm = str(rf.get('name') or '').strip()
+    if nm:
+        return nm
+    stem = Path(str(rf.get('file') or rf.get('path') or '').replace('\\', '/')).stem
+    stem = re.sub(r'^(mc|reg|misc|mys|big)__', '', stem, flags=re.I)
+    stem = re.sub(r'-[0-9a-f]{8}$', '', stem)
+    words = re.sub(r'[-_]+', ' ', stem).strip()
+    return words.title() if words else fallback
+
+
+async def _find_presentation(presentation_id: str) -> Optional[Dict]:
+    """Database first (both collections, as before), then the disk. Always returns the record with the names the Story routes read."""
+    pres = None
+    for coll in ("trivia_presentations", "presentations"):
+        try:
+            pres = await getattr(db, coll).find_one({'id': presentation_id})
+        except Exception as e:                               # noqa: BLE001
+            logger.warning("[story] %s lookup failed: %s", coll, e)
+            pres = None
+        if pres:
+            break
+    if not pres:
+        pres = _saved_show_from_disk(presentation_id)
+    return _normalise_saved_show(pres) if pres else None
 logger = logging.getLogger(__name__)
 
 db: AsyncIOMotorDatabase = None
@@ -234,9 +305,7 @@ async def get_presentation_details(presentation_id: str) -> Dict:
     Get detailed information about a presentation for story generation preview.
     """
     try:
-        presentation = await db.trivia_presentations.find_one({'id': presentation_id})
-        if not presentation:
-            presentation = await db.presentations.find_one({'id': presentation_id})
+        presentation = await _find_presentation(presentation_id)
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -259,7 +328,7 @@ async def get_presentation_details(presentation_id: str) -> Dict:
                 # For REG, MISC, and BIG - resolve the actual round name from SharePoint
                 round_name = service.resolve_round_name(round_file)
                 if round_name == 'Unknown' or not round_name:
-                    round_name = rf.get('name', f'{round_type} Round')
+                    round_name = _round_display_name(rf, f'{round_type} Round')
             
             rounds_info.append({
                 'order': rf.get('order', 0),
@@ -276,7 +345,7 @@ async def get_presentation_details(presentation_id: str) -> Dict:
         
         # Get host name
         host_path = presentation.get('hostFile', '')
-        host_name = host_path.split('/')[-1].replace('.pptx', '') if host_path else 'Unknown'
+        host_name = host_path.split('/')[-1].replace('.pptx', '') if host_path else (presentation.get('host') or 'Unknown')
         
         return {
             'id': presentation['id'],
@@ -359,9 +428,7 @@ async def get_asset_urls_for_client(presentation_id: str) -> Dict:
     import base64
     
     try:
-        presentation = await db.trivia_presentations.find_one({'id': presentation_id})
-        if not presentation:
-            presentation = await db.presentations.find_one({'id': presentation_id})
+        presentation = await _find_presentation(presentation_id)
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -375,7 +442,7 @@ async def get_asset_urls_for_client(presentation_id: str) -> Dict:
         
         # Normalize names
         location_name = service._normalize_location_name(location_path)
-        host_name = service._normalize_host_name(host_path)
+        host_name = service._normalize_host_name(host_path or presentation.get('host', ''))     # native show: no host file, only the name
         
         logger.info(f"[AssetURLs] Getting assets for presentation: {presentation['name']}")
         logger.info(f"[AssetURLs] Location: {location_name}, Host: {host_name}, Rounds: {num_rounds}")
@@ -616,9 +683,7 @@ async def generate_story_video(presentation_id: str, background_tasks: Backgroun
     
     try:
         # Validate presentation exists (check both collections)
-        presentation = await db.trivia_presentations.find_one({'id': presentation_id})
-        if not presentation:
-            presentation = await db.presentations.find_one({'id': presentation_id})
+        presentation = await _find_presentation(presentation_id)
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
@@ -917,9 +982,7 @@ async def generate_preview(presentation_id: str) -> Dict:
     """
     try:
         # Get presentation data
-        presentation = await db.trivia_presentations.find_one({'id': presentation_id})
-        if not presentation:
-            presentation = await db.presentations.find_one({'id': presentation_id})
+        presentation = await _find_presentation(presentation_id)
         if not presentation:
             raise HTTPException(status_code=404, detail="Presentation not found")
         
