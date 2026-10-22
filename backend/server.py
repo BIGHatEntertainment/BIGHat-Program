@@ -643,6 +643,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:                                    # noqa: BLE001
         logger.warning(f"[alpha.80] venue/location reconcile skipped: {e}")
 
+    # v32.1.6 (Phase 3): pull venues/people/schedule from BIG Hat Cloud every 5 minutes when this PC is linked.
+    # Never blocks startup; unlinked/offline/lapsed just waits (native/cloud_sync.py).
+    try:
+        from native import cloud_sync
+        app.state.cloud_sync_task = asyncio.create_task(cloud_sync.keep_pulling(db))
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning(f"[cloud-sync] not started: {e}")
+
     # Sync hub users from schedule employees (employees are source of truth)
     # alpha.72: the standalone app keeps its users in system_config.json, so add missing users there
     try:
@@ -758,6 +766,13 @@ async def lifespan(app: FastAPI):
                 await t
             except BaseException:                             # noqa: BLE001
                 pass
+    except Exception:                                         # noqa: BLE001
+        pass
+
+    try:
+        t = getattr(app.state, "cloud_sync_task", None)
+        if t:
+            t.cancel()
     except Exception:                                         # noqa: BLE001
         pass
 
