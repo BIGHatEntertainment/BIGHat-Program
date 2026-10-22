@@ -7,6 +7,18 @@
 
 ---
 ---
+## round-lock-venue-identity-v1 (program; next release after v32.1.9, goes out with mc-answer-letters-v1 as v32.1.10)
+TIME (MST): 2026-10-22 17:00
+REQUEST (owner): the Build Wizard still offers locked rounds (the review page then refuses). Tighten lock/release everywhere. Sync locks with the Cloud Trivia tab.
+FOUND: the Wizard list is sent the venue ID or its image URL, but a lock can be saved under the venue NAME (old shows, backfilled shows). round_usage.locked_names matched only the one form it was sent, so a round locked under the name was offered; the build step checks name AND id, so it refused.
+CHANGE: backend/round_usage.py. New venue_identities(): a venue's id, slug and name (read from Files/Locations/*/location.json) are ONE place. locked_names() and release matching use it, so a lock is found (and freed) whichever form saved or asks.
+CHECKED, NO CHANGE NEEDED: Wizard, Roulette and Special builds all refuse locked rounds and record usage; nothing in the app sends allow_locked; releases are permanent across reboots; two shows sharing rounds both lock them.
+NOT REPRODUCED: the three lobby shows that share rounds (mc-03-a, oktoberfest, big-most-abundant-elements). No current build path lets a second show reuse a locked round. Most likely they were built before v32.1.7 or the round was released in between. If a NEW show repeats a locked round after this release, send the lobby + Trivia Admin Round History screenshots.
+CLOUD SYNC: spec only, docs/CLOUD_TASK_round_locks.md (draft, needs owner approval). Not built.
+PROVEN: 26 new tests (every venue form saves and asks; release frees all forms; other venues unaffected); 3 deliberate breaks fail tests; real build_from_wizard / build_from_roulette refuse repeats.
+NOT PROVEN: not clicked through in the desktop Wizard; the owner's real round_usage.json and venue data were not available here.
+---
+---
 ## mc-answer-letters-v1 (program; next release after v32.1.9)
 TIME (MST): 2026-10-22 16:00
 REQUEST (owner): the MC answer slide must show the letter with the answer; paper sheets have A/B/C/D bubbles only.
