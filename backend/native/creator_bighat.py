@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional, Tuple
 
 ROUND_TYPES = ("MC", "REG", "MISC", "MYS", "BIG")
 _IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+_VID_MIME = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime"}
+MAX_VIDEO_BYTES = 60 * 1024 * 1024        # a video bigger than this stays in the original ZIP and is skipped here (logged)
 _COVER_STEMS = {"cover", "title_card", "title", "cover_image"}
 MAX_ASSET_BYTES = 12 * 1024 * 1024
 
@@ -30,8 +32,10 @@ def _slug(text: str) -> str:
 
 
 def _data_url(name: str, blob: bytes) -> Optional[str]:
-    mime = _IMG_MIME.get(Path(name).suffix.lower())
-    if not mime or len(blob) > MAX_ASSET_BYTES:
+    ext = Path(name).suffix.lower()
+    mime = _IMG_MIME.get(ext) or _VID_MIME.get(ext)
+    limit = MAX_ASSET_BYTES if ext in _IMG_MIME else MAX_VIDEO_BYTES
+    if not mime or len(blob) > limit:
         return None
     return f"data:{mime};base64,{base64.b64encode(blob).decode('ascii')}"
 
@@ -90,10 +94,12 @@ def read_zip(data: bytes, filename: str = "") -> Tuple[Optional[Dict[str, Any]],
                 continue
             q = dict(q)
             media = q.get("media") if isinstance(q.get("media"), dict) else {}
-            for key in ("image", "audio", "video"):
-                url = asset(media.get(key)) if key == "image" else None
+            # v32.1.7: keep the image AND the video AND the video's poster frame. (It used to keep one image only, so
+            # every video the Creator tool packed was dropped on import.) Field names are read by native_slides.
+            for key, field in (("image", "image_data_url"), ("video", "video_data_url"), ("poster", "poster_data_url")):
+                url = asset(media.get(key))
                 if url:
-                    q["image_data_url"] = url
+                    q[field] = url
             questions.append(q)
 
         cover = asset(payload.get("cover_image"))

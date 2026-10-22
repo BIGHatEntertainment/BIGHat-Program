@@ -799,31 +799,41 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
             if not cover_data_url and payload.get("cover_image_id"):
                 cover_data_url = _inline_roundmaker_upload(payload["cover_image_id"])
 
-            # Extract per-question media assets (some questions embed images).
-            # `media` may be a bare string ("assets/q1.gif") OR a dict
-            # ({"image": "assets/q1.gif"} / {"video": "assets/x.mp4"}).
+            # Extract per-question media assets. `media` may be a bare string ("assets/q1.gif") OR a dict
+            # ({"image": ..., "video": ..., "poster": ...}). v32.1.7: image, video and the video's poster frame are
+            # ALL read (it used to take the first of image/video, so a question with both lost one).
+            def _mime_for(ref: str) -> str:
+                return {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".webp": "image/webp", ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
+                        ".mov": "video/quicktime"}.get(Path(ref).suffix.lower(), "application/octet-stream")
+
+            def _zip_data_url(ref: str) -> str:
+                ref = (ref or "").replace("\\", "/")
+                if not ref or ref not in names:
+                    return ""
+                try:
+                    return f"data:{_mime_for(ref)};base64,{b64encode(zf.read(ref)).decode('ascii')}"
+                except Exception:                                  # noqa: BLE001  one bad asset must not drop the round
+                    return ""
+
             questions_norm: List[Dict[str, Any]] = []
             for q in (payload.get("questions") or []):
-                media_url = None
                 raw_media = q.get("media")
-                media_ref = ""
+                refs = {"image": "", "video": "", "poster": ""}
                 if isinstance(raw_media, str):
-                    media_ref = raw_media
+                    refs["video" if Path(raw_media).suffix.lower() in (".mp4", ".m4v", ".webm", ".mov") else "image"] = raw_media
                 elif isinstance(raw_media, dict):
-                    for k in ("image", "video", "gif", "src", "path"):
+                    for k in ("image", "video", "poster"):
                         v = raw_media.get(k)
                         if isinstance(v, str) and v:
-                            media_ref = v
-                            break
-                if media_ref and media_ref in names:
-                    raw = zf.read(media_ref)
-                    ext = Path(media_ref).suffix.lower()
-                    mime = {".gif": "image/gif", ".png": "image/png",
-                            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                            ".webp": "image/webp",
-                            ".mp4": "video/mp4", ".webm": "video/webm",
-                            }.get(ext, "application/octet-stream")
-                    media_url = f"data:{mime};base64,{b64encode(raw).decode('ascii')}"
+                            refs[k] = v
+                    for k in ("gif", "src", "path"):               # older spellings
+                        v = raw_media.get(k)
+                        if isinstance(v, str) and v and not refs["image"] and not refs["video"]:
+                            refs["video" if Path(v).suffix.lower() in (".mp4", ".m4v", ".webm", ".mov") else "image"] = v
+                image_url, video_url, poster_url = (_zip_data_url(refs[k]) for k in ("image", "video", "poster"))
+                media_ref = refs["video"] or refs["image"]
+                media_url = video_url or image_url or None        # the one thing a slide plays; video wins over a still
 
                 # Merge legacy + new field names so downstream code works
                 # regardless of which format the .bighat used.
@@ -838,6 +848,9 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
                     "points": q.get("points"),
                     "media_url": media_url,
                     "media_ref": media_ref,
+                    "image_url": image_url or None,
+                    "video_url": video_url or None,
+                    "poster_url": poster_url or None,
                 })
 
             return {
@@ -853,6 +866,41 @@ def _read_bighat_round(path: Path) -> Optional[Dict[str, Any]]:
     except (zipfile.BadZipFile, KeyError, ValueError, OSError) as e:
         logger.warning("[native-slides] .bighat unzip failed for %s: %s", path, e)
         return None
+
+
+def question_media(q: Dict[str, Any]) -> Dict[str, str]:
+    """The ONE place that decides which media a question carries, whatever file it came from (a Creator ZIP read directly, a
+    converted JSON copy, an older round). Returns {"image", "video", "poster"} data/URL strings (empty when absent).
+    v32.1.7: the converted copy used to write image_data_url that nothing read, so imported rounds showed no media at all."""
+    out = {"image": "", "video": "", "poster": ""}
+    if not isinstance(q, dict):
+        return out
+    out["image"] = str(q.get("image_url") or q.get("image_data_url") or "")
+    out["video"] = str(q.get("video_url") or q.get("video_data_url") or "")
+    out["poster"] = str(q.get("poster_url") or q.get("poster_data_url") or "")
+    mu = str(q.get("media_url") or "")                          # older shape: one url, image or video
+    if mu and not (out["image"] or out["video"]):
+        out["video" if mu.startswith("data:video/") else "image"] = mu
+    return out
+
+
+def _media_elements(q: Dict[str, Any], *, x: int, y: int, w: int, h: int) -> List[Dict[str, Any]]:
+    """Slide elements for a question's media inside the box (x,y,w,h). A video plays (its poster frame shows before it
+    starts); a still shows as an image. Image AND video on one question: the video plays, the image sits behind it."""
+    m = question_media(q)
+    els: List[Dict[str, Any]] = []
+    if m["video"]:
+        still = m["poster"] or m["image"]
+        if still:
+            els.append(_image(still, x=x, y=y, w=w, h=h))
+        v = {"id": _uid("vid"), "type": "video", "videoSrc": m["video"], "mimeType": m["video"][5:].split(";")[0],
+             "x": x, "y": y, "width": w, "height": h}
+        if m["poster"]:
+            v["poster"] = m["poster"]
+        els.append(v)
+    elif m["image"]:
+        els.append(_image(m["image"], x=x, y=y, w=w, h=h))
+    return els
 
 
 def load_round_from_disk(round_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1170,14 +1218,18 @@ def render_round_section(
         q = questions[0] if questions else {}
         clue_text = q.get("question", "")
         instr, pts = big_points_texts(big_round_answers(questions))
+        _big_has_media = bool(questions) and any(question_media(q).values())
+        _clue_w = 1180 if _big_has_media else 1600               # leave the right side free ONLY when there is media
         clue_elements = [
             _text(instr, x=160, y=150, w=1600, h=80,
                   size=44, weight="500", align="center", color="#F4C430"),
-            _text(clue_text, x=160, y=300, w=1600, h=420,
-                  size=80, weight="700", align="center"),
+            _text(clue_text, x=160, y=300, w=_clue_w, h=420,
+                  size=80 if not _big_has_media else 64, weight="700", align="center"),
             _text(pts, x=160, y=800, w=1600, h=100,
                   size=56, weight="600", align="center"),
         ]
+        if questions:
+            clue_elements.extend(_media_elements(q, x=1380, y=300, w=420, h=420))     # v32.1.7: right of the clue text
         slides.append(_slide(1, clue_elements, background=BG_BLUE, metadata=meta(
             slideIndexInRound=1, questionNumber=1,
             _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG clue slide)",
@@ -1207,19 +1259,14 @@ def render_round_section(
                 _text(qtext, x=160, y=260, w=1600, h=400,
                       size=72, weight="700"),
             ]
-            # alpha.66: REG / MISC / MYS questions may carry a GIF, image or
-            # video (q["media_url"]). Draw it under the question text, inside
-            # the centre 9:16 column (x 706..1214), 50px below the text.
-            media_url = q.get("media_url") if i < len(questions) else None
-            if media_url and rtype in ("REG", "MISC", "MYS"):
-                if str(media_url).startswith("data:video/"):
-                    elements.append({
-                        "id": _uid("vid"), "type": "video",
-                        "videoSrc": media_url, "mimeType": media_url[5:].split(";")[0],
-                        "x": 706, "y": 560, "width": 508, "height": 340,
-                    })
-                else:
-                    elements.append(_image(media_url, x=706, y=560, w=508, h=340))
+            # alpha.66 / v32.1.7: a question may carry an image, GIF or video (+ poster). REG/MISC/MYS draw it under the
+            # question text inside the centre column (x 706..1214), 50px below the text. MC draws it in the same column
+            # ABOVE the options (the options start at y 720, so it is shorter there).
+            if i < len(questions):
+                if rtype in ("REG", "MISC", "MYS"):
+                    elements.extend(_media_elements(q, x=706, y=560, w=508, h=340))
+                elif rtype == "MC":
+                    elements.extend(_media_elements(q, x=806, y=500, w=308, h=200))
             # MC = 4-option grid. REG/MISC/MYS = no options shown (question only).
             if rtype == "MC" and options:
                 letters = ["A", "B", "C", "D"]
@@ -1311,11 +1358,12 @@ def render_round_section(
         review_elements = [
             _text(instr, x=160, y=150, w=1600, h=80,
                   size=44, weight="500", align="center", color="#F4C430"),
-            _text(q.get("question", ""), x=160, y=300, w=1600, h=420,
-                  size=80, weight="700", align="center"),
+            _text(q.get("question", ""), x=160, y=300, w=_clue_w, h=420,
+                  size=80 if not _big_has_media else 64, weight="700", align="center"),
             _text(pts, x=160, y=800, w=1600, h=100,
                   size=56, weight="600", align="center"),
         ]
+        review_elements.extend(_media_elements(q, x=1380, y=300, w=420, h=420))
         slides.append(_slide(3, review_elements, background=BG_BLUE,
                              metadata=meta(slideIndexInRound=3, isReview=True,
                                            _verified_from_prototype="PresentationMode.jsx#L67-L129 (BIG review at index 3)")))
