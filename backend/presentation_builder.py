@@ -352,7 +352,7 @@ def build_from_wizard(
         loc_label = (loc or {}).get("name") or location_id
         locked = round_usage.locked_names(loc_label) | round_usage.locked_names(location_id)
         clash = [r["file"].split("/")[-1] for r in round_file_refs
-                 if round_usage.norm_name(r["file"]) in locked]
+                 if round_usage.is_locked(r["file"], locked)]
         if clash:
             raise BuildValidationError(
                 "These rounds are locked for this location (used within the last "
@@ -530,7 +530,7 @@ def build_special(
         loc_label = (loc or {}).get("name") or location_id
         locked = round_usage.locked_names(loc_label) | round_usage.locked_names(location_id)
         clash = [r["file"].split("/")[-1] for r in refs
-                 if round_usage.norm_name(r["file"]) in locked]
+                 if round_usage.is_locked(r["file"], locked)]
         if clash:
             raise BuildValidationError(
                 "These rounds are locked for this location (used within the last "

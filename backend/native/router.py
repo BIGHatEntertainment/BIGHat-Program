@@ -847,7 +847,7 @@ async def list_special_rounds_endpoint(request: Request, location: Optional[str]
     locked = round_usage.locked_names(location) if location else set()
     rounds = list_special_rounds()
     for r in rounds:
-        r["locked"] = round_usage.norm_name(r["file"]) in locked
+        r["locked"] = round_usage.is_locked(r["file"], locked)
     return {"min_rounds": SPECIAL_MIN_ROUNDS, "max_rounds": SPECIAL_MAX_ROUNDS,
             "types": ["MC", "REG", "MISC", "MYS", "BIG"], "rounds": rounds}
 
@@ -908,7 +908,7 @@ async def list_round_pool(round_type: str, location: Optional[str] = None, inclu
     if location and not include_locked:
         import round_usage
         locked = round_usage.locked_names(location)
-        kept = [f for f in files if round_usage.norm_name(f.name) not in locked]
+        kept = [f for f in files if not round_usage.is_locked(f.name, locked)]
         locked_count = len(files) - len(kept)
         files = kept
     return {

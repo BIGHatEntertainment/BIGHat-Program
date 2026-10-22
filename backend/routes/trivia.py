@@ -701,8 +701,8 @@ async def get_round_files_by_type(round_type: str, location: Optional[str] = Non
             import round_usage
             locked = round_usage.locked_names(location)
             all_files = [f for f in all_files
-                         if round_usage.norm_name(f.get('name')) not in locked
-                         and round_usage.norm_name(f.get('path')) not in locked]
+                         if not round_usage.is_locked(f.get('name'), locked)
+                         and not round_usage.is_locked(f.get('path'), locked)]
         return sorted(all_files, key=lambda x: x['displayName'])
     try:
         sp = SharePointService()

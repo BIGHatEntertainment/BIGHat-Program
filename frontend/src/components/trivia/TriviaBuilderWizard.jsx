@@ -123,9 +123,9 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
   };
 
   // Load round files after location is selected
-  const loadRoundFiles = async (location) => {
+  const loadRoundFiles = async (location, quiet = false) => {
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const [mcData, regData, miscData, mysData, bigData] = await Promise.all([
         axios.get(`${API_BASE}/trivia/round-files/mc`, { params: { location } }).then(r => r.data),
         axios.get(`${API_BASE}/trivia/round-files/reg`, { params: { location } }).then(r => r.data),
@@ -138,13 +138,30 @@ const TriviaBuilderWizard = ({ open, onOpenChange, onComplete, userName }) => {
       setMiscRounds(miscData);
       setMysRounds(mysData);
       setBigRounds(bigData);
+      // v32.1.8: a round that became locked after it was picked (another show built, or a list that was loaded earlier)
+      // is dropped from the picks right away and the host is told, instead of finding out at the Build button.
+      const still = (list, v) => !v || list.some(r => r.path === v);
+      const dropped = [];
+      if (!still(mcData, selectedMC)) { setSelectedMC(''); dropped.push('Multiple Choice'); }
+      if (!still(regData, selectedREG1)) { setSelectedREG1(''); dropped.push('General'); }
+      if (!still(miscData, selectedMISC1)) { setSelectedMISC1(''); dropped.push('Specific'); }
+      if (!still([...regData, ...miscData], selectedExtra)) { setSelectedExtra(''); dropped.push('Extra'); }
+      if (!still(mysData, selectedMYS)) { setSelectedMYS(''); dropped.push('Mystery'); }
+      if (!still(bigData, selectedBIG)) { setSelectedBIG(''); dropped.push('BIG'); }
+      if (dropped.length) toast.error(`Locked for this location, pick again: ${dropped.join(', ')}`);
     } catch (error) {
       console.error('Error loading round files:', error);
-      toast.success("Action completed");
+      toast.error('Could not refresh the round lists. Check your connection and try again.');
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
+
+  // v32.1.8: locks can change while the dialog is open, so the lists are re-read on every round step and on the review step
+  useEffect(() => {
+    if (open && selectedLocation && step >= 3) loadRoundFiles(selectedLocation, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const handleNext = () => {
     if (step === 1 && !selectedHost) {
