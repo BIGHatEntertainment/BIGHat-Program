@@ -296,12 +296,16 @@ async def _apply_person(ctx, item, data):
         ctx.counts["updated" if m else "adopted"] += 1
         await _apply_profile(ctx, cid, email, data, before)
         return
-    temp = employee_sync.make_temp_password()
     doc = {"id": str(uuid.uuid4()), "email": email, "password": "", "created_at": _now(), **fields}
     await db.employees.insert_one(dict(doc))
+    # v32.4.0: a person who ALREADY has a login on this PC (a hand-made program account) keeps their password. Before, the pull gave EVERY
+    # person it created a new temporary password, which silently replaced that program password. Only a person with no login here gets one.
+    had_login = employee_sync.find_user(email) is not None
+    temp = None if had_login else employee_sync.make_temp_password()
     await employee_sync.upsert_user_for_employee(fields["name"], email, fields["is_admin"], fields["phone"], temp, "")
-    _NEW_LOGINS.append({"email": email, "name": fields["name"], "temp_password": temp})
-    ctx.ids("person")[cid] = {"local_id": doc["id"], "created": True, "fp": _fp("person", doc)}
+    if temp:
+        _NEW_LOGINS.append({"email": email, "name": fields["name"], "temp_password": temp})
+    ctx.ids("person")[cid] = {"local_id": doc["id"], "created": not had_login, "fp": _fp("person", doc)}
     ctx.counts["added"] += 1
     await _apply_profile(ctx, cid, email, data, before)          # a hand-made login with no employee row yet is protected too
 

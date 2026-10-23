@@ -152,6 +152,7 @@ async def require_admin(request: Request) -> dict:
 class LoginRequest(BaseModel):
     email: str
     password: str
+    copy_account: bool = False      # v32.4.0: "Copy my account to this computer?" answered yes after a Cloud sign-in
 
 class RegisterRequest(BaseModel):
     email: str
@@ -876,6 +877,76 @@ async def login(request: Request, response: Response, body: LoginRequest):
                 raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
             else:
                 await db.login_attempts.delete_one({"identifier": identifier})
+
+        # ===== ORGANIZATION LOGIN (v32.4.0; memory/SYNC_CONTRACT.md "Organization login") =====
+        # The LOCAL login below runs first and is unchanged. The Cloud is asked only for: a person with no account here, a copied
+        # Cloud account (every time), or a person the Cloud pull made here who still has the temporary password. A hand-made
+        # program account with a wrong password is NEVER sent to the Cloud, and the local master admin never is.
+        org = None
+        try:
+            from native import org_login
+            if org_login.is_linked():
+                _cfg_users = (__import__("native").config_manager.config.get("users", []) or [])
+                _lu = next((u for u in _cfg_users if (u.get("email", "") or "").lower().strip() == email), None)
+                _local_ok = False
+                if _lu and _lu.get("password_hash") and (_lu.get("auth_method") or "local") != "cloud":
+                    try:
+                        _local_ok = bcrypt.checkpw(body.password.encode("utf-8"), _lu["password_hash"].encode("utf-8"))
+                    except Exception:                         # noqa: BLE001
+                        _local_ok = False
+                if await org_login.should_ask_cloud(db, _lu, _local_ok):
+                    org = await org_login.cloud_check(email, body.password)
+                    if not org["ok"]:
+                        if org["error"] == "invalid_credentials":                 # only a wrong password counts toward the local lockout
+                            await db.login_attempts.update_one(
+                                {"identifier": identifier},
+                                {"$inc": {"count": 1}, "$set": {"locked_until": datetime.now(timezone.utc) + timedelta(minutes=15)}},
+                                upsert=True,
+                            )
+                        code = 401
+                        if org["error"] == "rate_limited":
+                            code = 429
+                        elif org["error"] == "deactivated":
+                            code = 403
+                        elif org["error"] in ("unreachable", "error", "unlinked", "subscription_lapsed"):
+                            code = 503
+                        raise HTTPException(status_code=code, detail=org_login.MESSAGES.get(org["error"]) or "Invalid email or password")
+        except HTTPException:
+            raise
+        except Exception as e:                                   # noqa: BLE001  a bug here must never lock everyone out of the LOCAL login
+            logger.error(f"[Auth] org login step skipped: {type(e).__name__}: {e}")
+            org = None
+        if org and org.get("ok"):
+            cu = org["user"]
+            existing_cfg = next((u for u in (__import__("native").config_manager.config.get("users", []) or [])
+                                 if (u.get("email", "") or "").lower().strip() == email), None)
+            if existing_cfg is not None and existing_cfg.get("enabled") is False:
+                raise HTTPException(status_code=403, detail="This account is turned off on this computer. Ask the administrator.")
+            saved = await org_login.adopt(db, cu, body.password, existing_cfg, bool(body.copy_account))
+            await db.login_attempts.delete_many({"identifier": identifier})
+            role = (saved or {}).get("role") or cu["role"]
+            display = (saved or {}).get("display_name") or cu.get("name") or email
+            mongo_user = await db.users.find_one({"email": email})
+            if mongo_user:
+                user_id = str(mongo_user["_id"])
+                await db.users.update_one({"_id": mongo_user["_id"]}, {"$set": {"name": display, "role": role, "auth_method": "cloud"}})
+            else:
+                from native.db_factory import is_native as _is_native
+                new_id = str(uuid.uuid4()) if _is_native() else None
+                doc = {"email": email, "password_hash": hash_password(body.password), "name": display, "role": role, "auth_method": "cloud",
+                       "created_at": datetime.now(timezone.utc).isoformat()}
+                if new_id:
+                    doc["_id"] = new_id
+                res = await db.users.insert_one(doc)
+                user_id = new_id if new_id else str(res.inserted_id)
+            access_token = create_access_token(user_id, email, role)
+            refresh_token = create_refresh_token(user_id)
+            response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
+            response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+            logger.info(f"[Auth] Cloud organization login: {email} -> {role} (saved here: {bool(saved)})")
+            return {"id": user_id, "email": email, "name": display, "role": role, "token": access_token, "auth_method": "cloud",
+                    "saved_on_this_pc": bool(saved), "offer_copy": saved is None}
+        # ===== END ORGANIZATION LOGIN =====
 
         # ===== NATIVE-MODE AUTH BRIDGE (Phase 0.5) =====
         # If the email matches a user created by the Setup Wizard

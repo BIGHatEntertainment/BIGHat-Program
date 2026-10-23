@@ -13,7 +13,7 @@ function formatApiError(detail) {
 }
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, finishCloudSignIn } = useAuth();
   const { nativeMode } = useNative();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -21,15 +21,37 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState(location.state?.error || '');
   const [loading, setLoading] = useState(false);
+  const [offer, setOffer] = useState(null);       // the Cloud signed this person in and they have no account on this computer yet
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      const data = await login(email, password);
+      if (data && data.offer_copy) setOffer(data);        // ask before the app opens
     } catch (err) {
       setError(formatApiError(err.response?.data?.detail) || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const answerCopy = async (copy) => {
+    setError('');
+    setLoading(true);
+    try {
+      if (copy) {
+        const data = await login(email, password, true);       // same sign-in again, this time saved on this computer
+        setOffer(null);
+        if (data && data.offer_copy) finishCloudSignIn(data);
+      } else {
+        finishCloudSignIn(offer);                              // just this visit: nothing is saved here
+        setOffer(null);
+      }
+    } catch (err) {
+      setError(formatApiError(err.response?.data?.detail) || err.message);
+      setOffer(null);
     } finally {
       setLoading(false);
     }
@@ -102,7 +124,18 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {offer && (
+            <div className="mb-4 p-4 rounded-lg text-sm" style={{ backgroundColor: 'rgba(251, 221, 104, 0.1)', border: '1px solid rgba(251, 221, 104, 0.35)', color: '#e5edff' }} data-testid="copy-account-offer">
+              <p className="font-bold mb-1" style={{ color: '#fbdd68' }}>Welcome, {offer.name || offer.email}.</p>
+              <p className="mb-3">Your BIG Hat Cloud account signed you in. Copy it to this computer so it is ready here? You will still need an internet connection to sign in.</p>
+              <div className="flex gap-2">
+                <button type="button" disabled={loading} onClick={() => answerCopy(true)} className="px-4 py-2 rounded-lg font-bold text-xs disabled:opacity-50" style={{ backgroundColor: '#fbdd68', color: '#000e2a' }} data-testid="copy-account-yes">Copy my account</button>
+                <button type="button" disabled={loading} onClick={() => answerCopy(false)} className="px-4 py-2 rounded-lg font-bold text-xs disabled:opacity-50" style={{ border: '1px solid rgba(251,221,104,0.5)', color: '#fbdd68' }} data-testid="copy-account-no">Not now</button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5" style={offer ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: '#8892b0' }}>Email</label>
               <input

@@ -44,14 +44,21 @@ export function AuthProvider({ children }) {
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (email, password) => {
-    const { data } = await axios.post(`${API}/api/auth/login`, { email, password }, { withCredentials: true });
+  const login = async (email, password, copyAccount = false) => {
+    const { data } = await axios.post(`${API}/api/auth/login`, { email, password, copy_account: copyAccount }, { withCredentials: true });
     if (data.token) {
       localStorage.setItem('token', data.token);
+    }
+    // v32.4.0: a Cloud sign-in of a person with no account here answers offer_copy. The app is NOT opened yet: the login page asks
+    // "Copy my account to this computer?" first, then calls login again (or finishUnsaved) so the answer is honoured.
+    if (data.offer_copy) {
+      return data;
     }
     setUser(data);
     return data;
   };
+
+  const finishCloudSignIn = (data) => { setUser(data); return data; };
 
   const loginWithGoogle = async (sessionId) => {
     const { data } = await axios.post(`${API}/api/auth/google-callback`, { session_id: sessionId }, { withCredentials: true });
@@ -71,7 +78,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, logout, checkAuth, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, finishCloudSignIn, loginWithGoogle, logout, checkAuth, setUser }}>
       {children}
     </AuthContext.Provider>
   );
