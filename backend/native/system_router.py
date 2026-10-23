@@ -41,6 +41,21 @@ _BAD_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 _WINDOWS_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 
 
+# v32.2.1: the Update tool opens THIS program's own installer. Nothing else on github.com is allowed, and a page cannot widen this.
+RELEASE_PATH_PREFIX = "/BIGHatEntertainment/BIGHat-Program/releases/"
+
+
+def is_release_url(url: str) -> bool:
+    """https://github.com/BIGHatEntertainment/BIGHat-Program/releases/... exactly (no other repo, no look-alike host, no user-info, no port)."""
+    try:
+        u = urlparse(str(url).strip())
+        port = u.port
+    except ValueError:
+        return False
+    return (u.scheme == "https" and (u.hostname or "").lower() == "github.com" and port in (None, 443) and not u.username
+            and u.path.startswith(RELEASE_PATH_PREFIX) and ".." not in u.path)
+
+
 def is_allowed_url(url: str) -> bool:
     try:
         u = urlparse(str(url).strip())
@@ -125,8 +140,8 @@ async def get_store_links() -> Dict[str, str]:
 @router.post("/open-url")
 async def open_url(payload: Dict[str, Any]) -> Dict[str, Any]:
     url = str(payload.get("url") or "")
-    if not is_allowed_url(url):
-        raise HTTPException(status_code=400, detail="Only https://bighat.live links can be opened")
+    if not (is_allowed_url(url) or is_release_url(url)):
+        raise HTTPException(status_code=400, detail="Only https://bighat.live links (and this program's own release downloads) can be opened")
     if os.environ.get("BIGHAT_NO_BROWSER") == "1":                 # tests: do not really launch a browser
         return {"ok": True, "opened": url, "simulated": True}
     try:

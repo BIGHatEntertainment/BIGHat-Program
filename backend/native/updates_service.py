@@ -276,6 +276,29 @@ class UpdatesService:
             }
         return UpdateManifest.from_dict(data)
 
+    # ----- Installer link (v32.2.1) -----
+    RELEASES_PAGE = "https://github.com/BIGHatEntertainment/BIGHat-Program/releases/latest"
+
+    async def installer_link(self) -> Dict[str, Any]:
+        """Where the green button sends the user: this OS's installer from the update channel, else the release page.
+        The link comes from the manifest fetched HERE, never from the web page, and only this program's own GitHub release links are accepted."""
+        from .system_router import is_release_url
+        manifest = await self.fetch_manifest()
+        installed = self.installed_version
+        if not manifest.latest_version or not is_newer(manifest.latest_version, installed):
+            return {"update_available": False, "installed_version": installed, "latest_version": manifest.latest_version}
+        url = (manifest.download_url or "").strip()
+        direct = bool(url) and is_release_url(url)
+        return {
+            "update_available": True,
+            "installed_version": installed,
+            "latest_version": manifest.latest_version,
+            "url": url if direct else self.RELEASES_PAGE,
+            "direct": direct,
+            "filename": (manifest.raw or {}).get("filename") or (url.rsplit("/", 1)[-1] if direct else ""),
+            "platform": _detect_platform_key(),
+        }
+
     # ----- Status report -----
     async def status(self) -> Dict[str, Any]:
         installed = self.installed_version

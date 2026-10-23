@@ -7,6 +7,16 @@
 
 ---
 ---
+## update-tool-installer-button-v1 (program; next release after v32.2.0)
+TIME (MST): 2026-10-22 19:30
+REPORT (owner): in the Update tool, the green "Download update" button does nothing and nothing downloads. Wants it to fetch the newest release for the user (at the very least open the page), to help push updates across all the programs.
+CAUSE: the button called POST /api/native/updates/download, which copied the installer (.exe / .dmg) into a hidden staging folder renamed "bighat-<version>.zip", showed nothing, then offered an "Install update now" step that cannot install an .exe or .dmg. Also, /api/native/system/open-url only allowed bighat.live, so simply opening the GitHub download link would have been refused.
+CHANGE: native/updates_router.py new POST /api/native/updates/open-installer. The BACKEND reads the update channel (api.bighat.live/api/downloads/latest), picks this OS's installer, and opens it in the user's own browser; if the channel has no installer for this OS it opens https://github.com/BIGHatEntertainment/BIGHat-Program/releases/latest. When the user is current it opens nothing. The page cannot choose the link. native/system_router.py: new is_release_url(), exactly https://github.com/BIGHatEntertainment/BIGHat-Program/releases/... (no other repo, host look-alike, user-info, port or ".."), also accepted by open-url; every other github link is still refused. frontend UpdateTool.jsx: the button calls the new route, falls back to the app's opener, and if no browser can be opened it SHOWS the link (the click is never silent). The old hidden download / install steps were removed from the page; /download and /apply routes stay in the backend untouched.
+THE USER STILL RUNS THE SETUP: the browser downloads the installer; the user closes the program and opens it. Silent in-place install is NOT built (an unsigned installer swap needs a separate, careful design).
+PROVEN: 30 new tests (+34 existing system tests still pass); 8 deliberate breaks each fail a test; the real service against the LIVE api.bighat.live channel returns the .exe for Windows, the .dmg for Apple Mac, nothing when current; the link answers 200 with content-disposition attachment; frozen-app check (release gate) answers the new route.
+NOT PROVEN: not clicked in the desktop window; whether the browser really launches from the app on the owner's PC (the same opener the Buy buttons use, which works there).
+---
+---
 ## scoreboard-video-final-slide-v1 (program; goes out as v32.1.10 with the other merged PRs)
 TIME (MST): 2026-10-22 19:00
 REPORT (owner): the downloaded scoreboard video is nothing like the preview: text far too small, the grid scrolls far too slowly. Wants it as true to the preview (or the Trivia Player's FINAL SCORES slide, "perfect"). Also a QR for a mobile 9:16 download, or send to the Cloud, whichever is easier.

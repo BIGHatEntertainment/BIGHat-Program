@@ -90,6 +90,36 @@ async def updates_download() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"download_failed: {e}")
 
 
+@router.post("/open-installer")
+async def updates_open_installer() -> Dict[str, Any]:
+    """The green "Download update" button. Opens this PC's installer download (or the release page) in the user's own browser.
+    v32.2.1: the old button copied the installer into a hidden folder and showed nothing. The link is read from the update channel
+    HERE, so a web page cannot choose where the browser goes."""
+    import os, webbrowser
+    svc = _svc()                                                 # a 503 here is its own clear error
+    try:
+        info = await svc.installer_link()
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:                                       # noqa: BLE001
+        logger.error(f"[UPDATES] installer link failed: {e}")
+        raise HTTPException(status_code=500, detail=f"installer_link_failed: {e}")
+    if not info.get("update_available"):
+        return {**info, "opened": False, "reason": "no_update_available"}
+    ok = False
+    if os.environ.get("BIGHAT_NO_BROWSER") == "1":              # tests: do not really launch a browser
+        ok = True
+        info["simulated"] = True
+    else:
+        try:
+            ok = bool(webbrowser.open(info["url"], new=2))
+        except Exception as e:                                   # noqa: BLE001
+            logger.warning(f"[UPDATES] could not open {info['url']}: {e}")
+    return {**info, "opened": ok}
+
+
 @router.post(
     "/apply",
     dependencies=[Depends(_require_master_admin)],
