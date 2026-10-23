@@ -80,6 +80,20 @@ def main() -> int:
             st, body = call(port, "GET", "/api/scoreboard/scores/local")
             if st == 200 and '"Smoke' not in body and "Smoke_Bar" not in body:
                 bad.append("Save & Exit then Fetch: the saved night is not in the list")
+            # v32.2.1: the Update tool's green button. It must answer (not 404/500) inside the packaged app. When the channel says an update
+            # exists it must hand back a link on this program's own GitHub releases; when current it must say so. Offline: skip, never fail the build.
+            st, body = call(port, "POST", "/api/native/updates/open-installer", {}, timeout=40)
+            if st in (404, 405) or '"api_route_not_found"' in body:
+                bad.append(f"POST /api/native/updates/open-installer -> route missing: {st} {body[:120]}")
+            elif st == 200:
+                try:
+                    u = json.loads(body)
+                except ValueError:
+                    u = {}
+                if u.get("update_available") and not str(u.get("url", "")).startswith("https://github.com/BIGHatEntertainment/BIGHat-Program/releases/"):
+                    bad.append(f"update button link is not on this program's releases: {body[:160]}")
+            elif st not in (502, 503):
+                bad.append(f"POST /api/native/updates/open-installer -> {st} {body[:120]}")
             # v32.1.10: the scoreboard video is drawn in the packaged app (bundled font + ffmpeg), 9:16, with every team
             st, body = call(port, "POST", "/api/scoreboard/generate-video", {
                 "teams": [{"name": f"Team {i + 1}", "total": 50 - i, "roundScores": [5, 6, 7, 8, 9, 10]} for i in range(7)],

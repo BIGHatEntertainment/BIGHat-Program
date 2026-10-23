@@ -1,32 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Download, CheckCircle2, AlertCircle, Loader2, RefreshCw, PlayCircle } from 'lucide-react';
+import { Download, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import PageHeader from '../components/PageHeader';
-import { useAuth } from '../context/AuthContext';
+import { openExternal } from '../lib/openExternal';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
-// Manual update checker. Hits /api/native/updates/check, surfaces the
-// manifest in plain language (version + what's new bullets), and lets
-// the user trigger the download AND apply steps right here. The apply
-// step is master-admin gated server-side (`/api/native/updates/apply`
-// returns 403 for non-master roles), so a regular host who hits this
-// page sees the "downloaded" banner without the install button.
-// Pre-alpha.29 this page told master admins to "go to Admin → Updates
-// → Install" — there was no such location, so the install never
-// happened. Fixed by exposing the install action inline.
+// Manual update checker. Hits /api/native/updates/check and shows the newest version in plain language.
+// v32.2.1: the green button now opens this PC's installer download in the user's own browser (or the release page when the update
+// channel has no installer for this OS). Before, it copied the installer into a hidden folder and showed nothing, and the
+// "Install update now" step that followed could not install an .exe / .dmg. The user runs the downloaded setup, which replaces the old version.
 export default function UpdateTool() {
-  const { user } = useAuth();
-  const isMasterAdmin = user?.role === 'master_admin';
   const [status, setStatus] = useState(null);          // last known status snapshot
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState(null);          // newest manifest after check
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(false);
-  const [downloaded, setDownloaded] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [applied, setApplied] = useState(false);
+  const [opened, setOpened] = useState(null);          // {url, filename, direct} once the browser was asked to get the installer
 
   // Load the cached status on mount so we can show "last checked" even
   // before the user clicks Check Now.
@@ -39,7 +30,7 @@ export default function UpdateTool() {
   }, []);
 
   const onCheck = async () => {
-    setError(null); setDownloaded(false); setResult(null); setChecking(true);
+    setError(null); setOpened(null); setResult(null); setChecking(true);
     try {
       const r = await axios.post(`${API}/api/native/updates/check`);
       setResult(r.data);
@@ -55,32 +46,21 @@ export default function UpdateTool() {
   const onDownload = async () => {
     setError(null); setDownloading(true);
     try {
-      await axios.post(`${API}/api/native/updates/download`);
-      setDownloaded(true);
+      const r = await axios.post(`${API}/api/native/updates/open-installer`, {}, { timeout: 30000 });
+      const info = r.data || {};
+      if (info.reason === 'no_update_available') {
+        setOpened(null);
+        setError('You already have the newest version.');
+        return;
+      }
+      let ok = !!info.opened;
+      if (!ok && info.url) ok = await openExternal(info.url, () => {});   // second try through the app's own opener
+      setOpened({ url: info.url, filename: info.filename, direct: !!info.direct, ok });
     } catch (e) {
       const detail = e?.response?.data?.detail || e.message || 'download_failed';
       setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
     } finally {
       setDownloading(false);
-    }
-  };
-
-  // Master-admin only — backend enforces it via `require_master_admin`.
-  // We hit /apply with the downloaded version; the backend writes a
-  // `pending_apply.json` and the Tauri shell relaunches into the new
-  // binary on next startup (or now, depending on the installer flag).
-  const onApply = async () => {
-    if (!isMasterAdmin) return;
-    setError(null); setApplying(true);
-    try {
-      const v = result?.manifest?.latest_version || status?.latest_known?.latest_version;
-      await axios.post(`${API}/api/native/updates/apply`, v ? { version: v } : {});
-      setApplied(true);
-    } catch (e) {
-      const detail = e?.response?.data?.detail || e.message || 'apply_failed';
-      setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
-    } finally {
-      setApplying(false);
     }
   };
 
@@ -173,42 +153,22 @@ export default function UpdateTool() {
                     </ul>
                   </>
                 )}
-                {downloaded ? (
-                  <div data-testid="update-downloaded" className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm text-green-800 font-medium">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Update downloaded and ready to install.
-                    </div>
-                    {applied ? (
-                      // Post-apply hint. The Tauri shell handles the
-                      // restart itself — we just tell the user what to
-                      // expect so they don't think the page is stuck.
-                      <div data-testid="update-applied" className="text-sm bg-blue-50 border border-blue-200 text-blue-900 rounded-lg p-3">
-                        Update queued. The app will relaunch into the new version momentarily — if it doesn&apos;t, close and reopen BIG Hat Entertainment to finish.
+                <Button data-testid="download-update-btn" onClick={onDownload} disabled={downloading} className="bg-green-600 hover:bg-green-700 text-white">
+                  {downloading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Opening…</> : <><Download className="w-4 h-4 mr-2" /> Download update</>}
+                </Button>
+                {opened && (
+                  <div data-testid="update-opened" className="mt-4 text-sm bg-blue-50 border border-blue-200 text-blue-900 rounded-lg p-3 space-y-2">
+                    {opened.ok ? (
+                      <div>
+                        {opened.direct
+                          ? <>Your browser is downloading <strong>{opened.filename || 'the installer'}</strong>. When it finishes, close BIG Hat Entertainment and open the downloaded file to install the update. Your files and settings stay as they are.</>
+                          : <>Your browser opened the download page. Pick the installer for your computer, then close BIG Hat Entertainment and open the downloaded file.</>}
                       </div>
-                    ) : isMasterAdmin ? (
-                      <Button
-                        data-testid="install-update-btn"
-                        onClick={onApply}
-                        disabled={applying}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        {applying ? (
-                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Installing…</>
-                        ) : (
-                          <><PlayCircle className="w-4 h-4 mr-2" /> Install update now</>
-                        )}
-                      </Button>
                     ) : (
-                      <div className="text-xs text-green-800/80">
-                        Ask a master admin to sign in and click <strong>Install update now</strong> on this page to apply it.
-                      </div>
+                      <div>Your browser could not be opened from here. Copy this link into your browser to download the update:</div>
                     )}
+                    <div className="break-all font-mono text-xs bg-white/70 rounded p-2 select-all" data-testid="update-link">{opened.url}</div>
                   </div>
-                ) : (
-                  <Button data-testid="download-update-btn" onClick={onDownload} disabled={downloading} className="bg-green-600 hover:bg-green-700 text-white">
-                    {downloading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Downloading…</> : <><Download className="w-4 h-4 mr-2" /> Download update</>}
-                  </Button>
                 )}
               </div>
             ) : (
