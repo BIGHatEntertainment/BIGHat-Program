@@ -31,6 +31,7 @@ const api = {
   // BIG Hat Cloud sync (Phase 3): status, sync now, approve the first merge, one-time temporary passwords
   cloudSyncStatus: () => axios.get(`${API}/api/native/system/cloud-link/sync-status`, { withCredentials: true, headers: authHeaders() }),
   cloudSyncNow: () => axios.post(`${API}/api/native/system/cloud-link/sync-now`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
+  cloudFilesStatus: () => axios.get(`${API}/api/native/system/cloud-link/files-status`, { withCredentials: true, headers: authHeaders() }),
   cloudSyncApprove: () => axios.post(`${API}/api/native/system/cloud-link/sync-approve`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
   cloudSyncNewLogins: () => axios.post(`${API}/api/native/system/cloud-link/new-logins`, {}, { withCredentials: true, headers: authHeaders() }),
 

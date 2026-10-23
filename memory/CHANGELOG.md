@@ -7,6 +7,18 @@
 
 ---
 ---
+## cloud-file-pull-v1 (program; next release after v32.2.1)
+TIME (MST): 2026-10-23 12:30
+REQUEST (owner): the Program must pull from the Cloud: (1) user profiles ready for later, (2) host images, (3) locations (they must persist in the other areas of the program), (4) .bighat files, (5) location overlays.
+FOUND: the Cloud already serves venues, people, pricing, roles and events (/api/program/changes, already pulled since v32.1.6) AND files (/api/program/manifest + /api/program/files/{id}, live on host.bighat.live) with a sha256 per file, filtered by the PC's venue assignment. The Program never called the file lane. A Cloud venue already becomes a Program location with its Files/Locations/<slug>/location.json (checked on the real pull code); what was missing was the venue's PICTURES. The Cloud has no host images and no profile fields beyond the basics, so those are a Cloud task.
+CHANGE (items 3, 4, 5): new backend/native/cloud_files.py, started 60 s after the data pull and every 5 minutes, and by the existing "Sync now" button (data first, then files). category bighat -> the app's own .bighat importer (the lobby Import path); overlay -> Files/Locations/<slug>/overlays/<id>.<ext> + overlay_images; image -> branding/ + branding_images; sponsor -> sponsor/ + sponsor_image; other -> not pulled. Records are saved to the database AND location.json (the way the location routes do), so a rebuild from disk keeps them.
+SAFETY RULES: NEVER deletes (a file removed in the Cloud stays here); only our own copy (stable id cf<hash of the Cloud file id>) is ever replaced, never a file the owner put there; a hand-made sponsor slide is never replaced; download must match the manifest sha256 AND the X-Content-Sha256 header; folder names come from OUR slug, never the Cloud; picture types png/jpg/gif/webp (+mp4/webm for overlays), under 100 MB; a venue that has not arrived makes its files wait; offline, lapsed, rate-limited, unlinked: wait quietly; state saved after every file (a power cut keeps what arrived).
+UI: Admin > Integrations shows a "Files: ..." line under the data sync status.
+CLOUD TASK (items 1, 2): docs/CLOUD_TASK_host_images_and_profiles.md (host_avatar / host_16x9 / host_9x16 per person in the manifest; person profile fields + a small allow-listed settings object). Program side of those comes after the Cloud builds them. The ORG LOGIN (Program side) is still owed and is the next separate PR.
+PROVEN: 35 new tests (real MontyDB, real files, real importer entry; only the HTTP is faked with the Cloud's shapes); 14 deliberate breaks each fail a test (4 slipped through at first and the tests were rewritten); wipe-the-database-then-rebuild-from-disk brings the pictures AND their records back; frozen app answers the new routes (release gate); against the REAL host.bighat.live a bad key gives 'unauthorized' as the Cloud really answers; no new failures in the wider suite (9 old, same before and after).
+NOT PROVEN: a real download from the Cloud (no linked PC and no files in an account here), .bighat of every kind (the importer is the existing one; tests use a stand-in for it), Windows.
+---
+---
 ## update-tool-installer-button-v1 (program; next release after v32.2.0)
 TIME (MST): 2026-10-22 19:30
 REPORT (owner): in the Update tool, the green "Download update" button does nothing and nothing downloads. Wants it to fetch the newest release for the user (at the very least open the page), to help push updates across all the programs.

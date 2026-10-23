@@ -653,6 +653,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:                                    # noqa: BLE001
         logger.warning(f"[cloud-sync] not started: {e}")
 
+    # v32.3.0: the same for the Cloud's FILES (.bighat, location overlays and pictures). Starts a minute after the data pull
+    # so the venues are already here. Never blocks startup (native/cloud_files.py).
+    try:
+        from native import cloud_files
+        app.state.cloud_files_task = asyncio.create_task(cloud_files.keep_pulling(db))
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning(f"[cloud-files] not started: {e}")
+
     # Sync hub users from schedule employees (employees are source of truth)
     # alpha.72: the standalone app keeps its users in system_config.json, so add missing users there
     try:
@@ -773,6 +781,13 @@ async def lifespan(app: FastAPI):
 
     try:
         t = getattr(app.state, "cloud_sync_task", None)
+        if t:
+            t.cancel()
+    except Exception:                                         # noqa: BLE001
+        pass
+
+    try:
+        t = getattr(app.state, "cloud_files_task", None)
         if t:
             t.cancel()
     except Exception:                                         # noqa: BLE001

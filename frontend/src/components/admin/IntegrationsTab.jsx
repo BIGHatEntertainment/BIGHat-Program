@@ -72,10 +72,12 @@ function CloudLinkCard() {
   };
 
   const [sync, setSync] = useState(null);
+  const [files, setFiles] = useState(null);
   const [logins, setLogins] = useState([]);
   const loadSync = useCallback(async () => {
     try {
       setSync((await api.cloudSyncStatus()).data);
+      try { setFiles((await api.cloudFilesStatus()).data); } catch (e) { /* the file line just stays hidden */ }
       const l = (await api.cloudSyncNewLogins()).data.logins || [];
       if (l.length) setLogins((old) => [...old, ...l]);
     } catch (e) { /* the sync box just stays hidden */ }
@@ -83,7 +85,7 @@ function CloudLinkCard() {
   useEffect(() => { loadSync(); const t = setInterval(loadSync, 30000); return () => clearInterval(t); }, [loadSync]);
   const syncNow = async (approve) => {
     setBusy(true); setNote('');
-    try { setSync(approve ? (await api.cloudSyncApprove()).data : (await api.cloudSyncNow()).data); await loadSync(); }
+    try { const r = approve ? (await api.cloudSyncApprove()).data : (await api.cloudSyncNow()).data; setSync(r); if (r && r.files) setFiles(r.files); await loadSync(); }
     catch (e) { setNote(msg(e, 'Could not sync.')); }
     finally { setBusy(false); }
   };
@@ -120,6 +122,11 @@ function CloudLinkCard() {
           </div>
           <p className="text-sm" style={{ color: sync.state === 'ok' ? '#4ade80' : '#e5edff' }} data-testid="cloud-sync-message">{sync.message || 'Waiting for the first sync.'}</p>
           {sync.last_ok && <p className="text-xs" style={{ color: muted }}>Last synced {new Date(sync.last_ok).toLocaleString()}. This computer pulls every 5 minutes.</p>}
+          {files && files.state !== 'not_linked' && files.message && (
+            <p className="text-xs" style={{ color: files.state === 'ok' && !files.failed ? '#4ade80' : '#e5edff' }} data-testid="cloud-files-message">
+              Files: {files.message}{files.failed ? ` (${files.failed} could not be used and will be retried)` : ''}
+            </p>
+          )}
           {sync.state === 'needs_approval' && (
             <div className="space-y-2" data-testid="cloud-sync-approval">
               <p className="text-xs" style={{ color: muted }}>
