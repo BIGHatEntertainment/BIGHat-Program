@@ -23,6 +23,7 @@ async def check():
 
 # ---- Phase 3: ongoing pull from the Cloud (native/cloud_sync.py) ----
 from . import cloud_sync  # noqa: E402
+from . import cloud_files  # noqa: E402
 
 
 def _db():
@@ -37,7 +38,23 @@ def sync_status():
 
 @router.post("/sync-now")
 async def sync_now():
-    return await cloud_sync.pull_once(_db())
+    res = await cloud_sync.pull_once(_db())
+    # v32.3.0: then the files (venue pictures, overlays, .bighat). They need the venues the line above just brought in.
+    try:
+        files = await cloud_files.pull_once(_db())
+    except Exception as e:                                    # noqa: BLE001  the data pull's answer must never be lost
+        files = {"state": "error", "message": f"File sync stopped safely ({type(e).__name__})."}
+    return {**res, "files": files}
+
+
+@router.get("/files-status")
+def files_status():
+    return cloud_files.public_status()
+
+
+@router.post("/files-sync-now")
+async def files_sync_now():
+    return await cloud_files.pull_once(_db())
 
 
 @router.post("/sync-approve")

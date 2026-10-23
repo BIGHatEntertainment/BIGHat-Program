@@ -80,6 +80,14 @@ def main() -> int:
             st, body = call(port, "GET", "/api/scoreboard/scores/local")
             if st == 200 and '"Smoke' not in body and "Smoke_Bar" not in body:
                 bad.append("Save & Exit then Fetch: the saved night is not in the list")
+            # v32.3.0: the Cloud FILE pull. Its status route must answer inside the packaged app, and an unlinked PC must wait quietly
+            # (the module imports the location and .bighat code lazily, so a missing piece shows up here and nowhere else).
+            st, body = call(port, "GET", "/api/native/system/cloud-link/files-status", timeout=20)
+            if st != 200 or '"state"' not in body:
+                bad.append(f"GET /api/native/system/cloud-link/files-status -> {st} {body[:120]}")
+            st, body = call(port, "POST", "/api/native/system/cloud-link/files-sync-now", {}, timeout=40)
+            if st != 200 or '"not_linked"' not in body:
+                bad.append(f"POST files-sync-now on an unlinked PC should say not_linked: {st} {body[:140]}")
             # v32.2.1: the Update tool's green button. It must answer (not 404/500) inside the packaged app. When the channel says an update
             # exists it must hand back a link on this program's own GitHub releases; when current it must say so. Offline: skip, never fail the build.
             st, body = call(port, "POST", "/api/native/updates/open-installer", {}, timeout=40)
