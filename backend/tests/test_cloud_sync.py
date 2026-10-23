@@ -216,3 +216,21 @@ def test_resync_signal_restarts_from_zero(env, monkeypatch):
     monkeypatch.setattr(cs, "_fetch", fake)
     run(cs.pull_once(db))
     assert seen == [5, 0] and run(db.venues.count_documents({})) == 2
+
+
+def test_the_pull_never_replaces_a_program_accounts_password(env, monkeypatch):
+    """v32.4.0 (found while building the org login): a person the Cloud has that ALREADY has a hand-made login on this PC used to get a new
+    temporary password from the pull, which silently replaced their program password. Now they keep it; only a person with no login gets one."""
+    db, cs, es = env
+    import bcrypt
+    run(es.upsert_user_for_employee("Sam Host", "sam@x.com", False, None, "MyProgramPw1", ""))
+    before = es.find_user("sam@x.com")["password_hash"]
+    feed(cs, monkeypatch, [{"seq": 2, "has_more": False, "items": [P("p1", "Sam Host", "Sam@X.com"), P("p2", "New Person", "new@x.com")]}])
+    st = run(cs.pull_once(db, approve_first_link=True))
+    assert st["state"] == "ok"
+    u = es.find_user("sam@x.com")
+    assert u["password_hash"] == before and bcrypt.checkpw(b"MyProgramPw1", u["password_hash"].encode())
+    logins = {l["email"] for l in cs.take_new_logins()}
+    assert logins == {"new@x.com"}                                         # only the person with NO login here got a temporary password
+    ids = cs._read()["ids"]["person"]
+    assert ids["p1"]["created"] is False and ids["p2"]["created"] is True

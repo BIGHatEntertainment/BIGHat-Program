@@ -80,6 +80,11 @@ def main() -> int:
             st, body = call(port, "GET", "/api/scoreboard/scores/local")
             if st == 200 and '"Smoke' not in body and "Smoke_Bar" not in body:
                 bad.append("Save & Exit then Fetch: the saved night is not in the list")
+            # v32.4.0: the ORGANIZATION LOGIN hook must not break the normal login inside the packaged app. An unlinked PC must still say a plain
+            # "Invalid email or password" for a stranger (never a 500), and must never ask the Cloud.
+            st, body = call(port, "POST", "/api/auth/login", {"email": "stranger@example.com", "password": "not-a-real-password"}, timeout=30)
+            if st != 401 or "Invalid email or password" not in body:
+                bad.append(f"POST /api/auth/login for a stranger should be 401 'Invalid email or password': {st} {body[:140]}")
             # v32.3.0: the Cloud FILE pull. Its status route must answer inside the packaged app, and an unlinked PC must wait quietly
             # (the module imports the location and .bighat code lazily, so a missing piece shows up here and nowhere else).
             st, body = call(port, "GET", "/api/native/system/cloud-link/files-status", timeout=20)

@@ -64,3 +64,28 @@ Goal: anyone in a Cloud organization can sign in on ANY Program linked to that o
 - Then the Program asks "Copy my account to this computer?" Yes: a local user is created (hashed password, role as above, auth_method "cloud"); that person then logs in locally AND still gets re-checked against the Cloud while linked. Later: signed in for this visit only; asked again next time. A person created by the Cloud pull (temporary password) that signs in with a Cloud password gets the local password updated to match.
 - Cloud checks every time: a cloud-origin local user who signs in while the PC is linked is verified with the Cloud first; the Cloud saying invalid_credentials/deactivated refuses the login even if the local copy would accept it. Cloud unreachable: a local-only user logs in as always; a copied Cloud user is refused with "can't reach the Cloud" (owner decision 2026-10-21: no offline Cloud login). The local master admin is never affected by any of this.
 - A PC's venue assignment still limits what that person sees and claims there.
+
+## Organization login: design discussion and decision (2026-10-23, for revisiting later)
+The owner asked how to handle people who have a Cloud account AND a program account with DIFFERENT passwords, and proposed three rules:
+1. On a person's next Cloud login, check for program logins; if none, save their credentials in a table the programs recall so both match; if some, ask which to keep.
+2. Keep each person's credentials securely on the Cloud (a later Cloud task).
+3. If the Cloud password changes, an Update button in Admin overwrites the saved local credentials.
+
+DECISION (owner, 2026-10-23): keep the design already built: the Cloud is asked EVERY time (no offline Cloud login, chosen 2026-10-22); the Cloud answers
+only yes/no + {email, name, role, is_admin, phone} and NEVER sends a password or a hash to a PC. So rules 1-3 are NOT built. They are kept here in case they are revisited.
+
+Why they were set aside (the trade-off, in case it is reopened):
+- A saved copy on the PC is a stale copy: a fired host would keep signing in on that PC until the next sync, an old password would keep working after a Cloud change
+  (that is what rule 3's Update button would patch), and a stolen PC would carry a password hash. Every-time checking has none of these, at the cost of needing the
+  internet to sign in with a Cloud account. A local program account, and the local master admin, still sign in offline.
+- If it is ever revisited, the safer shape is: check once online, keep a short-lived "may sign in" stamp (e.g. 14 days) instead of the credentials, and a
+  "refresh my login now" button in Admin. The Cloud would need a "password last changed" stamp on the person. Both people must prove both passwords before any merge.
+
+How the "different passwords" case works today (built in v32.4.0):
+- A person with a HAND-MADE program account keeps that account and password. Their Cloud password is NOT tried for it (a wrong program password is never sent to the Cloud:
+  no extra guessing surface). They sign in with their program password.
+- A person the Cloud pull created here (temporary password) signs in with their Cloud password; the local password then follows it ("same credentials in both").
+- A person with no account here signs in with their Cloud password and is asked "Copy my account to this computer?". If yes, a local account is created
+  (auth_method "cloud") and from then on the Cloud is asked every time for it.
+- BUG FOUND AND FIXED while building this: the data pull used to give EVERY person it created a new temporary password, which silently replaced the program password of
+  anyone who already had a login with the same email (since v32.1.6). It now leaves an existing login's password alone (test_the_pull_never_replaces_a_program_accounts_password).
