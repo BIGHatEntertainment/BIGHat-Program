@@ -7,6 +7,8 @@ sha256 for each, then downloads what is new or changed (GET /api/program/files/{
     category 'overlay' -> Files/Locations/<slug>/overlays/<id>.<ext>   + the location's overlay_images record
     category 'image'   -> Files/Locations/<slug>/branding/<id>.<ext>   + the location's branding_images record
     category 'sponsor' -> Files/Locations/<slug>/sponsor/              + the location's sponsor_image record
+    host_avatar / host_16x9 / host_9x16 -> Files/Hosts/<host slug>/avatar|host-16x9|host-9x16.<ext> (where the profile page puts them)
+                          + the person's profile_picture / host_image_16x9 / host_image_9x16 (v32.3.1)
     anything else      -> not pulled yet (no home in the Program); counted as "skipped".
 
 Data-safety rules (the owner has zero tolerance for silent data loss):
@@ -44,7 +46,8 @@ MAX_PICTURE_BYTES = 100 * 1024 * 1024
 MAX_BIGHAT_BYTES = 200 * 1024 * 1024
 PICTURE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 OVERLAY_EXT = PICTURE_EXT | {".mp4", ".webm"}
-KINDS = ("bighat", "overlay", "image", "sponsor")
+HOST_KINDS = {"host_avatar": ("avatar", "profile_picture"), "host_16x9": ("host-16x9", "host_image_16x9"), "host_9x16": ("host-9x16", "host_image_9x16")}
+KINDS = ("bighat", "overlay", "image", "sponsor") + tuple(HOST_KINDS)
 
 _LOCK = asyncio.Lock()
 
@@ -284,6 +287,46 @@ async def _put_sponsor(db, loc: Dict[str, Any], f: Dict[str, Any], data: bytes) 
     return True, ""
 
 
+async def _put_host_image(db, f: Dict[str, Any], data: bytes) -> Tuple[bool, str]:
+    """A host picture. person_id (the Cloud's id) -> the data pull's id map -> the person here -> their login -> Files/Hosts/<slug>/.
+    The master admin and a person with no login here are left alone ('waiting' is reported by the caller). Only the file of the same
+    kind is replaced, and only after the new one arrived complete."""
+    from . import cloud_sync, employee_sync, admin_router
+    from .files_router import host_folder, write_host_profile_json
+    stem, field = HOST_KINDS[f["category"]]
+    ext = safe_ext(f.get("name"), PICTURE_EXT)
+    if not ext:
+        return False, "unsupported_type"
+    m = (cloud_sync._read().get("ids", {}).get("person") or {}).get(str(f.get("person_id")))
+    if not m or m.get("master") or not m.get("local_id"):
+        return False, "waiting_person" if not m else "master_untouched"
+    emp = await db.employees.find_one({"id": m["local_id"]}, {"_id": 0})
+    user = employee_sync.find_user((emp or {}).get("email", "")) if emp else None
+    if not user or employee_sync.is_master(user):
+        return False, "waiting_person"
+    folder = host_folder(user.get("email") or user.get("id"))
+    dest = folder / f"{stem}{ext}"
+    _atomic_write(dest, data)
+    for prior in folder.glob(f"{stem}.*"):                       # a png turned gif must not leave the stale png to be served
+        if prior != dest:
+            try:
+                prior.unlink()
+            except OSError:
+                pass
+    if user.get(field) != str(dest):
+        user[field] = str(dest)
+        admin_router._save_config()
+        try:
+            await admin_router._mirror_to_db(user)
+        except Exception:                                          # noqa: BLE001  the config file is the truth
+            pass
+    try:
+        write_host_profile_json(user)
+    except Exception:                                              # noqa: BLE001
+        pass
+    return True, ""
+
+
 async def _put_bighat(f: Dict[str, Any], data: bytes) -> Tuple[bool, str]:
     """A .bighat goes through the app's own importer (the lobby's Import button): same type detection, same folders, same cleaning."""
     from routes import bighat_files
@@ -292,6 +335,17 @@ async def _put_bighat(f: Dict[str, Any], data: bytes) -> Tuple[bool, str]:
     except Exception as e:                                       # noqa: BLE001  HTTPException or a bad file: one file never stops the rest
         return False, f"import_failed:{getattr(e, 'detail', e)}"[:160]
     return True, f"{res.type}:{res.name}"
+
+
+async def _host_ready(db, f: Dict[str, Any]) -> bool:
+    """True when the picture's person is here with a login and is not the master admin (checked BEFORE downloading, so nothing is fetched for nobody)."""
+    from . import cloud_sync, employee_sync
+    m = (cloud_sync._read().get("ids", {}).get("person") or {}).get(str(f.get("person_id")))
+    if not m or m.get("master") or not m.get("local_id"):
+        return False
+    emp = await db.employees.find_one({"id": m["local_id"]}, {"_id": 0})
+    user = employee_sync.find_user((emp or {}).get("email", "")) if emp else None
+    return bool(user) and not employee_sync.is_master(user)
 
 
 # ------------------------------------------------------------------ one pull
@@ -328,11 +382,14 @@ async def pull_once(db) -> Dict[str, Any]:
                     counts["unchanged"] += 1
                     continue
                 loc = None
-                if kind != "bighat":
+                if kind not in ("bighat",) and kind not in HOST_KINDS:
                     loc = await _location_for_cloud_venue(db, f.get("venue_id"))
                     if not loc:
                         counts["waiting"] += 1                    # the venue has not arrived yet: try again next pull
                         continue
+                if kind in HOST_KINDS and not await _host_ready(db, f):
+                    counts["waiting"] += 1                        # the person has not arrived (or is the master admin): nothing is fetched
+                    continue
                 limit = MAX_BIGHAT_BYTES if kind == "bighat" else MAX_PICTURE_BYTES
                 if int(f.get("size") or 0) > limit:
                     st["failed"][fid] = {"name": f.get("name"), "why": "too_large", "at": _now()}
@@ -349,6 +406,8 @@ async def pull_once(db) -> Dict[str, Any]:
                     continue
                 if kind == "bighat":
                     ok, note = await _put_bighat(f, data)
+                elif kind in HOST_KINDS:
+                    ok, note = await _put_host_image(db, f, data)
                 elif kind == "sponsor":
                     ok, note = await _put_sponsor(db, loc, f, data)
                 else:
@@ -360,6 +419,8 @@ async def pull_once(db) -> Dict[str, Any]:
                     st["failed"].pop(fid, None)
                 elif note == "kept_own_sponsor":
                     counts["skipped"] += 1
+                elif note in ("waiting_person", "master_untouched"):
+                    counts["waiting" if note == "waiting_person" else "skipped"] += 1
                 else:
                     st["failed"][fid] = {"name": f.get("name"), "why": note, "at": _now()}
                     counts["failed"] += 1

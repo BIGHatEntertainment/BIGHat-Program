@@ -275,6 +275,11 @@ async def _apply_person(ctx, item, data):
         return                                                    # the master admin is never changed
     fields = {"name": (data.get("name") or "").strip() or email, "phone": data.get("phone") or None,
               "is_admin": bool(data.get("is_admin"))}
+    try:
+        from native import cloud_profile
+        before = cloud_profile.snapshot(email)                    # v32.3.1: so the name logic below cannot flatten a real profile
+    except Exception:                                             # noqa: BLE001
+        before = None
     m = ctx.ids("person").get(cid)
     cur = await db.employees.find_one({"id": m["local_id"]}, {"_id": 0}) if m and m.get("local_id") else None
     if not cur:
@@ -287,8 +292,9 @@ async def _apply_person(ctx, item, data):
         await db.employees.update_one({"id": cur["id"]}, {"$set": fields})
         await employee_sync.upsert_user_for_employee(fields["name"], email, fields["is_admin"], fields["phone"], None, "")
         ctx.ids("person")[cid] = {"local_id": cur["id"], "created": bool(m and m.get("created")),
-                                  "fp": _fp("person", {**cur, **fields})}
+                                  "fp": _fp("person", {**cur, **fields}), **({"pfp": m["pfp"]} if m and m.get("pfp") else {})}
         ctx.counts["updated" if m else "adopted"] += 1
+        await _apply_profile(ctx, cid, email, data, before)
         return
     temp = employee_sync.make_temp_password()
     doc = {"id": str(uuid.uuid4()), "email": email, "password": "", "created_at": _now(), **fields}
@@ -297,6 +303,16 @@ async def _apply_person(ctx, item, data):
     _NEW_LOGINS.append({"email": email, "name": fields["name"], "temp_password": temp})
     ctx.ids("person")[cid] = {"local_id": doc["id"], "created": True, "fp": _fp("person", doc)}
     ctx.counts["added"] += 1
+    await _apply_profile(ctx, cid, email, data, before)          # a hand-made login with no employee row yet is protected too
+
+
+async def _apply_profile(ctx, cid, email, data, before=None):
+    """v32.3.1: the person's profile + settings from the Cloud (native/cloud_profile.py). Never stops the pull."""
+    try:
+        from native import cloud_profile
+        await cloud_profile.apply_profile(ctx, cid, email, data, before)
+    except Exception as e:                                        # noqa: BLE001
+        logger.warning("cloud profile apply skipped for %s: %s", email, e)
 
 
 async def _apply_pricing(ctx, item, data):
