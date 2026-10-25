@@ -7,6 +7,14 @@
 
 ---
 ---
+## org-transfer-plan-v1 (docs only; Cloud tasks written)
+TIME (MST): 2026-10-25 13:30
+REQUEST (owner): a person in Org A (zachshanks1@gmail.com, an admin in sellards@bighat.live's org) must be able to branch off and own a new org. First designed as one person in two orgs with linked accounts; the owner then CHANGED the plan: NO two-org membership. Register with a license key as an existing user -> prompt "keep in Org A or branch off" -> branch off creates a parked org and a transfer request -> the BIG Hat Admin approves or declines -> approval MOVES the person to Org B as account_owner. Owner answers: Zach cannot work in Org A afterwards (Org A adds him later with a different email); Org A's records of him are kept; Org A's owner is told by email and a dashboard notice; the admin has Approve and Decline.
+WRITTEN: docs/CLOUD_TASK_org_transfer_1_request.md (existing-email register, password proof, parked account, transfer request, cancel, cooldown) and docs/CLOUD_TASK_org_transfer_2_approval.md (admin queue with impact counts, approve with re-checks and undo, decline, Org A notice + email that can never block the transfer, race rules, Program regression). Give them to the Cloud build agent in order.
+READ FROM THE CLOUD CODE (main, 2026-10-25): register refuses an existing email; one users row per email with one account_id; no user delete exists (remove_host only sets is_active false); the access token holds only sub/email/role and every request reloads the user row; email_service.send_email has an anti-phishing guard and can fail with 503.
+NOT VERIFIED: nothing was run; this is a plan. Zach's license key, his live account and the live license server were not checked.
+---
+---
 ## org-login-v1 (program; next release after v32.2.1)
 TIME (MST): 2026-10-23 17:30
 REQUEST (owner): build the Program side of the Organization Login (Cloud PR #31). Also discussed: people with a Cloud account AND a program account with different passwords. Decision: keep the design already built (Cloud asked EVERY time, no offline Cloud login) and write the discussion into the repo.
