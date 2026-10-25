@@ -36,7 +36,7 @@ logger = logging.getLogger("bighat-cloud-sync")
 
 PULL_EVERY = 300          # seconds
 PAGE = 500
-KIND_ORDER = ("venue", "person", "venue_pricing", "venue_role", "event")
+KIND_ORDER = ("venue", "person", "venue_pricing", "venue_role", "event", "round_lock")
 
 # fields that sync, per kind (the fingerprint covers exactly these)
 FIELDS = {
@@ -138,7 +138,16 @@ def public_status() -> Dict[str, Any]:
     return {"state": st["state"], "message": st["message"], "last_pull": st["last_pull"], "last_ok": st["last_ok"],
             "last_seq": st["last_seq"], "first_link": st["first_link"], "counts": st["last_counts"],
             "conflicts": st["conflicts"][-20:], "conflict_count": len(st["conflicts"]), "held_back": st["held_back"],
-            "pending": len(st["pending"]), "new_logins_waiting": len(_NEW_LOGINS)}
+            "pending": len(st["pending"]), "new_logins_waiting": len(_NEW_LOGINS),
+            "round_locks": _lock_status()}
+
+
+def _lock_status() -> Dict[str, Any]:
+    try:
+        from native import cloud_locks
+        return cloud_locks.public_status()
+    except Exception:                                              # noqa: BLE001
+        return {}
 
 
 # ------------------------------------------------------------------ talking to the Cloud
@@ -407,8 +416,13 @@ async def _apply_event(ctx, item, data):
     ctx.counts["added"] += 1
 
 
+async def _apply_round_lock(ctx, item, data):
+    from native import cloud_locks
+    return await cloud_locks.apply_item(ctx, item, data)
+
+
 APPLY = {"venue": _apply_venue, "person": _apply_person, "venue_pricing": _apply_pricing,
-         "venue_role": _apply_role, "event": _apply_event}
+         "venue_role": _apply_role, "event": _apply_event, "round_lock": _apply_round_lock}
 
 
 async def _remove(ctx, kind, item):
@@ -443,7 +457,8 @@ async def apply_items(db, st: Dict[str, Any], items: List[Dict[str, Any]]) -> Di
         kind = it["kind"]
         try:
             if it.get("deleted") or not it.get("data"):
-                await _remove(ctx, kind, it)
+                if kind != "round_lock":                           # a lock is never deleted from the Cloud, only released
+                    await _remove(ctx, kind, it)
                 continue
             if await APPLY[kind](ctx, it, it["data"]) == "wait":
                 st["pending"][it["kind"] + "|" + str(it["item_id"])] = it
@@ -482,6 +497,11 @@ async def pull_once(db, approve_first_link: bool = False) -> Dict[str, Any]:
                 _write(st)
                 return public_status()
             first = st["last_seq"] == 0 and not any(st["ids"][k] for k in KIND_ORDER)
+            try:                                                   # tell the Cloud about local locks/releases first; never blocks the pull
+                from native import cloud_locks
+                await cloud_locks.push(db, st)
+            except Exception as e:                                 # noqa: BLE001
+                logger.warning("cloud sync: round-lock push skipped: %s", e)
             r = await _fetch_all(st["last_seq"])
             if not r["ok"]:
                 msg = {"unreachable": "Could not reach the cloud. Working from the local copy.",

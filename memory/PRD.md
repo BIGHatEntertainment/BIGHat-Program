@@ -1584,3 +1584,5 @@ See `/app/memory/test_credentials.md`. Native master admin:
 - Entitlements mirrored one-way to the bridge cluster `cloud_entitlements` (BRIDGE_MONGO_URL/BRIDGE_DB_NAME — bridge only, never licensing data). The Cloud app reads this collection to admit users.
 - 8 BIG Hat employees seeded with non-expiring entitlements (paid_through 2126) + role field; regular customers must keep the monthly fee active.
 - Admin mint supports cloud_subscription_months / cloud_subscription_lifetime; admin cancel endpoint added. See CHANGELOG cloud-sub-v1 block + TROUBLESHOOTING_LOG.
+
+- round locks <-> Cloud (round-locks-sync-v1): shared 180-day record across PCs; PC stays authoritative offline; releases are tombstones. See memory/SYNC_CONTRACT.md.

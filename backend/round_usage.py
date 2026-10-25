@@ -392,3 +392,57 @@ def stats() -> Dict[str, Any]:
     active = sum(1 for r in recs if not r["isExpired"])
     return {"totalUsageRecords": len(recs), "activeRecords": active,
             "expiredRecords": len(recs) - active, "usageByType": by_type}
+
+
+# ---------------------------------------------------------------- Cloud lock sync helpers (native/cloud_locks.py)
+def cloud_is_tombstoned(location_id: str, location_name: str, file_name: str) -> bool:
+    """True when an admin released this round at this venue on this PC."""
+    gone = _released_rounds()
+    locs = {norm_location(location_id), norm_location(location_name)} - {""}
+    for l in list(locs):
+        locs |= venue_identities(l)
+    return any((l, k) in gone for l in locs for k in same_round_keys(file_name))
+
+
+def cloud_add(*, location_id: str, location_name: str, file_name: str, round_type: str, used_at: Any, expires_at: Any,
+              used_by: str, presentation_id: str, presentation_name: str) -> Optional[str]:
+    """Add a lock another PC made. Returns the new record id, or None when this PC already has an equal-or-newer lock for the
+    same round at the same venue (nothing is ever replaced or shortened)."""
+    when = _parse(used_at) or _now()
+    probe = {"location": location_name, "locationId": location_id, "roundFileName": norm_name(file_name), "roundFile": file_name}
+    with _lock:
+        recs = _load()
+        for r in recs:
+            if _same_place_and_round(r, probe):
+                mine = _parse(r.get("usedDate"))
+                if mine and mine >= when:
+                    return None
+        rid = str(uuid.uuid4())
+        recs.append({"id": rid, "location": location_name or location_id, "locationId": location_id, "roundFile": file_name,
+                     "roundFileName": norm_name(file_name), "roundType": round_type or "", "roundNumber": 0,
+                     "usedDate": when.isoformat(),
+                     "expiresDate": (_parse(expires_at) or (when + timedelta(days=LOCK_DAYS))).isoformat(),
+                     "usedBy": used_by or "", "presentationId": presentation_id, "presentationName": presentation_name,
+                     "source": "cloud"})
+        _save(recs)
+        return rid
+
+
+def cloud_release(location_name: str, location_id: str, file_name: str, released_at: Any) -> int:
+    """Apply a release made in the Cloud: every lock of this round at this venue used on/before released_at goes (with tombstones,
+    so a saved show cannot rebuild it). A newer use stays locked."""
+    cut = _parse(released_at)
+    probe = {"location": location_name, "locationId": location_id, "roundFileName": norm_name(file_name), "roundFile": file_name}
+    with _lock:
+        recs = _load()
+        gone = []
+        for r in recs:
+            if _same_place_and_round(r, probe):
+                used = _parse(r.get("usedDate"))
+                if cut is None or used is None or used <= cut:
+                    gone.append(r)
+        if not gone:
+            return 0
+        ids = {r.get("id") for r in gone}
+        _save([r for r in recs if r.get("id") not in ids], _released() | _tomb(gone), _released_rounds() | _round_tomb(gone))
+        return len(gone)
