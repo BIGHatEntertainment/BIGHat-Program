@@ -89,3 +89,9 @@ How the "different passwords" case works today (built in v32.4.0):
   (auth_method "cloud") and from then on the Cloud is asked every time for it.
 - BUG FOUND AND FIXED while building this: the data pull used to give EVERY person it created a new temporary password, which silently replaced the program password of
   anyone who already had a login with the same email (since v32.1.6). It now leaves an existing login's password alone (test_the_pull_never_replaces_a_program_accounts_password).
+
+
+## Kind `round_lock` + actions `lock` / `release` (Program side built, round-locks-sync-v1)
+Program push: POST /api/program/actions {actions:[{action_id,type:"lock"|"release",payload}]}; action ids `lock:<record id>` and `rel:<item_id>:<time>`.
+Program pull: kind `round_lock` in /api/program/changes, applied by native/cloud_locks.apply_item. item_id = sha1(cloud venue id|round key|presentation id).
+`not_admin` on a release keeps it queued and blocked (never dropped). `released` / `unknown_venue` / `not_found` are final answers and are dropped from the outbox.

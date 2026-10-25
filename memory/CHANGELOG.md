@@ -7,6 +7,15 @@
 
 ---
 ---
+## round-locks-sync-v1 (program; next release after v32.2.2)
+- NEW `backend/native/cloud_locks.py`: the Program side of docs/CLOUD_TASK_round_locks.md (Cloud PR #35 is merged and live).
+  PUSH new local locks (`lock`) and admin releases (`release`) to POST /api/program/actions; PULL `round_lock` items from the change feed.
+- Release is pushed ONLY when this PC's own tombstones prove an admin released it. A missing/damaged/expired file is never read as a release.
+- A Cloud release frees the round here (older uses only; a newer use stays locked). An old Cloud copy cannot re-lock a round released here.
+- Offline / lapsed subscription: the PC keeps its locks, the outbox waits and retries (state in AppData/secure/cloud_locks.json, atomic, .bad kept).
+- `round_usage.py`: 3 small helpers (cloud_add / cloud_release / cloud_is_tombstoned). Build wizard, Roulette, Special, lobby import UNCHANGED.
+- Item ids and round keys verified identical to the Cloud's own round_locks.py. Tests: tests/test_cloud_round_locks.py (10).
+
 ## org-transfer-plan-v1 (docs only; Cloud tasks written)
 TIME (MST): 2026-10-25 13:30
 REQUEST (owner): a person in Org A (zachshanks1@gmail.com, an admin in sellards@bighat.live's org) must be able to branch off and own a new org. First designed as one person in two orgs with linked accounts; the owner then CHANGED the plan: NO two-org membership. Register with a license key as an existing user -> prompt "keep in Org A or branch off" -> branch off creates a parked org and a transfer request -> the BIG Hat Admin approves or declines -> approval MOVES the person to Org B as account_owner. Owner answers: Zach cannot work in Org A afterwards (Org A adds him later with a different email); Org A's records of him are kept; Org A's owner is told by email and a dashboard notice; the admin has Approve and Decline.
