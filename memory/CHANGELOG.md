@@ -7,6 +7,11 @@
 
 ---
 ---
+## cloud-trivia-wizard-plan-v1 (docs only; Cloud tasks written)
+- docs/CLOUD_TASK_trivia_wizard_1..4 (round library, history import, wizard + plans, .bighat export + Program pull) and docs/PROGRAM_TASK_cloud_show_import.md.
+- Owner decisions 2026-10-25: lock starts when the Program builds/imports (as the prototype); any host may use the wizard; old history arrives as .txt/.json round_usage records.
+- Open: where the round FILES come from (library fill).
+
 ## round-locks-sync-v1 (program; next release after v32.2.2)
 - NEW `backend/native/cloud_locks.py`: the Program side of docs/CLOUD_TASK_round_locks.md (Cloud PR #35 is merged and live).
   PUSH new local locks (`lock`) and admin releases (`release`) to POST /api/program/actions; PULL `round_lock` items from the change feed.

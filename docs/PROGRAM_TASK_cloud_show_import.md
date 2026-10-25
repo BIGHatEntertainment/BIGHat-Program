@@ -1,0 +1,7 @@
+# Program task (for the Program assistant, NOT the Cloud agent): import a Cloud show bundle (spec v0.1, 2026-10-25)
+Built after Cloud task 4 is merged (the file format is defined there).
+1. Import: `POST /api/bighat-files/import` accepts manifest type `trivia-show-bundle`. Unpack `rounds/<TYPE>/*.bighat` into Files/Trivia/<TYPE>/ (same file = same name = not duplicated; a different file with the same name is kept as name-<8hex>), then write the show to Files/Trivia/Rounds/ exactly like presentation_builder.build_from_wizard, so the Presenter lists it ready to host.
+2. Host and Location: match the bundle's host by EMAIL (employees already sync to the PC) and the location by the venue name rule (venue_identities). If either is missing, import NOTHING and say which one, in plain words.
+3. Locks: the 180-day lock starts HERE via round_usage.record_usage (owner decision). If a round is already locked for that venue, show the list and let an admin choose "import anyway" (allow_locked) or cancel. The round-lock sync then tells the Cloud.
+4. Pull from the Cloud: Trivia > "Cloud shows" list (GET /api/program/trivia-plans) with Import per row, "Imported" marker, then POST .../imported. Offline or lapsed: the list says so and the PC works as before. Nothing is imported automatically.
+5. Never lose data: an import that fails halfway removes only what IT created. Tests with a real bundle fixture.
