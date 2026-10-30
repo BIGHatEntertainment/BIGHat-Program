@@ -238,8 +238,8 @@ def test_future_version_rejected_with_clear_message(client):
 
 
 def test_oversize_file_rejected(client):
-    """A file claiming > 50MB should be refused at upload time."""
-    big = io.BytesIO(b"\x00" * (51 * 1024 * 1024))
+    """A file claiming > 60MB (the Cloud show-bundle cap) should be refused at upload time."""
+    big = io.BytesIO(b"\x00" * (61 * 1024 * 1024))
     r = client.post(
         "/api/bighat-files/import",
         files={"file": ("huge.bighat", big, "application/x-bighat")},
