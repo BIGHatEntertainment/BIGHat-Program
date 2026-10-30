@@ -7,6 +7,17 @@
 
 ---
 ---
+## karaoke-queue-reorder-v1 (program; next release after v32.2.4)
+- BUG (host could not rearrange the singer queue; a drag only placed the singer lower and moved other singers): the screen worked out the drop spot among the WAITING
+  singers but applied it to the WHOLE queue, which also holds the singer on stage, so with someone singing every move was one slot off. Reproduced with the old code:
+  dragging C up onto A (want CUR C A B D) gave B CUR A C D.
+- FIX (screen): `karaokeFlow.reorderWaiting(queue, from, to)` moves one waiting singer inside the waiting list only; the singer on stage and anyone not waiting stay put.
+  Rows, drop target, reorder and "who sings next" all use the same rule (status === "waiting").
+- FIX (backend, defence): POST /api/karaoke/queue/reorder renumbers the whole active queue 0..n-1 in one pass; ids sent come first, unknown/repeated ids are ignored,
+  anyone not named keeps their order after them. A short or stale list can no longer duplicate a position or lose a singer.
+- Unchanged: the next singer is still the first waiting one and loads/preloads exactly as before (preload %, Retry, Start anyway); trivia, bingo, overlays, setup, QR, filler music, fades.
+- Tests: tests/test_karaoke_queue_reorder.py (7, real router + DB), frontend/src/pages/karaoke/reorderWaiting.test.js (10). NOT tested: the pointer drag itself in the app window.
+
 ## cloud-show-import-v1 (program; next release after v32.2.3)
 - NEW `backend/native/cloud_shows.py`: imports a Cloud `trivia-show-bundle` (manifest + payload + rounds/<TYPE>/*.bighat) into a show ready to host.
   Checks EVERYTHING first (manifest, 5/6 rounds, order, every round present and a valid ZIP, no unsafe paths); then matches the host by EMAIL and the venue by name.

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import {
   AMP_FACTOR, FADE_SECONDS, FILLER_FADE_STEPS, fillerVolume as calcFillerVolume, splitVolume, nextSingerState, bufferView, justBecameReady,
-  readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume, explainVideoError } from "./karaokeFlow";
+  readAudience, songProgress, clock, groupByArtist, shuffle, nextTrackIndex, fadeVolume, explainVideoError, reorderWaiting } from "./karaokeFlow";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const accent = "#22c55e";
@@ -73,7 +73,7 @@ export default function KaraokePlayer() {
   // alpha.92: drag a song onto a singer (or a singer up/down the list) with the pointer itself
   const { drag, startDrag } = usePointerDrag((payload, overId) => {
     if (payload.kind === "song") { assignSong(overId, payload.song); return; }
-    const to = queue.filter((e) => e.status === "waiting" || !e.status).findIndex((e) => String(e.id) === String(overId));
+    const to = queue.filter((e) => e.status === "waiting").findIndex((e) => String(e.id) === String(overId));   // same list the rows are drawn from
     if (to >= 0) reorder(payload.index, to);
   });
   const [currentSinger, setCurrentSinger] = useState(null);
@@ -278,12 +278,10 @@ export default function KaraokePlayer() {
     setContextMenu(null); loadQueue();
   };
   const removeFromQueue = async (id) => { await axios.delete(`${API}/karaoke/queue/${id}`); loadQueue(); };
-  const reorder = async (from, to) => {
-    if (from === to || from == null) return;
-    const ids = queue.map((e) => e.id);
-    const [moved] = ids.splice(from, 1);
-    ids.splice(to, 0, moved);
-    await axios.post(`${API}/karaoke/queue/reorder`, { order: ids });
+  const reorder = async (from, to) => {                 // from / to = places in the WAITING list the host sees (v32.2.5)
+    const ids = reorderWaiting(queue, from, to);
+    if (!ids) return;
+    try { await axios.post(`${API}/karaoke/queue/reorder`, { order: ids }); } catch { /* the list below reloads the real order */ }
     loadQueue();
   };
   const acceptRequest = async (id) => { await axios.post(`${API}/karaoke/requests/${id}/accept`); loadRequests(); loadQueue(); };

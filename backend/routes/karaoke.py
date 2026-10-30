@@ -316,10 +316,20 @@ async def remove_from_queue(entry_id: str):
 
 @router.post("/queue/reorder")
 async def reorder_queue(request: Request):
+    """Save the order the host arranged. v32.2.5: the whole ACTIVE queue is renumbered 0..n-1 in one pass: the ids sent come first,
+    in the order sent (unknown or repeated ids are ignored), and anyone not named keeps their relative order after them. So a short or
+    stale list can never leave two singers with the same position, drop a singer, or move the one on stage."""
     data = await request.json()
-    for i, entry_id in enumerate(data.get("order", [])):
+    active = await db.karaoke_queue.find({"status": {"$ne": "done"}}, {"_id": 0}).sort("position", 1).to_list(500)
+    have = {e["id"] for e in active}
+    order: list = []
+    for entry_id in data.get("order", []) or []:
+        if entry_id in have and entry_id not in order:
+            order.append(entry_id)
+    order += [e["id"] for e in active if e["id"] not in order]
+    for i, entry_id in enumerate(order):
         await db.karaoke_queue.update_one({"id": entry_id}, {"$set": {"position": i}})
-    return {"success": True}
+    return {"success": True, "order": order}
 
 
 @router.post("/queue/clear")
