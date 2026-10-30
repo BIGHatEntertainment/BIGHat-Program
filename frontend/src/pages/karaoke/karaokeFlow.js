@@ -16,6 +16,24 @@ export const splitVolume = (v) => (v <= 1 ? { element: v, gain: 1 } : { element:
 /** The singer who sings next: the first waiting one. */
 export const nextWaiting = (queue) => (queue || []).filter((e) => e.status === "waiting").sort((a, b) => a.position - b.position)[0] || null;
 
+/**
+ * v32.2.5: move one WAITING singer to another waiting spot. `from` and `to` are positions in the WAITING list (what the host sees
+ * and drags), never positions in the whole queue, which also holds the singer on stage. The old code spliced those numbers into
+ * the whole queue, so with a singer on stage every move landed one slot off and shifted other singers.
+ * Returns the full order of ids to save: everyone who is not waiting stays exactly where they are, in front; only the waiting
+ * singers are rearranged. Returns null when nothing should change.
+ */
+export function reorderWaiting(queue, from, to) {
+  const list = [...(queue || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const waiting = list.filter((e) => e.status === "waiting");           // exactly the rows the host sees
+  if (from == null || to == null || from === to || from < 0 || to < 0 || from >= waiting.length || to >= waiting.length) return null;
+  const ids = waiting.map((e) => e.id);
+  const [moved] = ids.splice(from, 1);
+  ids.splice(to, 0, moved);
+  const rest = list.filter((e) => e.status !== "waiting").map((e) => e.id);
+  return [...rest, ...ids];
+}
+
 /** Does this waiting singer have a song picked? Only singers with a song can be started. */
 export const hasSong = (entry) => !!(entry && entry.song_title && entry.embed_url);
 
