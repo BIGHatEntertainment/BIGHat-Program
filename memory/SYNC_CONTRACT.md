@@ -107,3 +107,9 @@ Program matches host by EMAIL and venue by NAME; the lock starts at import, neve
 ## round_uid (Program side built, round-uid-program-v1; Cloud task: docs/CLOUD_TASK_round_uid.md)
 `round_uid` = lowercase UUID in a round file's manifest.json, stamped once by the Cloud library, never changed. Locks/releases carry an optional `round_uid`;
 change-feed items carry `data.round_uid`. item_id is unchanged. A lock matches by uid OR by name; a release by uid frees the round under any file name.
+
+
+## Trivia show parts (Program side built, cloud-show-parts-v1)
+GET /api/program/trivia-plans -> plans[{id,name,venue_id,venue_name,host_name,round_count,updated_at,size,parts,complete}]. GET .../{id}/bighat?part=N (headers X-Part, X-Parts-Total).
+Each part: manifest {type:"trivia-show-bundle",version:1,plan_id,part,parts_total}. Part 1 only: payload.json {host,location,round_count,parts_total,rounds[{order,type,name,round_key,round_uid,part,file}]}.
+Program pulls ALL parts, then imports; round_uid in each file must equal the payload's; nothing is imported from a partial set.

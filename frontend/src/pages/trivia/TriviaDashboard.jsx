@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import BIGHatFileButtons from '../../components/BIGHatFileButtons';
+import CloudShows from '../../components/CloudShows';
 import {
   HelpCircle, Play, Trash2, Calendar, MapPin, User, Clock, ExternalLink,
   ChevronDown, ChevronRight, ArrowLeft, BarChart3, Filter, Search, Shield, RefreshCw, AlertTriangle, Settings
@@ -175,6 +176,8 @@ export default function TriviaDashboard() {
         {/* Presentations Tab */}
         {activeTab === 'presentations' && (
           <div>
+            {/* v32.2.6: shows built in BIG Hat Cloud, ready to pull onto this PC (hidden unless linked and something is waiting) */}
+            <CloudShows onImported={loadData} />
             {/* Search & Filter Bar */}
             <div className="flex items-center gap-3 mb-6">
               <div className="flex-1 relative">

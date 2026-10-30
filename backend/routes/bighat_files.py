@@ -685,6 +685,16 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
             _is_show = False
         if _is_show:
             from native import cloud_shows
+            try:
+                with zipfile.ZipFile(io.BytesIO(payload)) as _zf2:
+                    _m2 = json.loads(_zf2.read("manifest.json").decode("utf-8-sig"))
+                if int(_m2.get("parts_total") or 1) > 1:              # a show split into parts must come in together
+                    raise HTTPException(409, f"This show has {_m2.get('parts_total')} parts (this is part {_m2.get('part')}). Import all its files "
+                                             "together, or use Cloud shows > Import from the Cloud.")
+            except HTTPException:
+                raise
+            except Exception:                                      # noqa: BLE001
+                pass
             res = await cloud_shows.import_bundle(db, payload)
             if not res.get("ok"):
                 raise HTTPException(409 if res.get("code") == "locked" else 400, res.get("message") or "The show could not be imported.")

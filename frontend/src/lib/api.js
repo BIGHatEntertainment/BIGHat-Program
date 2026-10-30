@@ -33,6 +33,10 @@ const api = {
   cloudSyncNow: () => axios.post(`${API}/api/native/system/cloud-link/sync-now`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
   cloudFilesStatus: () => axios.get(`${API}/api/native/system/cloud-link/files-status`, { withCredentials: true, headers: authHeaders() }),
   cloudSyncApprove: () => axios.post(`${API}/api/native/system/cloud-link/sync-approve`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
+  // Cloud shows (v32.2.6): trivia shows built in the Cloud wizard, pulled onto this PC
+  cloudShows: () => axios.get(`${API}/api/native/system/cloud-link/shows`, { withCredentials: true, headers: authHeaders() }),
+  cloudShowImport: (planId, allowLocked = false) =>
+    axios.post(`${API}/api/native/system/cloud-link/shows/${encodeURIComponent(planId)}/import`, {}, { params: { allow_locked: allowLocked }, withCredentials: true, headers: authHeaders() }),
   cloudSyncNewLogins: () => axios.post(`${API}/api/native/system/cloud-link/new-logins`, {}, { withCredentials: true, headers: authHeaders() }),
 
   // Setup Package (Admin > Integrations)
