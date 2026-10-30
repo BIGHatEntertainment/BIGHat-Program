@@ -29,6 +29,18 @@ def main_key() -> str:
     return ((config_manager.config.get("license_status") or {}).get("key") or "").upper()
 
 
+def is_verified() -> bool:
+    """True once the license server has CONFIRMED this program's main key (a cloud snapshot exists and setup is not waiting on it).
+    An offline Setup saves the key but leaves it unverified: `pending_cloud_activation`, or no `last_cloud_validated_at`.
+    v32.2.5: an unverified program must let the owner activate its key in Admin, even if it is a different key than the one saved."""
+    lic = config_manager.config.get("license_status") or {}
+    if lic.get("pending_cloud_activation"):
+        return False
+    if lic.get("cloud_activation_error"):
+        return False
+    return bool(_sub().get("last_cloud_validated_at")) and bool(main_key())
+
+
 def list_extra_keys() -> List[Dict[str, Any]]:
     return list(_sub().get("extra_keys") or [])
 
@@ -83,8 +95,12 @@ def remember_extra_key(key: str, resp: Dict[str, Any]) -> None:
 def public_status() -> Dict[str, Any]:
     sub = get_subscription() or {}
     s = _sub()
+    lic = config_manager.config.get("license_status") or {}
     return {
         "main_key": mask(main_key()),
+        "verified": is_verified(),
+        "needs_verification": bool(main_key()) and not is_verified(),
+        "verify_problem": lic.get("cloud_activation_error") or None,
         "owns_standalone": bool(s.get("owns_standalone")),
         "addons": {
             "music_bingo": bool(s.get("owns_music_bingo")),

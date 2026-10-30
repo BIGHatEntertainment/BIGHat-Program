@@ -115,7 +115,8 @@ async def retry_pending_cloud_activation():
             )
             lic2 = config_manager.config.setdefault("license_status", {})
             lic2["pending_cloud_activation"] = False
-            lic2["cloud_activation_error"] = resp.get("error")
+            # v32.2.5: keep the REASON (the Admin > Product Key tab shows it) and never read as verified, so the owner can fix it there
+            lic2["cloud_activation_error"] = str(resp.get("error") or "rejected")[:120]
             config_manager.save_config()
         return
     _apply_cloud_response_to_local_state(resp, license_key=key, email=lic.get("master_admin_email"))
