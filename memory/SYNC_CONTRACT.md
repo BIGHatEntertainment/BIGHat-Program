@@ -102,3 +102,8 @@ Cloud: GET /api/program/trivia-plans -> {plans:[{id,name,venue_id,venue_name,hos
 GET /api/program/trivia-plans/{id}/bighat (409 = a round is gone from the Cloud library, 404 = not yours, 402 = lapsed); POST .../imported (informational).
 Bundle = ZIP: manifest.json (type "trivia-show-bundle", version 1), payload.json (host.email, location.name, rounds[{order,type,name,file}]), rounds/<TYPE>/<file>.bighat.
 Program matches host by EMAIL and venue by NAME; the lock starts at import, never at plan time.
+
+
+## round_uid (Program side built, round-uid-program-v1; Cloud task: docs/CLOUD_TASK_round_uid.md)
+`round_uid` = lowercase UUID in a round file's manifest.json, stamped once by the Cloud library, never changed. Locks/releases carry an optional `round_uid`;
+change-feed items carry `data.round_uid`. item_id is unchanged. A lock matches by uid OR by name; a release by uid frees the round under any file name.

@@ -91,6 +91,11 @@ def _parse(s: Any) -> Optional[datetime]:
     return round_usage._parse(s)
 
 
+def _clean_uid(u):
+    import round_uid
+    return round_uid.clean(u)
+
+
 def round_key(file_name: str) -> str:
     """Same rule as the Cloud (round_locks.round_key): lowercase stem, TYPE__ prefix and trailing -<8 hex> removed."""
     stem = (file_name or "").replace("\\", "/").rsplit("/", 1)[-1]
@@ -169,10 +174,12 @@ def _plan(st: Dict[str, Any], venues: Dict[str, Dict[str, Any]]) -> None:
         if not rk:
             continue
         iid = lock_item_id(cid, rk, r.get("presentationId"))
-        st["pushed"][rid] = {"item_id": iid, "venue": cid, "rkey": rk, "expires": r.get("expiresDate") or ""}
+        st["pushed"][rid] = {"item_id": iid, "venue": cid, "rkey": rk, "expires": r.get("expiresDate") or "",
+                             "uid": ru._uid_of(r) or ""}
         st["outbox"]["lock:" + rid] = {"action_id": "lock:" + rid, "type": "lock", "payload": {
             "item_id": iid, "venue_id": cid, "venue_name": venues[cid]["name"],
             "round_file_name": r.get("roundFile") or r.get("roundFileName") or "", "round_type": r.get("roundType") or "",
+            "round_uid": ru._uid_of(r) or ru._uid_of(r.get("roundFile") or r.get("roundFileName") or "") or "",
             "used_at": r.get("usedDate") or _iso(), "expires_at": r.get("expiresDate") or "",
             "presentation_id": r.get("presentationId") or "", "presentation_name": r.get("presentationName") or "",
             "used_by": r.get("usedBy") or ""}}
@@ -183,7 +190,9 @@ def _plan(st: Dict[str, Any], venues: Dict[str, Dict[str, Any]]) -> None:
         if exp and exp < now:
             st["pushed"].pop(rid, None)                            # it simply expired: nothing to tell the Cloud
             continue
-        loc_proven = any(rk == p["rkey"] and venues.get(p["venue"]) and lk in venues[p["venue"]]["ids"] for lk, rk in tomb_r)
+        puid = (ru.UID_PREFIX + p["uid"]) if p.get("uid") else None
+        loc_proven = any((rk == p["rkey"] or (puid and rk == puid)) and venues.get(p["venue"]) and lk in venues[p["venue"]]["ids"]
+                         for lk, rk in tomb_r)
         pres_proven = False
         # the record id carries no presentation key here, so the round-level tombstone is the proof
         if not (loc_proven or pres_proven):
@@ -192,7 +201,8 @@ def _plan(st: Dict[str, Any], venues: Dict[str, Dict[str, Any]]) -> None:
         st["released"][p["item_id"]] = when
         st["released_rounds"][f"{p['venue']}|{p['rkey']}"] = when
         st["outbox"]["rel:" + p["item_id"]] = {"action_id": "rel:" + p["item_id"] + ":" + when, "type": "release",
-                                               "payload": {"item_id": p["item_id"], "released_by": _admin_email()}}
+                                               "payload": {"item_id": p["item_id"], "released_by": _admin_email(),
+                                                           **({"round_uid": p["uid"]} if p.get("uid") else {})}}
         st["pushed"].pop(rid, None)
 
 
@@ -272,12 +282,15 @@ async def apply_item(ctx, item: Dict[str, Any], data: Dict[str, Any]) -> Optiona
     fname = data.get("round_file_name") or ""
     st = _read()
     if data.get("released"):
-        n = ru.cloud_release(v["name"], v["location_id"], fname, data.get("released_at"))
+        n = ru.cloud_release(v["name"], v["location_id"], fname, data.get("released_at"), round_uid=data.get("round_uid"))
         for rid, p in list(st["pushed"].items()):
             if p["item_id"] == iid or (p["venue"] == cid and p["rkey"] == round_key(fname) and rid not in {r.get("id") for r in ru._load()}):
                 st["pushed"].pop(rid, None)
         st["released"][iid] = data.get("released_at") or _iso()
         st["released_rounds"][f"{cid}|{round_key(fname)}"] = data.get("released_at") or _iso()
+        _ruid = _clean_uid(data.get("round_uid"))
+        if _ruid:
+            st["released_rounds"][f"{cid}|{ru.UID_PREFIX}{_ruid}"] = data.get("released_at") or _iso()
         st["outbox"].pop("rel:" + iid, None)
         _write(st)
         if n:
@@ -287,7 +300,9 @@ async def apply_item(ctx, item: Dict[str, Any], data: Dict[str, Any]) -> Optiona
     if exp and exp < _now():
         return None
     used = _parse(data.get("used_at"))
-    rel = _parse(st["released"].get(iid)) or _parse(st["released_rounds"].get(f"{cid}|{round_key(fname)}"))
+    _u = _clean_uid(data.get("round_uid"))
+    rel = (_parse(st["released"].get(iid)) or _parse(st["released_rounds"].get(f"{cid}|{round_key(fname)}"))
+           or (_parse(st["released_rounds"].get(f"{cid}|{ru.UID_PREFIX}{_u}")) if _u else None))
     if rel and (not used or used <= rel):                          # this PC released it: an older copy must not bring it back
         st["outbox"]["rel:" + iid] = {"action_id": "rel:" + iid + ":" + _iso(rel), "type": "release",
                                       "payload": {"item_id": iid, "released_by": _admin_email()}}
@@ -295,11 +310,13 @@ async def apply_item(ctx, item: Dict[str, Any], data: Dict[str, Any]) -> Optiona
         return None
     if ru.cloud_is_tombstoned(v["location_id"], v["name"], fname) and not rel:
         return None                                                # released here before locks were synced: stays released
-    rid = ru.cloud_add(location_id=v["location_id"], location_name=v["name"], file_name=fname, round_type=data.get("round_type") or "",
+    rid = ru.cloud_add(location_id=v["location_id"], location_name=v["name"], file_name=fname, round_uid=data.get("round_uid"),
+                       round_type=data.get("round_type") or "",
                        used_at=data.get("used_at"), expires_at=data.get("expires_at"), used_by=data.get("used_by") or "",
                        presentation_id=data.get("presentation_id") or "", presentation_name=data.get("presentation_name") or "")
     if rid:
-        st["pushed"][rid] = {"item_id": iid, "venue": cid, "rkey": round_key(fname), "expires": data.get("expires_at") or ""}
+        st["pushed"][rid] = {"item_id": iid, "venue": cid, "rkey": round_key(fname), "expires": data.get("expires_at") or "",
+                             "uid": _u or ""}
         _write(st)
         ctx.counts["added"] += 1
     return None

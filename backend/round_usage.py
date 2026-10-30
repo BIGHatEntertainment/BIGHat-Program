@@ -135,6 +135,33 @@ _TYPE_PREFIX = re.compile(r"^(mc|reg|misc|mys|big)__")        # the File Creator
 _STAMP = re.compile(r"-[0-9a-f]{8}$")                         # alpha.90 stamped copy: name-<8 hex>
 
 
+UID_PREFIX = "uid:"
+
+
+def _uid_of(x: Any) -> Optional[str]:
+    """The round_uid for a lock record (dict) or a file name/path (string). None when it has none."""
+    try:
+        import round_uid as _ru                       # lazy: a problem reading a file's id must never stop locks from working
+        if isinstance(x, dict):
+            return _ru.clean(x.get("roundUid"))
+        s = str(x or "")
+        if s.startswith(UID_PREFIX):
+            return _ru.clean(s[len(UID_PREFIX):])
+        return _ru.uid_for_name(s)
+    except Exception:                                 # noqa: BLE001
+        return None
+
+
+def round_keys_for(x: Any) -> set:
+    """Every key a round answers to: its uid (when stamped) plus every name spelling. The uid is the real identity;
+    the names keep unstamped files and the 180 days of locks that already exist working."""
+    keys = same_round_keys(x.get("roundFileName") or x.get("roundFile") if isinstance(x, dict) else x)
+    u = _uid_of(x)
+    if u:
+        keys = keys | {UID_PREFIX + u}
+    return keys
+
+
 def same_round_keys(s: Any) -> set:
     """Every spelling a round can have on disk. The File Creator gives each export a NEW random id, so a re-uploaded round
     comes back as MYS__name, name, or name-<8 hex>: the lock must treat all of them as ONE round.
@@ -150,7 +177,12 @@ def same_round_keys(s: Any) -> set:
 
 
 def is_locked(name_or_path: Any, locked: set) -> bool:
-    """True when this file is the same round as any locked one. `locked` comes from locked_names()."""
+    """True when this file is the same round as any locked one. `locked` comes from locked_names().
+    v32.2.5: a stamped file is also matched by its round_uid, so a RENAMED copy of a used round is still locked. A name match still locks
+    too (a lock made before the round was stamped must never stop working), so this can only ADD locks, never drop one."""
+    u = _uid_of(name_or_path)
+    if u and (UID_PREFIX + u) in locked:
+        return True
     mine = same_round_keys(name_or_path)
     if mine & locked:
         return True
@@ -191,7 +223,7 @@ def record_usage(*, location_id: str, location_name: str, round_files: List[Dict
             key = (presentation_id, rf.get("order"))
             if key in have or f"{presentation_id}:{rf.get('order')}" in gone:
                 continue
-            if skip_released and any((loc_key, k) in gone_rounds for k in same_round_keys(rf.get("file", ""))):
+            if skip_released and any((loc_key, k) in gone_rounds for k in round_keys_for(rf.get("file", ""))):
                 continue                      # an admin released this round at this venue: an older saved show cannot re-lock it
             recs.append({
                 "id": str(uuid.uuid4()),
@@ -206,6 +238,7 @@ def record_usage(*, location_id: str, location_name: str, round_files: List[Dict
                 "usedBy": used_by or "",
                 "presentationId": presentation_id,
                 "presentationName": presentation_name,
+                **({"roundUid": _u} if (_u := _uid_of(rf.get("file", ""))) else {}),     # v32.2.5: the round's permanent id, when stamped
             })
             added += 1
         if added:
@@ -271,6 +304,9 @@ def locked_names(location: Optional[str]) -> set:
         if want and not (want & {norm_location(r.get("location")), norm_location(r.get("locationId"))}):
             continue
         s.add(norm_name(r.get("roundFileName") or r.get("roundFile")))
+        u = _uid_of(r)
+        if u:
+            s.add(UID_PREFIX + u)                       # v32.2.5: the permanent id of the round
     return s
 
 
@@ -278,7 +314,7 @@ def _round_tomb(recs: List[Dict[str, Any]]) -> set:
     out = set()
     for r in recs:
         loc = norm_location(r.get("locationId") or r.get("location"))
-        for k in same_round_keys(r.get("roundFileName") or r.get("roundFile")):
+        for k in round_keys_for(r):
             out.add((loc, k))
     return out
 
@@ -294,8 +330,7 @@ def _same_place_and_round(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         la |= venue_identities(k)
     if la and lb and not (la & lb):
         return False
-    return bool(same_round_keys(a.get("roundFileName") or a.get("roundFile")) &
-                same_round_keys(b.get("roundFileName") or b.get("roundFile")))
+    return bool(round_keys_for(a) & round_keys_for(b))
 
 
 def release(usage_id: str) -> int:
@@ -401,15 +436,18 @@ def cloud_is_tombstoned(location_id: str, location_name: str, file_name: str) ->
     locs = {norm_location(location_id), norm_location(location_name)} - {""}
     for l in list(locs):
         locs |= venue_identities(l)
-    return any((l, k) in gone for l in locs for k in same_round_keys(file_name))
+    return any((l, k) in gone for l in locs for k in round_keys_for(file_name))
 
 
 def cloud_add(*, location_id: str, location_name: str, file_name: str, round_type: str, used_at: Any, expires_at: Any,
-              used_by: str, presentation_id: str, presentation_name: str) -> Optional[str]:
+              used_by: str, presentation_id: str, presentation_name: str, round_uid: Any = None) -> Optional[str]:
     """Add a lock another PC made. Returns the new record id, or None when this PC already has an equal-or-newer lock for the
     same round at the same venue (nothing is ever replaced or shortened)."""
     when = _parse(used_at) or _now()
-    probe = {"location": location_name, "locationId": location_id, "roundFileName": norm_name(file_name), "roundFile": file_name}
+    import round_uid as _ru
+    uid = _ru.clean(round_uid)
+    probe = {"location": location_name, "locationId": location_id, "roundFileName": norm_name(file_name), "roundFile": file_name,
+             **({"roundUid": uid} if uid else {})}
     with _lock:
         recs = _load()
         for r in recs:
@@ -423,16 +461,19 @@ def cloud_add(*, location_id: str, location_name: str, file_name: str, round_typ
                      "usedDate": when.isoformat(),
                      "expiresDate": (_parse(expires_at) or (when + timedelta(days=LOCK_DAYS))).isoformat(),
                      "usedBy": used_by or "", "presentationId": presentation_id, "presentationName": presentation_name,
-                     "source": "cloud"})
+                     "source": "cloud", **({"roundUid": uid} if uid else {})})
         _save(recs)
         return rid
 
 
-def cloud_release(location_name: str, location_id: str, file_name: str, released_at: Any) -> int:
+def cloud_release(location_name: str, location_id: str, file_name: str, released_at: Any, round_uid: Any = None) -> int:
     """Apply a release made in the Cloud: every lock of this round at this venue used on/before released_at goes (with tombstones,
     so a saved show cannot rebuild it). A newer use stays locked."""
+    import round_uid as _ru
     cut = _parse(released_at)
-    probe = {"location": location_name, "locationId": location_id, "roundFileName": norm_name(file_name), "roundFile": file_name}
+    uid = _ru.clean(round_uid)
+    probe = {"location": location_name, "locationId": location_id, "roundFileName": norm_name(file_name), "roundFile": file_name,
+             **({"roundUid": uid} if uid else {})}
     with _lock:
         recs = _load()
         gone = []
