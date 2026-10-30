@@ -1,7 +1,10 @@
 """Cloud show bundles (docs/CLOUD_TASK_trivia_wizard_4_export_and_program_pull.md, docs/PROGRAM_TASK_cloud_show_import.md).
 
 A bundle is a ZIP: manifest.json (type "trivia-show-bundle"), payload.json (host, location, ordered rounds) and
-rounds/<TYPE>/<file>.bighat (the round files, each itself a ZIP). Importing one unpacks the rounds into Files/Trivia/<TYPE>/
+rounds/<TYPE>/<file>.bighat (the round files, each itself a ZIP).
+v32.2.6: a show bigger than 50 MB is split by the Cloud into PARTS, each its own valid .bighat (manifest.part / parts_total). Only part 1 carries
+payload.json; every payload round names the `part` that holds it and carries its permanent `round_uid`. A show is imported only when ALL its
+parts are here and belong together (same plan_id); a half-set imports nothing. Importing one unpacks the rounds into Files/Trivia/<TYPE>/
 and writes the show exactly like the Build Wizard, so the Presenter lists it ready to host.
 
 Rules:
@@ -27,7 +30,8 @@ import httpx
 from . import cloud_link
 
 logger = logging.getLogger("bighat-cloud-shows")
-MAX_BUNDLE = 60 * 1024 * 1024            # the Cloud's cap
+MAX_BUNDLE = 50 * 1024 * 1024            # the Cloud's cap PER PART (v32.2.6)
+MAX_PARTS = 40
 TYPES = ("MC", "REG", "MISC", "MYS", "BIG")
 
 
@@ -49,42 +53,81 @@ def _safe_member(name: str) -> bool:
     return not (n.startswith("/") or ".." in n.split("/") or re.match(r"^[A-Za-z]:", n))
 
 
-def read_bundle(data: bytes) -> Dict[str, Any]:
-    """Parse and fully check a bundle. Returns {manifest, payload, rounds:[{order,type,name,file,bytes}]}. Writes nothing."""
+def _open(data: bytes) -> "tuple[zipfile.ZipFile, dict]":
     if len(data) > MAX_BUNDLE:
-        raise ShowImportError("too_big", "This show file is larger than 60 MB.")
+        raise ShowImportError("too_big", "A show file is larger than 50 MB.")
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
         raise ShowImportError("not_a_bundle", "This is not a BIG Hat show file (not a ZIP).")
-    names = zf.namelist()
-    if any(not _safe_member(n) for n in names):
+    if any(not _safe_member(n) for n in zf.namelist()):
         raise ShowImportError("unsafe", "This show file has unsafe file paths and was not opened.")
     try:
         manifest = json.loads(zf.read("manifest.json").decode("utf-8-sig"))
-        payload = json.loads(zf.read("payload.json").decode("utf-8-sig"))
     except (KeyError, ValueError):
-        raise ShowImportError("not_a_bundle", "This show file is missing its manifest or payload.")
+        raise ShowImportError("not_a_bundle", "This show file is missing its manifest.")
     if manifest.get("type") != "trivia-show-bundle":
         raise ShowImportError("not_a_bundle", f"This is not a trivia show bundle (type {manifest.get('type')!r}).")
     if int(manifest.get("version") or 0) > 1:
         raise ShowImportError("newer", "This show was made by a newer version of BIG Hat. Update the program and try again.")
+    return zf, manifest
+
+
+def read_bundle(data: bytes) -> Dict[str, Any]:
+    """One single-file show (kept for callers/tests). See read_parts."""
+    return read_parts([data])
+
+
+def read_parts(blobs: List[bytes]) -> Dict[str, Any]:
+    """Parse and fully check a show made of one or more part files. Returns {manifest, payload, rounds:[{order,type,name,file_name,uid,bytes}]}.
+    Writes nothing. Refuses a half-set, mixed shows, duplicate parts, and any round whose file does not match what the payload promised."""
+    if not blobs:
+        raise ShowImportError("not_a_bundle", "No show file was given.")
+    if len(blobs) > MAX_PARTS:
+        raise ShowImportError("too_many_parts", f"A show cannot have more than {MAX_PARTS} parts.")
+    opened = [_open(b) for b in blobs]
+    plan_ids = {str(m.get("plan_id") or "") for _, m in opened}
+    if len(plan_ids) > 1:
+        raise ShowImportError("mixed_parts", "These files belong to different shows. Send the parts of ONE show together.")
+    total = max(int(m.get("parts_total") or 1) for _, m in opened)
+    by_part: Dict[int, "tuple[zipfile.ZipFile, dict]"] = {}
+    for zf, m in opened:
+        n = int(m.get("part") or 1)
+        if int(m.get("parts_total") or 1) != total:
+            raise ShowImportError("mixed_parts", "These files disagree about how many parts the show has.")
+        if n in by_part:
+            raise ShowImportError("duplicate_part", f"Part {n} was sent twice.")
+        by_part[n] = (zf, m)
+    have = sorted(by_part)
+    if have != list(range(1, total + 1)):
+        missing = [str(i) for i in range(1, total + 1) if i not in by_part]
+        raise ShowImportError("missing_part", f"This show has {total} parts and part {', '.join(missing)} is missing. Nothing was imported.",
+                              parts_total=total, parts_have=have)
+    zf1, manifest = by_part[1]
+    try:
+        payload = json.loads(zf1.read("payload.json").decode("utf-8-sig"))
+    except (KeyError, ValueError):
+        raise ShowImportError("not_a_bundle", "Part 1 of this show is missing its payload.")
     spec = payload.get("rounds") or []
     count = int(payload.get("round_count") or len(spec))
     if count not in (5, 6) or len(spec) != count:
         raise ShowImportError("bad_rounds", f"A show needs 5 or 6 rounds; this one lists {len(spec)}.")
     import presentation_builder as pb
-    types = [str(r.get("type") or "").upper() for r in sorted(spec, key=lambda r: r.get("order", 0))]
+    import round_uid as _ru
+    ordered = sorted(spec, key=lambda r: r.get("order", 0))
+    types = [str(r.get("type") or "").upper() for r in ordered]
     try:
         pb.validate_round_sequence(types)
     except Exception as e:                                           # noqa: BLE001
         raise ShowImportError("bad_rounds", f"The round order is not valid: {e}")
     rounds: List[Dict[str, Any]] = []
-    for r in sorted(spec, key=lambda r: r.get("order", 0)):
+    for r in ordered:
         member = str(r.get("file") or "")
-        if member not in names:
+        part = int(r.get("part") or 1)
+        holder = by_part.get(part)
+        if holder is None or member not in holder[0].namelist():
             raise ShowImportError("missing_round", f"Round {r.get('order')} ({r.get('name')}) is not inside the file.")
-        blob = zf.read(member)
+        blob = holder[0].read(member)
         if not zipfile.is_zipfile(io.BytesIO(blob)):
             raise ShowImportError("bad_round", f"Round {r.get('order')} ({r.get('name')}) is not a valid round file.")
         t = str(r.get("type") or "").upper()
@@ -93,7 +136,13 @@ def read_bundle(data: bytes) -> Dict[str, Any]:
         fn = Path(member).name
         if not fn.lower().endswith(".bighat"):
             raise ShowImportError("bad_round", f"Round {r.get('order')} ({fn}) is not a .bighat file.")
-        rounds.append({"order": len(rounds) + 1, "type": t, "name": r.get("name") or Path(fn).stem, "file_name": fn, "bytes": blob})
+        promised = _ru.clean(r.get("round_uid"))
+        actual = _ru.read_uid_bytes(blob)
+        if promised and actual != promised:                          # a swapped / stale / re-stamped file must never slip in
+            raise ShowImportError("round_mismatch", f"Round {r.get('order')} ({r.get('name')}) is not the round the show was built with. "
+                                  "Download the show from the Cloud again.")
+        rounds.append({"order": len(rounds) + 1, "type": t, "name": r.get("name") or Path(fn).stem, "file_name": fn,
+                       "uid": actual or promised, "bytes": blob})
     return {"manifest": manifest, "payload": payload, "rounds": rounds}
 
 
@@ -148,10 +197,15 @@ def _place(pool: Path, r: Dict[str, Any]) -> Path:
 
 
 async def import_bundle(db, data: bytes, *, allow_locked: bool = False, owner_email: Optional[str] = None) -> Dict[str, Any]:
-    """Import one bundle. Never half-imports. Returns {ok, ...} (also for the expected refusals)."""
+    """Import a single-file show."""
+    return await import_parts(db, [data], allow_locked=allow_locked, owner_email=owner_email)
+
+
+async def import_parts(db, blobs: List[bytes], *, allow_locked: bool = False, owner_email: Optional[str] = None) -> Dict[str, Any]:
+    """Import one show made of one or more part files. Never half-imports. Returns {ok, ...} (also for the expected refusals)."""
     import presentation_builder as pb
     try:
-        b = read_bundle(data)
+        b = read_parts(blobs)
         host = await _find_host(db, b["payload"])
         loc = await _find_location(db, b["payload"])
         created: List[Path] = []
@@ -177,7 +231,8 @@ async def import_bundle(db, data: bytes, *, allow_locked: bool = False, owner_em
                 raise ShowImportError("build_failed", msg)
             return {"ok": True, "id": pres.get("id"), "name": pres.get("name"), "location": loc.get("name"),
                     "host": host.get("display_name") or host.get("name") or host.get("email"), "rounds": len(refs),
-                    "new_round_files": len(created), "plan_id": b["manifest"].get("plan_id")}
+                    "new_round_files": len(created), "plan_id": b["manifest"].get("plan_id"),
+                    "parts": len(blobs), "round_uids": [r.get("uid") for r in b["rounds"]]}
         except Exception:
             for p in created:                                        # undo ONLY what this import wrote
                 try:
@@ -203,7 +258,9 @@ async def _get(path: str, params: Optional[dict] = None, raw: bool = False) -> D
     except (httpx.HTTPError, ValueError):
         return {"ok": False, "error": "unreachable", "message": "Could not reach the Cloud. Everything on this PC still works."}
     if r.status_code == 200:
-        return {"ok": True, "content": r.content} if raw else {"ok": True, "data": r.json()}
+        if raw:
+            return {"ok": True, "content": r.content, "parts_total": r.headers.get("X-Parts-Total")}
+        return {"ok": True, "data": r.json()}
     if r.status_code == 402:
         return {"ok": False, "error": "subscription_lapsed", "message": "The Cloud subscription has lapsed. Cloud shows are paused; this PC keeps working."}
     if r.status_code == 404:
@@ -225,12 +282,30 @@ async def list_shows() -> Dict[str, Any]:
 
 
 async def pull_and_import(db, plan_id: str, allow_locked: bool = False, owner_email: Optional[str] = None) -> Dict[str, Any]:
+    """Pull EVERY part of a Cloud show, then import them together. Nothing is written until all parts are here and check out."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", plan_id or ""):
         return {"ok": False, "code": "bad_id", "message": "That is not a valid show id."}
-    r = await _get(f"/api/program/trivia-plans/{plan_id}/bighat", raw=True)
-    if not r["ok"]:
-        return {"ok": False, "code": r["error"], "message": r["message"]}
-    out = await import_bundle(db, r["content"], allow_locked=allow_locked, owner_email=owner_email)
+    blobs: List[bytes] = []
+    total = 1
+    n = 1
+    while n <= total:
+        r = await _get(f"/api/program/trivia-plans/{plan_id}/bighat", params={"part": n} if n > 1 or total > 1 else None, raw=True)
+        if not r["ok"]:
+            msg = r["message"] if n == 1 else f"Part {n} could not be downloaded ({r['message']}) Nothing was imported."
+            return {"ok": False, "code": r["error"], "message": msg}
+        blobs.append(r["content"])
+        if n == 1:
+            try:
+                total = max(1, min(MAX_PARTS, int(r.get("parts_total") or 1)))
+            except (TypeError, ValueError):
+                total = 1
+            if total == 1:                                           # the header said one part; trust the file itself too
+                try:
+                    total = max(1, min(MAX_PARTS, int(_open(r["content"])[1].get("parts_total") or 1)))
+                except ShowImportError as e:
+                    return e.public()
+        n += 1
+    out = await import_parts(db, blobs, allow_locked=allow_locked, owner_email=owner_email)
     if out.get("ok"):
         await report_imported(plan_id)                               # informational; a failure here is harmless
     return out

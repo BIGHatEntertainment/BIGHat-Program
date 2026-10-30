@@ -4,6 +4,7 @@ Only the code, the link state and timestamps leave the backend. The access key n
 """
 from __future__ import annotations
 
+from typing import List
 from fastapi import APIRouter
 
 from . import cloud_link
@@ -76,6 +77,13 @@ async def cloud_show_list():
 @router.post("/shows/{plan_id}/import")
 async def cloud_show_import(plan_id: str, allow_locked: bool = False):
     return await cloud_shows.pull_and_import(_db(), plan_id, allow_locked=allow_locked)
+
+
+@router.post("/shows/import-files")
+async def cloud_show_import_files(files: List[UploadFile] = File(...), allow_locked: bool = Form(False)):
+    """ALL the part files of one show downloaded from the Cloud website, sent together."""
+    blobs = [await f.read() for f in files]
+    return await cloud_shows.import_parts(_db(), blobs, allow_locked=allow_locked)
 
 
 @router.post("/shows/import-file")

@@ -7,6 +7,22 @@
 
 ---
 ---
+## cloud-show-parts-v1 (program; next release after v32.2.5)
+- Program matched to the updated Cloud (Cloud PRs #43-#45: round_uid stamping, one round store, split shows). Flow: build a show in the Cloud wizard -> the Cloud makes the file ->
+  the PC pulls it -> it is ready in the Trivia player.
+- CHANGED IN THE CLOUD: a show over 50 MB is split into PARTS (each its own valid .bighat; manifest.part / parts_total; ONLY part 1 has payload.json; each payload round names its `part`
+  and carries its `round_uid`); the program list has `parts`; the download takes `?part=N`; the cap is 50 MB per part.
+- `native/cloud_shows.py`: `read_parts` / `import_parts`. Pulls EVERY part first, then imports; refuses a missing part (says which), parts of different shows, a repeated part,
+  a round missing from its part, and any round whose file `round_uid` is not the one the payload promised (a swapped/stale file never slips in). One-file shows still work.
+  Round files are copied byte for byte, so the Cloud's stamp arrives intact and the 180-day lock records `roundUid` (both sides log the SAME round id).
+- New route POST /api/native/system/cloud-link/shows/import-files (all parts of one show downloaded from the website, sent together). The generic .bighat importer now refuses one
+  part of several with a clear message (409).
+- NEW screen: `frontend/src/components/CloudShows.jsx`, shown on Trivia > Presentations ONLY when this PC is linked and the Cloud has shows for it. Import button per show; a locked round
+  stops it and asks "Import anyway". Nothing imports on its own. Offline/lapsed/unlinked: the card stays out of the way or shows a plain message.
+- Tests: tests/test_cloud_show_import.py now 29 (15 new: parts, order, stamp byte-for-byte, lock round id, half-set, mixed shows, duplicate part, wrong round id, pull-all-parts, a part that
+  will not download, multi-file route, card <-> Cloud field names). 171 pass across the related files; the same 7 order-dependent test_bighat_files_v2 failures exist on clean main (they pass alone).
+- NOT tested: the card in the real app window; a real Cloud-built show end to end on a PC.
+
 ## round-uid-program-v1 (program; next release after v32.2.4)
 - Owner decisions 2026-10-30: the CLOUD stamps a permanent `round_uid` inside each round file (manifest.json); old files with no ID are deleted by the owner and re-downloaded
   from the Cloud (the Program never writes into the owner's files); an edited/re-exported round KEEPS its ID and its lock. Plan: docs/PLAN_round_id_stamp.md.
