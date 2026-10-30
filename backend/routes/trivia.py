@@ -683,6 +683,17 @@ ROUND_FOLDER_URLS = {
 }
 
 
+@router.get("/round-files-without-id")
+async def round_files_without_id():
+    """v32.2.5: round files on this PC that carry NO permanent round ID (round_uid). They keep locking by file name, but the owner is asked to
+    delete them and download the stamped copy from BIG Hat Cloud, so one round is one file with one ID. READ-ONLY: nothing is deleted here."""
+    import round_uid
+    files = round_uid.unstamped_files()
+    return {"count": len(files), "files": files,
+            "message": ("These round files have no permanent ID. Delete them and download the same rounds from BIG Hat Cloud so every round has one ID."
+                        if files else "Every round file on this PC has a permanent ID.")}
+
+
 @router.get("/round-files/{round_type}")
 async def get_round_files_by_type(round_type: str, location: Optional[str] = None) -> List[Dict[str, str]]:
     """

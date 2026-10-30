@@ -7,6 +7,20 @@
 
 ---
 ---
+## round-uid-program-v1 (program; next release after v32.2.4)
+- Owner decisions 2026-10-30: the CLOUD stamps a permanent `round_uid` inside each round file (manifest.json); old files with no ID are deleted by the owner and re-downloaded
+  from the Cloud (the Program never writes into the owner's files); an edited/re-exported round KEEPS its ID and its lock. Plan: docs/PLAN_round_id_stamp.md.
+- FOUND: the File Creator's `content_id` is new on every export (it identifies an export, not a round), and locks ignored it: both Program and Cloud locked by FILE NAME only,
+  so a renamed copy of a used round was NOT locked (reproduced) and two rounds sharing a name collided.
+- NEW `backend/round_uid.py` (read-only): reads `manifest.round_uid` (valid lowercase UUID only, cached by size+mtime, never raises, ~0.04 ms a file), lists files with no ID.
+- `round_usage.py`: usage records store `roundUid`; one key space (`uid:<id>` plus every name spelling) used by is_locked, locked_names, release, tombstones and same-round matching.
+  The uid only ADDS matches: a name match still locks, so a lock made before a round was stamped never stops working.
+- `native/cloud_locks.py`: sends `round_uid` with locks and releases, reads it from the Cloud, frees/blocks by uid too. The sync item_id is UNCHANGED (an existing lock never duplicates).
+- NEW read-only GET /api/trivia/round-files-without-id: the files the owner should delete and re-download (nothing is deleted automatically).
+- NEW docs/CLOUD_TASK_round_uid.md for the Cloud agent (stamp at upload, inherit on edit, carry it on locks, back-fill, acceptance tests).
+- Tests: tests/test_round_uid.py (15, real stamped files on a real disk; 4 fail when the uid logic is removed). 175 pass across the lock, sync, build, show-import and creator files (baseline 160).
+- NOT built yet: the screen that shows the "delete these old files" list; the Cloud half. NOT tested: a real PC with the Cloud stamping files.
+
 ## activate-key-in-admin-v1 (program; next release after v32.2.4)
 - BUG: a host who finished Setup WITHOUT verifying the key (Continue offline) could not activate it later in Admin > Product Key: the program stayed locked
   and could not be linked to the Cloud as the owner.
