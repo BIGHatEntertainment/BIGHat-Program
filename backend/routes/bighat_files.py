@@ -60,7 +60,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 BIGHAT_FORMAT = "bighat"                # type-agnostic format identifier
 BIGHAT_VERSION = 2                      # bumped: v1 was round-only
-MAX_BIGHAT_BYTES = 50 * 1024 * 1024     # 50 MB hard cap per file
+MAX_BIGHAT_BYTES = 60 * 1024 * 1024     # 60 MB hard cap per file (the Cloud builds show bundles up to 60 MB)
 
 
 # ============================================================
@@ -417,6 +417,7 @@ def _parse_bighat(payload: bytes) -> tuple[dict, dict, dict[str, bytes], str]:
     KNOWN_TYPES = {
         "round", "presentation", "pack",                # canonical
         "trivia-presentation",                          # v32.0.0-alpha.41 native
+        "trivia-show-bundle",                           # built in the Cloud wizard; imported by native/cloud_shows.py
         "mc", "reg", "misc", "mys", "big",              # external generator round codes
     }
     accepted_by_format = fmt in ("bighat", "bighat/round")
@@ -676,6 +677,18 @@ async def _ingest_cover_image(assets: dict[str, bytes]) -> str | None:
 async def _import_zip_bytes(payload: bytes) -> ImportResult:
     if db is None:
         raise HTTPException(500, "database not initialised")
+    if zipfile.is_zipfile(io.BytesIO(payload)):                # a Cloud show bundle is imported as a whole show, never as a loose round
+        try:
+            with zipfile.ZipFile(io.BytesIO(payload)) as _zf:
+                _is_show = json.loads(_zf.read("manifest.json").decode("utf-8-sig")).get("type") == "trivia-show-bundle"
+        except Exception:                                      # noqa: BLE001
+            _is_show = False
+        if _is_show:
+            from native import cloud_shows
+            res = await cloud_shows.import_bundle(db, payload)
+            if not res.get("ok"):
+                raise HTTPException(409 if res.get("code") == "locked" else 400, res.get("message") or "The show could not be imported.")
+            return ImportResult(id=res["id"], name=res["name"], type="presentation", signed=False)
     manifest, doc, assets, signature = _parse_bighat(payload)
     raw_type = str(manifest.get("type") or "round")
     # Normalise alias → canonical content type. Third-party round

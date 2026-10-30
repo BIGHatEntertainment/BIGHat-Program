@@ -95,3 +95,10 @@ How the "different passwords" case works today (built in v32.4.0):
 Program push: POST /api/program/actions {actions:[{action_id,type:"lock"|"release",payload}]}; action ids `lock:<record id>` and `rel:<item_id>:<time>`.
 Program pull: kind `round_lock` in /api/program/changes, applied by native/cloud_locks.apply_item. item_id = sha1(cloud venue id|round key|presentation id).
 `not_admin` on a release keeps it queued and blocked (never dropped). `released` / `unknown_venue` / `not_found` are final answers and are dropped from the outbox.
+
+
+## Trivia show bundles (Program side built, cloud-show-import-v1)
+Cloud: GET /api/program/trivia-plans -> {plans:[{id,name,venue_id,venue_name,host_name,round_count,updated_at,size,complete}]} (only status "ready", only this PC's venues);
+GET /api/program/trivia-plans/{id}/bighat (409 = a round is gone from the Cloud library, 404 = not yours, 402 = lapsed); POST .../imported (informational).
+Bundle = ZIP: manifest.json (type "trivia-show-bundle", version 1), payload.json (host.email, location.name, rounds[{order,type,name,file}]), rounds/<TYPE>/<file>.bighat.
+Program matches host by EMAIL and venue by NAME; the lock starts at import, never at plan time.

@@ -7,6 +7,18 @@
 
 ---
 ---
+## cloud-show-import-v1 (program; next release after v32.2.3)
+- NEW `backend/native/cloud_shows.py`: imports a Cloud `trivia-show-bundle` (manifest + payload + rounds/<TYPE>/*.bighat) into a show ready to host.
+  Checks EVERYTHING first (manifest, 5/6 rounds, order, every round present and a valid ZIP, no unsafe paths); then matches the host by EMAIL and the venue by name.
+  Missing host or venue = nothing imported and the answer says which. A failure part-way removes only the files this import created.
+  Round files are unpacked byte for byte into Files/Trivia/<TYPE>/; a different file with the same name is kept as name-<8hex>, never overwritten.
+- The 180-day lock starts HERE (owner decision): the show is written through presentation_builder.build_from_wizard (record_usage). Already-locked rounds stop the import
+  with the list; `allow_locked` (admin agrees) imports anyway.
+- Pull from the Cloud: GET /api/native/system/cloud-link/shows (list), POST .../shows/{plan_id}/import, POST .../shows/import-file (a file downloaded from the Cloud website),
+  then POST /api/program/trivia-plans/{id}/imported (informational). Offline / lapsed / not linked: plain message, the PC works as before.
+- `routes/bighat_files.py`: accepts type `trivia-show-bundle` (a show is imported whole, never as a loose round) and the file cap is 60 MB (the Cloud's cap; it was 50 MB).
+- Tests: tests/test_cloud_show_import.py (14, real round fixtures, real disk). UI list ("Cloud shows") is the next small PR.
+
 ## cloud-trivia-wizard-plan-v1 (docs only; Cloud tasks written)
 - docs/CLOUD_TASK_trivia_wizard_1..4 (round library, history import, wizard + plans, .bighat export + Program pull) and docs/PROGRAM_TASK_cloud_show_import.md.
 - Owner decisions 2026-10-25: lock starts when the Program builds/imports (as the prototype); any host may use the wizard; old history arrives as .txt/.json round_usage records.

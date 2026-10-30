@@ -63,6 +63,28 @@ async def sync_approve():
     return await cloud_sync.pull_once(_db(), approve_first_link=True)
 
 
+# ---- Cloud shows (trivia show bundles built in the Cloud wizard) ----
+from fastapi import File, Form, UploadFile  # noqa: E402
+from . import cloud_shows  # noqa: E402
+
+
+@router.get("/shows")
+async def cloud_show_list():
+    return await cloud_shows.list_shows()
+
+
+@router.post("/shows/{plan_id}/import")
+async def cloud_show_import(plan_id: str, allow_locked: bool = False):
+    return await cloud_shows.pull_and_import(_db(), plan_id, allow_locked=allow_locked)
+
+
+@router.post("/shows/import-file")
+async def cloud_show_import_file(file: UploadFile = File(...), allow_locked: bool = Form(False)):
+    """A show file downloaded from the Cloud website and dropped in here."""
+    data = await file.read()
+    return await cloud_shows.import_bundle(_db(), data, allow_locked=allow_locked)
+
+
 @router.post("/new-logins")
 def new_logins():
     """Temporary passwords for people the sync just created. Shown once, then forgotten."""
