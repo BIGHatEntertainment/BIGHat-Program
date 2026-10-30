@@ -7,6 +7,18 @@
 
 ---
 ---
+## activate-key-in-admin-v1 (program; next release after v32.2.4)
+- BUG: a host who finished Setup WITHOUT verifying the key (Continue offline) could not activate it later in Admin > Product Key: the program stayed locked
+  and could not be linked to the Cloud as the owner.
+- CAUSE (reproduced): an offline Setup saves the key unverified (`pending_cloud_activation`). The Admin route only treated an entered key as the MAIN key when it equalled the
+  saved one; any other key (a typo at Setup, a re-issued key) was filed as an ADD-ON. Features unlocked, but the saved main key stayed wrong, so the Cloud link announced the
+  wrong key (linking failed) and the 4-hour retry kept retrying the wrong key. The flag `pending_cloud_activation` was also never cleared by Admin or by the card button.
+- FIX: `product_keys.is_verified()`. A program that is NOT verified treats the key entered in Admin as its main key (replaces the saved one, clears the waiting flag and old error,
+  registers the seat, re-applies saved add-on keys). Once verified, a different key is still an add-on (main key never swapped by accident). Card "Enter License Key" route clears the flag too.
+- Retry job: a server refusal keeps its REASON in `cloud_activation_error`; Admin shows "not verified yet" with a plain-words reason (unknown key / seats full / revoked).
+- Refused, offline or unknown keys change NOTHING (still locked, nothing granted). Tests: tests/test_activate_key_in_admin.py (10; 6 fail on the old code).
+- Program build agent: NOT needed (Program-only change). The license server (api.bighat.live) is unchanged.
+
 ## karaoke-queue-reorder-v1 (program; next release after v32.2.4)
 - BUG (host could not rearrange the singer queue; a drag only placed the singer lower and moved other singers): the screen worked out the drop spot among the WAITING
   singers but applied it to the WHOLE queue, which also holds the singer on stage, so with someone singing every move was one slot off. Reproduced with the old code:

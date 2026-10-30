@@ -395,6 +395,15 @@ async def cloud_activate(payload: CloudActivateRequest):
             },
         )
     _apply_cloud_response_to_local_state(resp, license_key=key, email=payload.email)
+    lic = config_manager.config.setdefault("license_status", {})          # v32.2.5: the server confirmed it, so setup is no longer waiting
+    lic["pending_cloud_activation"] = False
+    lic.pop("cloud_activation_error", None)
+    config_manager.save_config()
+    try:
+        from . import product_keys as _pk
+        _pk.reapply_saved_extras()
+    except Exception:                                                     # noqa: BLE001  never fail an activation over add-ons
+        pass
     register_seat(label=payload.label or "This computer")
     return {
         "status":       "ok",
@@ -444,6 +453,11 @@ async def add_product_key(payload: ProductKeyRequest, _=Depends(_master_guard)):
             "message": "That doesn't look like a product key. Check it and try again."})
     hwid = generate_hwid()
     main = product_keys.main_key()
+    # v32.2.5: a program whose key was never verified (Setup done offline, or the background retry was refused) has NO confirmed
+    # main key yet, so the key entered here IS its main key, even when it differs from the one saved at Setup (a typo, a second key).
+    # Without this the correct key was treated as an add-on: features unlocked, but the saved key stayed wrong, the Cloud link announced
+    # the wrong key, and the background retry kept retrying it.
+    unverified = bool(main) and not product_keys.is_verified()
     resp = await cloud_client.activate(license_key=key, hwid=hwid, machine_name=None, email=None)
     if not resp.get("ok"):
         transport = resp.get("error") in ("timeout", "network_error", "server_error")
@@ -453,8 +467,14 @@ async def add_product_key(payload: ProductKeyRequest, _=Depends(_master_guard)):
                 "Could not reach the license server. Connect to the internet and try again."
                 if transport else "That key was not accepted."),
         })
-    if not main or key == main:
-        _apply_cloud_response_to_local_state(resp, license_key=key, email=None)
+    if not main or key == main or unverified:
+        lic = config_manager.config.setdefault("license_status", {})
+        email = lic.get("master_admin_email")
+        _apply_cloud_response_to_local_state(resp, license_key=key, email=email)
+        lic = config_manager.config.setdefault("license_status", {})
+        lic["pending_cloud_activation"] = False            # the server has now confirmed it: stop the background retry
+        lic.pop("cloud_activation_error", None)
+        config_manager.save_config()
         product_keys.reapply_saved_extras()
         register_seat(label="This computer")
     else:
