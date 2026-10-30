@@ -65,7 +65,7 @@ jobs:
   build-tauri:
     name: ${{ matrix.label }}
     needs: create-release
-    timeout-minutes: 75    # any leg stuck > 75 min (incl. queued-waiting-for-runner) auto-fails so a stuck macos-13 runner can't tie up a release indefinitely
+    timeout-minutes: 75    # any leg stuck > 75 min (incl. queued-waiting-for-runner) auto-fails so a stuck macOS runner can't tie up a release indefinitely
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +75,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundles: nsis
           - label: macOS (Apple Silicon)
-            os: macos-14
+            os: macos-15          # was macos-14: GitHub retires that image on 2026-11-02 and fails it in brownouts (Oct 30 2026 killed v32.2.6's Mac build). macos-15 is also arm64.
             target: aarch64-apple-darwin
             bundles: dmg,app
 

@@ -7,6 +7,13 @@
 
 ---
 ---
+## macos-runner-image-v1 (program build; release fix)
+- v32.2.6's macOS job was cancelled in under a second with no runner (twice, incl. a re-run), so the asset check demoted the release back to draft (working as designed).
+- CAUSE (confirmed on GitHub's changelog 2026-10-01): the `macos-14` runner image is retired on 2026-11-02 and jobs on it FAIL on purpose during brownouts; today's window was
+  Oct 30 14:00 UTC to Oct 31 00:00 UTC. Not our code: the workflow was unchanged since v32.2.5, which built fine.
+- FIX: `.github/workflows/release.yml` matrix `os: macos-14` -> `macos-15` (still Apple Silicon / arm64, so `target: aarch64-apple-darwin` and the .dmg name stay valid). One line, no app code.
+- NOT verified until the Mac leg actually builds on macos-15 (first build there). Minimum macOS for users is unchanged (tauri.conf.json 10.15).
+
 ## cloud-show-parts-v1 (program; next release after v32.2.5)
 - Program matched to the updated Cloud (Cloud PRs #43-#45: round_uid stamping, one round store, split shows). Flow: build a show in the Cloud wizard -> the Cloud makes the file ->
   the PC pulls it -> it is ready in the Trivia player.
