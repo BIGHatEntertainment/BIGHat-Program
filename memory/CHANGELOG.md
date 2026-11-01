@@ -7,6 +7,17 @@
 
 ---
 ---
+## macos-intel-build-v1 (program build; release)
+- Customer on an Intel MacBook could not download: the Intel leg was removed on 2026-10-07 (c2362ba).
+- RESTORED in `.github/workflows/release.yml`: `macOS (Intel)`, target `x86_64-apple-darwin`, on **`macos-15-intel`**. NOT `macos-13` (the old label): GitHub retired it in Dec 2025, a job on it queues forever.
+  Built natively on an Intel runner, so the PyInstaller sidecar is a real x86_64 binary and the frozen-backend smoke test runs on it (the workflow already handles both architectures).
+- The release gate now requires THREE installers (Windows .exe, Apple Silicon .dmg, Intel .dmg). A missing Intel .dmg keeps the whole release a draft (same rule as every other installer).
+  Gate pattern tested on 4 cases (all present / Intel missing / Apple Silicon missing / the Windows x64-setup.exe does not count as an Intel .dmg).
+- Already in the app: the Update tool detects an Intel Mac (`macos_intel`) and falls back to the release page when the server has no link. NOT in this repo: the license/download server
+  (api.bighat.live) must serve the Intel link: docs/PROGRAM_AGENT_TASK_intel_mac_download.md.
+- LIMIT: GitHub supports Intel macOS runners only until **August 2027** (macos-15-intel is its last x86_64 image). After that this leg cannot be built on GitHub-hosted runners.
+- NOT verified until the Intel leg builds on macos-15-intel (first run). Required gate => if it fails, the release stays draft until fixed.
+
 ## macos-runner-image-v1 (program build; release fix)
 - v32.2.6's macOS job was cancelled in under a second with no runner (twice, incl. a re-run), so the asset check demoted the release back to draft (working as designed).
 - CAUSE (confirmed on GitHub's changelog 2026-10-01): the `macos-14` runner image is retired on 2026-11-02 and jobs on it FAIL on purpose during brownouts; today's window was

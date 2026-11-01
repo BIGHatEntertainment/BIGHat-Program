@@ -74,6 +74,13 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: nsis
+          # Intel Macs (restored 2026-11-01 for a customer on an Intel MacBook). Built NATIVELY on GitHub's Intel runner, so the PyInstaller sidecar is
+          # a real x86_64 binary and the smoke-test gate runs on it. macos-13 (the old Intel label) is retired and would queue forever.
+          # GitHub supports x86_64 macOS runners only until AUGUST 2027; after that this leg cannot be built on GitHub-hosted runners.
+          - label: macOS (Intel)
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: dmg,app
           - label: macOS (Apple Silicon)
             os: macos-15          # was macos-14: GitHub retires that image on 2026-11-02 and fails it in brownouts (Oct 30 2026 killed v32.2.6's Mac build). macos-15 is also arm64.
             target: aarch64-apple-darwin
@@ -221,7 +228,7 @@ jobs:
   # -------------------------------------------------------------------------
   # Gate job: runs AFTER the matrix and refuses to let an incomplete release
   # be visible to customers. If any of (Windows .exe, macOS Apple Silicon
-  # .dmg) is missing from the release at this tag, the job
+  # .dmg, macOS Intel .dmg) is missing from the release at this tag, the job
   # fails LOUDLY — customers never see the half-baked release because
   # tauri-action's draft toggle is honored on miss (or the release is
   # explicitly demoted back to draft by this job on partial uploads).
@@ -247,7 +254,7 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V"     >> "$GITHUB_OUTPUT"
 
-      - name: Verify all 2 OS installers uploaded
+      - name: Verify all 3 installers uploaded
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
@@ -272,6 +279,7 @@ jobs:
           # one .exe for windows + one .dmg per mac arch is present.
           echo "$ASSETS" | grep -Eqi 'BIG.*Hat.*Entertainment.*Setup.*\.exe$|BIG.*Hat.*Entertainment.*\.exe$' || MISSING+=("windows-setup.exe")
           echo "$ASSETS" | grep -Eqi 'aarch64.*\.dmg$|arm64.*\.dmg$'                                              || MISSING+=("macos-apple-silicon.dmg")
+          echo "$ASSETS" | grep -Eqi 'x64.*\.dmg$|x86_64.*\.dmg$|intel.*\.dmg$'                                   || MISSING+=("macos-intel.dmg")
 
           if [ ${#MISSING[@]} -ne 0 ]; then
             echo "::error::Release $TAG is INCOMPLETE — missing: ${MISSING[*]}. Demoting back to draft so customers cannot see a half-baked release."
@@ -283,7 +291,7 @@ jobs:
             echo "Release demoted to draft. Inspect the failed matrix legs above, fix the root cause, re-run failed jobs (or cut a new tag), and only re-publish once all 3 binaries are present."
             exit 1
           fi
-          echo "All 2 OS binaries present. Release $TAG is publishable."
+          echo "All 3 installers present (Windows, macOS Apple Silicon, macOS Intel). Release $TAG is publishable."
 
           # Force the release to be PUBLIC (not draft, not prerelease). This
           # is the only place a release transitions from build-in-progress to
