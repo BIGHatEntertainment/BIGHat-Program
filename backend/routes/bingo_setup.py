@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from native import bingo_library as bl
 from native import winner_videos as wv
+from native import bingo_auto_advance as aa
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bingo", tags=["bingo-setup"])
@@ -21,6 +22,28 @@ router = APIRouter(prefix="/bingo", tags=["bingo-setup"])
 class SetupBody(BaseModel):
     main_folder: str = ""
     themes: Dict[str, dict] = {}          # { "<folder name>": {"enabled": true} }
+
+
+class AutoAdvanceBody(BaseModel):
+    enabled: object = False
+    confirmed: object = False
+
+
+@router.get("/auto-advance")
+async def get_auto_advance():
+    """Is the 'move to the next song when the timer reaches 0' switch on? Default OFF."""
+    return aa.get()
+
+
+@router.post("/auto-advance")
+async def set_auto_advance(body: AutoAdvanceBody):
+    """Turn it on (the host must confirm) or off. Only a real true/false is accepted. Never changed by any other save."""
+    try:
+        return aa.set_enabled(body.enabled, body.confirmed)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="The setting could not be saved. It stays off.")
 
 
 @router.get("/setup")
