@@ -90,6 +90,46 @@ async def updates_download() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"download_failed: {e}")
 
 
+# ---- v32.2.10: the program downloads the installer ITSELF (real progress, real file, never a silent "success") ----
+@router.post("/download-installer")
+async def updates_download_installer() -> Dict[str, Any]:
+    """The green "Download update" button. Starts (or joins) the download of THIS PC's installer into the Downloads folder."""
+    from . import installer_download as idl
+    svc = _svc()
+    try:
+        return await idl.start(svc)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:                                       # noqa: BLE001
+        logger.error(f"[UPDATES] installer download could not start: {e}")
+        raise HTTPException(status_code=500, detail=f"installer_download_failed: {e}")
+
+
+@router.get("/download-installer/status")
+async def updates_download_installer_status() -> Dict[str, Any]:
+    """Progress of the installer download (the screen polls this). Never starts anything."""
+    from . import installer_download as idl
+    return idl.snapshot()
+
+
+@router.post("/download-installer/reset")
+async def updates_download_installer_reset() -> Dict[str, Any]:
+    """'Try again': forget a failed download so the next click starts fresh. A running download is left alone."""
+    from . import installer_download as idl
+    if idl.snapshot().get("state") != idl.RUNNING:
+        idl.reset()
+    return idl.snapshot()
+
+
+@router.post("/download-installer/show")
+async def updates_show_installer() -> Dict[str, Any]:
+    """Show the finished installer in its folder. Only the file this program downloaded into Downloads can be shown."""
+    from . import installer_download as idl
+    return idl.open_installer("")
+
+
 @router.post("/open-installer")
 async def updates_open_installer() -> Dict[str, Any]:
     """The green "Download update" button. Opens this PC's installer download (or the release page) in the user's own browser.
