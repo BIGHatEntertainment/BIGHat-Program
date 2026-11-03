@@ -71,6 +71,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_UPDATE_CHANNEL_URL = "https://api.bighat.live/api/downloads/latest"
 
 
+def _as_int(v: Any) -> int:
+    try:
+        n = int(v)
+        return n if n > 0 else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 def _detect_platform_key() -> str:
     """Map this machine's OS+arch to the platform key the cloud manifest
     uses ('windows' / 'macos_apple' / 'macos_intel'). Linux falls through
@@ -296,6 +304,7 @@ class UpdatesService:
             "url": url if direct else self.RELEASES_PAGE,
             "direct": direct,
             "filename": (manifest.raw or {}).get("filename") or (url.rsplit("/", 1)[-1] if direct else ""),
+            "size": _as_int((manifest.raw or {}).get("size")),         # v32.2.10: the real installer size, so a short download is never accepted
             "platform": _detect_platform_key(),
         }
 

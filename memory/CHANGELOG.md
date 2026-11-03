@@ -7,6 +7,25 @@
 
 ---
 ---
+## update-installer-download-v1 (program; next release after v32.2.9)
+- BUG (2026-11-03): the Update tool found the new version, the green button showed "your browser is downloading / close the program", a second click showed a red "queued" box, but nothing was ever
+  downloaded, even after reopening the program.
+- CAUSE: since v32.2.1 the button only ASKED THE OS to open a link (`webbrowser.open` from the hidden background program). That call returns True when the link was handed off, not when a browser
+  opened or a file arrived, so the screen reported success with no proof and no file. Nothing in the program ever checked that a download happened. (The red "queued" wording is not in this repo; I could not find what produced it.)
+- FIX: `backend/native/installer_download.py`. The PROGRAM downloads this PC's installer itself, from the update channel's direct link (must pass `is_release_url`), into the Downloads folder, with real
+  progress. It is written as `<name>.part` and renamed only when the byte count equals the size the server promised, so a short or damaged file is deleted and never offered. It runs on its OWN thread and
+  event loop (the first version was killed by the short-lived loop that handled the click: caught by the tests). One download at a time: a second click joins it. A finished file is found again after a
+  restart (no second download); an existing different file is never overwritten (`name (2).exe`).
+- Routes: POST /api/native/updates/download-installer, GET .../download-installer/status, POST .../reset ("Try again"), POST .../show (show the file in its folder; only the file this program downloaded
+  into Downloads). `updates_service.installer_link` now also returns the manifest `size`.
+- Screen (`UpdateTool.jsx`): Download update -> live progress bar (MB of MB) -> "Downloaded: <file>. Close BIG Hat, then open the file" + "Show the file in its folder"; a failure says why in plain words
+  and offers Try again. "Downloaded" appears ONLY from the backend's DONE state. The plain release-page link remains only when the update server has no installer for this PC. The v32.2.1 wording
+  "Your browser is downloading" is removed everywhere. Reopening the page finds a running or finished download.
+- Live server check (2026-11-03): api.bighat.live serves direct links for windows, macos_apple AND macos_intel (v32.2.9), so the Intel download link now works too.
+- Tests: tests/test_update_installer_download.py (18; real local server with GitHub's 302 redirect, real files). Removing the size check or the half-file cleanup fails the matching tests. The v32.2.1 test that
+  described the old button was updated. Update test files vs clean main: 0 new failures (15 failures + 25 errors there are old hosted-version paths, identical on main).
+- NOT tested: the real Windows app downloading from GitHub, and what Windows/SmartScreen shows when the downloaded installer is opened. Please try it on a real PC.
+
 ## bingo-auto-advance-v1 (program; next release after v32.2.8)
 - NEW optional switch "Auto-advance" on the bingo host screen, in BOTH Music Bingo and Traditional Bingo. DEFAULT OFF. When ON, the moment the call timer reaches 0 the screen does exactly what
   the host's click on "Next Song" (music) / "Call Number" (traditional) does. It never starts a round and never restarts a stopped timer.

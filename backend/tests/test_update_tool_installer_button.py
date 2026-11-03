@@ -125,7 +125,9 @@ def test_open_url_still_refuses_other_github_links_and_still_allows_bighat_and_r
     assert c.post("/api/native/system/open-url", json={"url": f"{BASE}/v32.2.1/x.exe"}).status_code == 200
 
 
-def test_the_page_calls_the_new_route_and_no_longer_the_hidden_download():
+def test_the_page_downloads_inside_the_program_and_no_longer_hands_a_link_to_the_os():
+    """v32.2.10 replaced the v32.2.1 'open the link in the browser' button: the program now downloads the installer itself
+    (see tests/test_update_installer_download.py). The plain link is kept only as a last resort when the update server has no installer for this PC."""
     src = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "UpdateTool.jsx").read_text(encoding="utf-8")
-    assert "/api/native/updates/open-installer" in src and "/api/native/updates/download" not in src
-    assert "update-link" in src                                        # the link is shown if the browser could not be opened
+    assert "/api/native/updates/download-installer`" in src and "/api/native/updates/download`" not in src
+    assert "update-link" in src                                        # the link is still shown when no installer exists for this PC
