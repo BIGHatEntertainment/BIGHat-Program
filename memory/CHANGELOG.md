@@ -7,6 +7,22 @@
 
 ---
 ---
+## bingo-auto-advance-v1 (program; next release after v32.2.8)
+- NEW optional switch "Auto-advance" on the bingo host screen, in BOTH Music Bingo and Traditional Bingo. DEFAULT OFF. When ON, the moment the call timer reaches 0 the screen does exactly what
+  the host's click on "Next Song" (music) / "Call Number" (traditional) does. It never starts a round and never restarts a stopped timer.
+- Turning it ON asks the host to confirm first (a short dialog); turning it OFF is one click. The switch shows what the server REALLY saved, and a failed save leaves it OFF.
+- WHEN IT STAYS PUT (all tested): a bingo being verified, the winner video, a paused game, the round-over pop-up, no songs/numbers left, a call still cooling down, and any timer that was STOPPED
+  (pause, bingo, end round) rather than running out. After a bingo nothing advances until the host resumes or starts a round and plays a song; then it carries on.
+- ROBUST STORAGE: its own file `bingo_auto_advance.json` next to `bingo_settings.json` with its own routes (GET/POST /api/bingo/auto-advance). The Setup save rewrites bingo_settings.json from only
+  folder+themes, so storing the switch there would have reset it on every Setup save; a separate file cannot be touched by Setup, a new game, a new round or a theme change. Written atomically
+  and read back; only a real JSON `true` plus a host confirmation turns it on ("true", 1, "on", a missing/damaged/hand-edited file all read as OFF; a damaged file is kept as .bad).
+- Screen logic is a pure function (`frontend/src/pages/bingo/autoAdvance.js`) and the advance is decided in its OWN effect, never inside the timer's state updater (React StrictMode calls updaters twice,
+  which would have double-advanced). One expiry = at most one advance.
+- Tests: tests/test_bingo_auto_advance.py (38: default off, confirm needed, only real booleans, survives restart, Setup save / whole game flow cannot reset it, damaged file = off, failed save never claims
+  on, wiring checks on the screen source); autoAdvance.test.js (8, also run under plain node); a 13-scenario timer simulation incl. the shortest real interval (10 s). Breaking the storage or the boolean
+  check on purpose fails the matching tests. Bingo files vs clean main: 0 new failures (15 existing failures need `pymupdf`, absent in this sandbox).
+- NOT tested: the switch and the timer in the real app window (React cannot run here). Please try it: turn it on, start a round, let a timer reach 0, call a bingo, then resume.
+
 ## macos-intel-build-v1 (program build; release)
 - Customer on an Intel MacBook could not download: the Intel leg was removed on 2026-10-07 (c2362ba).
 - RESTORED in `.github/workflows/release.yml`: `macOS (Intel)`, target `x86_64-apple-darwin`, on **`macos-15-intel`**. NOT `macos-13` (the old label): GitHub retired it in Dec 2025, a job on it queues forever.

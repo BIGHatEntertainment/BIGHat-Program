@@ -49,6 +49,8 @@ const API = `${BACKEND_URL}/api`;
 // alpha.67: a video entry is either a stream link (string, from Bingo Setup's folder)
 // or a File the host picked by hand. Both become something <video> can play.
 import { takePreloaded, isRightVideo, checkNextSong } from "./songGuard";
+import { decideAutoAdvance, isOn } from "./autoAdvance";
+import AutoAdvanceSwitch from "./AutoAdvanceSwitch";
 
 const toPlayableUrl = (entry) => (typeof entry === "string" ? entry : URL.createObjectURL(entry));
 
@@ -95,6 +97,14 @@ export default function HostDashboard() {
 
   // Timer State
   const [timerRunning, setTimerRunning] = useState(false);
+  // v32.2.9 auto-advance: the saved switch (OFF unless the server says a real true), a "this countdown ran out" mark, and the latest call functions
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [autoAdvanceReady, setAutoAdvanceReady] = useState(false);
+  const [confirmAutoAdvance, setConfirmAutoAdvance] = useState(false);
+  const [autoAdvanceSaving, setAutoAdvanceSaving] = useState(false);
+  const timerExpiredRef = useRef(false);
+  const callActionRef = useRef(null);
+  const lastAutoFireRef = useRef(0);
   const [timerValue, setTimerValue] = useState(20);
   const timerIntervalRef = useRef(null);
 
@@ -890,6 +900,7 @@ export default function HostDashboard() {
   };
 
   const startTimer = () => {
+    timerExpiredRef.current = false;
     const interval = gameState?.settings?.call_interval || 20;
     setTimerValue(interval);
     setTimerRunning(true);
@@ -901,6 +912,7 @@ export default function HostDashboard() {
         if (prev <= 1) {
           clearInterval(timerIntervalRef.current);
           setTimerRunning(false);
+          timerExpiredRef.current = true;        // only the countdown running out sets this (idempotent, so StrictMode's double call is harmless)
           return interval;
         }
         return prev - 1;
@@ -909,8 +921,54 @@ export default function HostDashboard() {
   };
 
   const stopTimer = () => {
+    timerExpiredRef.current = false;               // a stopped timer (pause, bingo, end round) can never auto-advance
     setTimerRunning(false);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+  };
+
+  // v32.2.9: load the saved switch once. Anything but a real true from the server leaves it OFF.
+  useEffect(() => {
+    let alive = true;
+    axios.get(`${API}/bingo/auto-advance`)
+      .then((r) => { if (alive) setAutoAdvance(isOn(r.data)); })
+      .catch(() => { if (alive) setAutoAdvance(false); })
+      .finally(() => { if (alive) setAutoAdvanceReady(true); });
+    return () => { alive = false; };
+  }, []);
+
+  // v32.2.9: when a RUNNING timer runs out and the switch is on, do what the host's click on Next song / Call next number does.
+  // It is a separate effect (never inside the timer's state updater) so React's double-calling cannot fire it twice.
+  useEffect(() => {
+    if (timerRunning || !timerExpiredRef.current) return;       // wait for the stop; only a natural expiry left the mark
+    const wasExpired = timerExpiredRef.current;
+    timerExpiredRef.current = false;                            // consume it: one expiry = at most one advance
+    const verdict = decideAutoAdvance({
+      enabled: autoAdvance === true && autoAdvanceReady,
+      expired: wasExpired, wasRunning: wasExpired,
+      bingoActive: showBingoDialog || showWinnerVideo || !!gameState?.bingo_claimed,
+      roundOver: showRoundOver,
+      paused: !!gameState?.is_paused,
+      remaining: isMusicBingo ? availableSongNumbers.length : (Number(gameState?.remaining_numbers) || 0),   // unknown count = do not advance
+      busy: songCooldown || Date.now() - lastAutoFireRef.current < 4000,
+    });
+    if (!verdict.fire) return;
+    lastAutoFireRef.current = Date.now();
+    if (callActionRef.current) callActionRef.current();
+  }, [timerRunning]);                                           // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveAutoAdvance = async (wantOn) => {
+    setAutoAdvanceSaving(true);
+    try {
+      const r = await axios.post(`${API}/bingo/auto-advance`, { enabled: wantOn, confirmed: wantOn });
+      setAutoAdvance(isOn(r.data));                             // show what the server really saved, never what was asked
+      toast.success(isOn(r.data) ? "Auto-advance is ON: songs move on when the timer reaches 0." : "Auto-advance is OFF.");
+    } catch (e) {
+      setAutoAdvance(false);
+      toast.error(e?.response?.data?.detail || "Could not save the setting. Auto-advance stays off.");
+    } finally {
+      setAutoAdvanceSaving(false);
+      setConfirmAutoAdvance(false);
+    }
   };
 
   // BroadcastChannel for video mirroring to Audience View
@@ -1100,6 +1158,9 @@ export default function HostDashboard() {
   // =====================================================
   // Winner screen (video + name box + Continue / End Round). Used by BOTH layouts:
   // it used to exist only in the Traditional one, so a Music game never showed it.
+  // v32.2.9: always point at the latest "next" action for the current mode, so the auto-advance effect never calls a stale copy.
+  callActionRef.current = isMusicBingo ? callNextSong : callNumber;
+
   const winnerOverlay = showWinnerVideo ? (
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center" style={{ backgroundColor: '#000' }} data-testid="winner-overlay">
           <video
@@ -1335,6 +1396,9 @@ export default function HostDashboard() {
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200 ${showSongInfoAudience ? "translate-x-5" : "translate-x-0.5"}`} />
                   </div>
                 </div>
+
+                <AutoAdvanceSwitch on={autoAdvance} ready={autoAdvanceReady} saving={autoAdvanceSaving} mode="music"
+                  confirmOpen={confirmAutoAdvance} setConfirmOpen={setConfirmAutoAdvance} onSave={saveAutoAdvance} />
 
                 {!gameState?.is_active ? (
                   <Button className="w-full btn-success control-btn" onClick={startGame} data-testid="start-game-btn">
@@ -1599,6 +1663,8 @@ export default function HostDashboard() {
               <CardTitle className="text-lg">Controls</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <AutoAdvanceSwitch on={autoAdvance} ready={autoAdvanceReady} saving={autoAdvanceSaving} mode="traditional"
+                confirmOpen={confirmAutoAdvance} setConfirmOpen={setConfirmAutoAdvance} onSave={saveAutoAdvance} />
               {!gameState?.is_active ? (
                 <Button className="w-full btn-success control-btn" onClick={startGame} data-testid="start-game-btn">
                   <Play size={24} className="mr-2 fill-white" />
