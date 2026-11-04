@@ -1,5 +1,6 @@
 import React from 'react';
 import { Shuffle, Wand2, Zap, Grid3X3, Calendar, Instagram, Trophy, GraduationCap, Download, FolderOpen } from 'lucide-react';
+import { useNative } from '../context/NativeContext';
 
 const resourceCategories = [
   {
@@ -15,6 +16,7 @@ const resourceCategories = [
   {
     title: 'Bingo Tools',
     color: '#5973F7',
+    feature: 'music_bingo_enabled', // paid Bingo add-on — hidden when not owned
     tools: [
       { id: 'bingo-card-generator', name: 'Bingo Card Generator', description: 'Create custom bingo cards for any theme', icon: Grid3X3 },
     ]
@@ -40,11 +42,15 @@ const resourceCategories = [
 ];
 
 export default function ResourcesSection({ onToolClick }) {
+  const { isPremiumActive } = useNative();
+  const visibleCategories = resourceCategories.filter(
+    (cat) => !cat.feature || isPremiumActive(cat.feature),
+  );
   return (
     <section className="mt-10 animate-slide-up stagger-4" data-testid="resources-section">
       <h3 className="text-lg font-semibold text-white mb-6">Resources & Tools</h3>
       <div className="space-y-8">
-        {resourceCategories.map((cat) => (
+        {visibleCategories.map((cat) => (
           <div key={cat.title}>
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1.5 h-5 rounded-full" style={{ backgroundColor: cat.color }} />
