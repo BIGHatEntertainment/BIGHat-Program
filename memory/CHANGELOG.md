@@ -7,6 +7,25 @@
 
 ---
 ---
+## schedule-reconcile-v1 (program; next release after v32.2.10)
+- REQUEST (2026-11-04): the Program's schedule does not always follow the Cloud. Add a button like the Cloud's schedule import/export so a synced PC can always be brought up to date, with robust
+  checks against duplicates and unnecessary deletes.
+- FOUND: the Cloud's `/api/sync/export` + `/import` move the PROGRAM's schedule UP to the Cloud (program wins on content, cloud keeps claims). The direction wanted here is the other way, and the Program
+  already pulls the Cloud's schedule through `/api/program/changes`. So NO Cloud change is needed.
+- WHY IT DRIFTS: the normal sync is incremental ("what changed since my last sequence number"). An event it had to skip, wait on, or keep as a conflict is never sent again; an event it ADOPTED
+  (already on the PC at that time) is only un-tracked if the Cloud later deletes it, never removed; and nothing ever compares the whole schedule. So a PC can quietly keep a different schedule.
+- NEW `backend/native/schedule_reconcile.py`, two steps sharing ONE comparison: `check()` reads the Cloud's COMPLETE schedule (feed from sequence 0) and lists what would be added / updated / removed,
+  what is kept as it is on this PC (with the reason), and what is waiting (venue or host not on this PC yet). It CHANGES NOTHING. `apply()` needs the token of that exact check, takes a schedule
+  backup first, re-checks nothing changed meanwhile ("the schedule changed since you checked" -> nothing applied), then reuses the normal sync's own per-event rules.
+- SAFETY: matched by the tracked Cloud id, else by (venue, type, date+time) with the type compared case-insensitively, so an event is never added twice; only events the sync CREATED from the Cloud can
+  be removed, only when the Cloud no longer has them and nobody edited them here; an event edited on this PC is never overwritten or removed; events made on this PC stay; an EMPTY or unreadable Cloud
+  list never removes anything; people are never deleted; offline / lapsed / not linked changes nothing and says why.
+- Routes: POST /api/native/system/cloud-link/schedule/check and /schedule/apply. Screen: `components/admin/ScheduleReconcile.jsx`, inside the "Schedule sync" box on Admin > Integrations:
+  "Check the schedule" -> preview lists -> "Update this computer (a backup is saved first)". The Update button only appears when the check found something to do.
+- Tests: tests/test_schedule_reconcile.py (20; real MontyDB + files, only the Cloud feed faked; the 4 key guards each fail when removed: empty-list, local-edit protection, duplicate match, stale preview).
+  176 pass across the sync/link/files/show/locks files, 0 new failures vs clean main.
+- NOT tested: the card in the real app window, and a real Cloud account. Please try: on a PC with drift, Admin > Integrations > Check the schedule.
+
 ## update-installer-download-v1 (program; next release after v32.2.9)
 - BUG (2026-11-03): the Update tool found the new version, the green button showed "your browser is downloading / close the program", a second click showed a red "queued" box, but nothing was ever
   downloaded, even after reopening the program.

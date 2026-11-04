@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import List
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from . import cloud_link
 
@@ -46,6 +47,26 @@ async def sync_now():
     except Exception as e:                                    # noqa: BLE001  the data pull's answer must never be lost
         files = {"state": "error", "message": f"File sync stopped safely ({type(e).__name__})."}
     return {**res, "files": files}
+
+
+# ---- v32.2.11: "Update schedule from the Cloud" (a full, safe comparison; see native/schedule_reconcile.py) ----
+from . import schedule_reconcile  # noqa: E402
+
+
+class ReconcileApply(BaseModel):
+    token: str = ""
+
+
+@router.post("/schedule/check")
+async def schedule_check():
+    """Read the Cloud's complete schedule and compare it with this PC. CHANGES NOTHING."""
+    return await schedule_reconcile.check(_db())
+
+
+@router.post("/schedule/apply")
+async def schedule_apply(body: ReconcileApply):
+    """Apply exactly what the last check showed (needs its token). A backup is written first."""
+    return await schedule_reconcile.apply(_db(), body.token)
 
 
 @router.get("/files-status")
