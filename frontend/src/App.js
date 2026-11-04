@@ -71,6 +71,18 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+// Entitlement-gated route: auth + a specific license feature flag.
+// Unentitled users are sent back to the dashboard, where the locked
+// card shows the add-on upsell instead.
+function FeatureRoute({ feature, children }) {
+  const { user, loading } = useAuth();
+  const { loading: nativeLoading, isPremiumActive } = useNative();
+  if (loading || nativeLoading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isPremiumActive(feature)) return <Navigate to="/" replace />;
+  return children;
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
@@ -176,9 +188,9 @@ function AppRoutes() {
         <Route path="/trivia/audience" element={<TriviaAudienceView />} />
         <Route path="/roundmaker" element={<ProtectedRoute><RoundMakerDashboard /></ProtectedRoute>} />
         <Route path="/roundmaker/create/:roundType" element={<ProtectedRoute><RoundCreator /></ProtectedRoute>} />
-        <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
+        <Route path="/bingo" element={<FeatureRoute feature="music_bingo_enabled"><BingoLobby /></FeatureRoute>} />
         <Route path="/bingo/setup" element={<ProtectedRoute><BingoSetup /></ProtectedRoute>} />
-        <Route path="/bingo/host" element={<ProtectedRoute><BingoHostDashboard /></ProtectedRoute>} />
+        <Route path="/bingo/host" element={<FeatureRoute feature="music_bingo_enabled"><BingoHostDashboard /></FeatureRoute>} />
         <Route path="/bingo/audience" element={<BingoAudienceView />} />
         <Route path="/scoreboard" element={<ProtectedRoute><ScoreboardDashboard /></ProtectedRoute>} />
         <Route path="/scoreboard/live" element={<ProtectedRoute><ScoreboardLiveRender /></ProtectedRoute>} />
