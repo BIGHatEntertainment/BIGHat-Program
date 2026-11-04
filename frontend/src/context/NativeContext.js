@@ -65,6 +65,24 @@ export function NativeProvider({ children }) {
     refresh();
   }, [refresh]);
 
+  // Once per app launch: re-sync license entitlements from api.bighat.live.
+  // Without this, purchases/upgrades made after the key was first entered
+  // (add-ons bought later, support comps) never reach the installed app.
+  // Fire-and-forget: transport failures keep the cached snapshot (offline
+  // grace), so this can never lock out a paying customer.
+  const revalidatedRef = React.useRef(false);
+  useEffect(() => {
+    if (revalidatedRef.current) return;
+    if (!info?.native_mode || !info?.license?.key) return;
+    revalidatedRef.current = true;
+    axios
+      .post(`${API}/api/native/license/cloud/validate`, null, { timeout: 15000 })
+      .then((r) => {
+        if (r?.data?.status === 'ok') refresh();
+      })
+      .catch(() => {});
+  }, [info, refresh]);
+
   const isPremiumActive = useCallback(
     (feature) => {
       const sub = info?.subscription;
