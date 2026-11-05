@@ -8,6 +8,17 @@
 ---
 ---
 ---
+## round-duplicates-v1 (program; next release after v32.2.10; PR 2 of 3 for the one-source-of-truth rule)
+- REQUEST (2026-11-04): "tired of having multiple duplicates in my standalone PC files". PR 1 (#72) stops NEW duplicates of a stamped round; this PR cleans up the ones already on a PC.
+- NEW `backend/round_duplicates.py`. A duplicate is only ever CERTAIN: two files with the same permanent `round_uid`, or two UNSTAMPED files of one type with identical questions + answers. A file that only shares a NAME is never a duplicate; unreadable files are never one; different types never group.
+- Two steps sharing ONE comparison (same pattern as the schedule check): `check()` is read-only and lists each group (which copy is kept, which extras can move). `retire(token)` re-checks first (anything changed -> nothing moves), then MOVES the extras to `Files/_retired_duplicates/<date>/<TYPE>/` with a `WHAT_HAPPENED.txt`. NOTHING IS DELETED; undo = move a file back.
+- WHICH COPY STAYS: stamped first, then the one the 180-day lockout tracks by file name, then one a saved show points at, then the oldest, then the plainest name. A copy a saved show uses, or whose name the lockout tracks, is never moved (the report says why) - moving it could free a locked round or break a saved show.
+- Routes: POST /api/native/system/cloud-link/round-duplicates/check and /retire. Screen: `components/admin/RoundDuplicates.jsx`, inside the Cloud link box in Admin > Integrations, under the schedule check. Check -> list -> "Move N extra copies aside (not deleted)".
+- Tests: tests/test_round_duplicates.py (10; real files + MontyDB + the real HTTP routes). Each safety guard was broken on purpose (no stale-token check; lockout ignored; saved shows ignored; same-name counted) and exactly one test failed each time. Scan of 310 files = 0.04 s. 39 older tests fail identically with and without this change (hardcoded /app paths, no live server).
+- NOT tested: the card in the real app window (no frontend packages here; the 3 changed JS files parse), a real PC full of duplicates, a real Cloud account. A duplicate whose copies were edited separately is NOT a certain duplicate and is left alone.
+- STILL OPEN: PR 3 (upload PC-only rounds/overlays to the Cloud for stamping; nothing in the Program uploads today). Overlay duplicates are not handled here.
+
+---
 ## round-stamp-identity-v1 (program; next release after v32.2.10)
 - REQUEST (2026-11-04): duplicates of the same round pile up in the standalone PC's files. When a Cloud account is linked there must be ONE controlling authority: the Cloud's stamp (`round_uid`) is the round's identity, the PC keeps the stamped copy, and a show built on the Cloud always finds the right, current files.
 - PROVEN (real importer, real files, before the fix): importing the same stamped round twice made TWO files (`flowers.bighat` + `flowers-7297fdd0.bighat`), and NEITHER kept the stamp. Two causes: (1) the importer gave every import a fresh random id and never looked at `round_uid`; (2) `_write_round_bighat` saves a round as plain JSON with no `round_uid`, and `round_uid.read_uid` only read ZIPs, so a stamped Cloud round was UNSTAMPED on disk and nothing could match it.

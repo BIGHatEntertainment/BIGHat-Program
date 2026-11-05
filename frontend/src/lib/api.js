@@ -34,6 +34,8 @@ const api = {
   cloudFilesStatus: () => axios.get(`${API}/api/native/system/cloud-link/files-status`, { withCredentials: true, headers: authHeaders() }),
   cloudScheduleCheck: () => axios.post(`${API}/api/native/system/cloud-link/schedule/check`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
   cloudScheduleApply: (token) => axios.post(`${API}/api/native/system/cloud-link/schedule/apply`, { token }, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
+  roundDuplicatesCheck: () => axios.post(`${API}/api/native/system/cloud-link/round-duplicates/check`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
+  roundDuplicatesRetire: (token) => axios.post(`${API}/api/native/system/cloud-link/round-duplicates/retire`, { token }, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
   cloudSyncApprove: () => axios.post(`${API}/api/native/system/cloud-link/sync-approve`, {}, { withCredentials: true, headers: authHeaders(), timeout: 120000 }),
   // Cloud shows (v32.2.6): trivia shows built in the Cloud wizard, pulled onto this PC
   cloudShows: () => axios.get(`${API}/api/native/system/cloud-link/shows`, { withCredentials: true, headers: authHeaders() }),
