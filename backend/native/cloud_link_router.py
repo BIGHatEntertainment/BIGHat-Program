@@ -69,6 +69,21 @@ async def schedule_apply(body: ReconcileApply):
     return await schedule_reconcile.apply(_db(), body.token)
 
 
+# ---- v32.2.11: duplicate round files (see round_duplicates.py): check = read-only, retire = MOVE aside (never delete) ----
+@router.post("/round-duplicates/check")
+async def round_duplicates_check():
+    """Lists certain duplicate round files (same stamp, or identical questions and answers). CHANGES NOTHING."""
+    import round_duplicates
+    return await round_duplicates.check(_db())
+
+
+@router.post("/round-duplicates/retire")
+async def round_duplicates_retire(body: ReconcileApply):
+    """Moves the extra copies from the last check into Files/_retired_duplicates (needs its token). Nothing is deleted."""
+    import round_duplicates
+    return await round_duplicates.retire(_db(), body.token)
+
+
 @router.get("/files-status")
 def files_status():
     return cloud_files.public_status()

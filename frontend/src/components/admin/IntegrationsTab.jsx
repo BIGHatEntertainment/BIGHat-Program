@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../lib/api';
 import ScheduleReconcile from './ScheduleReconcile';
+import RoundDuplicates from './RoundDuplicates';
 import { saveBlob } from '../../lib/saveFile';
 import { Package, UploadCloud, DownloadCloud, FileDown, FileUp, Loader2, CheckCircle2, AlertTriangle, Mail, HardDrive, Cloud, Copy, Link2, RefreshCw } from 'lucide-react';
 
@@ -144,6 +145,7 @@ function CloudLinkCard() {
             </div>
           )}
           <ScheduleReconcile onDone={() => syncNow(false)} />
+          <RoundDuplicates />
         </div>
       )}
 
