@@ -7,6 +7,23 @@
 
 ---
 ---
+## slow-backend-start-v1 (program shell; next release after v32.2.10)
+- REQUEST (2026-11-04): an Intel MacBook user gets "BIG Hat's backend started but never responded". Give older Intel Macs more time and flags so the backend is not dropped.
+- CAUSE (strong, not proven): the Rust shell waited 60 s for the backend to answer /health, then showed an error and called `exit(1)`, which KILLED a backend that was still starting. The backend is a
+  PyInstaller `--onefile` build that unpacks itself on EVERY launch (and macOS scans the new files the first time). CI timing of the same smoke test: Intel runner 87 s vs Apple Silicon 29 s, on a fast
+  machine; an older Intel MacBook can need more than 60 s, and a retry started from scratch each time, so it could never get through. Not Windows paths: the log path and launcher were already Mac-aware.
+- FIX in `src-tauri/src/lib.rs`:
+  * normal wait: 240 s on macOS (60 s elsewhere), then it KEEPS WAITING as long as the backend process is alive, up to a hard ceiling of 600 s. A backend that has EXITED is never waited on.
+  * `Terminated` from the backend output flips a shared flag, so the wait knows "slow" from "crashed".
+  * splash text while waiting: "Still starting. The first launch can take a few minutes on an older computer. Please keep this window open."
+  * the error dialog is per platform (a Mac no longer reads "Windows security tool"; it points to System Settings > Privacy & Security > Open Anyway) and says whether the backend STOPPED or never ANSWERED.
+  * the log records the exact seconds and attempts (`health OK after N attempts, S s`), so the next report shows the real speed.
+- CHECKED, NOT CHANGED: seed data copied on first boot is tiny (2 round files, 0.5 MB + 3.7 MB covers), so disk copying is not the cause and startup order was left alone.
+- VERIFIED: installed a Rust toolchain in the dev sandbox; `cargo check` passes on the real shell (Linux); the macOS and Windows cfg-gated blocks type-check on their own targets; the REAL wait loop was run against
+  five situations (fast, slow-after-limit, crashed early, alive-never-answers, crashed after the limit): all behave as intended. A slow backend that answers after the normal limit is now let through.
+- NEW `.github/workflows/shell-check.yml`: `cargo check --locked` on Linux, macOS and Windows for every PULL REQUEST touching `src-tauri/` (never on a tag, so it cannot block a release).
+- NOT verified: a real Intel MacBook starting the app; the macOS/Windows jobs of shell-check have not run yet (first PR run). Still needed from that user: tauri-shell.log, to prove slow vs crash.
+
 ## schedule-reconcile-v1 (program; next release after v32.2.10)
 - REQUEST (2026-11-04): the Program's schedule does not always follow the Cloud. Add a button like the Cloud's schedule import/export so a synced PC can always be brought up to date, with robust
   checks against duplicates and unnecessary deletes.
