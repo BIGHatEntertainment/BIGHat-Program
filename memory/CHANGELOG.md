@@ -8,6 +8,18 @@
 ---
 ---
 ---
+## round-upload-for-stamping-v1 (program; next release after v32.2.10; PR 3 of 3 for the one-source-of-truth rule)
+- REQUEST (2026-11-04): "if the user has the program and assets in the program then the cloud, upload to the cloud for stamping and keep the stamped items. the stamping is important".
+- FOUND: nothing in the Program uploaded anything, and the Cloud has NO Program upload route (the contract lists `PUT /api/program/files/{id}` but it was never built; `/api/files/upload` is browser-session only). So this PR is the Program half; the Cloud half is `docs/CLOUD_TASK_program_round_upload.md` (ONE route that reuses the Cloud's existing `_round_fields`/`stamp_zip`, so there is one stamping path).
+- NEW `backend/native/cloud_upload.py`. Two steps sharing ONE comparison: `check()` (read-only) lists what would go up; `upload(token)` re-checks and sends only that. Routes: POST /api/native/system/cloud-link/round-upload/check and /send. Screen: `components/admin/RoundUpload.jsx` in Admin > Integrations, above the duplicate check. Opt-in only: nothing uploads by itself.
+- WHAT GOES UP: unstamped round files of a known type that the Cloud does not already hold. A stamped round is already the Cloud's. A name the Cloud already has (any spelling: TYPE__ prefix, -<8hex> tail) is NEVER sent, because the Cloud matches by name and would REPLACE its round for every PC; those are listed as "name already in the Cloud" for the owner to decide.
+- NOTHING LOCAL CHANGES: the PC never deletes, moves or overwrites a file here. The stamped copy comes back through the normal file pull (PR 1 files it by its stamp); the plain copy is then an exact duplicate the duplicate check (PR 2) offers to move aside. One file at a time, progress saved after each (`cloud_upload.json`), a Cloud failure stops the run with nothing lost or repeated, a file edited after it was sent is offered again.
+- ALSO FIXED (a gap in PR 2 found while building this): an unstamped file and its stamped Cloud copy were NOT grouped as duplicates (stamped files only met stamped, unstamped only unstamped). Now an unstamped file whose questions+answers exactly match a stamped file joins that stamped file's group, and the stamped copy is always the one kept.
+- Tests: tests/test_cloud_upload.py (11; real files + MontyDB + the real HTTP routes, only the Cloud faked) + 2 new in test_round_duplicates.py. Five guards were broken on purpose (no stale-token check; name clash ignored; stamped rounds uploaded; sent-memory forgotten; progress not saved) and a test failed each time. 78 pass across upload/duplicate/stamp/pull/round-id; 39 older tests fail identically with and without this change.
+- NOT tested: the REAL Cloud route (it does not exist yet; until the Cloud task is merged the button says "The Cloud does not accept uploads from this program yet. Nothing was sent."), the card in the real window, a real account. Overlay/picture upload is NOT included (rounds only).
+- ORDER: merge the Cloud task first (or at least have the Cloud agent build it), then release this.
+
+---
 ## round-duplicates-v1 (program; next release after v32.2.10; PR 2 of 3 for the one-source-of-truth rule)
 - REQUEST (2026-11-04): "tired of having multiple duplicates in my standalone PC files". PR 1 (#72) stops NEW duplicates of a stamped round; this PR cleans up the ones already on a PC.
 - NEW `backend/round_duplicates.py`. A duplicate is only ever CERTAIN: two files with the same permanent `round_uid`, or two UNSTAMPED files of one type with identical questions + answers. A file that only shares a NAME is never a duplicate; unreadable files are never one; different types never group.

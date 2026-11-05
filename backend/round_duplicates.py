@@ -99,13 +99,22 @@ async def build(db) -> Dict[str, Any]:
     in_use = await _files_in_use(db)
     locked = _locked_by_name()
     buckets: Dict[str, List[Path]] = {}
+    stamped_content: Dict[str, str] = {}                        # content fingerprint -> the stamp that content already carries
+    for f in files:
+        u = round_uid.read_uid(f)
+        if u:
+            k = _content_key(f)
+            if k:
+                stamped_content.setdefault(k, u)
     for f in files:
         u = round_uid.read_uid(f)
         if u:
             buckets.setdefault("uid:" + u, []).append(f)
         else:
             k = _content_key(f)
-            if k:
+            if k and k in stamped_content:                      # the same round, now stamped by the Cloud: the stamped copy is the one that stays
+                buckets.setdefault("uid:" + stamped_content[k], []).append(f)
+            elif k:
                 buckets.setdefault("content:" + k, []).append(f)
     groups: List[Dict[str, Any]] = []
     for key, members in buckets.items():

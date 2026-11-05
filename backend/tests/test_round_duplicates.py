@@ -122,3 +122,27 @@ def test_the_real_http_routes_check_then_retire(env):
     done = c.post(clr.router.prefix + "/round-duplicates/retire", json={"token": chk["token"]}).json()
     assert done["ok"] and done["moved"] == 1 and keep.exists() and not dup.exists()
     assert c.post(clr.router.prefix + "/round-duplicates/check").json()["group_count"] == 0
+
+
+def _stamp(data, uid):
+    m = json.loads(zipfile.ZipFile(io.BytesIO(data)).read("manifest.json")); m["round_uid"] = uid
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(out, "w") as zout:
+        for i in zin.infolist():
+            zout.writestr(i.filename, json.dumps(m) if i.filename == "manifest.json" else zin.read(i.filename))
+    return out.getvalue()
+
+
+def test_an_unstamped_file_and_its_stamped_cloud_copy_are_one_group_and_the_stamped_one_stays(env):
+    orig = blob(q="Q1", a="A1")
+    mine = put(env, "mine.bighat", orig); cloud = put(env, "mine-from-cloud.bighat", _stamp(orig, A))
+    import os; os.utime(mine, (1, 1))                                    # the unstamped one is older, and still must not win
+    rd = mod(env); chk = run(rd.check(env.db))
+    assert chk["group_count"] == 1 and chk["groups"][0]["keep"]["file"] == "mine-from-cloud.bighat" and chk["can_retire"] == 1
+    res = run(rd.retire(env.db, chk["token"]))
+    assert res["ok"] and cloud.exists() and not mine.exists()
+
+
+def test_an_unstamped_file_with_different_questions_is_not_joined_to_a_stamped_one(env):
+    put(env, "a.bighat", _stamp(blob(q="Q1", a="A1"), A)); put(env, "b.bighat", blob(q="Q2", a="A2"))
+    assert run(mod(env).check(env.db))["group_count"] == 0
