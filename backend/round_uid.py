@@ -41,6 +41,8 @@ def read_uid(path: Any) -> Optional[str]:
         if zipfile.is_zipfile(p):
             with zipfile.ZipFile(p) as z:
                 uid = clean((json.loads(z.read("manifest.json").decode("utf-8-sig")) or {}).get("round_uid"))
+        else:                                           # a round the Program saved itself is plain JSON and carries the stamp at top level
+            uid = clean((json.loads(p.read_text(encoding="utf-8-sig")) or {}).get("round_uid"))
     except Exception:                                   # noqa: BLE001  a bad file must never break a list
         uid = None
     with _lock:
