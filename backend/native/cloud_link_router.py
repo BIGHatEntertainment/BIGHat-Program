@@ -84,6 +84,21 @@ async def round_duplicates_retire(body: ReconcileApply):
     return await round_duplicates.retire(_db(), body.token)
 
 
+# ---- v32.2.11: send this PC's own rounds to the Cloud for stamping (see native/cloud_upload.py): check = read-only, upload = only what the check listed ----
+@router.post("/round-upload/check")
+async def round_upload_check():
+    """Lists the PC-only rounds that would go up, and the ones that would not (and why). CHANGES NOTHING."""
+    from . import cloud_upload
+    return await cloud_upload.check(_db())
+
+
+@router.post("/round-upload/send")
+async def round_upload_send(body: ReconcileApply):
+    """Sends exactly what the last check listed (needs its token). Nothing on this PC is changed, moved or deleted."""
+    from . import cloud_upload
+    return await cloud_upload.upload(_db(), body.token)
+
+
 @router.get("/files-status")
 def files_status():
     return cloud_files.public_status()
