@@ -758,6 +758,19 @@ async def _import_zip_bytes(payload: bytes) -> ImportResult:
             await db[BIGHAT_TYPES["round"].collection].delete_many({"id": creator_id})   # replace, never duplicate
         except Exception as exc:                               # noqa: BLE001
             logger.warning("[bighat-files] could not clear earlier copy of %s: %s", creator_id, exc)
+    incoming_uid = None
+    if content_type == "round":
+        import round_uid as _ru
+        incoming_uid = _ru.clean(manifest.get("round_uid"))
+        if incoming_uid:                                       # the same permanent ID is the same round: update it, never add a copy
+            try:
+                prior = await db[BIGHAT_TYPES["round"].collection].find_one({"round_uid": incoming_uid}, {"_id": 0, "id": 1})
+                if prior and prior.get("id") and not is_creator:
+                    new_id = prior["id"]
+                    await db[BIGHAT_TYPES["round"].collection].delete_many({"id": new_id})
+            except Exception as exc:                           # noqa: BLE001
+                logger.warning("[bighat-files] stamp match failed for %s: %s", incoming_uid, exc)
+            doc["round_uid"] = incoming_uid
     doc.pop("_id", None)
     doc["id"] = new_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()

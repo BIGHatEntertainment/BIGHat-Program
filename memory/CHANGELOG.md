@@ -7,6 +7,15 @@
 
 ---
 ---
+---
+## round-stamp-identity-v1 (program; next release after v32.2.10)
+- REQUEST (2026-11-04): duplicates of the same round pile up in the standalone PC's files. When a Cloud account is linked there must be ONE controlling authority: the Cloud's stamp (`round_uid`) is the round's identity, the PC keeps the stamped copy, and a show built on the Cloud always finds the right, current files.
+- PROVEN (real importer, real files, before the fix): importing the same stamped round twice made TWO files (`flowers.bighat` + `flowers-7297fdd0.bighat`), and NEITHER kept the stamp. Two causes: (1) the importer gave every import a fresh random id and never looked at `round_uid`; (2) `_write_round_bighat` saves a round as plain JSON with no `round_uid`, and `round_uid.read_uid` only read ZIPs, so a stamped Cloud round was UNSTAMPED on disk and nothing could match it.
+- FIX (3 small edits, nothing else touched): `routes/bighat_files.py` a stamped round whose `round_uid` is already in the PC's database keeps that round's id (update in place, never a second row); `routes/roundmaker.py` `_write_round_bighat` writes `round_uid` into the file and, if another file on the PC already holds that stamp, overwrites THAT file instead of adding `name-<8hex>.bighat`; `round_uid.py` `read_uid` also reads the stamp from a plain-JSON round.
+- UNCHANGED ON PURPOSE: a round with no stamp behaves exactly as before (two imports = two rounds). No file is deleted. Existing duplicates already on a PC are NOT touched by this PR (PR 2: report them, owner approves). Uploading PC-only rounds/overlays to the Cloud for stamping is PR 3 (not built; nothing in the Program uploads today).
+- Tests: tests/test_round_stamp_identity.py (5): same stamp twice = one file + stamp kept; changed Cloud copy updates in place; a renamed Cloud round replaces the file holding its stamp; two different stamps with the same name stay two rounds; unstamped = as before. 84 pass across stamp/pull/round-id/show-import suites; 39 older tests fail identically with and without this change (hardcoded /app paths, no live server).
+- NOT tested: a real Cloud account, and a PC that already holds duplicates.
+
 ## schedule-reconcile-v1 (program; next release after v32.2.10)
 - REQUEST (2026-11-04): the Program's schedule does not always follow the Cloud. Add a button like the Cloud's schedule import/export so a synced PC can always be brought up to date, with robust
   checks against duplicates and unnecessary deletes.
