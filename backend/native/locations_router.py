@@ -948,6 +948,8 @@ async def reorder_branding_images(
 
     for idx, img in enumerate(ordered):
         img["order"] = idx
+        if img.get("uploaded_by") == "cloud-sync":
+            img["owner_set"] = True                       # the owner arranged this list: the Cloud's order no longer overrides it
 
     await _db.locations.update_one(
         {"id": location_id},
@@ -1088,6 +1090,8 @@ async def reorder_overlay_images(
             ordered.append(img)
     for idx, img in enumerate(ordered):
         img["order"] = idx
+        if img.get("uploaded_by") == "cloud-sync":
+            img["owner_set"] = True                       # the owner arranged this list: the Cloud's order no longer overrides it
     await _db.locations.update_one(
         {"id": location_id},
         {"$set": {
@@ -1131,6 +1135,7 @@ async def tag_overlay_image(
     if not img:
         raise HTTPException(404, detail="overlay_not_found")
     img["applies_to_round_types"] = tags
+    img["owner_set"] = True                                  # the owner tagged it here: a Cloud tag never overrides this
     await _db.locations.update_one(
         {"id": location_id},
         {"$set": {

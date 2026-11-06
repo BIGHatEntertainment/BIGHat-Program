@@ -233,6 +233,27 @@ def _atomic_write(dest: Path, data: bytes) -> None:
         raise
 
 
+def _apply_cloud_meta(rec: Dict[str, Any], f: Dict[str, Any], cur: Optional[Dict[str, Any]], kind: str, count: int) -> None:
+    """The Cloud's round tags (overlays) and position, applied to a picture THIS SYNC brought in. Never overrides the owner:
+    once the owner has tagged or reordered it on this PC (`owner_set`), the Cloud's values are ignored for that picture.
+    A Cloud answer with no `applies_to_round_types` key means untagged (the Program's old behaviour), so nothing is written."""
+    if cur and cur.get("owner_set"):
+        return
+    ver = f.get("meta_version")
+    if cur and ver is not None and cur.get("cloud_meta_version") == ver:
+        return                                                    # nothing about its tags or position changed in the Cloud
+    if ver is not None:
+        rec["cloud_meta_version"] = ver
+    if kind == "overlay" and "applies_to_round_types" in f:
+        from . import picture_mirror
+        tags = picture_mirror.clean_tags(f.get("applies_to_round_types"))
+        if tags is not None:
+            rec["applies_to_round_types"] = tags
+    so = f.get("sort_order")
+    if isinstance(so, int) and not isinstance(so, bool) and so >= 0:
+        rec["order"] = so
+
+
 async def _put_picture(db, loc: Dict[str, Any], kind: str, f: Dict[str, Any], data: bytes) -> Tuple[bool, str]:
     """overlay / image: write <id>.<ext> into the location's folder and keep its record. A changed file replaces our own copy."""
     from . import locations_router as lr
@@ -257,6 +278,10 @@ async def _put_picture(db, loc: Dict[str, Any], kind: str, f: Dict[str, Any], da
     rec = _picture_record(image_id, str(f.get("name") or f"{image_id}{ext}"), mime, len(data), (cur or {}).get("order", len(recs)), ext)
     if cur:
         rec["uploaded_at"] = cur.get("uploaded_at") or rec["uploaded_at"]
+        for k in ("applies_to_round_types", "cloud_meta_version", "owner_set"):     # keep what is already on the record (the owner's tags win)
+            if k in cur:
+                rec[k] = cur[k]
+    _apply_cloud_meta(rec, f, cur, kind, len(recs))
     recs.append(rec)
     recs.sort(key=lambda r: r.get("order", 0))
     await _save_location(db, loc, {field: recs})
@@ -395,7 +420,7 @@ async def pull_once(db) -> Dict[str, Any]:
                     counts["skipped"] += 1                        # v32.2.12: the Cloud keeps its rounds; a round comes down only inside a show the host imports
                     continue
                 seen = st["files"].get(fid)
-                if seen and seen.get("sha256") == sha and seen.get("done"):
+                if seen and seen.get("sha256") == sha and seen.get("done") and seen.get("meta_version") == f.get("meta_version"):
                     counts["unchanged"] += 1
                     continue
                 loc = None
@@ -431,7 +456,7 @@ async def pull_once(db) -> Dict[str, Any]:
                     ok, note = await _put_picture(db, loc, kind, f, data)
                 if ok:
                     counts["updated" if seen else "added"] += 1
-                    st["files"][fid] = {"sha256": sha, "kind": kind, "name": f.get("name"), "venue_id": f.get("venue_id"), "done": True, "at": _now(),
+                    st["files"][fid] = {"sha256": sha, "kind": kind, "name": f.get("name"), "venue_id": f.get("venue_id"), "meta_version": f.get("meta_version"), "done": True, "at": _now(),
                                         "note": note if kind == "bighat" else ""}
                     st["failed"].pop(fid, None)
                 elif note == "kept_own_sponsor":
