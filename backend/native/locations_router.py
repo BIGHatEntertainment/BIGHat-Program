@@ -448,6 +448,17 @@ def _read_location_json(slug: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _forget_picture(slug: str, kind_dir: str, image_id: str, ext: str) -> None:
+    """A picture was removed ON PURPOSE (Remove button, or replaced by a changed Cloud copy): drop its AppData safety copy too.
+    v32.2.12: without this the startup restore (locations_backup.restore_missing) saw the file as 'missing' and brought it back,
+    and the hydrate step then re-added its record, so a deleted branding image / round overlay reappeared on the next launch. Never raises."""
+    try:
+        from native import locations_backup
+        locations_backup.remove_file(slug, f"{kind_dir}/{image_id}{ext or '.bin'}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[locations] could not drop the safety copy of %s/%s: %s", kind_dir, image_id, exc)
+
+
 async def _persist_location(location_id: str) -> None:
     """Re-read the row from the DB and mirror it to disk."""
     try:
@@ -905,6 +916,7 @@ async def delete_branding_image(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
+    _forget_picture(loc["slug"], "branding", image_id, img.get("ext", ".bin"))
 
 
 @router.patch("/{location_id}/images/order")
@@ -1053,6 +1065,7 @@ async def delete_overlay_image(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
+    _forget_picture(loc["slug"], "overlays", image_id, img.get("ext", ".bin"))
 
 
 @router.patch("/{location_id}/overlays/order")

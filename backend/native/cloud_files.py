@@ -247,6 +247,7 @@ async def _put_picture(db, loc: Dict[str, Any], kind: str, f: Dict[str, Any], da
         if old.suffix.lower() != ext:
             try:
                 old.unlink()
+                lr._forget_picture(loc["slug"], "overlays" if kind == "overlay" else "branding", old.stem, old.suffix)   # and its safety copy, or a restart brings it back
             except OSError:
                 pass
     _atomic_write(folder / f"{image_id}{ext}", data)
@@ -278,6 +279,7 @@ async def _put_sponsor(db, loc: Dict[str, Any], f: Dict[str, Any], data: bytes) 
         if old.is_file() and old.stem.startswith("cf"):
             try:
                 old.unlink()
+                lr._forget_picture(loc["slug"], "sponsor", old.stem, old.suffix)
             except OSError:
                 pass
     _atomic_write(folder / f"{image_id}{ext}", data)
