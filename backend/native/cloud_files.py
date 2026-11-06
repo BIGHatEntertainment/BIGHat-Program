@@ -3,7 +3,8 @@
 Every 5 minutes (and on "Sync now") the Program asks GET /api/program/manifest, which lists the files this PC should have with a
 sha256 for each, then downloads what is new or changed (GET /api/program/files/{id}) and files it where the app looks for it:
 
-    category 'bighat'  -> the app's own .bighat importer (rounds land in Files/Trivia/<TYPE>/, the same as the lobby's Import button)
+    category 'bighat'  -> NOT pulled (v32.2.12). The Cloud keeps its rounds; a round reaches this PC inside a show the host imports (cloud_shows.py).
+                          The one exception is a round this PC uploaded for stamping: its stamped copy comes back through the app's own importer.
     category 'overlay' -> Files/Locations/<slug>/overlays/<id>.<ext>   + the location's overlay_images record
     category 'image'   -> Files/Locations/<slug>/branding/<id>.<ext>   + the location's branding_images record
     category 'sponsor' -> Files/Locations/<slug>/sponsor/              + the location's sponsor_image record
@@ -349,6 +350,17 @@ async def _host_ready(db, f: Dict[str, Any]) -> bool:
 
 
 # ------------------------------------------------------------------ one pull
+def _uploaded_by_this_pc(name: Any) -> bool:
+    """True only for a round THIS PC sent up for stamping (native/cloud_upload.py): its stamped copy is the one round that comes back."""
+    try:
+        from . import cloud_upload
+        import round_usage
+        want = round_usage.norm_name(name)
+        return bool(want) and any(round_usage.norm_name(Path(p).name) == want for p in (cloud_upload._read_state().get("sent") or {}))
+    except Exception:                                          # noqa: BLE001  when in doubt, pull nothing
+        return False
+
+
 async def pull_once(db) -> Dict[str, Any]:
     """One pull. Never raises. Returns the public status."""
     if _LOCK.locked():
@@ -377,6 +389,9 @@ async def pull_once(db) -> Dict[str, Any]:
                     counts["skipped"] += 1
                     continue
                 fid, kind, sha = str(f["file_id"]), f["category"], str(f.get("sha256") or "").lower()
+                if kind == "bighat" and not _uploaded_by_this_pc(f.get("name")):
+                    counts["skipped"] += 1                        # v32.2.12: the Cloud keeps its rounds; a round comes down only inside a show the host imports
+                    continue
                 seen = st["files"].get(fid)
                 if seen and seen.get("sha256") == sha and seen.get("done"):
                     counts["unchanged"] += 1
