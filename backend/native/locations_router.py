@@ -331,6 +331,30 @@ class ImageOrder(BaseModel):
     image_ids: List[str] = Field(default_factory=list)
 
 
+async def _host_location_ids(user: Dict[str, Any]) -> List[str]:
+    """Location ids of the venues a HOST works at: login email -> Schedule employee -> venue roles (any role) -> venue -> location.
+    v32.2.13: the Karaoke screens ask for the venue list as the logged-in HOST, who is not an admin and is never in a location's
+    assigned_user_ids, so the list was refused and the dropdown was empty. Reads only; an unknown host simply has no venues."""
+    email = ((user or {}).get("email") or "").strip()
+    if not email or _db is None:
+        return []
+    import re as _re
+    emp = await _db.employees.find_one({"email": {"$regex": f"^{_re.escape(email)}$", "$options": "i"}}, {"_id": 0, "id": 1})
+    if not emp:
+        return []
+    venue_ids = {r.get("venue_id") for r in await _db.venue_roles.find({"employee_id": emp["id"]}, {"_id": 0, "venue_id": 1}).to_list(2000)}
+    venue_ids.discard(None)
+    if not venue_ids:
+        return []
+    out = set()
+    for loc in await _db.locations.find({"venue_id": {"$in": list(venue_ids)}, "retired": {"$ne": True}}, {"_id": 0, "id": 1}).to_list(500):
+        out.add(loc["id"])
+    for v in await _db.venues.find({"id": {"$in": list(venue_ids)}}, {"_id": 0, "location_id": 1}).to_list(500):
+        if v.get("location_id"):
+            out.add(v["location_id"])
+    return sorted(out)
+
+
 # ----- Endpoints: locations CRUD -----
 @router.get("")
 async def list_locations(request: Request, game: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -338,6 +362,7 @@ async def list_locations(request: Request, game: Optional[str] = None) -> List[D
 
     master_admin: every location.
     admin:        only locations where they're in `assigned_user_ids`.
+    host:         only when a game is asked for (?game=karaoke), and only the venues they hold a Schedule role at (v32.2.13).
 
     v32.0.0-alpha.34: on every list call we run `_hydrate_from_disk()`
     which reconciles `db.locations` with the actual folders under
@@ -349,7 +374,13 @@ async def list_locations(request: Request, game: Optional[str] = None) -> List[D
     are ingested. Nothing fails silently — every reconciliation
     action is logged with the slug and count.
     """
-    user = await _require_admin_or_master(request)
+    user = await _current_user(request)
+    host_view = False
+    if not _is_admin_or_master(user):
+        if (user or {}).get("role") == "host" and game:
+            host_view = True            # v32.2.13: a host may read the list for ONE game (Karaoke), limited to the venues they work at
+        else:
+            raise HTTPException(403, detail="admin_or_master_required")
     if _db is None:
         raise HTTPException(500, detail="database_not_initialised")
 
@@ -369,7 +400,9 @@ async def list_locations(request: Request, game: Optional[str] = None) -> List[D
             logger.warning("[locations] could not link places to Schedule venues: %s", e)
 
     query: Dict[str, Any] = {"retired": {"$ne": True}}      # alpha.80: a deleted venue's location is hidden, not destroyed
-    if not _is_master(user):
+    if host_view:
+        query["id"] = {"$in": await _host_location_ids(user)}
+    elif not _is_master(user):
         query["assigned_user_ids"] = _user_id(user)
 
     docs = await _db.locations.find(query, {"_id": 0}).sort("name", 1).to_list(500)
