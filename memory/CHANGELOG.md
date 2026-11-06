@@ -8,6 +8,16 @@
 ---
 ---
 ---
+## host-karaoke-venues-v1 (program; next release after v32.2.12)
+- BUG (2026-11-05, a live host): the host's schedule had synced but NO venue appeared in the Karaoke venue dropdown, so Karaoke could not be started. The owner's own (master admin) login showed the venue fine.
+- PROVEN (real Cloud-sync pull + the real endpoint, before the fix): the host login the schedule sync creates (`role: host`) got HTTP 403 `admin_or_master_required` from `GET /api/native/locations?game=karaoke`, which both Karaoke screens (KaraokeLobby, KaraokeSetup) call; the screen turns the error into an empty list. The master admin got the venue from the same data. Two layers: (1) the role gate refused a host ("host: never", written June 2026, before the sync created host logins); (2) past the gate a non-master only sees locations in `assigned_user_ids`, which only a master admin sets and the sync never fills.
+- FIX (one file, `native/locations_router.py`, +35 lines): a HOST may read the list ONLY when a game is asked for (`?game=karaoke`), and gets only the venues they hold a Schedule role at: login email (case-insensitive) -> Schedule employee -> `venue_roles` (any role, primary or backup) -> venue -> location. New helper `_host_location_ids`. The game price rule (karaoke price above $0, or no prices at all) still applies on top.
+- UNCHANGED ON PURPOSE: the unfiltered list and every location create/read/edit/delete/image/overlay/admin route stay admin-only for a host (tested: all 403). Master admin and admin behave exactly as before. A host with no venue role, or no Schedule employee, gets an empty list, never everything. Only the exact role `host` qualifies. Locations are never created or changed by this path.
+- DECISION: any venue role counts (not only `primary`), so a backup host covering a night can start Karaoke. Owner did not pick between that and primary-only; he said it was "just for the specific host" and asked for the fix.
+- Tests: tests/test_host_karaoke_venues.py (10; real pull, real endpoint). With main's code 6 fail (the bug); each new rule broken on purpose fails exactly the test that guards it (gate widened; sees every venue; case-sensitive email; any role name). 49 pass across related suites; 7 older tests fail identically with and without this change.
+- NOT tested: a real host login on a real PC (the probe uses the real sync and endpoint with a fake Cloud feed), the dropdown in the real window.
+
+---
 ## pictures-match-cloud-v1 (program; next release after v32.2.11)
 - REQUEST (2026-11-05): IF the Program has a connected Cloud app it pulls the Branding images and the Overlays from the Cloud so they match; keep the current way as the default for a Program with no Cloud account; "a smart process". Owner answers: (1) he will make the Cloud app mimic the Program's behavior (this PR includes the markdown for that); (2) removals only after a confirm.
 - FOUND: the v32.3.0 file sync already pulled both, but never removed a picture the Cloud deleted (the PC kept it forever), applied no round tags (a pulled overlay arrived untagged) and no order. The Cloud's file rows carry only category/venue/name: no order, no tags.
