@@ -8,7 +8,7 @@
 ---
 ---
 ---
-## pictures-match-cloud-v1 (program; next release after v32.2.11)
+## pictures-match-cloud-v1 (program; released as v32.2.12)
 - REQUEST (2026-11-05): IF the Program has a connected Cloud app it pulls the Branding images and the Overlays from the Cloud so they match; keep the current way as the default for a Program with no Cloud account; "a smart process". Owner answers: (1) he will make the Cloud app mimic the Program's behavior (this PR includes the markdown for that); (2) removals only after a confirm.
 - FOUND: the v32.3.0 file sync already pulled both, but never removed a picture the Cloud deleted (the PC kept it forever), applied no round tags (a pulled overlay arrived untagged) and no order. The Cloud's file rows carry only category/venue/name: no order, no tags.
 - NEW `docs/CLOUD_TASK_branding_overlays_mirror_program.md`: the Program's exact picture rules for the Cloud agent (allowed files, order 0..N-1, the overlay round tags incl. missing = every round vs [] = dormant, ANS, REG1..10 / MISC1..10), the Cloud screens and routes to build, and the manifest fields the Program reads: `sort_order`, `applies_to_round_types` (key omitted when untagged), `meta_version`, plus top-level `complete` and `venues` so a partial answer is never read as "removed".
@@ -20,7 +20,7 @@
 - NOT tested: the REAL Cloud (the fields do not exist there yet, so until the Cloud task is built `complete`/`venues` are absent and NO removal ever happens; tags/order stay as today), the card in the real window, a real account. A bulk delete of more than half a venue's pictures in the Cloud is held back on purpose: remove half, check again.
 
 ---
-## deleted-pictures-stay-deleted-v1 (program; next release after v32.2.11)
+## deleted-pictures-stay-deleted-v1 (program; released as v32.2.12)
 - BUG (2026-11-05, owner): the Remove button on Branding images "will not delete". Rule: when an item is deleted it must be deleted in the screen AND in the backend, and stay deleted.
 - PROVEN (real routes + real files, before the fix): the delete route itself worked (record and file removed, a sync did not bring them back). On the NEXT APP START both pictures came back, record and file. Cause: `locations_backup` keeps an AppData safety copy of every location picture and `restore_missing()` copies back anything missing from Documents at startup. It cannot tell "deleted on purpose" from "lost". `remove_file()` existed but was only called for sponsor images and whole locations, NEVER for branding images or round overlays, so the safety copy stayed and restored them.
 - FIX (small): new `_forget_picture()` in `native/locations_router.py` drops the safety copy; called by `delete_branding_image` and `delete_overlay_image`. The same gap existed in the Cloud sync (`native/cloud_files.py`): when a Cloud picture changed type (png -> gif) or a sponsor image was replaced, the old file was removed but its safety copy stayed and came back at restart as a second picture. It now uses the same helper.
@@ -29,7 +29,7 @@
 - NOT tested: the real app window, a real PC's AppData. Pictures already resurrected on a PC are not removed by this fix: press Remove on them again (it now sticks).
 
 ---
-## no-blanket-round-pull-v1 (program; next release after v32.2.11)
+## no-blanket-round-pull-v1 (program; released as v32.2.12)
 - BUG (2026-11-05, owner on v32.2.11): "every file that was saved on the cloud suddenly was duplicated into the BIG Hat Entertainment folder on the user's PC... i deleted the entire folder before the new install and it instantly copied everything". RULE: the files live on the Cloud and are stamped there; a round comes down to the PC ONLY inside a presentation the host imports.
 - CAUSE (my own change, v32.3.0 `native/cloud_files.py`): the file sync pulled EVERY `bighat` entry in the Cloud manifest, on a 5-minute loop and on "Sync now", into Files/Trivia/<TYPE>/. Deleting the folder just made the next sync refill it. `native/cloud_shows.py` already files exactly the rounds a show needs, so the blanket pull was both unwanted and redundant.
 - FIX: `pull_once` no longer downloads `bighat` rounds (counted as "skipped"). ONE exception: a round THIS PC uploaded for stamping (recorded in `cloud_upload.json`, PR #74) comes back as its stamped copy, so the stamp is kept (PR 1 files it by its stamp). Overlays, venue pictures, sponsor and host images sync exactly as before. The show import is untouched.
