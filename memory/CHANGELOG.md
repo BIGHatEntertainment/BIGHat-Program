@@ -8,6 +8,15 @@
 ---
 ---
 ---
+## no-blanket-round-pull-v1 (program; next release after v32.2.11)
+- BUG (2026-11-05, owner on v32.2.11): "every file that was saved on the cloud suddenly was duplicated into the BIG Hat Entertainment folder on the user's PC... i deleted the entire folder before the new install and it instantly copied everything". RULE: the files live on the Cloud and are stamped there; a round comes down to the PC ONLY inside a presentation the host imports.
+- CAUSE (my own change, v32.3.0 `native/cloud_files.py`): the file sync pulled EVERY `bighat` entry in the Cloud manifest, on a 5-minute loop and on "Sync now", into Files/Trivia/<TYPE>/. Deleting the folder just made the next sync refill it. `native/cloud_shows.py` already files exactly the rounds a show needs, so the blanket pull was both unwanted and redundant.
+- FIX: `pull_once` no longer downloads `bighat` rounds (counted as "skipped"). ONE exception: a round THIS PC uploaded for stamping (recorded in `cloud_upload.json`, PR #74) comes back as its stamped copy, so the stamp is kept (PR 1 files it by its stamp). Overlays, venue pictures, sponsor and host images sync exactly as before. The show import is untouched.
+- NOT DONE ON PURPOSE: duplicates already on a PC from v32.2.11 are NOT removed here. Use Admin > Integrations > "Check for duplicates" (PR #73): it lists them and moves the extras aside (never deletes).
+- Tests (tests/test_cloud_files_pull.py): the two old round-pull tests asserted the old blanket behaviour and were replaced by 4: Cloud rounds are never pulled; an emptied folder stays empty after a sync; only a round this PC uploaded comes back; pictures/overlays still sync. Plus the reported case end to end with the REAL importer: 5 Cloud rounds, folder deleted, 5 syncs, zero files and zero downloads. Breaking the rule fails 4 tests. 29 show-import tests still pass. 39 older tests fail identically with and without this change (hardcoded /app paths, no live server).
+- NOT tested: a real Cloud account, the app window.
+
+---
 ## round-upload-for-stamping-v1 (program; next release after v32.2.10; PR 3 of 3 for the one-source-of-truth rule)
 - REQUEST (2026-11-04): "if the user has the program and assets in the program then the cloud, upload to the cloud for stamping and keep the stamped items. the stamping is important".
 - FOUND: nothing in the Program uploaded anything, and the Cloud has NO Program upload route (the contract lists `PUT /api/program/files/{id}` but it was never built; `/api/files/upload` is browser-session only). So this PR is the Program half; the Cloud half is `docs/CLOUD_TASK_program_round_upload.md` (ONE route that reuses the Cloud's existing `_round_fields`/`stamp_zip`, so there is one stamping path).
