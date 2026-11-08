@@ -69,6 +69,51 @@ async def schedule_apply(body: ReconcileApply):
     return await schedule_reconcile.apply(_db(), body.token)
 
 
+# ---- v32.2.11: duplicate round files (see round_duplicates.py): check = read-only, retire = MOVE aside (never delete) ----
+@router.post("/round-duplicates/check")
+async def round_duplicates_check():
+    """Lists certain duplicate round files (same stamp, or identical questions and answers). CHANGES NOTHING."""
+    import round_duplicates
+    return await round_duplicates.check(_db())
+
+
+@router.post("/round-duplicates/retire")
+async def round_duplicates_retire(body: ReconcileApply):
+    """Moves the extra copies from the last check into Files/_retired_duplicates (needs its token). Nothing is deleted."""
+    import round_duplicates
+    return await round_duplicates.retire(_db(), body.token)
+
+
+# ---- v32.2.11: send this PC's own rounds to the Cloud for stamping (see native/cloud_upload.py): check = read-only, upload = only what the check listed ----
+@router.post("/round-upload/check")
+async def round_upload_check():
+    """Lists the PC-only rounds that would go up, and the ones that would not (and why). CHANGES NOTHING."""
+    from . import cloud_upload
+    return await cloud_upload.check(_db())
+
+
+@router.post("/round-upload/send")
+async def round_upload_send(body: ReconcileApply):
+    """Sends exactly what the last check listed (needs its token). Nothing on this PC is changed, moved or deleted."""
+    from . import cloud_upload
+    return await cloud_upload.upload(_db(), body.token)
+
+
+# ---- v32.2.12: a linked PC's branding images and overlays match the Cloud's (see native/picture_mirror.py): check = read-only, remove = only what the check listed ----
+@router.post("/pictures/check")
+async def pictures_check():
+    """Which Cloud-brought pictures the Cloud no longer has. CHANGES NOTHING. Does nothing on a PC that is not linked."""
+    from . import picture_mirror
+    return await picture_mirror.check(_db())
+
+
+@router.post("/pictures/remove")
+async def pictures_remove(body: ReconcileApply):
+    """Removes exactly what the last check listed (needs its token). Pictures you added yourself are never touched."""
+    from . import picture_mirror
+    return await picture_mirror.remove(_db(), body.token)
+
+
 @router.get("/files-status")
 def files_status():
     return cloud_files.public_status()

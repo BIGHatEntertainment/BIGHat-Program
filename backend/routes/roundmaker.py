@@ -152,8 +152,23 @@ def _write_round_bighat(doc: dict) -> Optional[str]:
     slug = _slugify(doc.get("name") or "round")
     target = target_dir / f"{slug}.bighat"
 
+    # A round carrying a permanent ID (round_uid) is ONE file: if this PC already holds that ID (even under another name), overwrite that file.
+    _uid = None
+    try:
+        import round_uid as _ru
+        _uid = _ru.clean(doc.get("round_uid"))
+        if _uid:
+            for _f in sorted(target_dir.glob("*.bighat")):
+                if _ru.read_uid(_f) == _uid:
+                    target = _f
+                    break
+    except Exception as e:                                     # noqa: BLE001  never blocks a save
+        logger.warning("[roundmaker] stamp lookup failed: %s", e)
+        _uid = None
+    _held = bool(_uid) and target.exists() and _ru.read_uid(target) == _uid
+
     # If target exists but belongs to a DIFFERENT round id, suffix it.
-    if target.exists():
+    if target.exists() and not _held:
         try:
             existing = json.loads(target.read_text(encoding="utf-8"))
             if existing.get("id") and existing.get("id") != doc_id:
@@ -177,6 +192,8 @@ def _write_round_bighat(doc: dict) -> Optional[str]:
     }
     if doc.get("imported_from"):                               # alpha.74: keep where the round came from
         payload["imported_from"] = doc["imported_from"]
+    if _uid:                                                   # the Cloud's permanent ID must survive the save
+        payload["round_uid"] = _uid
 
     # v32.0.0-alpha.55: embed the cover image INTO the .bighat so the file
     # is fully self-contained (disk is the absolute source of truth). The
