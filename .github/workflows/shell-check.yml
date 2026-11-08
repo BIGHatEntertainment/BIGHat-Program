@@ -1,0 +1,39 @@
+name: Check the Tauri shell compiles
+
+# The Rust shell (src-tauri/src/lib.rs) is the one part nobody can try on a normal dev machine. A typo in it only shows up when a release is
+# built, and then the release fails for every platform. This type-checks it on every pull request that touches it, on Linux, macOS and Windows
+# (the platform-specific code paths only compile on their own OS). It never runs on a tag, so it cannot block a release.
+on:
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/shell-check.yml"
+
+jobs:
+  cargo-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system libraries for Tauri
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Placeholder for the packaged backend (the build script only needs the file to exist)
+        shell: bash
+        run: |
+          T=$(rustc -vV | sed -n 's/^host: //p')
+          mkdir -p src-tauri/binaries
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then touch "src-tauri/binaries/bighat-backend-$T.exe"; else touch "src-tauri/binaries/bighat-backend-$T"; fi
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --locked

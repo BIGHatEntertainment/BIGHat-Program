@@ -239,7 +239,8 @@ def _round_bighat(name="Cloud Round", rtype="REG"):
     return json.dumps({"schema": "bighat-round/v1", "type": rtype, "name": name, "rounds": [{"type": rtype, "name": name, "questions": [{"n": i, "prompt": f"q{i}", "answer": f"a{i}"} for i in range(1, 11)]}]}).encode()
 
 
-def test_a_bighat_goes_through_the_apps_own_importer_and_is_not_imported_twice(env, monkeypatch):
+def test_cloud_rounds_are_never_pulled_into_the_pc_folders(env, monkeypatch):
+    """Owner rule (2026-11-05): the Cloud keeps its rounds. A round reaches this PC only inside a show the host imports."""
     from routes import bighat_files
     seen = []
     async def fake_import(payload):
@@ -247,24 +248,37 @@ def test_a_bighat_goes_through_the_apps_own_importer_and_is_not_imported_twice(e
         return type("Res", (), {"type": "round", "name": "Cloud Round"})()
     monkeypatch.setattr(bighat_files, "_import_zip_bytes", fake_import)
     env.add("b1", "bighat", "Cloud Round.bighat", _round_bighat(), venue_id=None)
+    env.add("b2", "bighat", "Another.bighat", _round_bighat("Another"), venue_id=None)
     r1 = env.pull(); r2 = env.pull()
-    assert len(seen) == 1 and r1["counts"]["added"] == 1 and r2["counts"]["unchanged"] == 1
-    env.files.clear(); env.add("b1", "bighat", "Cloud Round.bighat", _round_bighat("Cloud Round v2"), venue_id=None)
-    assert env.pull()["counts"]["updated"] == 1 and len(seen) == 2
+    assert seen == [] and env.calls == [] and r1["counts"]["added"] == 0 and r1["counts"]["skipped"] == 2 and r2["counts"]["skipped"] == 2
 
 
-def test_a_bighat_that_the_importer_rejects_is_reported_and_the_rest_continue(env, monkeypatch):
+def test_an_emptied_round_folder_stays_empty_after_a_sync(env, monkeypatch):
+    import glob
+    env.add("b1", "bighat", "Cloud Round.bighat", _round_bighat(), venue_id=None)
+    env.pull(); env.pull()
+    assert glob.glob(str(env.tmp) + "/**/Trivia/**/*.bighat", recursive=True) == []
+
+
+def test_only_a_round_this_pc_uploaded_for_stamping_comes_back(env, monkeypatch):
     from routes import bighat_files
-    from fastapi import HTTPException
+    from native import cloud_upload
+    seen = []
     async def fake_import(payload):
-        if b"BAD" in payload:
-            raise HTTPException(400, "Corrupted .bighat")
-        return type("Res", (), {"type": "round", "name": "ok"})()
+        seen.append(payload)
+        return type("Res", (), {"type": "round", "name": "mine"})()
     monkeypatch.setattr(bighat_files, "_import_zip_bytes", fake_import)
-    env.pull_venue()
-    env.add("b1", "bighat", "bad.bighat", b"BAD" * 20, venue_id=None); env.add("b2", "bighat", "good.bighat", _round_bighat(), venue_id=None); env.add("f1", "overlay", "a.png", PNG)
+    cloud_upload._write_state({"sent": {"Files/Trivia/REG/mine.bighat": "abc"}})
+    env.add("b1", "bighat", "mine.bighat", _round_bighat("mine"), venue_id=None)
+    env.add("b2", "bighat", "someone-elses.bighat", _round_bighat("other"), venue_id=None)
     r = env.pull()
-    assert r["counts"] == {"added": 2, "updated": 0, "unchanged": 0, "waiting": 0, "skipped": 0, "failed": 1} and r["failed"] == 1
+    assert len(seen) == 1 and r["counts"]["added"] == 1 and r["counts"]["skipped"] == 1 and env.calls == ["b1"]
+
+
+def test_pictures_and_overlays_still_sync_as_before_when_rounds_are_skipped(env):
+    env.pull_venue(); env.add("f1", "overlay", "a.png", PNG); env.add("b1", "bighat", "r.bighat", _round_bighat(), venue_id=None)
+    r = env.pull()
+    assert r["counts"]["added"] == 1 and r["counts"]["skipped"] == 1 and env.loc()["overlay_images"]
 
 
 @pytest.mark.parametrize("err", ["unreachable", "subscription_lapsed", "rate_limited", "unauthorized", "unlinked"])
@@ -355,3 +369,21 @@ def test_a_pull_error_is_reported_safely_and_nothing_is_lost(env, monkeypatch):
     monkeypatch.setattr(env.cf, "_put_picture", boom)
     r = env.pull()
     assert r["state"] == "error" and "Nothing was lost" in r["message"]
+
+
+def test_deleting_the_whole_folder_then_syncing_five_times_brings_nothing_back_with_the_real_importer(env):
+    """The reported case (v32.2.11): the user deleted the BIG Hat folder, the next sync refilled it with every Cloud round."""
+    import glob, io, zipfile
+    from routes import bighat_files
+    bighat_files.db = env.db
+    def real(n):
+        m = {"type": "REG", "name": n, "format_version": 1, "round_uid": "11111111-2222-3333-4444-%012d" % int(n[-1])}
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, "w") as z:
+            z.writestr("manifest.json", json.dumps(m)); z.writestr("payload.json", json.dumps({"name": n, "round_type": "REG", "questions": [{"question": "q" + n, "answer": "a"}]}))
+        return b.getvalue()
+    for i in range(1, 6):
+        env.add(f"b{i}", "bighat", f"round{i}.bighat", real(f"round{i}"), venue_id=None)
+    for _ in range(5):
+        env.pull()
+    assert glob.glob(str(env.tmp) + "/**/*.bighat", recursive=True) == [] and env.calls == []

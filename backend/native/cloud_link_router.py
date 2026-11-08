@@ -99,6 +99,21 @@ async def round_upload_send(body: ReconcileApply):
     return await cloud_upload.upload(_db(), body.token)
 
 
+# ---- v32.2.12: a linked PC's branding images and overlays match the Cloud's (see native/picture_mirror.py): check = read-only, remove = only what the check listed ----
+@router.post("/pictures/check")
+async def pictures_check():
+    """Which Cloud-brought pictures the Cloud no longer has. CHANGES NOTHING. Does nothing on a PC that is not linked."""
+    from . import picture_mirror
+    return await picture_mirror.check(_db())
+
+
+@router.post("/pictures/remove")
+async def pictures_remove(body: ReconcileApply):
+    """Removes exactly what the last check listed (needs its token). Pictures you added yourself are never touched."""
+    from . import picture_mirror
+    return await picture_mirror.remove(_db(), body.token)
+
+
 @router.get("/files-status")
 def files_status():
     return cloud_files.public_status()
