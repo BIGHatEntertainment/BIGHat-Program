@@ -25,7 +25,8 @@ use std::fs;
 use std::io::Write;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -34,7 +35,16 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
+// How long to wait for the backend before telling the user it is slow. Windows boots in seconds. A Mac unpacks the PyInstaller
+// --onefile backend on EVERY launch and macOS also scans the new files the first time, so an older Intel MacBook can need minutes
+// (CI: 87 s on GitHub's Intel runner vs 29 s on Apple Silicon). The old 60 s limit showed an error and QUIT, which killed a backend
+// that was still starting, so a slow Mac could never get through. (v32.2.11)
+#[cfg(target_os = "macos")]
+const HEALTH_TIMEOUT_SECS: u64 = 240;
+#[cfg(not(target_os = "macos"))]
 const HEALTH_TIMEOUT_SECS: u64 = 60;
+// As long as the backend process is still ALIVE we keep waiting, up to this ceiling. A backend that has EXITED is never waited on.
+const HEALTH_HARD_CEILING_SECS: u64 = 600;
 const HEALTH_POLL_INTERVAL_MS: u64 = 500;
 
 #[derive(Default)]
@@ -103,20 +113,46 @@ fn pick_free_port() -> u16 {
     l.local_addr().unwrap().port()
 }
 
-fn wait_for_health(port: u16, status_cb: impl Fn(&str)) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(HEALTH_TIMEOUT_SECS);
+/// Why the wait ended without a healthy backend.
+#[derive(Debug, PartialEq)]
+enum HealthResult {
+    Healthy,
+    /// The backend process ended on its own (crashed / was killed). Waiting longer cannot help.
+    Exited,
+    /// The backend was still running but never answered, even after the hard ceiling.
+    NeverAnswered,
+}
+
+fn wait_for_health(port: u16, alive: Arc<AtomicBool>, status_cb: impl Fn(&str)) -> HealthResult {
+    let started = Instant::now();
+    let normal_deadline = started + Duration::from_secs(HEALTH_TIMEOUT_SECS);
+    let hard_deadline = started + Duration::from_secs(HEALTH_HARD_CEILING_SECS);
     let url = format!("http://127.0.0.1:{port}/health");
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(800))
         .build()
         .expect("reqwest client");
     let mut attempt = 0u32;
-    while Instant::now() < deadline {
+    let mut said_slow = false;
+    loop {
+        let now = Instant::now();
+        if !alive.load(Ordering::SeqCst) {
+            log_line("error", format!("backend process exited before it answered (after {} s, {attempt} attempts)", started.elapsed().as_secs()));
+            return HealthResult::Exited;
+        }
+        // Past the normal limit we only keep going because the backend is still alive; stop at the hard ceiling.
+        if now >= hard_deadline {
+            break;
+        }
+        if now >= normal_deadline && !said_slow {
+            said_slow = true;
+            log_line("warn", format!("backend still starting after {} s but its process is alive; waiting up to {} s", HEALTH_TIMEOUT_SECS, HEALTH_HARD_CEILING_SECS));
+        }
         attempt += 1;
         match client.get(&url).send() {
             Ok(resp) if resp.status().is_success() => {
-                log_line("info", format!("health OK after {attempt} attempts"));
-                return true;
+                log_line("info", format!("health OK after {attempt} attempts, {} s", started.elapsed().as_secs()));
+                return HealthResult::Healthy;
             }
             Ok(resp) => {
                 log_line(
@@ -132,13 +168,17 @@ fn wait_for_health(port: u16, status_cb: impl Fn(&str)) -> bool {
                 if attempt == 1 || attempt % 6 == 0 {
                     log_line("warn", format!("health connect error attempt={attempt}: {e}"));
                 }
-                status_cb("Waiting for the backend to start…");
+                if said_slow || started.elapsed().as_secs() > 30 {
+                    status_cb("Still starting. The first launch can take a few minutes on an older computer. Please keep this window open.");
+                } else {
+                    status_cb("Waiting for the backend to start…");
+                }
             }
         }
         thread::sleep(Duration::from_millis(HEALTH_POLL_INTERVAL_MS));
     }
-    log_line("error", format!("health never reached 200 after {attempt} attempts"));
-    false
+    log_line("error", format!("health never reached 200 after {attempt} attempts, {} s (backend process still alive)", started.elapsed().as_secs()));
+    HealthResult::NeverAnswered
 }
 
 fn extract_open_file_arg() -> Option<String> {
@@ -313,7 +353,10 @@ fn run_inner(port: u16, open_file: Option<String>) {
                 *state.child.lock().unwrap() = Some(child);
             }
 
-            // 3. Drain sidecar stdout/stderr to the log.
+            // 3. Drain sidecar stdout/stderr to the log. `backend_alive` goes false the moment the backend process ends, so the
+            //    wait below can tell "still starting (slow computer)" from "crashed".
+            let backend_alive = Arc::new(AtomicBool::new(true));
+            let alive_for_drain = backend_alive.clone();
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
@@ -334,6 +377,7 @@ fn run_inner(port: u16, open_file: Option<String>) {
                                 "warn",
                                 format!("sidecar terminated code={:?}", payload.code),
                             );
+                            alive_for_drain.store(false, Ordering::SeqCst);
                             break;
                         }
                         _ => {}
@@ -345,20 +389,32 @@ fn run_inner(port: u16, open_file: Option<String>) {
             let app_handle = app.handle().clone();
             let window_for_thread = window.clone();
             let open_file_clone = open_file.clone();
+            let alive_for_wait = backend_alive.clone();
             thread::spawn(move || {
-                let healthy = wait_for_health(port, |msg| {
+                let result = wait_for_health(port, alive_for_wait, |msg| {
                     let safe = msg.replace('\'', "\\'");
                     let _ = window_for_thread.eval(&format!(
                         "var el=document.getElementById('splash-status'); if(el) el.innerText='{safe}';"
                     ));
                 });
-                if !healthy {
-                    log_line("fatal", "backend never responded — showing dialog");
+                if result != HealthResult::Healthy {
+                    log_line("fatal", format!("backend never responded ({result:?}) — showing dialog"));
                     let log = log_path().to_string_lossy().to_string();
+                    #[cfg(target_os = "macos")]
+                    let advice = "On a Mac this is usually a slow first start or macOS blocking the app. Open System Settings > Privacy & Security and choose Open Anyway if BIG Hat is listed there, then start the app again.";
+                    #[cfg(target_os = "windows")]
+                    let advice = "This usually means a Windows security tool is blocking localhost connections, or the embedded Python crashed on startup.";
+                    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                    let advice = "This usually means a security tool is blocking localhost connections, or the embedded Python crashed on startup.";
+                    let what = if result == HealthResult::Exited {
+                        "BIG Hat's backend stopped while it was starting (it crashed or was closed)."
+                    } else {
+                        "BIG Hat's backend was running but never answered, even after waiting several minutes."
+                    };
                     app_handle
                         .dialog()
                         .message(format!(
-                            "BIG Hat's backend started but never responded.\n\nThis usually means a Windows security tool is blocking localhost connections, or the embedded Python tree was corrupted on install.\n\nLog file:\n{log}",
+                            "{what}\n\n{advice}\n\nPlease send this file to support so we can see exactly what happened:\n{log}\n\nThe app will now close.",
                         ))
                         .kind(MessageDialogKind::Error)
                         .title("BIG Hat — backend not responding")
