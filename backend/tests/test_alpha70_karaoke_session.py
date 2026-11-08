@@ -382,14 +382,15 @@ def test_alpha104_provider_channels_are_ranked_first_and_nothing_is_dropped(clie
     assert ids == ["p1p1p1p1p1p", "s1s1s1s1s1s", "o1o1o1o1o1o", "o2o2o2o2o2o"], ids       # providers first, order kept, none dropped
 
 
-def test_alpha104_blocked_videos_are_dropped_when_a_key_is_saved(client, monkeypatch):
+def test_alpha105_blocked_videos_are_kept_even_when_a_key_is_saved(client, monkeypatch):
+    """alpha.105: songs play from a yt-dlp download, so the owner's "embedding disabled" flag no longer matters. The old alpha.104 rule
+    (drop blocked/private videos using the YouTube API) was removed on purpose; every result is kept, in the order yt-dlp gave them."""
     c, _ = client
     monkeypatch.setenv("YOUTUBE_API_KEY", "KEY123456789")
     _fake_ytdlp(monkeypatch, _yt_entries(("good1good1g", "A", "X", 0), ("blck1blck1b", "B", "X", 0), ("priv1priv1p", "C", "X", 0)))
     _fake_httpx(monkeypatch, items=[_item("good1good1g"), _item("blck1blck1b", embeddable=False), _item("priv1priv1p", privacy="private")])
     res = c.get("/api/karaoke/youtube/search", params={"q": "mix"}).json()["results"]
-    assert [x["id"] for x in res] == ["good1good1g"], res
-    assert res[0]["duration_seconds"] == 180                              # the API's exact duration replaces the scraped one
+    assert [x["id"] for x in res] == ["good1good1g", "blck1blck1b", "priv1priv1p"], res
 
 
 def test_alpha104_if_every_result_is_blocked_the_original_list_is_returned(client, monkeypatch):

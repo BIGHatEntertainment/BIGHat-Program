@@ -485,65 +485,12 @@ def _ytdlp_search(search_query: str, count: int) -> list:
 
 
 async def _filter_embeddable(results: list) -> list:
-    """Keep only videos that are actually EMBEDDABLE (playable in our audience view).
+    """Return every search result unchanged.
 
-    Many karaoke uploads set 'Playback on other websites has been disabled by the video owner'
-    (YouTube error 150). yt-dlp search can't tell us this, so we make ONE YouTube Data API
-    videos.list call (part=status,contentDetails): 1 quota unit for up to 50 ids. We drop any
-    video that is not embeddable / not public, and use the API's exact duration.
-
-    Resilient: if there is no API key or the call fails, return the unfiltered list so search
-    still works."""
-    # alpha.105: songs play from a yt-dlp download, so the owner's "embedding disabled" flag no longer matters.
-    # Keep every result (filtering would hide songs that now play fine).
+    Songs play from a yt-dlp download (alpha.105), so a video owner's "playback on other websites is disabled"
+    flag no longer matters and filtering on it would only hide songs that now play fine. Kept as a function
+    because the search route calls it."""
     return results
-
-    import httpx
-
-    api_key = kl.youtube_key()
-    if not api_key or not results:
-        return results
-
-    ids = [r["id"] for r in results if r.get("id")]
-    try:
-        async with httpx.AsyncClient(timeout=12) as client:
-            r = await client.get("https://www.googleapis.com/youtube/v3/videos", params={
-                "part": "status,contentDetails",
-                "id": ",".join(ids[:50]),
-                "key": api_key,
-            })
-        if r.status_code != 200:
-            logger.warning(f"[YouTube] embeddable check failed ({r.status_code}) - returning unfiltered")
-            return results
-        data = r.json()
-    except Exception as e:
-        logger.warning(f"[YouTube] embeddable check error: {e} - returning unfiltered")
-        return results
-
-    embeddable = {}
-    durations = {}
-    for it in data.get("items", []):
-        vid = it["id"]
-        status = it.get("status", {})
-        embeddable[vid] = bool(status.get("embeddable")) and status.get("privacyStatus") == "public"
-        dur_str = it.get("contentDetails", {}).get("duration", "")
-        m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur_str)
-        if m:
-            durations[vid] = int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)
-
-    filtered = []
-    for res in results:
-        vid = res.get("id")
-        # If the API didn't return this id at all, keep it (benefit of the doubt) - but if it
-        # was returned and flagged non-embeddable/private, drop it.
-        if vid in embeddable and not embeddable[vid]:
-            continue
-        if vid in durations and durations[vid]:
-            res["duration_seconds"] = durations[vid]
-        filtered.append(res)
-
-    # Safety: never hand back an empty list purely due to filtering.
-    return filtered if filtered else results
 
 
 @router.get("/youtube/search")
