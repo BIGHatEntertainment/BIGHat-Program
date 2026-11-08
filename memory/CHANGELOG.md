@@ -8,6 +8,19 @@
 ---
 ---
 ---
+## dead-code-cleanup-v1 (program; next release after v32.2.13)
+- REQUEST (2026-11-07): "a quick cleanup of the program to make sure there are no conflicting codes on the commands or routines".
+- WHAT WAS CHECKED (current main): (1) every route registered in the REAL running app, by method + path; (2) functions/classes defined twice in one scope; (3) pyflakes for undefined names, redefinitions and unused imports; (4) vulture for unreachable code.
+- RESULTS: no function or class is defined twice; pyflakes reports no undefined names, no redefinitions and no unused imports; 3 blocks of unreachable code (REMOVED below); 2 routes registered twice (NOT removed, see below).
+- REMOVED (188 lines, deletions only): `hybrid_pptx_converter.py` two blocks after a `continue` (the old hand-placed layout that `_layout_text_and_media` replaced); `routes/karaoke.py` the old YouTube-API "embeddable" filter after a `return` (alpha.105 keeps every result since songs play from a yt-dlp download). The `_filter_embeddable` docstring still described the old filtering; it now says what it does.
+- PROVEN UNCHANGED: a snapshot of the converter's real output (120 scenarios: REG/MYS/MISC/MC/BIG x none/GIF/image/video x short/medium/long text x 1/3 questions, 60 distinct layouts) and of the karaoke filter (6 cases, with and without an API key) is byte-identical before and after the edit.
+- TEST: `test_alpha104_blocked_videos_are_dropped_when_a_key_is_saved` already FAILED on main (it expects blocked videos to be dropped, which alpha.105 removed on purpose). Rewritten as `test_alpha105_blocked_videos_are_kept_even_when_a_key_is_saved` so the current rule stays protected.
+- WHOLE SUITE, run in 4 batches with `--continue-on-collection-errors`, clean main vs this change: 524 fail on main and 523 with the change (all old sandbox-only tests: hardcoded /app paths, no live server, missing REACT_APP_BACKEND_URL); newly failing: none; fixed: the one above. 1,204 passed before, 1,205 after.
+- LEFT ALONE ON PURPOSE (reported, not removed): `GET /bingo/available-decades` and `GET /bingo/songlist/{decade}` are registered twice (routes/bingo_setup.py `*_compat` and routes/bingo.py). `bingo_setup` is mounted first and says "Registered BEFORE routes/bingo.py, so these win", so the bingo.py copies never run. They share helpers (`_parse_bingo_xlsx`, `_LOCAL_DECADE_FILE_MAP`, `SAMPLE_SONGS`) and `tests/test_alpha67_music_bingo_restore.py::test_local_mode_song_code_is_still_here` asserts the old code stays in place (alpha.67 Bingo restore), so removing it would need that decision from the owner.
+- ALSO LEFT: SharePoint-named code (`SharePointService()` returns the local file reader in native mode, it is live); the Schedule "Event Crawler" button calls `/events/crawler/phoenix`, which the Program does not serve (backend `event_crawler.py` is never mounted); 2 unused schedule files (`AdminAuth.jsx`, `HostLogin.jsx`) and 5 unused api.js methods. Owner call.
+- NOT DONE: no routes were deleted on the evidence of a text search (it cannot see URLs built from variables; it listed the live branding Remove button).
+
+---
 ## pictures-match-cloud-v1 (program; released as v32.2.12)
 - REQUEST (2026-11-05): IF the Program has a connected Cloud app it pulls the Branding images and the Overlays from the Cloud so they match; keep the current way as the default for a Program with no Cloud account; "a smart process". Owner answers: (1) he will make the Cloud app mimic the Program's behavior (this PR includes the markdown for that); (2) removals only after a confirm.
 - FOUND: the v32.3.0 file sync already pulled both, but never removed a picture the Cloud deleted (the PC kept it forever), applied no round tags (a pulled overlay arrived untagged) and no order. The Cloud's file rows carry only category/venue/name: no order, no tags.
