@@ -8,17 +8,7 @@
 ---
 ---
 ---
-## host-karaoke-venues-v1 (program; next release after v32.2.12)
-- BUG (2026-11-05, a live host): the host's schedule had synced but NO venue appeared in the Karaoke venue dropdown, so Karaoke could not be started. The owner's own (master admin) login showed the venue fine.
-- PROVEN (real Cloud-sync pull + the real endpoint, before the fix): the host login the schedule sync creates (`role: host`) got HTTP 403 `admin_or_master_required` from `GET /api/native/locations?game=karaoke`, which both Karaoke screens (KaraokeLobby, KaraokeSetup) call; the screen turns the error into an empty list. The master admin got the venue from the same data. Two layers: (1) the role gate refused a host ("host: never", written June 2026, before the sync created host logins); (2) past the gate a non-master only sees locations in `assigned_user_ids`, which only a master admin sets and the sync never fills.
-- FIX (one file, `native/locations_router.py`, +35 lines): a HOST may read the list ONLY when a game is asked for (`?game=karaoke`), and gets only the venues they hold a Schedule role at: login email (case-insensitive) -> Schedule employee -> `venue_roles` (any role, primary or backup) -> venue -> location. New helper `_host_location_ids`. The game price rule (karaoke price above $0, or no prices at all) still applies on top.
-- UNCHANGED ON PURPOSE: the unfiltered list and every location create/read/edit/delete/image/overlay/admin route stay admin-only for a host (tested: all 403). Master admin and admin behave exactly as before. A host with no venue role, or no Schedule employee, gets an empty list, never everything. Only the exact role `host` qualifies. Locations are never created or changed by this path.
-- DECISION: any venue role counts (not only `primary`), so a backup host covering a night can start Karaoke. Owner did not pick between that and primary-only; he said it was "just for the specific host" and asked for the fix.
-- Tests: tests/test_host_karaoke_venues.py (10; real pull, real endpoint). With main's code 6 fail (the bug); each new rule broken on purpose fails exactly the test that guards it (gate widened; sees every venue; case-sensitive email; any role name). 49 pass across related suites; 7 older tests fail identically with and without this change.
-- NOT tested: a real host login on a real PC (the probe uses the real sync and endpoint with a fake Cloud feed), the dropdown in the real window.
-
----
-## pictures-match-cloud-v1 (program; next release after v32.2.11)
+## pictures-match-cloud-v1 (program; released as v32.2.12)
 - REQUEST (2026-11-05): IF the Program has a connected Cloud app it pulls the Branding images and the Overlays from the Cloud so they match; keep the current way as the default for a Program with no Cloud account; "a smart process". Owner answers: (1) he will make the Cloud app mimic the Program's behavior (this PR includes the markdown for that); (2) removals only after a confirm.
 - FOUND: the v32.3.0 file sync already pulled both, but never removed a picture the Cloud deleted (the PC kept it forever), applied no round tags (a pulled overlay arrived untagged) and no order. The Cloud's file rows carry only category/venue/name: no order, no tags.
 - NEW `docs/CLOUD_TASK_branding_overlays_mirror_program.md`: the Program's exact picture rules for the Cloud agent (allowed files, order 0..N-1, the overlay round tags incl. missing = every round vs [] = dormant, ANS, REG1..10 / MISC1..10), the Cloud screens and routes to build, and the manifest fields the Program reads: `sort_order`, `applies_to_round_types` (key omitted when untagged), `meta_version`, plus top-level `complete` and `venues` so a partial answer is never read as "removed".
@@ -30,7 +20,7 @@
 - NOT tested: the REAL Cloud (the fields do not exist there yet, so until the Cloud task is built `complete`/`venues` are absent and NO removal ever happens; tags/order stay as today), the card in the real window, a real account. A bulk delete of more than half a venue's pictures in the Cloud is held back on purpose: remove half, check again.
 
 ---
-## deleted-pictures-stay-deleted-v1 (program; next release after v32.2.11)
+## deleted-pictures-stay-deleted-v1 (program; released as v32.2.12)
 - BUG (2026-11-05, owner): the Remove button on Branding images "will not delete". Rule: when an item is deleted it must be deleted in the screen AND in the backend, and stay deleted.
 - PROVEN (real routes + real files, before the fix): the delete route itself worked (record and file removed, a sync did not bring them back). On the NEXT APP START both pictures came back, record and file. Cause: `locations_backup` keeps an AppData safety copy of every location picture and `restore_missing()` copies back anything missing from Documents at startup. It cannot tell "deleted on purpose" from "lost". `remove_file()` existed but was only called for sponsor images and whole locations, NEVER for branding images or round overlays, so the safety copy stayed and restored them.
 - FIX (small): new `_forget_picture()` in `native/locations_router.py` drops the safety copy; called by `delete_branding_image` and `delete_overlay_image`. The same gap existed in the Cloud sync (`native/cloud_files.py`): when a Cloud picture changed type (png -> gif) or a sponsor image was replaced, the old file was removed but its safety copy stayed and came back at restart as a second picture. It now uses the same helper.
@@ -39,7 +29,7 @@
 - NOT tested: the real app window, a real PC's AppData. Pictures already resurrected on a PC are not removed by this fix: press Remove on them again (it now sticks).
 
 ---
-## no-blanket-round-pull-v1 (program; next release after v32.2.11)
+## no-blanket-round-pull-v1 (program; released as v32.2.12)
 - BUG (2026-11-05, owner on v32.2.11): "every file that was saved on the cloud suddenly was duplicated into the BIG Hat Entertainment folder on the user's PC... i deleted the entire folder before the new install and it instantly copied everything". RULE: the files live on the Cloud and are stamped there; a round comes down to the PC ONLY inside a presentation the host imports.
 - CAUSE (my own change, v32.3.0 `native/cloud_files.py`): the file sync pulled EVERY `bighat` entry in the Cloud manifest, on a 5-minute loop and on "Sync now", into Files/Trivia/<TYPE>/. Deleting the folder just made the next sync refill it. `native/cloud_shows.py` already files exactly the rounds a show needs, so the blanket pull was both unwanted and redundant.
 - FIX: `pull_once` no longer downloads `bighat` rounds (counted as "skipped"). ONE exception: a round THIS PC uploaded for stamping (recorded in `cloud_upload.json`, PR #74) comes back as its stamped copy, so the stamp is kept (PR 1 files it by its stamp). Overlays, venue pictures, sponsor and host images sync exactly as before. The show import is untouched.
@@ -60,7 +50,7 @@
 - ORDER: merge the Cloud task first (or at least have the Cloud agent build it), then release this.
 
 ---
-## round-duplicates-v1 (program; next release after v32.2.10; PR 2 of 3 for the one-source-of-truth rule)
+## round-duplicates-v1 (program; released as v32.2.11; PR 2 of 3 for the one-source-of-truth rule)
 - REQUEST (2026-11-04): "tired of having multiple duplicates in my standalone PC files". PR 1 (#72) stops NEW duplicates of a stamped round; this PR cleans up the ones already on a PC.
 - NEW `backend/round_duplicates.py`. A duplicate is only ever CERTAIN: two files with the same permanent `round_uid`, or two UNSTAMPED files of one type with identical questions + answers. A file that only shares a NAME is never a duplicate; unreadable files are never one; different types never group.
 - Two steps sharing ONE comparison (same pattern as the schedule check): `check()` is read-only and lists each group (which copy is kept, which extras can move). `retire(token)` re-checks first (anything changed -> nothing moves), then MOVES the extras to `Files/_retired_duplicates/<date>/<TYPE>/` with a `WHAT_HAPPENED.txt`. NOTHING IS DELETED; undo = move a file back.
@@ -71,7 +61,7 @@
 - STILL OPEN: PR 3 (upload PC-only rounds/overlays to the Cloud for stamping; nothing in the Program uploads today). Overlay duplicates are not handled here.
 
 ---
-## round-stamp-identity-v1 (program; next release after v32.2.10)
+## round-stamp-identity-v1 (program; released as v32.2.11)
 - REQUEST (2026-11-04): duplicates of the same round pile up in the standalone PC's files. When a Cloud account is linked there must be ONE controlling authority: the Cloud's stamp (`round_uid`) is the round's identity, the PC keeps the stamped copy, and a show built on the Cloud always finds the right, current files.
 - PROVEN (real importer, real files, before the fix): importing the same stamped round twice made TWO files (`flowers.bighat` + `flowers-7297fdd0.bighat`), and NEITHER kept the stamp. Two causes: (1) the importer gave every import a fresh random id and never looked at `round_uid`; (2) `_write_round_bighat` saves a round as plain JSON with no `round_uid`, and `round_uid.read_uid` only read ZIPs, so a stamped Cloud round was UNSTAMPED on disk and nothing could match it.
 - FIX (3 small edits, nothing else touched): `routes/bighat_files.py` a stamped round whose `round_uid` is already in the PC's database keeps that round's id (update in place, never a second row); `routes/roundmaker.py` `_write_round_bighat` writes `round_uid` into the file and, if another file on the PC already holds that stamp, overwrites THAT file instead of adding `name-<8hex>.bighat`; `round_uid.py` `read_uid` also reads the stamp from a plain-JSON round.
@@ -79,7 +69,7 @@
 - Tests: tests/test_round_stamp_identity.py (5): same stamp twice = one file + stamp kept; changed Cloud copy updates in place; a renamed Cloud round replaces the file holding its stamp; two different stamps with the same name stay two rounds; unstamped = as before. 84 pass across stamp/pull/round-id/show-import suites; 39 older tests fail identically with and without this change (hardcoded /app paths, no live server).
 - NOT tested: a real Cloud account, and a PC that already holds duplicates.
 
-## schedule-reconcile-v1 (program; next release after v32.2.10)
+## schedule-reconcile-v1 (program; released as v32.2.11)
 - REQUEST (2026-11-04): the Program's schedule does not always follow the Cloud. Add a button like the Cloud's schedule import/export so a synced PC can always be brought up to date, with robust
   checks against duplicates and unnecessary deletes.
 - FOUND: the Cloud's `/api/sync/export` + `/import` move the PROGRAM's schedule UP to the Cloud (program wins on content, cloud keeps claims). The direction wanted here is the other way, and the Program
