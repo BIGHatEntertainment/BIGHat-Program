@@ -1,18 +1,24 @@
-# TEST ONLY (run by hand from the Actions tab on the fix/mac-sidecar-library-validation branch; publishes NOTHING).
+# TEST ONLY: runs on a pull request that changes the Mac signing files; publishes NOTHING. Delete this file once the fix is proven.
 # Builds the Intel Mac app the way the release does, then LAUNCHES THE PACKAGED, SIGNED .app the way a user does and waits for its backend
 # to answer. The release's smoke test only runs the raw backend from the build folder, so it cannot see a code-signing problem that only
 # exists after Tauri packages and signs the app (the Intel MacBook failure: "Failed to load Python shared library ... mapped file has no Team ID").
-name: Mac signing test (manual)
+name: Mac signing test (PR only)
 on:
-  workflow_dispatch:
-    inputs:
-      runner:
-        description: "macos-15-intel (Intel) or macos-15 (Apple Silicon)"
-        default: macos-15-intel
-        required: true
+  pull_request:
+    paths:
+      - 'src-tauri/entitlements.plist'
+      - 'src-tauri/tauri.conf.json'
+      - '.github/workflows/mac-signing-test.yml'
 jobs:
   test:
-    runs-on: ${{ inputs.runner }}
+    name: Packaged ${{ matrix.label }} app starts its backend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: "macOS (Intel)", os: macos-15-intel }
+          - { label: "macOS (Apple Silicon)", os: macos-15 }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
