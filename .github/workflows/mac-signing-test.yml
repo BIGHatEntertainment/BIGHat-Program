@@ -1,0 +1,71 @@
+# TEST ONLY: runs on a pull request that changes the Mac signing files; publishes NOTHING. Delete this file once the fix is proven.
+# Builds the Intel Mac app the way the release does, then LAUNCHES THE PACKAGED, SIGNED .app the way a user does and waits for its backend
+# to answer. The release's smoke test only runs the raw backend from the build folder, so it cannot see a code-signing problem that only
+# exists after Tauri packages and signs the app (the Intel MacBook failure: "Failed to load Python shared library ... mapped file has no Team ID").
+name: Mac signing test (PR only)
+on:
+  pull_request:
+    paths:
+      - 'src-tauri/entitlements.plist'
+      - 'src-tauri/tauri.conf.json'
+      - '.github/workflows/mac-signing-test.yml'
+jobs:
+  test:
+    name: Packaged ${{ matrix.label }} app starts its backend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: "macOS (Intel)", os: macos-15-intel }
+          - { label: "macOS (Apple Silicon)", os: macos-15 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve target
+        id: t
+        run: |
+          if [ "$(uname -m)" = "arm64" ]; then echo "target=aarch64-apple-darwin" >> "$GITHUB_OUTPUT"; else echo "target=x86_64-apple-darwin" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'yarn', cache-dependency-path: frontend/yarn.lock }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ steps.t.outputs.target }}" }
+      - name: Install frontend deps
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+      - name: Build frontend
+        working-directory: frontend
+        env: { REACT_APP_BACKEND_URL: '', CI: '' }
+        run: yarn build
+      - name: Freeze Python sidecar
+        env: { PIP_EXTRA_INDEX_URL: "https://d33sy5i8bnduwe.cloudfront.net/simple/" }
+        run: python scripts/build_sidecar.py --target ${{ steps.t.outputs.target }}
+      - name: Build the app (same signing as the release)
+        env: { APPLE_SIGNING_IDENTITY: '-' }
+        run: |
+          yarn --cwd frontend add -D @tauri-apps/cli@2 >/dev/null 2>&1 || true
+          npx --yes @tauri-apps/cli@2 build --target ${{ steps.t.outputs.target }} --bundles app
+      - name: Show how the sidecar and the app are signed
+        run: |
+          APP=$(find src-tauri/target -name "*.app" -maxdepth 6 | head -1); echo "APP=$APP"
+          for f in "$APP/Contents/MacOS/"*; do echo "=== $f"; codesign -dv --entitlements - "$f" 2>&1 | grep -E "Identifier|flags|Signature|Authority|TeamIdentifier|entitlements|disable-library|<key>" || true; done
+      - name: LAUNCH the packaged app and wait for its backend (the test the release never ran)
+        run: |
+          APP=$(find src-tauri/target -name "*.app" -maxdepth 6 | head -1)
+          LOG="$HOME/Library/Logs/BIGHat/tauri-shell.log"
+          rm -f "$LOG" 2>/dev/null || true
+          # a downloaded app carries the quarantine flag; set it so Gatekeeper treats this run like a user's
+          xattr -w com.apple.quarantine "0081;$(printf '%x' $(date +%s));Safari;" "$APP" || true
+          ( "$APP/Contents/MacOS/bighat-tauri" > /tmp/app.out 2>&1 & echo $! > /tmp/app.pid )
+          OK=0; PORT=""
+          for i in $(seq 1 90); do
+            sleep 2
+            PORT=$(sed -n 's/.*chose port=\([0-9]*\).*/\1/p' "$LOG" 2>/dev/null | tail -1)
+            if [ -n "$PORT" ] && curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then OK=1; echo "backend answered on port $PORT after ~$((i*2))s"; break; fi
+            if grep -q "sidecar terminated" "$LOG" 2>/dev/null; then echo "the backend process died"; break; fi
+          done
+          echo "--- shell log ---"; cat "$LOG" 2>/dev/null | tail -40 || true
+          pkill -f bighat-backend 2>/dev/null || true; pkill -f bighat-tauri 2>/dev/null || true
+          [ "$OK" = 1 ] || { echo "::error::the packaged app's backend never answered"; exit 1; }

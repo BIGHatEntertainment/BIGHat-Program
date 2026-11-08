@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS only. The backend (bighat-backend) is a PyInstaller one-file program: at every start it unpacks Python and ~177 libraries
+         into a temp folder and loads them. The app has no Apple Developer ID, so those libraries are ad-hoc signed and carry no Team ID.
+         Tauri signs every sidecar with the hardened runtime, which turns Library Validation on and makes macOS refuse them:
+         "Failed to load Python shared library ... mapped file has no Team ID and is not a platform binary" (tauri-shell.log, Intel MacBook).
+         This one entitlement lets the backend load its own libraries. Nothing else is granted. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
